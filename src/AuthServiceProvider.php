@@ -6,7 +6,6 @@ namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
@@ -15,10 +14,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
@@ -83,8 +79,11 @@ final class AuthServiceProvider extends ServiceProvider
      * Bootstrap framework integrations.
      *
      * Registers the `model` user provider driver, the `jwt` and
-     * `basic` guard drivers, the six contextual facade macros, the
-     * `DeviceAuthenticated` listener, and the publishing tags.
+     * `basic` guard drivers, the `DeviceAuthenticated` listener, and
+     * the publishing tags. The six contextual accessors
+     * (`principal`, `device`, `organization`, `scope`, `isInternal`,
+     * `isExternal`) are exposed directly on the package `AuthManager`
+     * subclass — see `SineMacula\Laravel\Authentication\AuthManager`.
      *
      * @return void
      */
@@ -92,7 +91,6 @@ final class AuthServiceProvider extends ServiceProvider
     {
         $this->registerProviderDriver();
         $this->registerGuardDrivers();
-        $this->registerFacadeMacros();
         $this->registerListeners();
         $this->registerPublishing();
     }
@@ -164,74 +162,6 @@ final class AuthServiceProvider extends ServiceProvider
 
             return $guard;
         });
-    }
-
-    /**
-     * Register the six contextual `Auth::macro` accessors. Each macro
-     * forwards to the active guard when it implements
-     * `ContextualGuard`, otherwise returns the safe fallback (`null`
-     * for nullable accessors, `false` for boolean accessors). Macros
-     * are static closures that resolve the active guard via the
-     * container so `$this`-rebinding is not required.
-     *
-     * @return void
-     */
-    protected function registerFacadeMacros(): void
-    {
-        IlluminateAuth::macro('principal', static function (): ?Principal {
-
-            $guard = self::resolveActiveGuard();
-
-            return $guard instanceof ContextualGuard ? $guard->principal() : null;
-        });
-
-        IlluminateAuth::macro('device', static function (): ?Device {
-
-            $guard = self::resolveActiveGuard();
-
-            return $guard instanceof ContextualGuard ? $guard->device() : null;
-        });
-
-        IlluminateAuth::macro('organization', static function (): ?Organization {
-
-            $guard = self::resolveActiveGuard();
-
-            return $guard instanceof ContextualGuard ? $guard->organization() : null;
-        });
-
-        IlluminateAuth::macro('scope', static function (): ?string {
-
-            $guard = self::resolveActiveGuard();
-
-            return $guard instanceof ContextualGuard ? $guard->scope() : null;
-        });
-
-        IlluminateAuth::macro('isInternal', static function (): bool {
-
-            $guard = self::resolveActiveGuard();
-
-            return $guard instanceof ContextualGuard ? $guard->isInternal() : false;
-        });
-
-        IlluminateAuth::macro('isExternal', static function (): bool {
-
-            $guard = self::resolveActiveGuard();
-
-            return $guard instanceof ContextualGuard ? $guard->isExternal() : false;
-        });
-    }
-
-    /**
-     * Resolve the active guard from the package `AuthManager`.
-     *
-     * Used by every contextual facade macro so the macro closures can
-     * remain static and free of `$this`-rebinding tricks.
-     *
-     * @return \Illuminate\Contracts\Auth\Guard
-     */
-    private static function resolveActiveGuard(): Guard
-    {
-        return app('auth')->guard();
     }
 
     /**

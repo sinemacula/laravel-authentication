@@ -1,0 +1,232 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Integration\Facade;
+
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Auth\Factory as IlluminateAuthFactoryContract;
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Support\Facades\Auth as IlluminateAuth;
+use PHPUnit\Framework\Attributes\CoversNothing;
+use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
+use Tests\TestCase;
+use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubOrganization;
+use Tests\Unit\Stubs\StubPrincipal;
+
+/**
+ * Integration test for the Auth facade contextual macros.
+ *
+ * Boots the package service provider through Testbench and asserts
+ * that the six contextual `Auth::...()` macros (`principal`, `device`,
+ * `organization`, `scope`, `isInternal`, `isExternal`) behave per
+ * AC-07: returning resolved values when the active guard implements
+ * `ContextualGuard` and a user is bound, and returning the safe
+ * fallback (`null` / `false`) when the guard is unauthenticated or
+ * does not implement `ContextualGuard`.
+ *
+ * @author    Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright 2026 Sine Macula Limited.
+ *
+ * @internal
+ */
+#[CoversNothing]
+final class AuthFacadeMacroIntegrationTest extends TestCase
+{
+    /**
+     * Configure two guards: the package `api` guard (jwt driver) and
+     * a stock framework `web` guard (session driver). Individual
+     * tests flip the default guard between them to exercise both
+     * branches of the macro's `ContextualGuard` check.
+     *
+     * @param  \Illuminate\Contracts\Foundation\Application $app The Testbench application under construction.
+     * @return void
+     */
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('auth.defaults.guard', 'api');
+        $config->set('auth.defaults.passwords', 'users');
+
+        $config->set('auth.guards.api', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.guards.web', [
+            'driver'   => 'session',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
+    }
+
+    /**
+     * `Auth::principal()` returns null for an unauthenticated request
+     * when the default guard is the package's `api` jwt guard.
+     *
+     * @return void
+     */
+    public function testAuthPrincipalReturnsNullForUnauthenticatedRequest(): void
+    {
+        self::assertInstanceOf(ContextualGuard::class, IlluminateAuth::guard('api'));
+
+        self::assertNull(IlluminateAuth::principal());
+    }
+
+    /**
+     * `Auth::device()` returns null for an unauthenticated request.
+     *
+     * @return void
+     */
+    public function testAuthDeviceReturnsNullForUnauthenticatedRequest(): void
+    {
+        self::assertNull(IlluminateAuth::device());
+    }
+
+    /**
+     * `Auth::organization()` returns null for an unauthenticated
+     * request.
+     *
+     * @return void
+     */
+    public function testAuthOrganizationReturnsNullForUnauthenticatedRequest(): void
+    {
+        self::assertNull(IlluminateAuth::organization());
+    }
+
+    /**
+     * `Auth::scope()` returns null for an unauthenticated request.
+     *
+     * @return void
+     */
+    public function testAuthScopeReturnsNullForUnauthenticatedRequest(): void
+    {
+        self::assertNull(IlluminateAuth::scope());
+    }
+
+    /**
+     * `Auth::isInternal()` returns false for an unauthenticated
+     * request — a missing scope never matches the configured
+     * internal scope string.
+     *
+     * @return void
+     */
+    public function testAuthIsInternalReturnsFalseForUnauthenticatedRequest(): void
+    {
+        self::assertFalse(IlluminateAuth::isInternal());
+    }
+
+    /**
+     * `Auth::isExternal()` returns false for an unauthenticated
+     * request for the same reason.
+     *
+     * @return void
+     */
+    public function testAuthIsExternalReturnsFalseForUnauthenticatedRequest(): void
+    {
+        self::assertFalse(IlluminateAuth::isExternal());
+    }
+
+    /**
+     * After binding an identity + principal via the contextual
+     * guard's `login()`, `Auth::principal()` forwards to the guard
+     * and returns the resolved principal.
+     *
+     * @return void
+     */
+    public function testAuthPrincipalForwardsToContextualGuardWhenAuthenticated(): void
+    {
+        $principal = $this->loginThroughContextualGuard();
+
+        /** @var \SineMacula\Laravel\Authentication\Contracts\Principal|null $resolved */
+        $resolved = IlluminateAuth::principal();
+
+        self::assertSame($principal, $resolved);
+    }
+
+    /**
+     * After `login()` with a bound device, `Auth::device()` forwards
+     * to the contextual guard and returns the bound device.
+     *
+     * @return void
+     */
+    public function testAuthDeviceForwardsToContextualGuardWhenAuthenticated(): void
+    {
+        $device = new StubDevice();
+        $device->forceFill([
+            'id'          => '01HV000000000000000000DEV1',
+            'os'          => 'ios',
+            'refresh_key' => 'rk',
+        ]);
+
+        $this->loginThroughContextualGuard($device);
+
+        /** @var \SineMacula\Laravel\Authentication\Contracts\Device|null $resolved */
+        $resolved = IlluminateAuth::device();
+
+        self::assertSame($device, $resolved);
+    }
+
+    /**
+     * When the default guard is swapped to a stock framework guard
+     * (the session `web` guard) the macro returns the safe fallback
+     * because the resolved guard does not implement `ContextualGuard`.
+     *
+     * @return void
+     */
+    public function testAuthFallbackForNonContextualGuard(): void
+    {
+        config()->set('auth.defaults.guard', 'web');
+
+        // Force the auth factory to forget any cached guard so the
+        // next resolve returns the newly-defaulted web guard.
+        /** @var \Illuminate\Auth\AuthManager $auth */
+        $auth = app(IlluminateAuthFactoryContract::class);
+        $auth->forgetGuards();
+
+        $guard = IlluminateAuth::guard();
+
+        self::assertNotInstanceOf(ContextualGuard::class, $guard);
+
+        self::assertNull(IlluminateAuth::principal());
+        self::assertNull(IlluminateAuth::device());
+        self::assertNull(IlluminateAuth::organization());
+        self::assertNull(IlluminateAuth::scope());
+        self::assertFalse(IlluminateAuth::isInternal());
+        self::assertFalse(IlluminateAuth::isExternal());
+    }
+
+    /**
+     * Bind a `StubPrincipal` (and optional `StubDevice`) to the
+     * active contextual guard via the package's `login()` surface so
+     * the macro assertions observe a fully-resolved context.
+     *
+     * @param  \Tests\Unit\Stubs\StubDevice|null $device Optional device to pin to the guard.
+     * @return \Tests\Unit\Stubs\StubPrincipal
+     */
+    private function loginThroughContextualGuard(?StubDevice $device = null): StubPrincipal
+    {
+        $principal = new StubPrincipal();
+        $principal->forceFill([
+            'id'        => 1,
+            'is_active' => true,
+        ]);
+
+        $guard = IlluminateAuth::guard('api');
+
+        self::assertInstanceOf(ContextualGuard::class, $guard);
+
+        $guard->login($principal, $principal, $device);
+
+        return $principal;
+    }
+}

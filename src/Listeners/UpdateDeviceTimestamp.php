@@ -31,7 +31,9 @@ final class UpdateDeviceTimestamp
     {
         $device = $event->device;
 
-        if (! $device instanceof Model) {
+        // No-op for non-Eloquent doubles and for new (unpersisted)
+        // model instances — there is nothing to update on disk.
+        if (! $device instanceof Model || ! $device->exists) {
             return;
         }
 

@@ -97,15 +97,10 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * Flush facade macros after each test so cross-test pollution
-     * cannot affect the macro-registration assertions.
-     *
      * @return void
      */
     protected function tearDown(): void
     {
-        IlluminateAuth::flushMacros();
-
         parent::tearDown();
     }
 
@@ -180,69 +175,44 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `principal` facade macro is registered against the
-     * framework `Auth` facade.
+     * The package `AuthManager` exposes the six contextual accessors
+     * (`principal`, `device`, `organization`, `scope`, `isInternal`,
+     * `isExternal`) directly as instance methods so the framework
+     * `Auth::principal()` etc. calls work without macro registration.
      *
      * @return void
      */
-    public function testPrincipalAccessorMacroIsRegistered(): void
+    public function testAuthManagerExposesContextualAccessorMethods(): void
     {
-        self::assertTrue(IlluminateAuth::hasMacro('principal'));
+        $reflection = new ReflectionClass(AuthManager::class);
+
+        self::assertTrue($reflection->hasMethod('principal'));
+        self::assertTrue($reflection->hasMethod('device'));
+        self::assertTrue($reflection->hasMethod('organization'));
+        self::assertTrue($reflection->hasMethod('scope'));
+        self::assertTrue($reflection->hasMethod('isInternal'));
+        self::assertTrue($reflection->hasMethod('isExternal'));
     }
 
     /**
-     * The `device` facade macro is registered against the framework
-     * `Auth` facade.
+     * The contextual accessors return the safe fallback values
+     * (`null` / `false`) when the active guard is not contextual.
      *
      * @return void
      */
-    public function testDeviceAccessorMacroIsRegistered(): void
+    public function testContextualAccessorsReturnSafeFallbacksForNonContextualGuard(): void
     {
-        self::assertTrue(IlluminateAuth::hasMacro('device'));
-    }
+        config()->set('auth.defaults.guard', 'web');
 
-    /**
-     * The `organization` facade macro is registered against the
-     * framework `Auth` facade.
-     *
-     * @return void
-     */
-    public function testOrganizationAccessorMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('organization'));
-    }
+        /** @var AuthManager $manager */
+        $manager = app('auth');
 
-    /**
-     * The `scope` facade macro is registered against the framework
-     * `Auth` facade.
-     *
-     * @return void
-     */
-    public function testScopeAccessorMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('scope'));
-    }
-
-    /**
-     * The `isInternal` facade macro is registered against the
-     * framework `Auth` facade.
-     *
-     * @return void
-     */
-    public function testIsInternalAccessorMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('isInternal'));
-    }
-
-    /**
-     * The `isExternal` facade macro is registered against the
-     * framework `Auth` facade.
-     *
-     * @return void
-     */
-    public function testIsExternalAccessorMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('isExternal'));
+        self::assertNull($manager->principal());
+        self::assertNull($manager->device());
+        self::assertNull($manager->organization());
+        self::assertNull($manager->scope());
+        self::assertFalse($manager->isInternal());
+        self::assertFalse($manager->isExternal());
     }
 
     /**

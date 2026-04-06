@@ -36,6 +36,15 @@ trait ActsAsPrincipal
      */
     public function getIdentity(): Identity
     {
+        // 2D mode: when the consuming model implements both Identity
+        // and Principal, the principal IS the identity. Return $this
+        // directly rather than attempting to resolve a separate
+        // `identity` relation that does not exist in 2D mode.
+        if ($this instanceof Identity) {
+
+            return $this;
+        }
+
         $identity = $this->getAttribute($this->getIdentityRelationName());
 
         if (! $identity instanceof Identity) {
