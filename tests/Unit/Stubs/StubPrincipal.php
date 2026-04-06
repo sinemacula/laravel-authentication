@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Stubs;
 
-use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Contracts\Database\Eloquent\Builder as BuilderContract;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -23,6 +23,11 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  *
+ * @property int    $id
+ * @property string $email
+ * @property string $password
+ * @property bool   $is_active
+ *
  * @internal
  */
 class StubPrincipal extends Model implements Identity, Principal, HasDevices
@@ -40,10 +45,8 @@ class StubPrincipal extends Model implements Identity, Principal, HasDevices
      * Eloquent relation builder for the identity's devices, filtered
      * by the polymorphic `authenticatable_*` columns on the shipped
      * Device model.
-     *
-     * @return Builder<Device>
      */
-    public function devices(): Builder
+    public function devices(): BuilderContract
     {
         return Device::query()
             ->where('authenticatable_type', static::class)

@@ -352,7 +352,7 @@ final class ModelProviderTest extends TestCase
      */
     private function makeProvider(MockInterface $builder): ModelProvider
     {
-        /** @var \Mockery\MockInterface&\Illuminate\Database\Eloquent\Model $model */
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $model */
         $model = Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $model->shouldReceive('newQuery')
             ->andReturn($builder);
@@ -369,13 +369,13 @@ final class ModelProviderTest extends TestCase
                 string $modelClass,
 
                 /** Pre-built model instance returned from createModel(). */
-                private readonly Model $instance,
+                private readonly Model&Authenticatable $instance,
 
             ) {
                 parent::__construct($hasher, $modelClass);
             }
 
-            protected function createModel(): Model
+            protected function createModel(): Model&Authenticatable
             {
                 return $this->instance;
             }

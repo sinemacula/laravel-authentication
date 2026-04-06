@@ -64,9 +64,10 @@ final class MigrationCollisionGuardTest extends TestCase
 
         $guard = new MigrationCollisionGuard($schema);
 
+        // ensureNotExists is `void` and the assertion lives in the
+        // Mockery `->once()` expectation: if hasTable was not called
+        // exactly once, Mockery will fail the test in tearDown.
         $guard->ensureNotExists('devices');
-
-        $this->assertTrue(true, 'ensureNotExists returned without throwing.');
     }
 
     /**

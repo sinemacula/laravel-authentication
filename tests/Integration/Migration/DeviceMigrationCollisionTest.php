@@ -84,7 +84,7 @@ final class DeviceMigrationCollisionTest extends TestCase
         $this->expectExceptionMessageMatches('/Cannot install the laravel-authentication devices migration/');
         $this->expectExceptionMessageMatches("/'devices'/");
 
-        $migration->up();
+        $this->runMigrationUp($migration);
     }
 
     /**
@@ -106,7 +106,7 @@ final class DeviceMigrationCollisionTest extends TestCase
         $migration = $this->loadMigration();
 
         try {
-            $migration->up();
+            $this->runMigrationUp($migration);
         } catch (RuntimeException) {
 
             // Expected — fall through to assertions below.
@@ -134,7 +134,7 @@ final class DeviceMigrationCollisionTest extends TestCase
         Schema::dropIfExists('devices');
 
         $migration = $this->loadMigration();
-        $migration->up();
+        $this->runMigrationUp($migration);
 
         self::assertTrue(Schema::hasTable('devices'));
         self::assertTrue(Schema::hasColumn('devices', 'authenticatable_type'));
@@ -153,7 +153,7 @@ final class DeviceMigrationCollisionTest extends TestCase
         config()->set('laravel-authentication.device.table', 'app_devices');
 
         $migration = $this->loadMigration();
-        $migration->up();
+        $this->runMigrationUp($migration);
 
         self::assertTrue(Schema::hasTable('app_devices'));
         self::assertFalse(Schema::hasTable('devices'));
@@ -163,15 +163,28 @@ final class DeviceMigrationCollisionTest extends TestCase
 
     /**
      * Require the shipped anonymous-class migration file and return
-     * the resulting `Migration` instance.
-     *
-     * @return \Illuminate\Database\Migrations\Migration
+     * the resulting `Migration` instance. The shipped anonymous class
+     * defines `up()` and `down()` directly; callers invoke via
+     * `runMigrationUp()` because `up()` is not declared on the parent
+     * `Migration` class.
      */
     private function loadMigration(): Migration
     {
-        /** @var \Illuminate\Database\Migrations\Migration $migration */
         $migration = require self::MIGRATION_PATH;
 
+        if (! $migration instanceof Migration) {
+            self::fail('Devices migration file did not return a Migration instance.');
+        }
+
         return $migration;
+    }
+
+    /**
+     * Invoke the migration's `up()` method without statically calling
+     * it on the parent `Migration` class (which does not declare `up`).
+     */
+    private function runMigrationUp(Migration $migration): void
+    {
+        \call_user_func([$migration, 'up']);
     }
 }

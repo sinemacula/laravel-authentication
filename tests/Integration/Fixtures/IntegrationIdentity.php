@@ -54,8 +54,6 @@ final class IntegrationIdentity extends Model implements Identity, Principal, Ha
      * Filters the shipped Device model by the polymorphic
      * authenticatable columns so `JwtGuard::resolveDeviceFromHint()`
      * can resolve a device by its id through a real query.
-     *
-     * @return \Illuminate\Contracts\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\Device>
      */
     public function devices(): Builder
     {

@@ -30,7 +30,11 @@ class ModelProvider implements IdentityProvider
         /** Hasher used to verify and optionally re-hash passwords. */
         protected Hasher $hasher,
 
-        /** Fully-qualified Eloquent model class name to authenticate against. */
+        /**
+         * Fully-qualified Eloquent model class name to authenticate against.
+         *
+         * @var class-string<\Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable>
+         */
         protected string $model,
 
     ) {}
@@ -45,9 +49,11 @@ class ModelProvider implements IdentityProvider
     {
         $model = $this->createModel();
 
-        /** @var \Illuminate\Contracts\Auth\Authenticatable|null $result */
-        $result = $model
-            ->newQuery()
+        // @phpstan-ignore staticMethod.dynamicCall (Eloquent newQuery is a real instance method; the strict rule misfires because of __callStatic)
+        $query = $model->newQuery();
+
+        /** @var (\Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable)|null $result */
+        $result = $query
             ->where($model->getAuthIdentifierName(), $identifier)
             ->first();
 
@@ -88,7 +94,7 @@ class ModelProvider implements IdentityProvider
      * Password credentials are stripped before query composition so
      * the hasher remains the single source of password verification.
      *
-     * @param  array<string, mixed> $credentials The credentials to match on.
+     * @param  array<array-key, mixed> $credentials The credentials to match on.
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      */
     public function retrieveByCredentials(#[SensitiveParameter] array $credentials): ?Authenticatable
@@ -103,6 +109,7 @@ class ModelProvider implements IdentityProvider
             return null;
         }
 
+        // @phpstan-ignore staticMethod.dynamicCall (Eloquent newQuery is a real instance method; the strict rule misfires because of __callStatic)
         $query = $this->createModel()->newQuery();
 
         foreach ($credentials as $key => $value) {
@@ -117,7 +124,7 @@ class ModelProvider implements IdentityProvider
             }
         }
 
-        /** @var \Illuminate\Contracts\Auth\Authenticatable|null $result */
+        /** @var (\Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable)|null $result */
         $result = $query->first();
 
         return $result;
@@ -127,7 +134,7 @@ class ModelProvider implements IdentityProvider
      * Validate the supplied credentials against the resolved user.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable $user        The user to validate against.
-     * @param  array<string, mixed>                       $credentials The credentials to validate.
+     * @param  array<array-key, mixed>                       $credentials The credentials to validate.
      * @return bool
      */
     public function validateCredentials(Authenticatable $user, #[SensitiveParameter] array $credentials): bool
@@ -138,7 +145,7 @@ class ModelProvider implements IdentityProvider
             return false;
         }
 
-        return $this->hasher->check($plain, (string) $user->getAuthPassword());
+        return $this->hasher->check($plain, $user->getAuthPassword());
     }
 
     /**
@@ -148,7 +155,7 @@ class ModelProvider implements IdentityProvider
      * not a string, or the user is not an Eloquent model.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable $user        The user whose password may need rehashing.
-     * @param  array<string, mixed>                       $credentials The credentials submitted for authentication.
+     * @param  array<array-key, mixed>                       $credentials The credentials submitted for authentication.
      * @param  bool                                       $force       Force a rehash regardless of hasher state.
      * @return void
      */
@@ -164,10 +171,11 @@ class ModelProvider implements IdentityProvider
             return;
         }
 
-        if (! $force && ! $this->hasher->needsRehash((string) $user->getAuthPassword())) {
+        if (! $force && ! $this->hasher->needsRehash($user->getAuthPassword())) {
             return;
         }
 
+        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall (Eloquent forceFill/save are real instance methods; strict rule misfires because of __callStatic)
         $user->forceFill([
             $user->getAuthPasswordName() => $this->hasher->make($plain),
         ])->save();
@@ -176,13 +184,17 @@ class ModelProvider implements IdentityProvider
     /**
      * Instantiate a fresh copy of the configured Eloquent model.
      *
-     * @return \Illuminate\Database\Eloquent\Model
+     * The configured class must be both an Eloquent `Model` and an
+     * `Authenticatable` so the provider can call `getAuthIdentifierName`,
+     * `getAuthPassword`, etc. on the returned instance.
+     *
+     * @return \Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable
      */
-    protected function createModel(): Model
+    protected function createModel(): Model&Authenticatable
     {
         $class = '\\' . ltrim($this->model, '\\');
 
-        /** @var \Illuminate\Database\Eloquent\Model $model */
+        /** @var \Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable $model */
         $model = new $class();
 
         return $model;

@@ -7,7 +7,7 @@ namespace Tests\Integration\Facade;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Auth\Factory as IlluminateAuthFactoryContract;
 use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Support\Facades\Auth as IlluminateAuth;
+use SineMacula\Laravel\Authentication\Facades\Auth as IlluminateAuth;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use Tests\TestCase;

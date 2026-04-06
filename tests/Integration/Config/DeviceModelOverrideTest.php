@@ -239,7 +239,7 @@ final class DeviceModelOverrideTest extends TestCase
             /**
              * Credentials-based retrieval is not exercised by this test.
              *
-             * @param  array<string, mixed> $credentials Ignored.
+             * @param  array<array-key, mixed> $credentials Ignored.
              */
             public function retrieveByCredentials(array $credentials): ?Authenticatable
             {
@@ -250,7 +250,7 @@ final class DeviceModelOverrideTest extends TestCase
              * Credential validation is not exercised by this test.
              *
              * @param  \Illuminate\Contracts\Auth\Authenticatable $user        Ignored.
-             * @param  array<string, mixed>                       $credentials Ignored.
+             * @param  array<array-key, mixed>                       $credentials Ignored.
              */
             public function validateCredentials(Authenticatable $user, array $credentials): bool
             {
@@ -261,7 +261,7 @@ final class DeviceModelOverrideTest extends TestCase
              * Rehashing is not exercised by this test.
              *
              * @param  \Illuminate\Contracts\Auth\Authenticatable $user        Ignored.
-             * @param  array<string, mixed>                       $credentials Ignored.
+             * @param  array<array-key, mixed>                       $credentials Ignored.
              * @param  bool                                       $force       Ignored.
              */
             public function rehashPasswordIfRequired(Authenticatable $user, array $credentials, bool $force = false): void {}

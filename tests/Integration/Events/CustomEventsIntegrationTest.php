@@ -278,7 +278,7 @@ final class CustomEventsIntegrationTest extends TestCase
 
         Event::fake([Refreshed::class]);
 
-        $guard = Auth::guard(self::JWT_GUARD);
+        $guard = app('auth')->guard(self::JWT_GUARD);
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
