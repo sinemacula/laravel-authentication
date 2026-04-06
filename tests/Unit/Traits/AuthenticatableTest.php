@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Traits;
 
+use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\Authenticatable;
@@ -24,7 +25,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetRememberTokenNameIsEmptyString(): void
     {
-        $consumer = new class {
+        $consumer = new class extends Model {
             use Authenticatable;
         };
 
@@ -36,7 +37,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetAuthIdentifierNameDelegatesToLaravelTrait(): void
     {
-        $consumer = new class {
+        $consumer = new class extends Model {
             use Authenticatable;
         };
 
@@ -48,7 +49,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetAuthPasswordNameDelegatesToLaravelTrait(): void
     {
-        $consumer = new class {
+        $consumer = new class extends Model {
             use Authenticatable;
         };
 

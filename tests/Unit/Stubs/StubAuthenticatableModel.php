@@ -19,10 +19,10 @@ use Illuminate\Database\Eloquent\Model;
  *
  * @internal
  */
-final class StubAuthenticatableModel extends Model implements AuthenticatableContract
+class StubAuthenticatableModel extends Model implements AuthenticatableContract
 {
     use Authenticatable;
 
-    /** @var array<int, string> The attributes that aren't mass assignable. */
+    /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
 }
