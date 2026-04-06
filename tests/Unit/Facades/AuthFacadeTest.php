@@ -1,0 +1,131 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit\Facades;
+
+use Illuminate\Support\Facades\Auth as IlluminateAuth;
+use Orchestra\Testbench\TestCase;
+use PHPUnit\Framework\Attributes\CoversNothing;
+use ReflectionClass;
+use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Organization;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+/**
+ * Unit tests for the package's Auth facade subclass.
+ *
+ * Verifies that the package's Auth facade extends the framework
+ * facade and that the six contextual macros (`principal`, `device`,
+ * `organization`, `scope`, `isInternal`, `isExternal`) are registered
+ * against the framework facade after boot. T22's AuthServiceProvider
+ * will own the permanent registration; until then, setUp() registers
+ * the macros inline so this test can run in isolation.
+ *
+ * @internal
+ *
+ * @author    Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright 2026 Sine Macula Limited.
+ */
+#[CoversNothing]
+final class AuthFacadeTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // T22's AuthServiceProvider will replace the inline registration
+        // below once committed. Until then, register the six contextual
+        // macros here so the facade assertions run in isolation.
+        IlluminateAuth::macro('principal', static fn (): ?Principal => null);
+        IlluminateAuth::macro('device', static fn (): ?Device => null);
+        IlluminateAuth::macro('organization', static fn (): ?Organization => null);
+        IlluminateAuth::macro('scope', static fn (): ?string => null);
+        IlluminateAuth::macro('isInternal', static fn (): bool => false);
+        IlluminateAuth::macro('isExternal', static fn (): bool => false);
+    }
+
+    protected function tearDown(): void
+    {
+        IlluminateAuth::flushMacros();
+
+        parent::tearDown();
+    }
+
+    /**
+     * The package facade subclass extends Laravel's framework
+     * `Auth` facade so IDE autocompletion picks up both surfaces.
+     *
+     * @return void
+     */
+    public function testPackageFacadeExtendsFrameworkFacade(): void
+    {
+        $reflection = new ReflectionClass(Auth::class);
+
+        self::assertTrue(
+            $reflection->isSubclassOf(IlluminateAuth::class),
+            'Package Auth facade must extend Illuminate\\Support\\Facades\\Auth.',
+        );
+    }
+
+    /**
+     * The `principal` macro is registered against the framework facade.
+     *
+     * @return void
+     */
+    public function testPrincipalMacroIsRegistered(): void
+    {
+        self::assertTrue(IlluminateAuth::hasMacro('principal'));
+    }
+
+    /**
+     * The `device` macro is registered against the framework facade.
+     *
+     * @return void
+     */
+    public function testDeviceMacroIsRegistered(): void
+    {
+        self::assertTrue(IlluminateAuth::hasMacro('device'));
+    }
+
+    /**
+     * The `organization` macro is registered against the framework facade.
+     *
+     * @return void
+     */
+    public function testOrganizationMacroIsRegistered(): void
+    {
+        self::assertTrue(IlluminateAuth::hasMacro('organization'));
+    }
+
+    /**
+     * The `scope` macro is registered against the framework facade.
+     *
+     * @return void
+     */
+    public function testScopeMacroIsRegistered(): void
+    {
+        self::assertTrue(IlluminateAuth::hasMacro('scope'));
+    }
+
+    /**
+     * The `isInternal` macro is registered against the framework facade.
+     *
+     * @return void
+     */
+    public function testIsInternalMacroIsRegistered(): void
+    {
+        self::assertTrue(IlluminateAuth::hasMacro('isInternal'));
+    }
+
+    /**
+     * The `isExternal` macro is registered against the framework facade.
+     *
+     * @return void
+     */
+    public function testIsExternalMacroIsRegistered(): void
+    {
+        self::assertTrue(IlluminateAuth::hasMacro('isExternal'));
+    }
+}
