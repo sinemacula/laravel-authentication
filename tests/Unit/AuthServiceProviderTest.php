@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit;
 
@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
-use ReflectionClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -49,60 +48,6 @@ final class AuthServiceProviderTest extends TestCase
 
     /** @var int The access-token TTL used by the bound JwtTokenService. */
     private const int JWT_TTL_MINUTES = 25;
-
-    /**
-     * Register the package service provider against the Testbench
-     * application.
-     *
-     * @param  \Illuminate\Foundation\Application $app The Testbench application under construction.
-     * @return array<int, class-string>
-     */
-    protected function getPackageProviders($app): array
-    {
-        return [AuthServiceProvider::class];
-    }
-
-    /**
-     * Define the Testbench environment with package config and an
-     * `auth.guards`/`auth.providers` setup that exercises both the
-     * `model` user provider driver and the `jwt`/`basic` guard
-     * driver creators.
-     *
-     * @param  \Illuminate\Foundation\Application $app The Testbench application under construction.
-     * @return void
-     */
-    protected function defineEnvironment($app): void
-    {
-        /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(ConfigRepository::class);
-
-        $config->set('laravel-authentication.jwt.secret', self::JWT_SECRET);
-        $config->set('laravel-authentication.jwt.algorithm', self::JWT_ALGORITHM);
-        $config->set('laravel-authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
-
-        $config->set('auth.providers.identities', [
-            'driver' => 'model',
-            'model'  => StubAuthenticatableModel::class,
-        ]);
-
-        $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-        ]);
-
-        $config->set('auth.guards.cli', [
-            'driver'   => 'basic',
-            'provider' => 'identities',
-        ]);
-    }
-
-    /**
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        parent::tearDown();
-    }
 
     /**
      * The `auth` container binding resolves to the package
@@ -157,7 +102,7 @@ final class AuthServiceProviderTest extends TestCase
     /**
      * The `DeviceAuthenticated` event listener is registered with
      * the dispatcher and resolves to the package
-     * `UpdateDeviceTimestamp::handle` callable.
+     * `UpdateDeviceTimestamp` invokable listener class.
      *
      * @return void
      */
@@ -168,9 +113,9 @@ final class AuthServiceProviderTest extends TestCase
         $listeners = Event::getRawListeners()[DeviceAuthenticated::class] ?? [];
 
         self::assertContains(
-            [UpdateDeviceTimestamp::class, 'handle'],
+            UpdateDeviceTimestamp::class,
             $listeners,
-            'UpdateDeviceTimestamp::handle must be registered for DeviceAuthenticated.',
+            'UpdateDeviceTimestamp must be registered as a listener for DeviceAuthenticated.',
         );
     }
 
@@ -184,7 +129,7 @@ final class AuthServiceProviderTest extends TestCase
      */
     public function testAuthManagerExposesContextualAccessorMethods(): void
     {
-        $reflection = new ReflectionClass(AuthManager::class);
+        $reflection = new \ReflectionClass(AuthManager::class);
 
         self::assertTrue($reflection->hasMethod('principal'));
         self::assertTrue($reflection->hasMethod('device'));
@@ -204,7 +149,7 @@ final class AuthServiceProviderTest extends TestCase
     {
         config()->set('auth.defaults.guard', 'web');
 
-        /** @var AuthManager $manager */
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
         $manager = app('auth');
 
         self::assertNull($manager->principal());
@@ -242,15 +187,15 @@ final class AuthServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtTokenService::class, $service);
 
-        $reflection = new ReflectionClass($service);
+        $reflection = new \ReflectionClass($service);
 
         $secret    = $reflection->getProperty('secret');
         $algorithm = $reflection->getProperty('algorithm');
         $ttl       = $reflection->getProperty('accessTtlMinutes');
 
-        self::assertSame(self::JWT_SECRET, $secret->getValue($service));
-        self::assertSame(self::JWT_ALGORITHM, $algorithm->getValue($service));
-        self::assertSame(self::JWT_TTL_MINUTES, $ttl->getValue($service));
+        self::assertSame(self::JWT_SECRET, $secret->getValue($service));    // NOSONAR
+        self::assertSame(self::JWT_ALGORITHM, $algorithm->getValue($service));  // NOSONAR
+        self::assertSame(self::JWT_TTL_MINUTES, $ttl->getValue($service));  // NOSONAR
     }
 
     /**
@@ -304,5 +249,53 @@ final class AuthServiceProviderTest extends TestCase
     public function testResolvedAuthManagerExtendsFrameworkManager(): void
     {
         self::assertInstanceOf(IlluminateAuthManager::class, app('auth'));
+    }
+
+    /**
+     * Register the package service provider against the Testbench
+     * application.
+     *
+     * @param  mixed  $app
+     * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
+     */
+    protected function getPackageProviders(mixed $app): array
+    {
+        return [AuthServiceProvider::class];
+    }
+
+    /**
+     * Define the Testbench environment with package config and an
+     * `auth.guards`/`auth.providers` setup that exercises both the
+     * `model` user provider driver and the `jwt`/`basic` guard
+     * driver creators.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        assert($app instanceof \Illuminate\Foundation\Application);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('laravel-authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('laravel-authentication.jwt.algorithm', self::JWT_ALGORITHM);
+        $config->set('laravel-authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
+
+        $config->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => StubAuthenticatableModel::class,
+        ]);
+
+        $config->set('auth.guards.api', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.guards.cli', [
+            'driver'   => 'basic',
+            'provider' => 'identities',
+        ]);
     }
 }

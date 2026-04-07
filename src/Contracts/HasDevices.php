@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
@@ -17,6 +17,10 @@ use Illuminate\Contracts\Database\Eloquent\Builder;
  */
 interface HasDevices
 {
-    /** Eloquent relation builder for the identity's devices. */
+    /**
+     * Eloquent relation builder for the identity's devices.
+     *
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
+     */
     public function devices(): Builder;
 }

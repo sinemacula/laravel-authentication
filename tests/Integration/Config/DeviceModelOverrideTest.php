@@ -1,11 +1,12 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Integration\Config;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
@@ -16,6 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
 use Tests\Unit\Stubs\InjectableDeviceStub;
@@ -40,18 +43,6 @@ final class DeviceModelOverrideTest extends TestCase
 {
     /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> FQCN of the custom device subclass under test. */
     private string $customModel;
-
-    /**
-     * Skip the parent's default `devices` migration so this test can
-     * verify that the custom-table override is the only `devices`-shaped
-     * table on the connection (TAC: `Schema::hasTable('devices') === false`).
-     *
-     * @return void
-     */
-    protected function defineDatabaseMigrations(): void
-    {
-        // intentionally empty — the test creates the custom table in setUp().
-    }
 
     /**
      * Configure the custom device model class and table name, then
@@ -82,7 +73,7 @@ final class DeviceModelOverrideTest extends TestCase
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key')->default('');
+            $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->timestamp('last_logged_in_at')->nullable();
             $blueprint->timestamp('last_mfa_verified_at')->nullable();
             $blueprint->timestamps();
@@ -132,7 +123,7 @@ final class DeviceModelOverrideTest extends TestCase
      */
     public function testCustomTableNameAppliesToDeviceModel(): void
     {
-        $model = new $this->customModel();
+        $model = new $this->customModel;
 
         self::assertSame('custom_devices', $model->getTable());
     }
@@ -161,35 +152,52 @@ final class DeviceModelOverrideTest extends TestCase
     {
         // Arrange: persist a principal identity and a device row on
         // the custom table, then build a refresh token whose `did`
-        // claim points at that row.
-        $principal = new StubPrincipal();
+        // claim points at that row. The stored refresh_key is the
+        // SHA-256 digest of the plaintext rotation id; the token
+        // carries the plaintext in its `jti` claim.
+        $principal = new StubPrincipal;
         $principal->forceFill(['is_active' => true])->save();
 
+        $plainRotationId = 'plain-rotation-id';
+
         /** @var \SineMacula\Laravel\Authentication\Models\Device $device */
-        $device = new $this->customModel();
+        $device = new $this->customModel;
         $device->forceFill([
             'authenticatable_type' => StubPrincipal::class,
-            'authenticatable_id'   => (string) $principal->getKey(),
+            'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
             'os'                   => 'ios',
-            'refresh_key'          => 'plain-refresh-key',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService $tokens */
         $tokens = app(JwtTokenService::class);
 
-        $refreshToken = $tokens->issueRefreshToken($device, 'plain-refresh-key');
+        $refreshToken = $tokens->issueRefreshToken($device, $plainRotationId);
 
         $guard = $this->makeJwtGuard();
 
         // Act: exchange the refresh token via the guard's refresh()
         // path, which reads the configured model class.
-        $newAccessToken = $guard->refresh($refreshToken);
+        $result = $guard->refresh($refreshToken);
 
         // Assert: the refresh succeeded and the bound device is an
         // instance of the overridden model class.
-        self::assertIsString($newAccessToken);
-        self::assertNotSame('', $newAccessToken);
+        self::assertInstanceOf(RefreshResult::class, $result);
+        self::assertNotSame('', $result->accessToken);
+        self::assertNotSame('', $result->refreshToken);
         self::assertInstanceOf($this->customModel, $guard->device());
+    }
+
+    /**
+     * Skip the parent's default `devices` migration so this test can
+     * verify that the custom-table override is the only `devices`-shaped
+     * table on the connection (TAC: `Schema::hasTable('devices') === false`).
+     *
+     * @return void
+     */
+    protected function defineDatabaseMigrations(): void
+    {
+        // intentionally empty — the test creates the custom table in setUp().
     }
 
     /**
@@ -203,43 +211,41 @@ final class DeviceModelOverrideTest extends TestCase
     private function makeJwtGuard(): JwtGuard
     {
         $provider = new class implements IdentityProvider {
-
             /**
              * Retrieve a persisted `StubPrincipal` by its primary key.
              *
-             * @param  mixed $identifier The identifier to look up.
+             * @param  mixed  $identifier
+             * @return ?\Illuminate\Contracts\Auth\Authenticatable
              */
-            public function retrieveById($identifier): ?Authenticatable
+            public function retrieveById(mixed $identifier): ?Authenticatable
             {
-                /** @var \Tests\Unit\Stubs\StubPrincipal|null $result */
                 $result = StubPrincipal::query()->find($identifier);
 
-                return $result;
+                return $result instanceof Authenticatable ? $result : null;
             }
 
             /**
-             * Remember-me tokens are not supported by the stub.
-             *
-             * @param  mixed  $identifier Ignored.
-             * @param  string $token      Ignored.
+             * @param  mixed  $identifier
+             * @param  mixed  $token
+             * @return ?\Illuminate\Contracts\Auth\Authenticatable
              */
-            public function retrieveByToken($identifier, $token): ?Authenticatable
+            public function retrieveByToken(mixed $identifier, mixed $token): ?Authenticatable
             {
                 return null;
             }
 
             /**
-             * Remember-me tokens are not supported by the stub.
-             *
-             * @param  \Illuminate\Contracts\Auth\Authenticatable $user  Ignored.
-             * @param  string                                    $token Ignored.
+             * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+             * @param  mixed  $token
+             * @return void
              */
-            public function updateRememberToken(Authenticatable $user, $token): void {}
+            public function updateRememberToken(Authenticatable $user, mixed $token): void {}
 
             /**
              * Credentials-based retrieval is not exercised by this test.
              *
-             * @param  array<array-key, mixed> $credentials Ignored.
+             * @param  array<array-key, mixed>  $credentials
+             * @return ?\Illuminate\Contracts\Auth\Authenticatable
              */
             public function retrieveByCredentials(array $credentials): ?Authenticatable
             {
@@ -249,8 +255,9 @@ final class DeviceModelOverrideTest extends TestCase
             /**
              * Credential validation is not exercised by this test.
              *
-             * @param  \Illuminate\Contracts\Auth\Authenticatable $user        Ignored.
-             * @param  array<array-key, mixed>                       $credentials Ignored.
+             * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+             * @param  array<array-key, mixed>  $credentials
+             * @return bool
              */
             public function validateCredentials(Authenticatable $user, array $credentials): bool
             {
@@ -260,20 +267,21 @@ final class DeviceModelOverrideTest extends TestCase
             /**
              * Rehashing is not exercised by this test.
              *
-             * @param  \Illuminate\Contracts\Auth\Authenticatable $user        Ignored.
-             * @param  array<array-key, mixed>                       $credentials Ignored.
-             * @param  bool                                       $force       Ignored.
+             * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+             * @param  array<array-key, mixed>  $credentials
+             * @param  bool  $force
+             * @return void
              */
             public function rehashPasswordIfRequired(Authenticatable $user, array $credentials, bool $force = false): void {}
         };
 
         $resolver = new class implements PrincipalResolver {
-
             /**
              * 2D resolver: return the identity if it is its own principal.
              *
-             * @param  \SineMacula\Laravel\Authentication\Contracts\Identity $identity The identity to resolve for.
-             * @param  mixed                                                 $hint     Ignored in 2D mode.
+             * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+             * @param  mixed  $hint
+             * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
              */
             public function resolve(Identity $identity, mixed $hint = null): ?Principal
             {
@@ -289,6 +297,7 @@ final class DeviceModelOverrideTest extends TestCase
             app('request'),
             app(Timebox::class),
             app(JwtTokenService::class),
+            app(ConnectionResolverInterface::class),
         );
     }
 }

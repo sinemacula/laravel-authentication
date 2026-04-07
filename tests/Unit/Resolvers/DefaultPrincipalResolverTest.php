@@ -1,12 +1,11 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Resolvers;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use LogicException;
-use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
@@ -37,9 +36,9 @@ final class DefaultPrincipalResolverTest extends TestCase
     public function testReturnsIdentityWhenIdentityIsPrincipal(): void
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\Principal $identity */
-        $identity = Mockery::mock(Identity::class, Principal::class);
+        $identity = \Mockery::mock(Identity::class, Principal::class);
 
-        $resolver = new DefaultPrincipalResolver();
+        $resolver = new DefaultPrincipalResolver;
 
         self::assertSame($identity, $resolver->resolve($identity));
     }
@@ -52,16 +51,16 @@ final class DefaultPrincipalResolverTest extends TestCase
      */
     public function testDelegatesToResolveDefaultPrincipalWhenIdentityImplementsHasPrincipals(): void
     {
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
 
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals $identity */
-        $identity = Mockery::mock(Identity::class, HasPrincipals::class);
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
+        $identity = \Mockery::mock(Identity::class, HasPrincipals::class);
         $identity->shouldReceive('resolveDefaultPrincipal')
             ->once()
             ->andReturn($principal);
         $identity->shouldNotReceive('principals');
 
-        $resolver = new DefaultPrincipalResolver();
+        $resolver = new DefaultPrincipalResolver;
 
         self::assertSame($principal, $resolver->resolve($identity));
     }
@@ -75,22 +74,22 @@ final class DefaultPrincipalResolverTest extends TestCase
      */
     public function testHintTakesPrecedenceOverDefaultDelegate(): void
     {
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
 
-        $builder = Mockery::mock(Builder::class);
+        $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('find')
             ->once()
             ->with('principal-id-7')
             ->andReturn($principal);
 
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals $identity */
-        $identity = Mockery::mock(Identity::class, HasPrincipals::class);
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
+        $identity = \Mockery::mock(Identity::class, HasPrincipals::class);
         $identity->shouldReceive('principals')
             ->once()
             ->andReturn($builder);
         $identity->shouldNotReceive('resolveDefaultPrincipal');
 
-        $resolver = new DefaultPrincipalResolver();
+        $resolver = new DefaultPrincipalResolver;
 
         self::assertSame($principal, $resolver->resolve($identity, 'principal-id-7'));
     }
@@ -105,9 +104,9 @@ final class DefaultPrincipalResolverTest extends TestCase
     public function testHintIsIgnoredWhenIdentityDoesNotImplementHasPrincipals(): void
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\Principal $identity */
-        $identity = Mockery::mock(Identity::class, Principal::class);
+        $identity = \Mockery::mock(Identity::class, Principal::class);
 
-        $resolver = new DefaultPrincipalResolver();
+        $resolver = new DefaultPrincipalResolver;
 
         self::assertSame($identity, $resolver->resolve($identity, 'ignored-hint'));
     }
@@ -121,11 +120,11 @@ final class DefaultPrincipalResolverTest extends TestCase
      */
     public function testThrowsLogicExceptionWhenIdentityImplementsNeitherInterface(): void
     {
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
-        $resolver = new DefaultPrincipalResolver();
+        $resolver = new DefaultPrincipalResolver;
 
-        $this->expectException(LogicException::class);
+        $this->expectException(\LogicException::class);
         $this->expectExceptionMessage($identity::class);
         $this->expectExceptionMessage('implements neither Principal nor HasPrincipals');
 

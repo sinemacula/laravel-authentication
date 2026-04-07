@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Integration\Events;
 
@@ -56,34 +56,6 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     private const string USER_PASSWORD = 'correct horse battery staple';
 
     /**
-     * Register the `cli` guard against the `basic` driver and the
-     * `cli_users` provider pointing at the `StubPrincipal` identity
-     * model before the Testbench application boots so the package
-     * service provider picks up the driver registration at the
-     * appropriate time.
-     *
-     * @param  \Illuminate\Foundation\Application $app The Testbench application under construction.
-     * @return void
-     */
-    protected function defineEnvironment($app): void
-    {
-        parent::defineEnvironment($app);
-
-        /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(ConfigRepository::class);
-
-        $config->set('auth.providers.cli_users', [
-            'driver' => 'model',
-            'model'  => StubPrincipal::class,
-        ]);
-
-        $config->set('auth.guards.' . self::GUARD_NAME, [
-            'driver'   => 'basic',
-            'provider' => 'cli_users',
-        ]);
-    }
-
-    /**
      * Create the identity table, hash a password, and insert one user
      * that the successful-attempt tests authenticate against.
      *
@@ -104,7 +76,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
 
         $hasher = app(Hasher::class);
 
-        $user           = new StubPrincipal();
+        $user           = new StubPrincipal;
         $user->email    = self::USER_EMAIL;
         $user->password = $hasher->make(self::USER_PASSWORD);
         $user->save();
@@ -292,5 +264,35 @@ final class StandardAuthEventsIntegrationTest extends TestCase
 
             return true;
         });
+    }
+
+    /**
+     * Register the `cli` guard against the `basic` driver and the
+     * `cli_users` provider pointing at the `StubPrincipal` identity
+     * model before the Testbench application boots so the package
+     * service provider picks up the driver registration at the
+     * appropriate time.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof \Illuminate\Foundation\Application);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('auth.providers.cli_users', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
+
+        $config->set('auth.guards.' . self::GUARD_NAME, [
+            'driver'   => 'basic',
+            'provider' => 'cli_users',
+        ]);
     }
 }

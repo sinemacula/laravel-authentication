@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
@@ -14,9 +14,17 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  */
 interface Organization
 {
-    /** Return the organization's stable identifier (typically the model key). */
+    /**
+     * Return the organization's stable identifier (typically the model key).
+     *
+     * @return mixed
+     */
     public function getOrganizationIdentifier(): mixed;
 
-    /** Return the organization's scope string (e.g. internal/external/customer). */
+    /**
+     * Return the organization's scope string (e.g. internal/external/customer).
+     *
+     * @return string
+     */
     public function getOrganizationScope(): string;
 }

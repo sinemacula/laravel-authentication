@@ -1,18 +1,16 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Integration\Facade;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Auth\Factory as IlluminateAuthFactoryContract;
-use Illuminate\Contracts\Foundation\Application;
-use SineMacula\Laravel\Authentication\Facades\Auth as IlluminateAuth;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
+use SineMacula\Laravel\Authentication\Facades\Auth as IlluminateAuth;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
-use Tests\Unit\Stubs\StubOrganization;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
@@ -34,41 +32,6 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversNothing]
 final class AuthFacadeMacroIntegrationTest extends TestCase
 {
-    /**
-     * Configure two guards: the package `api` guard (jwt driver) and
-     * a stock framework `web` guard (session driver). Individual
-     * tests flip the default guard between them to exercise both
-     * branches of the macro's `ContextualGuard` check.
-     *
-     * @param  \Illuminate\Contracts\Foundation\Application $app The Testbench application under construction.
-     * @return void
-     */
-    protected function defineEnvironment($app): void
-    {
-        parent::defineEnvironment($app);
-
-        /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(ConfigRepository::class);
-
-        $config->set('auth.defaults.guard', 'api');
-        $config->set('auth.defaults.passwords', 'users');
-
-        $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-        ]);
-
-        $config->set('auth.guards.web', [
-            'driver'   => 'session',
-            'provider' => 'identities',
-        ]);
-
-        $config->set('auth.providers.identities', [
-            'driver' => 'model',
-            'model'  => StubPrincipal::class,
-        ]);
-    }
-
     /**
      * `Auth::principal()` returns null for an unauthenticated request
      * when the default guard is the package's `api` jwt guard.
@@ -161,7 +124,7 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
      */
     public function testAuthDeviceForwardsToContextualGuardWhenAuthenticated(): void
     {
-        $device = new StubDevice();
+        $device = new StubDevice;
         $device->forceFill([
             'id'          => '01HV000000000000000000DEV1',
             'os'          => 'ios',
@@ -206,16 +169,53 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
+     * Configure two guards: the package `api` guard (jwt driver) and
+     * a stock framework `web` guard (session driver). Individual
+     * tests flip the default guard between them to exercise both
+     * branches of the macro's `ContextualGuard` check.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof \Illuminate\Foundation\Application);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('auth.defaults.guard', 'api');
+        $config->set('auth.defaults.passwords', 'users');
+
+        $config->set('auth.guards.api', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.guards.web', [
+            'driver'   => 'session',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
+    }
+
+    /**
      * Bind a `StubPrincipal` (and optional `StubDevice`) to the
      * active contextual guard via the package's `login()` surface so
      * the macro assertions observe a fully-resolved context.
      *
-     * @param  \Tests\Unit\Stubs\StubDevice|null $device Optional device to pin to the guard.
+     * @param  \Tests\Unit\Stubs\StubDevice|null  $device
      * @return \Tests\Unit\Stubs\StubPrincipal
      */
     private function loginThroughContextualGuard(?StubDevice $device = null): StubPrincipal
     {
-        $principal = new StubPrincipal();
+        $principal = new StubPrincipal;
         $principal->forceFill([
             'id'        => 1,
             'is_active' => true,

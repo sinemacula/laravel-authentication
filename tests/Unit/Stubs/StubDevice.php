@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
@@ -19,9 +19,9 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  *
- * @property string              $id
- * @property string              $os
- * @property string              $refresh_key
+ * @property string $id
+ * @property string $os
+ * @property string $refresh_key
  * @property \Carbon\Carbon|null $last_logged_in_at
  * @property \Carbon\Carbon|null $last_mfa_verified_at
  *

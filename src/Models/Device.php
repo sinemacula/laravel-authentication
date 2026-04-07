@@ -1,12 +1,13 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\Device as DeviceContract;
 use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
@@ -21,11 +22,11 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  *
- * @property string               $id
- * @property string               $authenticatable_type
- * @property string               $authenticatable_id
- * @property string               $os
- * @property string               $refresh_key
+ * @property string $id
+ * @property string $authenticatable_type
+ * @property string $authenticatable_id
+ * @property string $os
+ * @property string $refresh_key
  * @property \Carbon\Carbon|null $last_logged_in_at
  * @property \Carbon\Carbon|null $last_mfa_verified_at
  */
@@ -34,8 +35,15 @@ class Device extends Model implements DeviceContract
     use ActsAsDevice;
     use HasUlids;
 
-    /** @var array<string> The attributes that aren't mass assignable. */
-    protected $guarded = [];
+    /** @var list<string> The attributes that are mass assignable. */
+    protected $fillable = [
+        'authenticatable_type',
+        'authenticatable_id',
+        'os',
+        'refresh_key',
+        'last_logged_in_at',
+        'last_mfa_verified_at',
+    ];
 
     /** @var array<string, string> The attributes that should be cast. */
     protected $casts = [
@@ -48,11 +56,11 @@ class Device extends Model implements DeviceContract
      * config so consumers may remap the underlying table without
      * subclassing.
      *
-     * @param  array<string, mixed> $attributes Initial attribute values.
+     * @param  array<string, mixed>  $attributes
      */
     public function __construct(array $attributes = [])
     {
-        $this->setTable((string) config('laravel-authentication.device.table', 'devices'));
+        $this->setTable(Config::string('laravel-authentication.device.table', 'devices'));
 
         parent::__construct($attributes);
     }
@@ -72,6 +80,7 @@ class Device extends Model implements DeviceContract
      *
      * @return array<int, string>
      */
+    #[\Override]
     public function uniqueIds(): array
     {
         return ['id'];

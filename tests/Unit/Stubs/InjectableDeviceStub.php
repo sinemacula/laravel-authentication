@@ -1,11 +1,10 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
 use Illuminate\Database\Eloquent\Builder;
-use LogicException;
 
 /**
  * StubDevice subclass whose `newQuery()` returns an injected Builder
@@ -36,10 +35,7 @@ final class InjectableDeviceStub extends StubDevice
     public function newQuery(): Builder
     {
         if (self::$injectedBuilder === null) {
-            throw new LogicException(sprintf(
-                '%s::$injectedBuilder must be set before calling newQuery() on this stub.',
-                self::class,
-            ));
+            throw new \LogicException(sprintf('%s::$injectedBuilder must be set before calling newQuery() on this stub.', self::class));
         }
 
         return self::$injectedBuilder;

@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Events;
 
@@ -17,6 +17,12 @@ final class DeviceAuthenticated
 {
     use SerializesModels;
 
+    /**
+     * Constructor.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     */
     public function __construct(
 
         /** Name of the guard that bound the device. */

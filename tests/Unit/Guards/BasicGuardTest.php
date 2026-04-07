@@ -1,17 +1,17 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Guards;
 
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
-use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversNothing;
@@ -29,10 +29,11 @@ use SineMacula\Laravel\Authentication\Guards\BasicGuard;
  * Exercises HTTP Basic credential extraction, timing-safe credential
  * validation via the inherited Timebox path, identity-as-principal
  * resolution, and the login/logout state cycle. Uses a plain PHPUnit
- * TestCase because the BasicGuard does not call into `config(...)`.
- * The Request collaborator is a real Symfony/Illuminate `Request`
- * instance built via `Request::create(...)` (per php-tst-034 fakes
- * preference for Symfony value objects).
+ * TestCase because the BasicGuard takes its identifier field via the
+ * constructor (no facade dependency). The Request collaborator is a
+ * real Symfony/Illuminate `Request` instance built via
+ * `Request::create(...)` (per php-tst-034 fakes preference for
+ * Symfony value objects).
  *
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
@@ -47,16 +48,19 @@ final class BasicGuardTest extends TestCase
     /** @var string The guard name forwarded to BasicGuard's constructor. */
     private const string GUARD_NAME = 'basic-test';
 
+    /** @var string The email used across the happy-path Basic credentials fixtures. */
+    private const string ALICE_EMAIL = 'alice@example.com';
+
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\IdentityProvider The mocked identity provider collaborator. */
     private MockInterface $provider;
 
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\PrincipalResolver The mocked principal resolver collaborator. */
     private MockInterface $resolver;
 
-    /** @var \Mockery\MockInterface&\Illuminate\Contracts\Events\Dispatcher The mocked event dispatcher collaborator. */
+    /** @var \Illuminate\Contracts\Events\Dispatcher&\Mockery\MockInterface The mocked event dispatcher collaborator. */
     private MockInterface $events;
 
-    /** @var \Mockery\MockInterface&\Illuminate\Support\Timebox The mocked timebox collaborator. */
+    /** @var \Illuminate\Support\Timebox&\Mockery\MockInterface The mocked timebox collaborator. */
     private MockInterface $timebox;
 
     /**
@@ -68,16 +72,16 @@ final class BasicGuardTest extends TestCase
     {
         parent::setUp();
 
-        $this->provider = Mockery::mock(IdentityProvider::class);
-        $this->resolver = Mockery::mock(PrincipalResolver::class);
-        $this->events   = Mockery::mock(Dispatcher::class);
-        $this->timebox  = Mockery::mock(Timebox::class);
+        $this->provider = \Mockery::mock(IdentityProvider::class);
+        $this->resolver = \Mockery::mock(PrincipalResolver::class);
+        $this->events   = \Mockery::mock(Dispatcher::class);
+        $this->timebox  = \Mockery::mock(Timebox::class);
 
         // Default: Timebox::call() invokes the callback directly so
         // credential validation paths run deterministically.
         $this->timebox->shouldReceive('call')
             ->byDefault()
-            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox()));
+            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
     }
 
     /**
@@ -102,7 +106,7 @@ final class BasicGuardTest extends TestCase
      */
     public function testUserReturnsNullWhenPasswordMissing(): void
     {
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', null));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, null));
 
         $this->provider->shouldNotReceive('retrieveByCredentials');
         $this->events->shouldNotReceive('dispatch');
@@ -111,8 +115,8 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * When `retrieveByCredentials()` returns null, `user()` runs through
-     * the timing-safe path and returns null.
+     * When `retrieveByCredentials()` returns null, `user()` fires
+     * `Attempting` and `Failed` and returns null.
      *
      * @return void
      */
@@ -120,55 +124,76 @@ final class BasicGuardTest extends TestCase
     {
         $guard = $this->makeGuard($this->makeRequest('ghost@example.com', 'secret'));
 
+        $credentials = [
+            'email'    => 'ghost@example.com',
+            'password' => 'secret',
+        ];
+
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
-            ->with(['email' => 'ghost@example.com', 'password' => 'secret'])
+            ->with($credentials)
             ->andReturnNull();
 
         $this->provider->shouldNotReceive('validateCredentials');
         $this->resolver->shouldNotReceive('resolve');
-        $this->events->shouldNotReceive('dispatch');
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
 
         self::assertNull($guard->user());
+        self::assertSame([Attempting::class, Failed::class], $dispatched);
     }
 
     /**
-     * When `validateCredentials()` returns false, `user()` returns null
-     * and `Failed` is NOT emitted (`user()` is a passive read, not an
-     * attempt).
+     * When `validateCredentials()` returns false, `user()` fires
+     * `Attempting` and `Failed` and returns null. The `Validated`
+     * event is NOT emitted because the hasher check failed.
      *
      * @return void
      */
     public function testUserReturnsNullWhenCredentialsValidationFails(): void
     {
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', 'wrong'));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'wrong'));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
             ->andReturn($identity);
         $this->provider->shouldReceive('validateCredentials')
             ->once()
-            ->with($identity, ['email' => 'alice@example.com', 'password' => 'wrong'])
+            ->with($identity, ['email' => self::ALICE_EMAIL, 'password' => 'wrong'])
             ->andReturnFalse();
 
         $this->resolver->shouldNotReceive('resolve');
-        $this->events->shouldNotReceive('dispatch');
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
 
         self::assertNull($guard->user());
+        self::assertContains(Failed::class, $dispatched);
+        self::assertNotContains(Validated::class, $dispatched);
     }
 
     /**
-     * When the resolver returns null, `user()` returns null.
+     * When the resolver returns null, `user()` returns null and fires
+     * `Attempting`, `Validated`, and `Failed` (no `Login`).
      *
      * @return void
      */
     public function testUserReturnsNullWhenResolverProducesNoPrincipal(): void
     {
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', 'secret'));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -182,27 +207,32 @@ final class BasicGuardTest extends TestCase
             ->with($identity)
             ->andReturnNull();
 
-        // Validated is fired by hasValidCredentials; nothing else after.
+        $dispatched = [];
+
         $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(Mockery::type(Validated::class));
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
 
         self::assertNull($guard->user());
+        self::assertContains(Validated::class, $dispatched);
+        self::assertContains(Failed::class, $dispatched);
+        self::assertNotContains(Login::class, $dispatched);
     }
 
     /**
      * When the resolved principal's `isActive()` is false, `user()`
-     * returns null.
+     * returns null and fires `Failed`.
      *
      * @return void
      */
     public function testUserReturnsNullWhenPrincipalIsInactive(): void
     {
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', 'secret'));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnFalse();
@@ -219,34 +249,38 @@ final class BasicGuardTest extends TestCase
             ->with($identity)
             ->andReturn($principal);
 
-        // Only Validated fires (from hasValidCredentials); no Authenticated.
+        $dispatched = [];
+
         $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(Mockery::type(Validated::class));
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
 
         self::assertNull($guard->user());
+        self::assertContains(Failed::class, $dispatched);
     }
 
     /**
      * A valid request binds the identity and principal and dispatches
-     * `Authenticated` and `PrincipalAssigned`.
+     * the full success-path event sequence: `Attempting`, `Validated`,
+     * `Authenticated`, `PrincipalAssigned`, and `Login`.
      *
      * @return void
      */
     public function testUserBindsIdentityAndPrincipalFromValidCredentials(): void
     {
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', 'secret'));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnTrue();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
-            ->with(['email' => 'alice@example.com', 'password' => 'secret'])
+            ->with(['email' => self::ALICE_EMAIL, 'password' => 'secret'])
             ->andReturn($identity);
         $this->provider->shouldReceive('validateCredentials')
             ->once()
@@ -266,32 +300,34 @@ final class BasicGuardTest extends TestCase
 
         self::assertSame($identity, $guard->user());
         self::assertSame($principal, $guard->principal());
+        self::assertContains(Attempting::class, $dispatched);
         self::assertContains(Validated::class, $dispatched);
         self::assertContains(Authenticated::class, $dispatched);
         self::assertContains(PrincipalAssigned::class, $dispatched);
+        self::assertContains(Login::class, $dispatched);
     }
 
     /**
-     * Credential validation runs inside `Timebox::call()` with a
-     * 200,000 microsecond budget (NFR-04).
+     * Credential validation runs inside `Timebox::call()` with the
+     * default 400,000 microsecond budget (NFR-04).
      *
      * @return void
      */
     public function testUserRunsCredentialValidationThroughTimebox(): void
     {
         // Replace the default Timebox mock with one that asserts the
-        // 200_000 microsecond budget and still invokes the callback.
-        $this->timebox = Mockery::mock(Timebox::class);
+        // 400_000 microsecond budget and still invokes the callback.
+        $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')
             ->once()
-            ->with(Mockery::type('callable'), 200_000)
-            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox()));
+            ->with(\Mockery::type('callable'), 400000)
+            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
 
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', 'secret'));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnTrue();
@@ -319,11 +355,11 @@ final class BasicGuardTest extends TestCase
      */
     public function testCheckReflectsBoundState(): void
     {
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', 'secret'));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnTrue();
@@ -351,11 +387,11 @@ final class BasicGuardTest extends TestCase
      */
     public function testLogoutClearsBoundState(): void
     {
-        $guard = $this->makeGuard($this->makeRequest('alice@example.com', 'secret'));
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnTrue();
@@ -397,13 +433,16 @@ final class BasicGuardTest extends TestCase
     {
         $guard = $this->makeGuard($this->makeRequest(null, null));
 
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
-            ->with(['email' => 'alice@example.com', 'password' => 'secret'])
+            ->with(['email' => self::ALICE_EMAIL, 'password' => 'secret'])
             ->andReturn($identity);
         $this->provider->shouldReceive('validateCredentials')
             ->once()
@@ -422,7 +461,7 @@ final class BasicGuardTest extends TestCase
             });
 
         self::assertTrue($guard->attempt([
-            'email'    => 'alice@example.com',
+            'email'    => self::ALICE_EMAIL,
             'password' => 'secret',
         ]));
 
@@ -433,10 +472,52 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * Instantiate BasicGuard with the current set of collaborator mocks
-     * and the supplied request.
+     * When the guard is constructed with a non-default identifier
+     * field, the credentials array passed to the identity provider
+     * uses that field as the key.
      *
-     * @param  \Illuminate\Http\Request $request The request to bind to the guard.
+     * @return void
+     */
+    public function testUserUsesConfiguredIdentifierField(): void
+    {
+        $guard = new BasicGuard(
+            self::GUARD_NAME,
+            $this->provider,
+            $this->resolver,
+            $this->events,
+            $this->makeRequest('alice', 'secret'),
+            $this->timebox,
+            'username',
+        );
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->with(['username' => 'alice', 'password' => 'secret'])
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        self::assertSame($identity, $guard->user());
+    }
+
+    /**
+     * Instantiate BasicGuard with the current set of collaborator mocks
+     * and the supplied request. Uses the default `email` identifier
+     * field.
+     *
+     * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
      */
     private function makeGuard(Request $request): BasicGuard
@@ -456,8 +537,8 @@ final class BasicGuardTest extends TestCase
      * credentials populated via the standard PHP_AUTH_USER /
      * PHP_AUTH_PW server variables.
      *
-     * @param  string|null $user     The HTTP Basic username, or null for no credentials.
-     * @param  string|null $password The HTTP Basic password, or null.
+     * @param  string|null  $user
+     * @param  string|null  $password
      * @return \Illuminate\Http\Request
      */
     private function makeRequest(?string $user, ?string $password): Request

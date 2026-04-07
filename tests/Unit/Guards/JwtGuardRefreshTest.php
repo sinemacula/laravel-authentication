@@ -1,0 +1,425 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Unit\Guards;
+
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubModel;
+
+/**
+ * Unit tests for the refresh-token exchange path on `JwtGuard`,
+ * including all `RefreshFailed` early-return branches.
+ *
+ * Split out of the original JwtGuardTest so each derived class stays
+ * well below the project's 20-method-per-class threshold (radarlint
+ * S1448).
+ *
+ * @author    Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright 2026 Sine Macula Limited.
+ *
+ * @internal
+ */
+#[CoversClass(JwtGuard::class)]
+final class JwtGuardRefreshTest extends JwtGuardTestCase
+{
+    /**
+     * When the refresh token cannot be parsed, `refresh()` returns
+     * null and fires `RefreshFailed` with reason `token_invalid`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenTokenCannotBeParsed(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_TOKEN_INVALID));
+
+        self::assertNull($guard->refresh('not-a-jwt'));
+    }
+
+    /**
+     * A refresh token without a `did` claim returns null and fires
+     * `RefreshFailed` with reason `token_invalid`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenDeviceIdMissingFromClaims(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken(['jti' => 'some-rotation-id']);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_TOKEN_INVALID));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * When the device lookup returns null, `refresh()` returns null
+     * and fires `RefreshFailed` with reason `device_unknown`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenDeviceLookupFails(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => '01HZZZZZZZZZZZZZZZZZZZZZZZ',
+            'jti' => 'rotation-id',
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_DEVICE_UNKNOWN));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * When the device's stored refresh-key digest does not match the
+     * hash of the token's `jti` claim, `refresh()` returns null and
+     * fires `RefreshFailed` with reason `rotation_mismatch`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenRefreshKeyDoesNotMatch(): void
+    {
+        $device = new StubDevice;
+        $device->forceFill(['refresh_key' => RefreshTokenHasher::hash('stored-rotation-id')])->save();
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => 'tampered-rotation-id',
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_ROTATION_MISMATCH));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * When `device->authenticatable` is not an Identity, `refresh()`
+     * returns null and fires `RefreshFailed` with reason
+     * `authenticatable_missing`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenAuthenticatableRelationIsNotIdentity(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $device = new StubDevice;
+        $device->forceFill(['refresh_key' => RefreshTokenHasher::hash($plainRotationId)])->save();
+
+        $nonIdentity = new StubModel;
+        $device->setRelation('authenticatable', $nonIdentity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_AUTHENTICATABLE_MISSING));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * When the bound identity reports `isActive() === false`, refresh
+     * fails with `identity_inactive` and dispatches `RefreshFailed`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenIdentityIsInactive(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = \Mockery::mock(Identity::class, CanBeActive::class);
+        $identity->shouldReceive('isActive')->once()->andReturnFalse();
+
+        $device = new StubDevice;
+        $device->forceFill(['refresh_key' => RefreshTokenHasher::hash($plainRotationId)])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_IDENTITY_INACTIVE));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * When the principal resolver returns `null`, refresh fails with
+     * `principal_unresolved` and dispatches `RefreshFailed`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenPrincipalIsUnresolved(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 9]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '9',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturnNull();
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_PRINCIPAL_UNRESOLVED));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * When the resolved principal reports `isActive() === false`,
+     * refresh fails with `principal_inactive` and dispatches
+     * `RefreshFailed`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenPrincipalIsInactive(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 11]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '11',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('isActive')->once()->andReturnFalse();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_PRINCIPAL_INACTIVE));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * A successful refresh returns a `RefreshResult` carrying a new
+     * access token and a new rotated refresh token, rotates the
+     * device's stored digest, and dispatches the `Refreshed` event
+     * carrying identity + principal + device.
+     *
+     * @return void
+     */
+    public function testRefreshRotatesAndIssuesNewTokenPairOnSuccess(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+        $oldDigest       = RefreshTokenHasher::hash($plainRotationId);
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 7]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '7',
+            'refresh_key'          => $oldDigest,
+        ])->save();
+
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event;
+            });
+
+        $result = $guard->refresh($token);
+
+        self::assertInstanceOf(RefreshResult::class, $result);
+
+        $accessClaims = $this->tokens->parse($result->accessToken, Claims::TYPE_ACCESS);
+        self::assertIsArray($accessClaims);
+        self::assertSame('7', $accessClaims[Claims::SUBJECT]);
+        self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL_ID]);
+        self::assertSame($device->id, $accessClaims[Claims::DEVICE_ID]);
+
+        $refreshClaims = $this->tokens->parse($result->refreshToken, Claims::TYPE_REFRESH);
+        self::assertIsArray($refreshClaims);
+        self::assertSame($device->id, $refreshClaims[Claims::DEVICE_ID]);
+        self::assertIsString($refreshClaims[Claims::JWT_ID]);
+        self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID]);
+
+        // The device's stored digest has been rotated and the old
+        // digest is no longer valid.
+        $fresh = StubDevice::query()->findOrFail($device->id);
+        self::assertNotSame($oldDigest, $fresh->refresh_key);
+        self::assertTrue(RefreshTokenHasher::verify($refreshClaims[Claims::JWT_ID], $fresh->refresh_key));
+
+        $refreshed = array_values(array_filter(
+            $dispatched,
+            static fn (object $event): bool => $event instanceof Refreshed,
+        ));
+
+        self::assertCount(1, $refreshed);
+        self::assertInstanceOf(Refreshed::class, $refreshed[0]);
+        self::assertSame(self::GUARD_NAME, $refreshed[0]->guard);
+        self::assertSame($identity, $refreshed[0]->identity);
+        self::assertSame($principal, $refreshed[0]->principal);
+        self::assertSame($device, $refreshed[0]->device);
+    }
+
+    /**
+     * After a successful refresh the guard has the identity,
+     * principal, and device bound for the rest of the request.
+     *
+     * @return void
+     */
+    public function testRefreshBindsIdentityPrincipalAndDeviceOnSuccess(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 7]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '7',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
+        self::assertSame($identity, $guard->identity());
+        self::assertSame($principal, $guard->principal());
+        self::assertSame($device, $guard->device());
+    }
+}

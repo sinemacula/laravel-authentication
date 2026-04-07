@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
@@ -16,15 +16,31 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  */
 interface Principal
 {
-    /** Return the principal's stable identifier (typically the model key). */
+    /**
+     * Return the principal's stable identifier (typically the model key).
+     *
+     * @return mixed
+     */
     public function getPrincipalIdentifier(): mixed;
 
-    /** Return the identity that owns this principal (in 2D mode this is the principal itself). */
+    /**
+     * Return the identity that owns this principal (in 2D mode this is the principal itself).
+     *
+     * @return \SineMacula\Laravel\Authentication\Contracts\Identity
+     */
     public function getIdentity(): Identity;
 
-    /** Return the organization the principal acts within, if any. */
+    /**
+     * Return the organization the principal acts within, if any.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Organization
+     */
     public function getOrganization(): ?Organization;
 
-    /** Return whether the principal is currently active and may authenticate. */
+    /**
+     * Return whether the principal is currently active and may authenticate.
+     *
+     * @return bool
+     */
     public function isActive(): bool;
 }

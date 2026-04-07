@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Traits;
 
@@ -19,7 +19,11 @@ use UnitEnum;
  */
 trait ActsAsOrganization
 {
-    /** Return the organization's stable identifier from the configured attribute. */
+    /**
+     * Return the organization's stable identifier from the configured attribute.
+     *
+     * @return mixed
+     */
     public function getOrganizationIdentifier(): mixed
     {
         return $this->getAttribute($this->getOrganizationIdentifierName());
@@ -41,24 +45,32 @@ trait ActsAsOrganization
     {
         $value = $this->getAttribute($this->getOrganizationScopeName());
 
-        if ($value instanceof BackedEnum) {
+        if ($value instanceof \BackedEnum) {
             return (string) $value->value;
         }
 
-        if ($value instanceof UnitEnum) {
+        if ($value instanceof \UnitEnum) {
             return $value->name;
         }
 
         return (string) $value;
     }
 
-    /** Column name holding the organization identifier. Override in the consuming model to remap. */
+    /**
+     * Column name holding the organization identifier. Override in the consuming model to remap.
+     *
+     * @return string
+     */
     protected function getOrganizationIdentifierName(): string
     {
         return 'id';
     }
 
-    /** Column name holding the organization scope. Override in the consuming model to remap. */
+    /**
+     * Column name holding the organization scope. Override in the consuming model to remap.
+     *
+     * @return string
+     */
     protected function getOrganizationScopeName(): string
     {
         return 'scope';

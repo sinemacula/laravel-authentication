@@ -1,12 +1,11 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
-use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
@@ -52,7 +51,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetIdentityReturnsRelatedIdentity(): void
     {
-        $identity = Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
 
         $principal = new class extends Model {
             use ActsAsPrincipal;
@@ -80,7 +79,7 @@ final class ActsAsPrincipalTest extends TestCase
         };
         $principal->setRelation('identity', null);
 
-        $this->expectException(LogicException::class);
+        $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('expected its identity relation `identity` to return an Identity instance');
 
         $principal->getIdentity();
@@ -93,7 +92,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetOrganizationReturnsRelatedOrganization(): void
     {
-        $organization = Mockery::mock(Organization::class);
+        $organization = \Mockery::mock(Organization::class);
 
         $principal = new class extends Model {
             use ActsAsPrincipal;

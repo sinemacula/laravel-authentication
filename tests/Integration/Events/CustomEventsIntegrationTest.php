@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Integration\Events;
 
@@ -21,6 +21,9 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -67,41 +70,6 @@ final class CustomEventsIntegrationTest extends TestCase
     private Carbon $now;
 
     /**
-     * Register the `cli` (basic) and `api` (jwt) guards plus the
-     * shared `api_users` provider and align the package's JWT secret
-     * with the test secret so hand-rolled tokens decode cleanly.
-     *
-     * @param  \Illuminate\Foundation\Application $app The Testbench application under construction.
-     * @return void
-     */
-    protected function defineEnvironment($app): void
-    {
-        parent::defineEnvironment($app);
-
-        /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(ConfigRepository::class);
-
-        $config->set('auth.providers.api_users', [
-            'driver' => 'model',
-            'model'  => StubPrincipal::class,
-        ]);
-
-        $config->set('auth.guards.' . self::BASIC_GUARD, [
-            'driver'   => 'basic',
-            'provider' => 'api_users',
-        ]);
-
-        $config->set('auth.guards.' . self::JWT_GUARD, [
-            'driver'   => 'jwt',
-            'provider' => 'api_users',
-        ]);
-
-        $config->set('laravel-authentication.jwt.secret', self::JWT_SECRET);
-        $config->set('laravel-authentication.jwt.algorithm', 'HS256');
-        $config->set('laravel-authentication.jwt.access_ttl_minutes', 15);
-    }
-
-    /**
      * Create the identity table, freeze time, seed a user, and seed a
      * device the jwt guard can bind and refresh against.
      *
@@ -128,7 +96,7 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $hasher = app(Hasher::class);
 
-        $user           = new StubPrincipal();
+        $user           = new StubPrincipal;
         $user->email    = self::USER_EMAIL;
         $user->password = $hasher->make(self::USER_PASSWORD);
         $user->save();
@@ -192,12 +160,12 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $user = $this->freshSeededUser();
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'authenticatable_type' => StubPrincipal::class,
-            'authenticatable_id'   => (string) $user->getKey(),
+            'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
             'os'                   => 'ios',
-            'refresh_key'          => 'stored-refresh-key',
+            'refresh_key'          => RefreshTokenHasher::hash('rotation-' . (string) $user->getKey()), // @phpstan-ignore cast.string
         ])->save();
 
         $token = $this->encodeAccessToken([
@@ -258,19 +226,23 @@ final class CustomEventsIntegrationTest extends TestCase
     {
         $user = $this->freshSeededUser();
 
-        $device = new Device();
+        $plainRotationId = 'stored-rotation-id';
+
+        $device = new Device;
         $device->forceFill([
             'authenticatable_type' => StubPrincipal::class,
-            'authenticatable_id'   => (string) $user->getKey(),
+            'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
             'os'                   => 'ios',
-            'refresh_key'          => 'stored-refresh-key',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
         $refreshToken = JWT::encode(
             [
                 'did' => $device->getKey(),
-                'rk'  => 'stored-refresh-key',
+                'jti' => $plainRotationId,
                 'iat' => $this->now->getTimestamp(),
+                'exp' => $this->now->getTimestamp() + 3600,
+                'typ' => Claims::TYPE_REFRESH,
             ],
             self::JWT_SECRET,
             'HS256',
@@ -282,9 +254,9 @@ final class CustomEventsIntegrationTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $access = $guard->refresh($refreshToken);
+        $result = $guard->refresh($refreshToken);
 
-        self::assertNotNull($access);
+        self::assertInstanceOf(RefreshResult::class, $result);
 
         Event::assertDispatched(Refreshed::class, 1);
         Event::assertDispatched(Refreshed::class, function (Refreshed $event): bool {
@@ -323,24 +295,59 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
+     * Register the `cli` (basic) and `api` (jwt) guards plus the
+     * shared `api_users` provider and align the package's JWT secret
+     * with the test secret so hand-rolled tokens decode cleanly.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof \Illuminate\Foundation\Application);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('auth.providers.api_users', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
+
+        $config->set('auth.guards.' . self::BASIC_GUARD, [
+            'driver'   => 'basic',
+            'provider' => 'api_users',
+        ]);
+
+        $config->set('auth.guards.' . self::JWT_GUARD, [
+            'driver'   => 'jwt',
+            'provider' => 'api_users',
+        ]);
+
+        $config->set('laravel-authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('laravel-authentication.jwt.algorithm', 'HS256');
+        $config->set('laravel-authentication.jwt.access_ttl_minutes', 15);
+    }
+
+    /**
      * Retrieve the freshly seeded user from the database.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
      */
     private function freshSeededUser(): StubPrincipal
     {
-        /** @var \Tests\Unit\Stubs\StubPrincipal $user */
-        $user = StubPrincipal::query()->where('email', self::USER_EMAIL)->firstOrFail();
-
-        return $user;
+        return StubPrincipal::query()->where('email', self::USER_EMAIL)->firstOrFail();
     }
 
     /**
-     * Encode a JWT access token payload (with `iat` and `exp`) using
-     * the shared test secret so the `JwtTokenService::parse()` path
-     * accepts it as a valid, unexpired token.
+     * Encode a JWT access token payload (with `iat`, `exp`, and
+     * `typ = access`) using the shared test secret so the
+     * `JwtTokenService::parse()` path accepts it as a valid,
+     * unexpired access token.
      *
-     * @param  array<string, mixed> $claims Additional claims to layer on top of iat/exp.
+     * @param  array<string, mixed>  $claims
      * @return string
      */
     private function encodeAccessToken(array $claims): string
@@ -351,6 +358,7 @@ final class CustomEventsIntegrationTest extends TestCase
             array_merge($claims, [
                 'iat' => $now,
                 'exp' => $now + (15 * 60),
+                'typ' => Claims::TYPE_ACCESS,
             ]),
             self::JWT_SECRET,
             'HS256',
@@ -362,7 +370,7 @@ final class CustomEventsIntegrationTest extends TestCase
      * carrying the supplied bearer token so the active `JwtGuard`
      * re-reads it via `$app->refresh('request', ...)`.
      *
-     * @param  string $token The bearer token to embed in the Authorization header.
+     * @param  string  $token
      * @return void
      */
     private function swapRequestWithBearerToken(string $token): void

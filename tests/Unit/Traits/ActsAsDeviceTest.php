@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
@@ -178,6 +178,11 @@ final class ActsAsDeviceTest extends TestCase
             /** @var array<string> The attributes that aren't mass assignable. */
             protected $guarded = [];
 
+            /**
+             * Getdeviceidentifiername.
+             *
+             * @return string
+             */
             protected function getDeviceIdentifierName(): string
             {
                 return 'device_uuid';

@@ -1,10 +1,9 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Events;
 
-use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
@@ -31,7 +30,7 @@ final class PrincipalAssignedTest extends TestCase
      */
     public function testStoresGuardNameOnConstruction(): void
     {
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
 
         $event = new PrincipalAssigned('api', $principal);
 
@@ -45,7 +44,7 @@ final class PrincipalAssignedTest extends TestCase
      */
     public function testStoresPrincipalOnConstruction(): void
     {
-        $principal = Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class);
 
         $event = new PrincipalAssigned('api', $principal);
 

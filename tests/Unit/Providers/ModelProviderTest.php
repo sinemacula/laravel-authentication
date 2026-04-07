@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Providers;
 
@@ -8,7 +8,6 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversNothing;
@@ -29,14 +28,19 @@ final class ModelProviderTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    /** @var \Mockery\MockInterface&\Illuminate\Contracts\Hashing\Hasher The mocked password hasher collaborator. */
+    /** @var \Illuminate\Contracts\Hashing\Hasher&\Mockery\MockInterface The mocked password hasher collaborator. */
     private MockInterface $hasher;
 
+    /**
+     * Setup.
+     *
+     * @return void
+     */
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->hasher = Mockery::mock(Hasher::class);
+        $this->hasher = \Mockery::mock(Hasher::class);
     }
 
     /**
@@ -46,9 +50,9 @@ final class ModelProviderTest extends TestCase
      */
     public function testRetrieveByIdReturnsModelWhenFound(): void
     {
-        $found = new StubAuthenticatableModel();
+        $found = new StubAuthenticatableModel;
 
-        $builder = Mockery::mock(Builder::class);
+        $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('where')
             ->once()
             ->with('id', 7)
@@ -69,7 +73,7 @@ final class ModelProviderTest extends TestCase
      */
     public function testRetrieveByIdReturnsNullWhenNotFound(): void
     {
-        $builder = Mockery::mock(Builder::class);
+        $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('where')
             ->once()
             ->with('id', 99)
@@ -104,7 +108,7 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        $user = Mockery::mock(Authenticatable::class);
+        $user = \Mockery::mock(Authenticatable::class);
         $user->shouldNotReceive('setRememberToken');
 
         $provider->updateRememberToken($user, 'token');
@@ -131,9 +135,9 @@ final class ModelProviderTest extends TestCase
      */
     public function testRetrieveByCredentialsAppliesScalarCredentialsAsWhereClauses(): void
     {
-        $found = new StubAuthenticatableModel();
+        $found = new StubAuthenticatableModel;
 
-        $builder = Mockery::mock(Builder::class);
+        $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('where')
             ->once()
             ->with('email', 'a@b.com')
@@ -152,12 +156,62 @@ final class ModelProviderTest extends TestCase
      *
      * @return void
      */
+    /**
+     * The constructor refuses an empty model class string.
+     *
+     * @return void
+     */
+    public function testConstructorRejectsEmptyModelClass(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('non-empty Eloquent model class');
+
+        $provider = new ModelProvider($this->hasher, '');
+
+        unset($provider); // Constructor must throw before this point.
+    }
+
+    /**
+     * The constructor refuses an unknown class name.
+     *
+     * @return void
+     */
+    public function testConstructorRejectsUnknownModelClass(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('App\Models\Nope');
+
+        $provider = new ModelProvider($this->hasher, 'App\Models\Nope');
+
+        unset($provider); // Constructor must throw before this point.
+    }
+
+    /**
+     * Numeric credential keys are silently dropped — they cannot be
+     * passed safely to `where()` and would otherwise crash the query.
+     *
+     * @return void
+     */
+    public function testRetrieveByCredentialsDropsNumericKeys(): void
+    {
+        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
+
+        // After dropping numeric keys the credentials array is empty
+        // — the provider returns null without composing a query.
+        self::assertNull($provider->retrieveByCredentials(['alice@example.test']));
+    }
+
+    /**
+     * Array credentials are passed through to whereIn() for IN expansion.
+     *
+     * @return void
+     */
     public function testRetrieveByCredentialsAppliesArrayCredentialsAsWhereInClauses(): void
     {
         $roles = ['admin', 'staff'];
 
-        $builder = Mockery::mock(Builder::class);
-        $builder->shouldReceive('where')
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('whereIn')
             ->once()
             ->with('role', $roles)
             ->andReturnSelf();
@@ -177,7 +231,7 @@ final class ModelProviderTest extends TestCase
      */
     public function testRetrieveByCredentialsInvokesClosureCredentialsAgainstQuery(): void
     {
-        $builder = Mockery::mock(Builder::class);
+        $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('where')
             ->once()
             ->with('flag', true)
@@ -209,7 +263,7 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        $user = Mockery::mock(Authenticatable::class);
+        $user = \Mockery::mock(Authenticatable::class);
         $this->hasher->shouldNotReceive('check');
 
         self::assertFalse($provider->validateCredentials($user, []));
@@ -224,7 +278,7 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        $user = Mockery::mock(Authenticatable::class);
+        $user = \Mockery::mock(Authenticatable::class);
         $this->hasher->shouldNotReceive('check');
 
         self::assertFalse($provider->validateCredentials($user, ['password' => 123]));
@@ -239,7 +293,7 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        $user = Mockery::mock(Authenticatable::class);
+        $user = \Mockery::mock(Authenticatable::class);
         $user->shouldReceive('getAuthPassword')
             ->once()
             ->andReturn('hashed');
@@ -261,7 +315,7 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        $user = Mockery::mock(Authenticatable::class);
+        $user = \Mockery::mock(Authenticatable::class);
         $this->hasher->shouldNotReceive('needsRehash');
         $this->hasher->shouldNotReceive('make');
 
@@ -279,7 +333,7 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        $user = Mockery::mock(Authenticatable::class);
+        $user = \Mockery::mock(Authenticatable::class);
         $this->hasher->shouldNotReceive('needsRehash');
         $this->hasher->shouldNotReceive('make');
 
@@ -298,7 +352,7 @@ final class ModelProviderTest extends TestCase
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = Mockery::mock(StubAuthenticatableModel::class)->makePartial();
+        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $user->shouldReceive('getAuthPassword')
             ->andReturn('hashed');
         $user->shouldNotReceive('save');
@@ -324,7 +378,7 @@ final class ModelProviderTest extends TestCase
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = Mockery::mock(StubAuthenticatableModel::class)->makePartial();
+        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $user->shouldReceive('getAuthPasswordName')
             ->andReturn('password');
         $user->shouldReceive('save')
@@ -347,19 +401,26 @@ final class ModelProviderTest extends TestCase
      * whose newQuery() yields the supplied builder mock, so collaborators
      * can be asserted without a real database connection.
      *
-     * @param  \Mockery\MockInterface $builder The builder mock to return from newQuery().
+     * @param  \Mockery\MockInterface  $builder
      * @return \SineMacula\Laravel\Authentication\Providers\ModelProvider
      */
     private function makeProvider(MockInterface $builder): ModelProvider
     {
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $model */
-        $model = Mockery::mock(StubAuthenticatableModel::class)->makePartial();
+        $model = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $model->shouldReceive('newQuery')
             ->andReturn($builder);
         $model->shouldReceive('getAuthIdentifierName')
             ->andReturn('id');
 
         return new class ($this->hasher, StubAuthenticatableModel::class, $model) extends ModelProvider {
+            /**
+             * Constructor.
+             *
+             * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
+             * @param  string  $modelClass
+             * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $instance
+             */
             public function __construct(
 
                 // Hasher forwarded to the parent constructor.
@@ -369,13 +430,18 @@ final class ModelProviderTest extends TestCase
                 string $modelClass,
 
                 /** Pre-built model instance returned from createModel(). */
-                private readonly Model&Authenticatable $instance,
+                private readonly Authenticatable&Model $instance,
 
             ) {
                 parent::__construct($hasher, $modelClass);
             }
 
-            protected function createModel(): Model&Authenticatable
+            /**
+             * Createmodel.
+             *
+             * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
+             */
+            protected function createModel(): Authenticatable&Model
             {
                 return $this->instance;
             }

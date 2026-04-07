@@ -1,16 +1,13 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Providers;
 
-use Closure;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Model;
-use SensitiveParameter;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
-use Stringable;
 
 /**
  * Eloquent-backed identity provider.
@@ -25,65 +22,93 @@ use Stringable;
  */
 class ModelProvider implements IdentityProvider
 {
+    /**
+     * Constructor.
+     *
+     * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
+     * @param  string  $model
+     *
+     * @throws \InvalidArgumentException
+     */
     public function __construct(
 
         /** Hasher used to verify and optionally re-hash passwords. */
         protected Hasher $hasher,
 
-        /**
-         * Fully-qualified Eloquent model class name to authenticate against.
-         *
-         * @var class-string<\Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable>
-         */
+        /** Fully-qualified Eloquent model class name to authenticate against. */
         protected string $model,
 
-    ) {}
+    ) {
+        if ($model === '') {
+
+            $message = 'ModelProvider requires a non-empty Eloquent model class —'
+                . ' set `auth.providers.<name>.model` to a fully-qualified class'
+                . ' name in config/auth.php.';
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        if (!class_exists($model)) {
+            throw new \InvalidArgumentException(sprintf('ModelProvider received unknown class "%s" as its identity model.', $model));
+        }
+
+        if (!is_subclass_of($model, Model::class) || !is_subclass_of($model, Authenticatable::class)) {
+            throw new \InvalidArgumentException(sprintf('ModelProvider model "%s" must be both an Eloquent Model and implement Authenticatable.', $model));
+        }
+    }
 
     /**
      * Retrieve a user by its unique identifier.
      *
-     * @param  mixed $identifier The stable identifier to look up.
+     * @param  mixed  $identifier
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      */
-    public function retrieveById($identifier): ?Authenticatable
+    #[\Override]
+    public function retrieveById(mixed $identifier): ?Authenticatable
     {
         $model = $this->createModel();
 
-        // @phpstan-ignore staticMethod.dynamicCall (Eloquent newQuery is a real instance method; the strict rule misfires because of __callStatic)
-        $query = $model->newQuery();
-
-        /** @var (\Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable)|null $result */
-        $result = $query
+        // @phpstan-ignore staticMethod.dynamicCall
+        $user = $model
+            ->newQuery()
             ->where($model->getAuthIdentifierName(), $identifier)
             ->first();
 
-        return $result;
+        assert($user === null || $user instanceof Authenticatable);
+
+        return $user;
     }
 
     /**
-     * Retrieve a user by its remember-me token.
+     * Retrieve a user by a remember-me token.
      *
-     * Stateless package: remember-me tokens are not supported.
+     * Inert in this stateless package: returns `null` unconditionally
+     * because remember-me tokens are not issued or stored. Implemented
+     * only to satisfy `UserProvider`.
      *
-     * @param  mixed  $identifier The stable identifier.
-     * @param  string $token      The remember-me token.
+     * @param  mixed  $identifier
+     * @param  mixed  $token
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      */
-    public function retrieveByToken($identifier, #[SensitiveParameter] $token): ?Authenticatable
+    #[\Override]
+    public function retrieveByToken(mixed $identifier, #[\SensitiveParameter] mixed $token): ?Authenticatable
     {
         return null;
     }
 
     /**
-     * Update the remember-me token for the given user.
+     * Persist a new remember-me token for the given user.
      *
-     * Stateless package: no-op.
+     * Intentionally empty in this stateless package: remember-me
+     * cookies are never issued so there is nothing to persist.
+     * Implemented only to satisfy `UserProvider`.
      *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable $user  The authenticated user.
-     * @param  string                                    $token The new remember-me token.
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  mixed  $token
      * @return void
      */
-    public function updateRememberToken(Authenticatable $user, #[SensitiveParameter] $token): void
+    #[\Override]
+    public function updateRememberToken(Authenticatable $user, #[\SensitiveParameter] mixed $token): void
     {
         // Intentionally empty: stateless package.
     }
@@ -94,54 +119,51 @@ class ModelProvider implements IdentityProvider
      * Password credentials are stripped before query composition so
      * the hasher remains the single source of password verification.
      *
-     * @param  array<array-key, mixed> $credentials The credentials to match on.
+     * Filter rules — non-string keys and any key containing the
+     * substring `password` are dropped. After filtering, an empty
+     * credentials array returns `null` rather than running a
+     * where-less query (which would otherwise return the "first row
+     * in the table" — a surprising and unsafe authentication).
+     *
+     * @param  array<array-key, mixed>  $credentials
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      */
-    public function retrieveByCredentials(#[SensitiveParameter] array $credentials): ?Authenticatable
+    #[\Override]
+    public function retrieveByCredentials(#[\SensitiveParameter] array $credentials): ?Authenticatable
     {
-        $credentials = array_filter(
-            $credentials,
-            static fn (string $key): bool => ! str_contains($key, 'password'),
-            ARRAY_FILTER_USE_KEY,
-        );
+        $filtered = $this->filterCredentialKeys($credentials);
 
-        if ($credentials === []) {
+        if ($filtered === []) {
             return null;
         }
 
-        // @phpstan-ignore staticMethod.dynamicCall (Eloquent newQuery is a real instance method; the strict rule misfires because of __callStatic)
+        // @phpstan-ignore staticMethod.dynamicCall
         $query = $this->createModel()->newQuery();
 
-        foreach ($credentials as $key => $value) {
-
-            if (is_array($value) || $value instanceof Stringable || is_string($value) || is_int($value)) {
-                $query->where($key, $value);
-                continue;
-            }
-
-            if ($value instanceof Closure) {
-                $value($query);
-            }
+        if (!$this->applyCredentialClauses($query, $filtered)) {
+            return null;
         }
 
-        /** @var (\Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable)|null $result */
-        $result = $query->first();
+        $user = $query->first();
 
-        return $result;
+        assert($user === null || $user instanceof Authenticatable);
+
+        return $user;
     }
 
     /**
      * Validate the supplied credentials against the resolved user.
      *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable $user        The user to validate against.
-     * @param  array<array-key, mixed>                       $credentials The credentials to validate.
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  array<array-key, mixed>  $credentials
      * @return bool
      */
-    public function validateCredentials(Authenticatable $user, #[SensitiveParameter] array $credentials): bool
+    #[\Override]
+    public function validateCredentials(Authenticatable $user, #[\SensitiveParameter] array $credentials): bool
     {
         $plain = $credentials['password'] ?? null;
 
-        if (! is_string($plain) || $plain === '') {
+        if (!is_string($plain) || $plain === '') {
             return false;
         }
 
@@ -154,28 +176,32 @@ class ModelProvider implements IdentityProvider
      * No-ops when no password is supplied, the supplied password is
      * not a string, or the user is not an Eloquent model.
      *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable $user        The user whose password may need rehashing.
-     * @param  array<array-key, mixed>                       $credentials The credentials submitted for authentication.
-     * @param  bool                                       $force       Force a rehash regardless of hasher state.
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  array<array-key, mixed>  $credentials
+     * @param  bool  $force
      * @return void
      */
-    public function rehashPasswordIfRequired(Authenticatable $user, #[SensitiveParameter] array $credentials, bool $force = false): void
-    {
+    #[\Override]
+    public function rehashPasswordIfRequired(
+        Authenticatable $user,
+        #[\SensitiveParameter] array $credentials,
+        bool $force = false,
+    ): void {
         $plain = $credentials['password'] ?? null;
 
-        if (! is_string($plain) || $plain === '') {
+        if (!is_string($plain) || $plain === '') {
             return;
         }
 
-        if (! $user instanceof Model) {
+        if (!$user instanceof Model) {
             return;
         }
 
-        if (! $force && ! $this->hasher->needsRehash($user->getAuthPassword())) {
+        if (!$force && !$this->hasher->needsRehash($user->getAuthPassword())) {
             return;
         }
 
-        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall (Eloquent forceFill/save are real instance methods; strict rule misfires because of __callStatic)
+        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
         $user->forceFill([
             $user->getAuthPasswordName() => $this->hasher->make($plain),
         ])->save();
@@ -184,19 +210,146 @@ class ModelProvider implements IdentityProvider
     /**
      * Instantiate a fresh copy of the configured Eloquent model.
      *
-     * The configured class must be both an Eloquent `Model` and an
-     * `Authenticatable` so the provider can call `getAuthIdentifierName`,
-     * `getAuthPassword`, etc. on the returned instance.
+     * The constructor verifies the class is both an Eloquent `Model`
+     * and an `Authenticatable` so the runtime cast below is safe.
      *
-     * @return \Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable
+     * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
      */
-    protected function createModel(): Model&Authenticatable
+    protected function createModel(): Authenticatable&Model
     {
-        $class = '\\' . ltrim($this->model, '\\');
+        $class = $this->model;
 
-        /** @var \Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable $model */
-        $model = new $class();
+        $instance = new $class;
 
-        return $model;
+        assert($instance instanceof Authenticatable && $instance instanceof Model);
+
+        return $instance;
+    }
+
+    /**
+     * Drop non-string keys, empty keys, and any key containing
+     * "password" so the remaining credentials can safely compose an
+     * Eloquent `where()` call. Returns the filtered associative array.
+     *
+     * @param  array<array-key, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    private function filterCredentialKeys(#[\SensitiveParameter] array $credentials): array
+    {
+        $filtered = [];
+
+        foreach ($credentials as $key => $value) {
+
+            if (!is_string($key) || $key === '' || str_contains($key, 'password')) {
+                continue;
+            }
+
+            $filtered[$key] = $value;
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * Apply each credential to the query as a `where`/`whereIn`/closure
+     * clause. Returns `true` when every credential composed safely or
+     * `false` when any value is not a supported type — the caller
+     * should treat `false` as "refuse to authenticate".
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  array<string, mixed>  $credentials
+     * @return bool
+     */
+    private function applyCredentialClauses(
+        \Illuminate\Database\Eloquent\Builder $query,
+        #[\SensitiveParameter] array $credentials,
+    ): bool {
+
+        foreach ($credentials as $key => $value) {
+            if (!$this->applyCredentialClause($query, $key, $value)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Apply a single credential clause to the query. Returns `true`
+     * on success, `false` if the value is not a supported type.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  string  $key
+     * @param  mixed  $value
+     * @return bool
+     */
+    private function applyCredentialClause(
+        \Illuminate\Database\Eloquent\Builder $query,
+        string $key,
+        mixed $value,
+    ): bool {
+
+        return match (true) {
+            is_array($value)           => $this->applyArrayClause($query, $key, $value),
+            $value instanceof \Closure => $this->applyClosureClause($query, $value),
+            is_string($value),
+            is_int($value),
+            is_bool($value),
+            $value instanceof \Stringable => $this->applyScalarClause($query, $key, $value),
+            default                       => false,
+        };
+    }
+
+    /**
+     * Hand the supplied query to a credential closure so the consumer
+     * can compose any additional `where` constraints they need.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>): mixed  $callback
+     * @return bool
+     */
+    private function applyClosureClause(\Illuminate\Database\Eloquent\Builder $query, \Closure $callback): bool
+    {
+        $callback($query);
+
+        return true;
+    }
+
+    /**
+     * Apply an `IN` clause built from an array of credential values.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  string  $key
+     * @param  array<array-key, mixed>  $values
+     * @return bool
+     */
+    private function applyArrayClause(
+        \Illuminate\Database\Eloquent\Builder $query,
+        string $key,
+        array $values,
+    ): bool {
+        // @phpstan-ignore staticMethod.dynamicCall
+        $query->whereIn($key, $values);
+
+        return true;
+    }
+
+    /**
+     * Apply a scalar `=` clause built from a string/int/bool/Stringable
+     * credential value.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  string  $key
+     * @param  bool|int|string|\Stringable  $value
+     * @return bool
+     */
+    private function applyScalarClause(
+        \Illuminate\Database\Eloquent\Builder $query,
+        string $key,
+        bool|int|string|\Stringable $value,
+    ): bool {
+        $query->where($key, $value);
+
+        return true;
     }
 }

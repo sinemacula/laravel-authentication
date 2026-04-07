@@ -1,11 +1,10 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -28,12 +27,10 @@ use SineMacula\Laravel\Authentication\Models\Device;
 abstract class TestCase extends OrchestraTestCase
 {
     /**
-     * Register the package service provider with the Testbench app.
-     *
-     * @param  Application $app The Testbench application under construction.
-     * @return array<int, class-string>
+     * @param  mixed  $app
+     * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
-    protected function getPackageProviders($app): array
+    protected function getPackageProviders(mixed $app): array
     {
         return [
             AuthServiceProvider::class,
@@ -41,20 +38,13 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Seed the in-memory sqlite connection and the package's default
-     * `laravel-authentication` config block.
-     *
-     * Subclasses that need extra config (e.g. additional guards or
-     * providers) should override `defineEnvironment` and call
-     * `parent::defineEnvironment($app)` first.
-     *
-     * @param  Application $app The Testbench application under construction.
+     * @param  mixed  $app
      * @return void
      */
-    protected function defineEnvironment($app): void
+    protected function defineEnvironment(mixed $app): void
     {
-        /** @var ConfigRepository $config */
-        $config = $app->make(ConfigRepository::class);
+        /** @var \Illuminate\Config\Repository $config */
+        $config = app(ConfigRepository::class);
 
         $config->set('database.default', 'testing');
         $config->set('database.connections.testing', [

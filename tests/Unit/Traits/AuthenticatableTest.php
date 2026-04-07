@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
@@ -22,6 +22,8 @@ final class AuthenticatableTest extends TestCase
 {
     /**
      * The remember-token name is zeroed out for the stateless package.
+     *
+     * @return void
      */
     public function testGetRememberTokenNameIsEmptyString(): void
     {
@@ -34,6 +36,8 @@ final class AuthenticatableTest extends TestCase
 
     /**
      * The trait inherits Laravel's default identifier column name.
+     *
+     * @return void
      */
     public function testGetAuthIdentifierNameDelegatesToLaravelTrait(): void
     {
@@ -46,6 +50,8 @@ final class AuthenticatableTest extends TestCase
 
     /**
      * The trait inherits Laravel's default password column name.
+     *
+     * @return void
      */
     public function testGetAuthPasswordNameDelegatesToLaravelTrait(): void
     {

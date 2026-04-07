@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Integration\Migration;
 
@@ -8,7 +8,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversNothing;
-use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -80,9 +79,9 @@ final class DeviceMigrationCollisionTest extends TestCase
 
         $migration = $this->loadMigration();
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/Cannot install the laravel-authentication devices migration/');
-        $this->expectExceptionMessageMatches("/'devices'/");
+        $this->expectExceptionMessageMatches('/\'devices\'/');
 
         $this->runMigrationUp($migration);
     }
@@ -107,7 +106,7 @@ final class DeviceMigrationCollisionTest extends TestCase
 
         try {
             $this->runMigrationUp($migration);
-        } catch (RuntimeException) {
+        } catch (\RuntimeException) {
 
             // Expected — fall through to assertions below.
         }
@@ -167,12 +166,14 @@ final class DeviceMigrationCollisionTest extends TestCase
      * defines `up()` and `down()` directly; callers invoke via
      * `runMigrationUp()` because `up()` is not declared on the parent
      * `Migration` class.
+     *
+     * @return \Illuminate\Database\Migrations\Migration
      */
     private function loadMigration(): Migration
     {
-        $migration = require self::MIGRATION_PATH;
+        $migration = include self::MIGRATION_PATH;  // NOSONAR
 
-        if (! $migration instanceof Migration) {
+        if (!$migration instanceof Migration) {
             self::fail('Devices migration file did not return a Migration instance.');
         }
 
@@ -182,6 +183,9 @@ final class DeviceMigrationCollisionTest extends TestCase
     /**
      * Invoke the migration's `up()` method without statically calling
      * it on the parent `Migration` class (which does not declare `up`).
+     *
+     * @param  \Illuminate\Database\Migrations\Migration  $migration
+     * @return void
      */
     private function runMigrationUp(Migration $migration): void
     {

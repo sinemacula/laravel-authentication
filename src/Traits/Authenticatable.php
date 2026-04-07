@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Traits;
 
@@ -19,7 +19,11 @@ trait Authenticatable
 {
     use IlluminateAuthenticatable;
 
-    /** Stateless package: there is no remember-token column. */
+    /**
+     * Stateless package: there is no remember-token column.
+     *
+     * @return string
+     */
     public function getRememberTokenName(): string
     {
         return '';

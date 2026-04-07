@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Database;
 
@@ -33,17 +33,27 @@ final class MigrationCollisionGuardTest extends TestCase
      */
     public function testEnsureNotExistsThrowsWhenTableExists(): void
     {
-        $schema = Mockery::mock(Builder::class);
+        $schema = \Mockery::mock(Builder::class);
         $schema->shouldReceive('hasTable')
             ->once()
             ->with('devices')
             ->andReturn(true);
 
+        $connection = \Mockery::mock(\Illuminate\Database\Connection::class);
+        $connection->shouldReceive('getName')
+            ->once()
+            ->andReturn('testing');
+
+        $schema->shouldReceive('getConnection')
+            ->once()
+            ->andReturn($connection);
+
         $guard = new MigrationCollisionGuard($schema);
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Cannot install the laravel-authentication devices migration');
         $this->expectExceptionMessage('devices');
+        $this->expectExceptionMessage('testing');
 
         $guard->ensureNotExists('devices');
     }
@@ -56,7 +66,7 @@ final class MigrationCollisionGuardTest extends TestCase
      */
     public function testEnsureNotExistsSucceedsWhenTableMissing(): void
     {
-        $schema = Mockery::mock(Builder::class);
+        $schema = \Mockery::mock(Builder::class);
         $schema->shouldReceive('hasTable')
             ->once()
             ->with('devices')
@@ -78,15 +88,22 @@ final class MigrationCollisionGuardTest extends TestCase
      */
     public function testEnsureNotExistsUsesCustomTableName(): void
     {
-        $schema = Mockery::mock(Builder::class);
+        $schema = \Mockery::mock(Builder::class);
         $schema->shouldReceive('hasTable')
             ->once()
             ->with('custom_devices')
             ->andReturn(true);
 
+        $connection = \Mockery::mock(\Illuminate\Database\Connection::class);
+        $connection->shouldReceive('getName')
+            ->andReturn('testing');
+
+        $schema->shouldReceive('getConnection')
+            ->andReturn($connection);
+
         $guard = new MigrationCollisionGuard($schema);
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('custom_devices');
 
         $guard->ensureNotExists('custom_devices');

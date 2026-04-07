@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
@@ -25,15 +25,15 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  *
  * @internal
  */
-class StubIdentity extends Model implements Identity, HasPrincipals, HasDevices
+class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
 {
     use Authenticatable;
 
-    /** @var array<string> The attributes that aren't mass assignable. */
-    protected $guarded = [];
-
     /** @var \SineMacula\Laravel\Authentication\Contracts\Principal|null Test hook: principal returned by `resolveDefaultPrincipal()`. */
     public ?Principal $defaultPrincipal = null;
+
+    /** @var array<string> The attributes that aren't mass assignable. */
+    protected $guarded = [];
 
     /**
      * Eloquent relation builder for the identity's principals.
@@ -41,6 +41,8 @@ class StubIdentity extends Model implements Identity, HasPrincipals, HasDevices
      * Tests typically override this via a Mockery partial. The default
      * returns a query builder against this model so PHPStan and Eloquent
      * remain happy without a database connection.
+     *
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     public function principals(): Builder
     {
@@ -49,6 +51,8 @@ class StubIdentity extends Model implements Identity, HasPrincipals, HasDevices
 
     /**
      * Eloquent relation builder for the identity's devices.
+     *
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     public function devices(): Builder
     {
@@ -57,6 +61,8 @@ class StubIdentity extends Model implements Identity, HasPrincipals, HasDevices
 
     /**
      * Application-defined default principal lookup.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     public function resolveDefaultPrincipal(): ?Principal
     {

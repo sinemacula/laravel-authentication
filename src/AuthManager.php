@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication;
 
@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that implements the package's
- * `Factory` marker contract and exposes the six contextual accessors
+ * `Factory` marker contract and exposes seven contextual accessors
  * (`identity`, `principal`, `device`, `organization`, `scope`,
  * `isInternal`, `isExternal`) directly on the manager so the
  * framework `Auth::principal()` etc. calls work without relying on
@@ -34,7 +34,33 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 class AuthManager extends IlluminateAuthManager implements Factory
 {
     /**
+     * Adopt the guard-driver and user-provider-driver registrations
+     * from another `Illuminate\Auth\AuthManager` instance.
+     *
+     * Used by `AuthServiceProvider` when wrapping the framework's
+     * existing manager so that any `Auth::extend(...)` /
+     * `Auth::provider(...)` calls made before this provider booted
+     * survive the container swap. Protected access from a descendant
+     * class is the legitimate replacement for reflection here.
+     *
+     * @param  \Illuminate\Auth\AuthManager  $existing
+     * @return void
+     */
+    public function inheritDriversFrom(IlluminateAuthManager $existing): void
+    {
+        if ($existing->customCreators !== []) {
+            $this->customCreators = $existing->customCreators;
+        }
+
+        if ($existing->customProviderCreators !== []) {
+            $this->customProviderCreators = $existing->customProviderCreators;
+        }
+    }
+
+    /**
      * The active identity, when the active guard is contextual.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     public function identity(): ?Identity
     {
@@ -45,6 +71,8 @@ class AuthManager extends IlluminateAuthManager implements Factory
 
     /**
      * The active principal, when the active guard is contextual.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     public function principal(): ?Principal
     {
@@ -55,6 +83,8 @@ class AuthManager extends IlluminateAuthManager implements Factory
 
     /**
      * The active device, when the active guard is contextual.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
      */
     public function device(): ?Device
     {
@@ -65,6 +95,8 @@ class AuthManager extends IlluminateAuthManager implements Factory
 
     /**
      * The active organization, when the active guard is contextual.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Organization
      */
     public function organization(): ?Organization
     {
@@ -75,6 +107,8 @@ class AuthManager extends IlluminateAuthManager implements Factory
 
     /**
      * The active organization scope string, when resolvable.
+     *
+     * @return ?string
      */
     public function scope(): ?string
     {
@@ -87,6 +121,8 @@ class AuthManager extends IlluminateAuthManager implements Factory
      * Whether the active principal is internal to its organization.
      *
      * Returns `false` for non-contextual guards or unauthenticated requests.
+     *
+     * @return bool
      */
     public function isInternal(): bool
     {
@@ -99,6 +135,8 @@ class AuthManager extends IlluminateAuthManager implements Factory
      * Whether the active principal is external to its organization.
      *
      * Returns `false` for non-contextual guards or unauthenticated requests.
+     *
+     * @return bool
      */
     public function isExternal(): bool
     {

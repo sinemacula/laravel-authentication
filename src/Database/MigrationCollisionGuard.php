@@ -1,11 +1,10 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Database;
 
 use Illuminate\Database\Schema\Builder;
-use RuntimeException;
 
 /**
  * Migration collision guard.
@@ -19,6 +18,11 @@ use RuntimeException;
  */
 final class MigrationCollisionGuard
 {
+    /**
+     * Constructor.
+     *
+     * @param  \Illuminate\Database\Schema\Builder  $schema
+     */
     public function __construct(
 
         /** Schema builder used to inspect the active connection. */
@@ -29,19 +33,26 @@ final class MigrationCollisionGuard
     /**
      * Throw if the configured devices table already exists.
      *
-     * @param  string $table The configured devices table name to check.
+     * @param  string  $table
      * @return void
      *
-     * @throws \RuntimeException When the supplied table already exists.
+     * @throws \SineMacula\Laravel\Authentication\Database\DeviceTableAlreadyExistsException
      */
     public function ensureNotExists(string $table): void
     {
-        if ($this->schema->hasTable($table)) {
-            throw new RuntimeException(sprintf(
-                "Cannot install the laravel-authentication devices migration: a table named '%s' already exists. "
-                . 'Set `device.table` in config/laravel-authentication.php to a different name and re-run the migration.',
-                $table
-            ));
+        if (!$this->schema->hasTable($table)) {
+            return;
         }
+
+        $connection = $this->schema->getConnection()->getName() ?? 'default';
+
+        $message = sprintf(
+            'Cannot install the laravel-authentication devices migration: a table named \'%s\' already exists on connection \'%s\'.'
+            . ' Set `device.table` in config/laravel-authentication.php to a different name and re-run the migration.',
+            $table,
+            $connection,
+        );
+
+        throw new DeviceTableAlreadyExistsException($message);
     }
 }

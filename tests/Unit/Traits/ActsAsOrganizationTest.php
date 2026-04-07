@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
@@ -8,7 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ActsAsOrganization;
-use Stringable;
+use Tests\Unit\Traits\Fixtures\ActsAsOrganizationTestBackedScope;
+use Tests\Unit\Traits\Fixtures\ActsAsOrganizationTestUnitScope;
 
 /**
  * Unit tests for the package ActsAsOrganization trait.
@@ -123,7 +124,12 @@ final class ActsAsOrganizationTest extends TestCase
             protected $guarded = [];
         };
 
-        $scope = new class implements Stringable {
+        $scope = new class implements \Stringable {
+            /**
+             * __Tostring.
+             *
+             * @return string
+             */
             public function __toString(): string
             {
                 return 'stringable-scope';
@@ -135,34 +141,4 @@ final class ActsAsOrganizationTest extends TestCase
 
         self::assertSame('stringable-scope', $organization->getOrganizationScope());
     }
-}
-
-/**
- * Fixture backed enum exercising the BackedEnum branch of the
- * ActsAsOrganization scope resolver.
- *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
- *
- * @internal
- */
-enum ActsAsOrganizationTestBackedScope: string
-{
-    case Internal = 'internal';
-    case External = 'external';
-}
-
-/**
- * Fixture unit enum exercising the non-backed UnitEnum branch of the
- * ActsAsOrganization scope resolver.
- *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
- *
- * @internal
- */
-enum ActsAsOrganizationTestUnitScope
-{
-    case Internal;
-    case External;
 }

@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Models;
 
@@ -29,29 +29,6 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversNothing]
 final class DeviceTest extends TestCase
 {
-    /**
-     * Define the test environment: in-memory sqlite and package config
-     * defaults that the Device model depends on.
-     *
-     * @param  \Illuminate\Foundation\Application $app The Testbench application under construction.
-     * @return void
-     */
-    protected function defineEnvironment($app): void
-    {
-        /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(ConfigRepository::class);
-
-        $config->set('database.default', 'testing');
-        $config->set('database.connections.testing', [
-            'driver'   => 'sqlite',
-            'database' => ':memory:',
-            'prefix'   => '',
-        ]);
-
-        $config->set('laravel-authentication.device.model', Device::class);
-        $config->set('laravel-authentication.device.table', 'devices');
-    }
-
     /**
      * Set up the in-memory schema for the Device table after the
      * Testbench application is ready.
@@ -97,7 +74,7 @@ final class DeviceTest extends TestCase
     {
         config()->set('laravel-authentication.device.table', 'custom_devices');
 
-        $device = new Device();
+        $device = new Device;
 
         self::assertSame('custom_devices', $device->getTable());
     }
@@ -110,7 +87,7 @@ final class DeviceTest extends TestCase
      */
     public function testGeneratesUlidPrimaryKeyOnInsert(): void
     {
-        $device = new Device();
+        $device = new Device;
         $device->save();
 
         self::assertIsString($device->id);
@@ -124,7 +101,7 @@ final class DeviceTest extends TestCase
      */
     public function testCastsLastLoggedInAtToCarbon(): void
     {
-        $device = new Device();
+        $device = new Device;
         $device->forceFill(['last_logged_in_at' => '2026-04-06 12:00:00'])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
@@ -139,7 +116,7 @@ final class DeviceTest extends TestCase
      */
     public function testCastsLastMfaVerifiedAtToCarbon(): void
     {
-        $device = new Device();
+        $device = new Device;
         $device->forceFill(['last_mfa_verified_at' => '2026-04-06 12:00:00'])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
@@ -154,7 +131,7 @@ final class DeviceTest extends TestCase
      */
     public function testAuthenticatableRelationIsMorphTo(): void
     {
-        $device = new Device();
+        $device = new Device;
 
         self::assertInstanceOf(MorphTo::class, $device->authenticatable());
     }
@@ -174,5 +151,30 @@ final class DeviceTest extends TestCase
             StubDevice::class,
             config('laravel-authentication.device.model'),
         );
+    }
+
+    /**
+     * Define the test environment: in-memory sqlite and package config
+     * defaults that the Device model depends on.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        assert($app instanceof \Illuminate\Foundation\Application);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('database.default', 'testing');
+        $config->set('database.connections.testing', [
+            'driver'   => 'sqlite',
+            'database' => ':memory:',
+            'prefix'   => '',
+        ]);
+
+        $config->set('laravel-authentication.device.model', Device::class);
+        $config->set('laravel-authentication.device.table', 'devices');
     }
 }

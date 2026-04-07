@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
@@ -18,9 +18,17 @@ use Illuminate\Contracts\Database\Eloquent\Builder;
  */
 interface HasPrincipals
 {
-    /** Eloquent relation builder for the identity's principals. */
+    /**
+     * Eloquent relation builder for the identity's principals.
+     *
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
+     */
     public function principals(): Builder;
 
-    /** Application-defined default principal lookup. */
+    /**
+     * Application-defined default principal lookup.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
     public function resolveDefaultPrincipal(): ?Principal;
 }

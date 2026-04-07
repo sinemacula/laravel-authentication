@@ -1,10 +1,9 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Resolvers;
 
-use LogicException;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -33,7 +32,12 @@ final class DefaultPrincipalResolver implements PrincipalResolver
      *  3. 3D path: if the identity implements `HasPrincipals`, delegate to
      *     `$identity->resolveDefaultPrincipal()`.
      *  4. Otherwise throw a `\LogicException` naming the offending class.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed|null  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
+    #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {
         if ($hint !== null && $identity instanceof HasPrincipals) {
@@ -53,9 +57,6 @@ final class DefaultPrincipalResolver implements PrincipalResolver
             return $identity->resolveDefaultPrincipal();
         }
 
-        throw new LogicException(sprintf(
-            'Cannot resolve a principal for identity %s: it implements neither Principal nor HasPrincipals.',
-            $identity::class,
-        ));
+        throw new \LogicException(sprintf('Cannot resolve a principal for identity %s: it implements neither Principal nor HasPrincipals.', $identity::class));
     }
 }

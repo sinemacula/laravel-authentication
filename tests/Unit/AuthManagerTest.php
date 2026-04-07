@@ -1,13 +1,12 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
-use ReflectionClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Factory;
@@ -29,19 +28,6 @@ use SineMacula\Laravel\Authentication\Contracts\Factory;
 final class AuthManagerTest extends TestCase
 {
     /**
-     * Register the package service provider against the Testbench
-     * application so the `auth` binding is overridden by the package
-     * subclass during boot.
-     *
-     * @param  \Illuminate\Foundation\Application $app The Testbench application under construction.
-     * @return array<int, class-string>
-     */
-    protected function getPackageProviders($app): array
-    {
-        return [AuthServiceProvider::class];
-    }
-
-    /**
      * The `auth` container binding resolves to the package
      * `AuthManager` subclass after the service provider boots.
      *
@@ -61,11 +47,11 @@ final class AuthManagerTest extends TestCase
      */
     public function testAuthManagerExtendsLaravelAuthManager(): void
     {
-        $reflection = new ReflectionClass(AuthManager::class);
+        $reflection = new \ReflectionClass(AuthManager::class);
 
         self::assertTrue(
             $reflection->isSubclassOf(IlluminateAuthManager::class),
-            'Package AuthManager must extend Illuminate\\Auth\\AuthManager.',
+            'Package AuthManager must extend Illuminate\Auth\AuthManager.',
         );
     }
 
@@ -78,11 +64,24 @@ final class AuthManagerTest extends TestCase
      */
     public function testAuthManagerImplementsPackageFactoryContract(): void
     {
-        $reflection = new ReflectionClass(AuthManager::class);
+        $reflection = new \ReflectionClass(AuthManager::class);
 
         self::assertTrue(
             $reflection->implementsInterface(Factory::class),
             'Package AuthManager must implement the package Factory contract.',
         );
+    }
+
+    /**
+     * Register the package service provider against the Testbench
+     * application so the `auth` binding is overridden by the package
+     * subclass during boot.
+     *
+     * @param  mixed  $app
+     * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
+     */
+    protected function getPackageProviders(mixed $app): array
+    {
+        return [AuthServiceProvider::class];
     }
 }

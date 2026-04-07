@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
@@ -25,6 +25,10 @@ interface PrincipalResolver
      * The optional `$hint` is an arbitrary value (typically a principal
      * id from a token payload) that the resolver may use to short-circuit
      * the default lookup.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed|null  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     public function resolve(Identity $identity, mixed $hint = null): ?Principal;
 }

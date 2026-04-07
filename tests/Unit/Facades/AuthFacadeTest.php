@@ -1,13 +1,12 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Tests\Unit\Facades;
 
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
-use ReflectionClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Organization;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -31,6 +30,11 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 #[CoversNothing]
 final class AuthFacadeTest extends TestCase
 {
+    /**
+     * Setup.
+     *
+     * @return void
+     */
     protected function setUp(): void
     {
         parent::setUp();
@@ -46,6 +50,11 @@ final class AuthFacadeTest extends TestCase
         IlluminateAuth::macro('isExternal', static fn (): bool => false);
     }
 
+    /**
+     * Teardown.
+     *
+     * @return void
+     */
     protected function tearDown(): void
     {
         IlluminateAuth::flushMacros();
@@ -61,11 +70,11 @@ final class AuthFacadeTest extends TestCase
      */
     public function testPackageFacadeExtendsFrameworkFacade(): void
     {
-        $reflection = new ReflectionClass(Auth::class);
+        $reflection = new \ReflectionClass(Auth::class);
 
         self::assertTrue(
             $reflection->isSubclassOf(IlluminateAuth::class),
-            'Package Auth facade must extend Illuminate\\Support\\Facades\\Auth.',
+            'Package Auth facade must extend Illuminate\Support\Facades\Auth.',
         );
     }
 
