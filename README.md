@@ -71,6 +71,24 @@ AUTHENTICATION_JWT_SECRET="a-strong-random-value-of-at-least-32-bytes"
 
 The package refuses to boot with an empty secret - silent acceptance of forged tokens is never the default.
 
+### Minimal setup: access-only, no refresh, no devices
+
+The device entity and refresh-token rotation are opt-in. If you only need stateless access tokens (the common
+pattern for M2M APIs, simple backends, and short-lived session flows), you can skip the devices migration
+entirely:
+
+1. Publish only the config: `php artisan vendor:publish --tag=authentication-config`. Skip the
+   `authentication-migrations` tag.
+2. Do not implement the `HasDevices` capability contract on your identity model.
+3. Issue access tokens with a `null` device: `$tokens->issueAccessToken($identity, $principal, null)`. The
+   `did` claim is omitted.
+4. Do not call `$guard->refresh($refreshToken)`. Clients re-authenticate when their access token expires.
+
+In this mode the package never touches a `devices` table, `Auth::device()` returns `null`, and the full
+identity/principal contextual surface (`Auth::identity()`, `Auth::principal()`, `Auth::organization()`,
+`Auth::scope()`) still works normally. Add the migration and refresh flow later if the use case grows into
+it - it's additive, not a rewrite.
+
 ## Configuration
 
 Register guards and providers in `config/auth.php` exactly as you would with any first-party guard:
