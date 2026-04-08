@@ -132,6 +132,37 @@ against the other. Any field from the package `jwt` block is overridable (`secre
 `algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`), so each
 guard can also carry its own kid-rotation set if you want fully independent signing-key lifecycles.
 
+### Per-guard basic-auth identifier field
+
+The same layering applies to the basic driver via `identifier_field`. Register multiple basic guards backed by
+different providers and looked up by different columns — e.g. an `email`-keyed web guard for users and a
+`key_id`-keyed tenant API guard for per-tenant service credentials:
+
+```php
+'guards' => [
+    'cli' => [
+        'driver'   => 'basic',
+        'provider' => 'users',
+        // identifier_field omitted — falls back to `authentication.credentials.identifier_field` (default `email`)
+    ],
+    'tenant_api' => [
+        'driver'           => 'basic',
+        'provider'         => 'tenant_api_keys',
+        'identifier_field' => 'key_id',
+    ],
+],
+
+'providers' => [
+    'tenant_api_keys' => [
+        'driver' => 'model',
+        'model'  => App\Models\TenantApiKey::class,
+    ],
+],
+```
+
+The `TenantApiKey` model implements `Identity` (and `Principal` in 2D mode), carries whatever tenant foreign
+key your domain uses, and is hashed/verified against the standard Laravel hasher just like a user password.
+
 ### 2D adoption (identity is the principal)
 
 The simplest shape. One model implements both `Identity` and `Principal` — the user who logs in *is* the actor on

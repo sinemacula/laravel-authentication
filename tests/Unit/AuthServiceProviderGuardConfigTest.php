@@ -7,21 +7,28 @@ namespace Tests\Unit;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Unit tests for `AuthServiceProvider::buildJwtTokenService()` and its
- * per-guard override layering.
+ * Unit tests for the per-guard config override layering on
+ * `AuthServiceProvider`'s guard factories.
  *
- * Covers the four-way resolution matrix for each JWT field: the
- * per-guard block under `auth.guards.<name>.jwt.*` takes precedence
- * over the package-wide `authentication.jwt.*` defaults, so consumers
- * can register multiple jwt guards with distinct secrets, audiences,
- * and kid rotation sets in a single `config/auth.php`.
+ * Covers two override surfaces:
  *
- * Split out of `AuthServiceProviderTest` so each class stays below the
- * 20-method-per-class threshold (radarlint S1448).
+ * - `auth.guards.<name>.jwt.*` for the jwt driver — secret, keys,
+ *   audience, issuer, TTLs, etc. layered over the package-wide
+ *   `authentication.jwt.*` defaults.
+ * - `auth.guards.<name>.identifier_field` for the basic driver —
+ *   lookup column layered over the package-wide
+ *   `authentication.credentials.identifier_field` default.
+ *
+ * Together these let consumers register multiple guards with
+ * distinct trust boundaries in a single `config/auth.php`.
+ *
+ * Split out of `AuthServiceProviderTest` so each class stays below
+ * the 20-method-per-class threshold (radarlint S1448).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -29,7 +36,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * @internal
  */
 #[CoversClass(AuthServiceProvider::class)]
-final class AuthServiceProviderJwtConfigTest extends TestCase
+final class AuthServiceProviderGuardConfigTest extends TestCase
 {
     /** @var string Shared package-default secret used across the override test cases. */
     private const string PACKAGE_SECRET = 'package-default-secret-with-32-bytes!';
@@ -135,6 +142,48 @@ final class AuthServiceProviderJwtConfigTest extends TestCase
     }
 
     /**
+     * A per-guard `identifier_field` override on the basic guard's
+     * config block wins over the package-wide default, so consumers
+     * can register multiple basic guards that look up credentials by
+     * different columns (e.g. `email` for web users and `key_id` for
+     * tenant API keys).
+     *
+     * @return void
+     */
+    public function testBasicGuardAppliesPerGuardIdentifierFieldOverride(): void
+    {
+        config()->set('authentication.credentials.identifier_field', 'email');
+
+        $guard = AuthServiceProvider::createBasicGuard($this->app, 'tenant_api', [
+            'driver'           => 'basic',
+            'provider'         => 'identities',
+            'identifier_field' => 'key_id',
+        ]);
+
+        self::assertSame('key_id', $this->readGuardProperty($guard, 'identifierField'));
+    }
+
+    /**
+     * With no per-guard `identifier_field` override, `createBasicGuard`
+     * falls back to the package-wide
+     * `authentication.credentials.identifier_field` default —
+     * backwards-compatible with single-guard consumers.
+     *
+     * @return void
+     */
+    public function testBasicGuardFallsBackToPackageIdentifierField(): void
+    {
+        config()->set('authentication.credentials.identifier_field', 'email');
+
+        $guard = AuthServiceProvider::createBasicGuard($this->app, 'cli', [
+            'driver'   => 'basic',
+            'provider' => 'identities',
+        ]);
+
+        self::assertSame('email', $this->readGuardProperty($guard, 'identifierField'));
+    }
+
+    /**
      * Register the package service provider against the Testbench
      * application so the container has the package config bindings.
      *
@@ -144,6 +193,27 @@ final class AuthServiceProviderJwtConfigTest extends TestCase
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];
+    }
+
+    /**
+     * Register a stub auth provider the basic-guard factory can
+     * resolve via `IlluminateAuth::createUserProvider()` during the
+     * identifier-field override tests.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        assert($app instanceof \Illuminate\Foundation\Application);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(\Illuminate\Config\Repository::class);
+
+        $config->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => \Tests\Unit\Stubs\StubAuthenticatableModel::class,
+        ]);
     }
 
     /**
@@ -178,5 +248,21 @@ final class AuthServiceProviderJwtConfigTest extends TestCase
         $reflectionProperty = (new \ReflectionClass($service))->getProperty($property);
 
         return $reflectionProperty->getValue($service);    // NOSONAR
+    }
+
+    /**
+     * Read a private / readonly property off a `BasicGuard` instance
+     * via reflection. Used by the identifier-field override tests to
+     * inspect the resolved lookup column directly.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\BasicGuard  $guard
+     * @param  string  $property
+     * @return mixed
+     */
+    private function readGuardProperty(BasicGuard $guard, string $property): mixed
+    {
+        $reflectionProperty = (new \ReflectionClass($guard))->getProperty($property);
+
+        return $reflectionProperty->getValue($guard);    // NOSONAR
     }
 }

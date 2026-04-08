@@ -143,9 +143,15 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Construct a `BasicGuard` from the supplied container, guard
-     * name, and Laravel guard config block. Reads the configurable
-     * identifier field from package config and wires the request
-     * rebind hook before returning.
+     * name, and Laravel guard config block.
+     *
+     * The identifier field is resolved guard-first: if the guard
+     * config block carries an `identifier_field` value, that wins;
+     * otherwise the package-wide
+     * `authentication.credentials.identifier_field` default is used.
+     * This lets consumers register multiple basic guards that look
+     * up credentials by different columns — for example, a web guard
+     * keyed by `email` and a tenant API guard keyed by `key_id`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -159,8 +165,12 @@ final class AuthServiceProvider extends ServiceProvider
         /** @var \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider */
         $provider = IlluminateAuth::createUserProvider(is_string($providerName) ? $providerName : '');
 
-        $repository      = $app->make(ConfigRepository::class);
-        $identifierField = $repository->string('authentication.credentials.identifier_field', 'email');
+        $guardIdentifierField = $config['identifier_field'] ?? null;
+
+        $identifierField = is_string($guardIdentifierField) && $guardIdentifierField !== ''
+            ? $guardIdentifierField
+            : $app->make(ConfigRepository::class)
+                ->string('authentication.credentials.identifier_field', 'email');
 
         $guard = new BasicGuard(
             $name,
