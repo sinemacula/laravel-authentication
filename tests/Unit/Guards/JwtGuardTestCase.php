@@ -108,7 +108,7 @@ abstract class JwtGuardTestCase extends TestCase
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
 
         Schema::create('stub_devices', static function (Blueprint $blueprint): void {
-            $blueprint->ulid('id')->primary();
+            $blueprint->uuid('id')->primary();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('os')->default('');

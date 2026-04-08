@@ -78,7 +78,7 @@ final class DeviceModelOverrideTest extends TestCase
         // next instantiation.
         Schema::create('custom_devices', static function (Blueprint $blueprint): void {
 
-            $blueprint->ulid('id')->primary();
+            $blueprint->uuid('id')->primary();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('os')->default('');

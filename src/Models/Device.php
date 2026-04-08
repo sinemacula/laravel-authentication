@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Models;
 
-use Illuminate\Database\Eloquent\Concerns\HasUlids;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Config;
@@ -15,8 +15,9 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * Default shipped Device Eloquent model.
  *
  * Polymorphic device record bound to an authenticatable identity via
- * the `authenticatable()` morphTo relation. Uses a ULID primary key
- * (NFR-10). Swappable via `config('authentication.device.model')`
+ * the `authenticatable()` morphTo relation. Uses a UUID v7 primary
+ * key (RFC 9562, time-ordered so inserts append to the B-tree).
+ * Swappable via `config('authentication.device.model')`
  * and `device.table`.
  *
  * Intentionally non-`final` so consumers can either point
@@ -40,7 +41,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 class Device extends Model implements DeviceContract
 {
     use ActsAsDevice;
-    use HasUlids;
+    use HasUuids;
 
     /** @var list<string> The attributes that are mass assignable. */
     protected $fillable = [

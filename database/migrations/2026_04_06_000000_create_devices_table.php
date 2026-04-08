@@ -26,13 +26,17 @@ return new class extends Migration {
         (new MigrationCollisionGuard($schema))->ensureNotExists($table);
 
         Schema::create($table, static function (Blueprint $blueprint) use ($refreshKeyColumn): void {
-            $blueprint->ulid('id')->primary();
+            $blueprint->uuid('id')->primary();
 
-            // Polymorphic relation columns + composite index. `morphs()` is
-            // deliberate: it picks the right id column width for string/int
-            // identity keys and indexes (type, id) in one step, which is the
-            // query shape the guard issues.
-            $blueprint->morphs('authenticatable');
+            // Polymorphic relation columns — stored as plain strings so the
+            // same table works whether the consumer's identity model uses
+            // integer, UUID, or ULID keys. `morphs()` would hardcode the id
+            // column to `unsignedBigInteger` and break non-integer identities.
+            // The composite index matches the lookup shape the guard issues
+            // (type + id together).
+            $blueprint->string('authenticatable_type');
+            $blueprint->string('authenticatable_id');
+            $blueprint->index(['authenticatable_type', 'authenticatable_id']);
 
             $blueprint->string('os');
             // SHA-256 hex digest (64 characters) of the plaintext rotation

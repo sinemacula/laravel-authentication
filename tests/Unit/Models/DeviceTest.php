@@ -41,7 +41,7 @@ final class DeviceTest extends TestCase
 
         Schema::create('devices', static function (Blueprint $blueprint): void {
 
-            $blueprint->ulid('id')->primary();
+            $blueprint->uuid('id')->primary();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('os')->default('');
@@ -89,17 +89,17 @@ final class DeviceTest extends TestCase
 
     /**
      * Asserts the Device model populates the `id` column with a
-     * 26-character ULID on insert via HasUlids.
+     * 36-character UUID v7 on insert via HasUuids.
      *
      * @return void
      */
-    public function testGeneratesUlidPrimaryKeyOnInsert(): void
+    public function testGeneratesUuidPrimaryKeyOnInsert(): void
     {
         $device = new Device;
         $device->save();
 
         self::assertIsString($device->id);
-        self::assertSame(26, strlen($device->id));
+        self::assertSame(36, strlen($device->id));
     }
 
     /**

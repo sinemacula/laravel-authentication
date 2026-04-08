@@ -18,7 +18,7 @@ use Carbon\CarbonInterface;
 interface Device
 {
     /**
-     * Return the device's stable identifier (typically the ULID primary key).
+     * Return the device's stable identifier (typically the UUID v7 primary key).
      *
      * @return mixed
      */

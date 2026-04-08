@@ -10,7 +10,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  *
  * RFC 7519 §4.1.2 requires `sub` (and by extension `pid`/`did`/`jti`)
  * to be a `StringOrURI`, but the contract getters legitimately return
- * `mixed` (Eloquent integer keys, ULID strings, value objects). This
+ * `mixed` (Eloquent integer keys, UUID strings, value objects). This
  * single helper centralises the coercion so the JWT service and the
  * fail-closed pid-hint comparison in `JwtGuard` cannot drift apart.
  *

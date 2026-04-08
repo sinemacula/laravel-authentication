@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
-use Illuminate\Database\Eloquent\Concerns\HasUlids;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
@@ -31,7 +31,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 class StubDevice extends Model implements Device
 {
     use ActsAsDevice;
-    use HasUlids;
+    use HasUuids;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'stub_devices';

@@ -106,7 +106,7 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     {
         $device = new StubDevice;
         $device->forceFill([
-            'id'          => '01HV000000000000000000DEV1',
+            'id'          => '019590e0-0000-7000-8000-000000000001',
             'os'          => 'ios',
             'refresh_key' => 'rk',
         ]);

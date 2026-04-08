@@ -48,7 +48,7 @@ final class UpdateDeviceTimestampTest extends TestCase
 
         Schema::create('stub_devices', static function (Blueprint $blueprint): void {
 
-            $blueprint->ulid('id')->primary();
+            $blueprint->uuid('id')->primary();
             $blueprint->string('os')->default('');
             $blueprint->string('refresh_key')->default('');
             $blueprint->timestamp('last_logged_in_at')->nullable();
