@@ -20,15 +20,15 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  *
  * @internal
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 #[CoversClass(ModelProvider::class)]
 final class ModelProviderTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    /** @var \Illuminate\Contracts\Hashing\Hasher&\Mockery\MockInterface The mocked password hasher collaborator. */
+    /** @var \Illuminate\Contracts\Hashing\Hasher&\Mockery\MockInterface Mocked password hasher collaborator. */
     private MockInterface $hasher;
 
     /**
@@ -285,7 +285,8 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * validateCredentials delegates to Hasher::check when a plain password is provided.
+     * validateCredentials delegates to Hasher::check when a plain
+     * password is provided.
      *
      * @return void
      */
@@ -325,7 +326,8 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * rehashPasswordIfRequired is a no-op when the user is not an Eloquent model.
+     * rehashPasswordIfRequired is a no-op when the user is not an
+     * Eloquent model.
      *
      * @return void
      */
@@ -343,7 +345,8 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * rehashPasswordIfRequired skips rehash when Hasher::needsRehash returns false.
+     * rehashPasswordIfRequired skips rehash when Hasher::needsRehash
+     * returns false.
      *
      * @return void
      */

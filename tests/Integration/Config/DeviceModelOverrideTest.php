@@ -35,8 +35,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * JWT guard's device-hydration path to route through the override
  * (REQ-10 / AC-10).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

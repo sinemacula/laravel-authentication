@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * individual tests may extend it for hint-based or relation-based
  * scenarios (Mockery cannot subclass or partial-mock a final class).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

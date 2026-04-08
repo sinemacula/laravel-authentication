@@ -19,8 +19,8 @@ use Tests\Unit\Traits\Fixtures\ActsAsOrganizationTestUnitScope;
  * trait's real consumers carry their own coverage via the
  * integration suites.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
@@ -44,7 +44,7 @@ final class ActsAsOrganizationTest extends TestCase
             /** @var string The "type" of the primary key ID. */
             protected $keyType = 'string';
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -64,7 +64,7 @@ final class ActsAsOrganizationTest extends TestCase
         $organization = new class extends Model {
             use ActsAsOrganization;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -85,7 +85,7 @@ final class ActsAsOrganizationTest extends TestCase
         $organization = new class extends Model {
             use ActsAsOrganization;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -105,7 +105,7 @@ final class ActsAsOrganizationTest extends TestCase
         $organization = new class extends Model {
             use ActsAsOrganization;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -125,7 +125,7 @@ final class ActsAsOrganizationTest extends TestCase
         $organization = new class extends Model {
             use ActsAsOrganization;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 

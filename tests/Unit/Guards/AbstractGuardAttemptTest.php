@@ -28,8 +28,8 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * stays well below the project's 20-method-per-class threshold
  * (radarlint S1448).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
@@ -99,7 +99,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * A successful attempt fires Login with positional (guard, identity, false).
+     * A successful attempt fires Login with positional (guard, identity,
+     * false).
      *
      * @return void
      */

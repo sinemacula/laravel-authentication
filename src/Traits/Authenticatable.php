@@ -18,8 +18,8 @@ use Illuminate\Auth\Authenticatable as IlluminateAuthenticatable;
  * if any consumer ever pointed it at a model using this trait. The
  * explicit no-ops below remove that footgun.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 trait Authenticatable
 {

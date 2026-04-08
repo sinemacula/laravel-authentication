@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Contracts\Factory;
  * test asserts a single inheritance/contract characteristic of the
  * resolved binding.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

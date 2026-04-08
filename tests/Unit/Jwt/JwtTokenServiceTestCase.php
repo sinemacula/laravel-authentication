@@ -23,8 +23,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * well below the project's 20-method-per-class threshold (radarlint
  * S1448).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

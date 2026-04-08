@@ -17,8 +17,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * device) the `JwtGuard` should bind on its lifecycle, plus the
  * newly issued access + refresh token pair.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class ExchangedRefresh
 {

@@ -25,8 +25,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 #[CoversClass(ContextualGuard::class)]
 final class ContextualGuardTest extends TestCase

@@ -44,8 +44,8 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static bool isExternal()
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class Auth extends IlluminateAuth
 {

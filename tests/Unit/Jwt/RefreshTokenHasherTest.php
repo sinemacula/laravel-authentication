@@ -11,8 +11,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 /**
  * Unit tests for the RefreshTokenHasher rotation-id primitive.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

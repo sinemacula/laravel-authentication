@@ -14,8 +14,8 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * value in `$refreshToken` immediately — the previous value will no
  * longer authenticate.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class RefreshResult
 {

@@ -13,41 +13,36 @@ namespace SineMacula\Laravel\Authentication\Events;
  * principal_inactive, principal_unresolved, authenticatable_missing)
  * without scraping log messages.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class RefreshFailed
 {
-    /** @var string Reason: the token could not be decoded, was expired, had the wrong `typ`, or failed iss/aud checks. */
+    /** @var string Token decode/expiry/typ/iss/aud failure. */
     public const string REASON_TOKEN_INVALID = 'token_invalid';
 
-    /** @var string Reason: the token's `did` claim did not resolve to any device row. */
+    /** @var string Device id did not resolve. */
     public const string REASON_DEVICE_UNKNOWN = 'device_unknown';
 
-    /** @var string Reason: the token's rotation id did not hash-equal the device's stored digest. */
+    /** @var string Rotation id did not match digest. */
     public const string REASON_ROTATION_MISMATCH = 'rotation_mismatch';
 
-    /**
-     * @var string Reason: the token's rotation id verified against the stored digest, but the atomic CAS update
-     *             affected zero rows — meaning another refresh request rotated the digest between the read and
-     *             the write. Classic refresh-token replay signal. The exchange service revokes the device in
-     *             response, forcing the entire token family to re-authenticate.
-     */
+    /** @var string CAS lost — replay/concurrent rotation; device family revoked. */
     public const string REASON_ROTATION_REUSE = 'rotation_reuse';
 
-    /** @var string Reason: the device row carries a non-null `revoked_at`, so the refresh is rejected. */
+    /** @var string Device row marked revoked. */
     public const string REASON_DEVICE_REVOKED = 'device_revoked';
 
-    /** @var string Reason: the device's `authenticatable` relation did not resolve to an Identity. */
+    /** @var string Device authenticatable relation missing. */
     public const string REASON_AUTHENTICATABLE_MISSING = 'authenticatable_missing';
 
-    /** @var string Reason: the resolved identity reported `isActive() === false`. */
+    /** @var string Resolved identity reported inactive. */
     public const string REASON_IDENTITY_INACTIVE = 'identity_inactive';
 
-    /** @var string Reason: the principal resolver returned `null` for the identity. */
+    /** @var string Principal resolver returned null. */
     public const string REASON_PRINCIPAL_UNRESOLVED = 'principal_unresolved';
 
-    /** @var string Reason: the resolved principal reported `isActive() === false`. */
+    /** @var string Resolved principal reported inactive. */
     public const string REASON_PRINCIPAL_INACTIVE = 'principal_inactive';
 
     /**
@@ -62,10 +57,16 @@ final class RefreshFailed
         /** Name of the guard that attempted the refresh. */
         public string $guard,
 
-        /** Machine-readable failure reason — one of the REASON_* constants. */
+        /**
+         * Machine-readable failure reason — one of the REASON_*
+         * constants.
+         */
         public string $reason,
 
-        /** Device identifier from the token, when the token was parseable enough to yield one. */
+        /**
+         * Device identifier from the token, when the token was
+         * parseable enough to yield one.
+         */
         public ?string $deviceId = null,
 
     ) {}

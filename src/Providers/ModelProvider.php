@@ -6,25 +6,25 @@ namespace SineMacula\Laravel\Authentication\Providers;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 
 /**
  * Eloquent-backed identity provider.
  *
- * Implements `IdentityProvider` (which extends Laravel's `UserProvider`)
- * with the same surface as Laravel's first-party `EloquentUserProvider`,
- * minus the remember-me token methods which this stateless package
- * leaves inert.
+ * Implements `IdentityProvider` (which extends Laravel's `UserProvider`) with
+ * the same surface as Laravel's first-party `EloquentUserProvider`, minus the
+ * remember-me token methods which this stateless package leaves inert.
  *
- * Intentionally non-`final` so consumers can subclass to plug in their
- * own retrieval logic (multi-tenant scoping, soft-deleted exclusion,
+ * Intentionally non-`final` so consumers can subclass to plug in their own
+ * retrieval logic (multi-tenant scoping, soft-deleted exclusion,
  * domain-specific lookups) by overriding `createModel()` or
- * `retrieveByCredentials()`. The unit suite also subclasses via
- * anonymous classes to inject pre-built models in tests.
+ * `retrieveByCredentials()`. The unit suite also subclasses via anonymous
+ * classes to inject pre-built models in tests.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 class ModelProvider implements IdentityProvider
 {
@@ -41,7 +41,10 @@ class ModelProvider implements IdentityProvider
         /** Hasher used to verify and optionally re-hash passwords. */
         protected Hasher $hasher,
 
-        /** Fully-qualified Eloquent model class name to authenticate against. */
+        /**
+         * Fully-qualified Eloquent model class name to authenticate
+         * against.
+         */
         protected string $model,
 
     ) {
@@ -227,36 +230,6 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Persist a freshly hashed password onto an Eloquent user model.
-     *
-     * Single localised site for the Eloquent forceFill/save call so
-     * that any phpstan suppressions for the dynamic-class call shape
-     * live in one well-named method instead of leaking into the
-     * provider's public API surface.
-     *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $user
-     * @param  string  $plain
-     * @return void
-     */
-    private function persistRehashedPassword(
-        Authenticatable&Model $user,
-        #[\SensitiveParameter] string $plain,
-    ): void {
-        // larastan exposes Eloquent Model methods like forceFill/save
-        // via @method static annotations, so phpstan strict-rules
-        // flags the instance-level call as a "dynamic call to static
-        // method". The call shape is correct PHP — both methods are
-        // declared as instance methods on the Model class — but the
-        // suppression is unavoidable while the model class is
-        // resolved at runtime via config rather than a class-string
-        // constant.
-        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
-        $user->forceFill([
-            $user->getAuthPasswordName() => $this->hasher->make($plain),
-        ])->save();
-    }
-
-    /**
      * Build a fresh Eloquent query builder rooted at the supplied
      * model. Single localised site for the dynamic-class `newQuery()`
      * call so any phpstan suppressions live in one place.
@@ -264,7 +237,7 @@ class ModelProvider implements IdentityProvider
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
      * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>
      */
-    private function freshQuery(Authenticatable&Model $model): \Illuminate\Database\Eloquent\Builder
+    private function freshQuery(Authenticatable&Model $model): Builder
     {
         // See `persistRehashedPassword()` for the explanation of this
         // suppression — same root cause (larastan exposes newQuery as
@@ -309,7 +282,7 @@ class ModelProvider implements IdentityProvider
      * @return bool
      */
     private function applyCredentialClauses(
-        \Illuminate\Database\Eloquent\Builder $query,
+        Builder $query,
         #[\SensitiveParameter] array $credentials,
     ): bool {
 
@@ -332,7 +305,7 @@ class ModelProvider implements IdentityProvider
      * @return bool
      */
     private function applyCredentialClause(
-        \Illuminate\Database\Eloquent\Builder $query,
+        Builder $query,
         string $key,
         mixed $value,
     ): bool {
@@ -349,21 +322,6 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Hand the supplied query to a credential closure so the consumer
-     * can compose any additional `where` constraints they need.
-     *
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
-     * @param  \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>): mixed  $callback
-     * @return bool
-     */
-    private function applyClosureClause(\Illuminate\Database\Eloquent\Builder $query, \Closure $callback): bool
-    {
-        $callback($query);
-
-        return true;
-    }
-
-    /**
      * Apply an `IN` clause built from an array of credential values.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
@@ -372,12 +330,27 @@ class ModelProvider implements IdentityProvider
      * @return bool
      */
     private function applyArrayClause(
-        \Illuminate\Database\Eloquent\Builder $query,
+        Builder $query,
         string $key,
         array $values,
     ): bool {
         // @phpstan-ignore staticMethod.dynamicCall
         $query->whereIn($key, $values);
+
+        return true;
+    }
+
+    /**
+     * Hand the supplied query to a credential closure so the consumer
+     * can compose any additional `where` constraints they need.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
+     * @param  \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>): mixed  $callback
+     * @return bool
+     */
+    private function applyClosureClause(Builder $query, \Closure $callback): bool
+    {
+        $callback($query);
 
         return true;
     }
@@ -392,12 +365,42 @@ class ModelProvider implements IdentityProvider
      * @return bool
      */
     private function applyScalarClause(
-        \Illuminate\Database\Eloquent\Builder $query,
+        Builder $query,
         string $key,
         bool|int|string|\Stringable $value,
     ): bool {
         $query->where($key, $value);
 
         return true;
+    }
+
+    /**
+     * Persist a freshly hashed password onto an Eloquent user model.
+     *
+     * Single localised site for the Eloquent forceFill/save call so
+     * that any phpstan suppressions for the dynamic-class call shape
+     * live in one well-named method instead of leaking into the
+     * provider's public API surface.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $user
+     * @param  string  $plain
+     * @return void
+     */
+    private function persistRehashedPassword(
+        Authenticatable&Model $user,
+        #[\SensitiveParameter] string $plain,
+    ): void {
+        // larastan exposes Eloquent Model methods like forceFill/save
+        // via @method static annotations, so phpstan strict-rules
+        // flags the instance-level call as a "dynamic call to static
+        // method". The call shape is correct PHP — both methods are
+        // declared as instance methods on the Model class — but the
+        // suppression is unavoidable while the model class is
+        // resolved at runtime via config rather than a class-string
+        // constant.
+        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
+        $user->forceFill([
+            $user->getAuthPasswordName() => $this->hasher->make($plain),
+        ])->save();
     }
 }

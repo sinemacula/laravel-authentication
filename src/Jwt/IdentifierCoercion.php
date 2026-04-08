@@ -14,8 +14,8 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * single helper centralises the coercion so the JWT service and the
  * fail-closed pid-hint comparison in `JwtGuard` cannot drift apart.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class IdentifierCoercion
 {

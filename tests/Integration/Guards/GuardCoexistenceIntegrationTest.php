@@ -41,8 +41,8 @@ use Tests\TestCase;
  * resolved from the container, so the test exercises the full
  * identity → provider → resolver → principal wiring end-to-end.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

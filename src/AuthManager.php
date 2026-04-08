@@ -28,8 +28,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * Bound to the `auth` container key by `AuthServiceProvider`.
  * Intentionally not `final` so consumers may further subclass.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 class AuthManager extends IlluminateAuthManager implements Factory
 {

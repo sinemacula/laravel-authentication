@@ -10,8 +10,8 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * Kept as class constants rather than string literals so the refresh
  * flow and access-token issuance paths cannot drift out of sync.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class Claims
 {
@@ -33,7 +33,7 @@ final class Claims
     /** @var string Standard `jti` claim — unique token id, used as the refresh-credential rotation token. */
     public const string JWT_ID = 'jti';
 
-    /** @var string Package `typ` claim — token type, either `access` or `refresh`. */
+    /** @var string Package `typ` claim — token type (`access` or `refresh`). */
     public const string TYPE = 'typ';
 
     /** @var string Package `pid` claim — principal identifier (stringified). */

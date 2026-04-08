@@ -26,8 +26,8 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
  * - `protected string $name` (the registered guard name)
  * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @phpstan-require-implements \SineMacula\Laravel\Authentication\Contracts\ContextualGuard
  *

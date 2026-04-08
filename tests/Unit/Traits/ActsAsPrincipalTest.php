@@ -23,8 +23,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
  *
  * @internal
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 #[CoversNothing]
 final class ActsAsPrincipalTest extends TestCase
@@ -41,7 +41,7 @@ final class ActsAsPrincipalTest extends TestCase
         $principal = new class extends Model {
             use ActsAsPrincipal;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
         $principal->setAttribute('id', 42);
@@ -61,7 +61,7 @@ final class ActsAsPrincipalTest extends TestCase
         $principal = new class extends Model {
             use ActsAsPrincipal;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
         $principal->setRelation('identity', $identity);
@@ -79,7 +79,7 @@ final class ActsAsPrincipalTest extends TestCase
         $principal = new class extends Model {
             use ActsAsPrincipal;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
         $principal->setRelation('identity', null);
@@ -102,7 +102,7 @@ final class ActsAsPrincipalTest extends TestCase
         $principal = new class extends Model {
             use ActsAsPrincipal;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
         $principal->setRelation('organization', $organization);
@@ -120,7 +120,7 @@ final class ActsAsPrincipalTest extends TestCase
         $principal = new class extends Model {
             use ActsAsPrincipal;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
         $principal->setRelation('organization', null);
@@ -138,7 +138,7 @@ final class ActsAsPrincipalTest extends TestCase
         $active = new class extends Model {
             use ActsAsPrincipal;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
         $active->setAttribute('is_active', 1);
@@ -146,7 +146,7 @@ final class ActsAsPrincipalTest extends TestCase
         $inactive = new class extends Model {
             use ActsAsPrincipal;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
         $inactive->setAttribute('is_active', 0);

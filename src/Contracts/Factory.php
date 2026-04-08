@@ -13,7 +13,7 @@ use Illuminate\Contracts\Auth\Factory as IlluminateFactory;
  * `AuthManager` may be type-hinted as a package factory in tests
  * and consumer code.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface Factory extends IlluminateFactory {}

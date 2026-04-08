@@ -16,8 +16,8 @@ use Illuminate\Database\Eloquent\Builder;
  * the refresh-token tests need the relation to survive the round
  * trip without hitting a real polymorphic query.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

@@ -34,8 +34,8 @@ use Illuminate\Support\Facades\Config;
  * - `protected \Illuminate\Support\Timebox $timebox`
  * - `protected \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider`
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property string $name
  * @property \Illuminate\Contracts\Events\Dispatcher $events

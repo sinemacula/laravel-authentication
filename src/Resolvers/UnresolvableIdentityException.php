@@ -18,7 +18,7 @@ namespace SineMacula\Laravel\Authentication\Resolvers;
  * still preserved so consumer error reporters can attribute the
  * misconfiguration cleanly.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class UnresolvableIdentityException extends \LogicException {}

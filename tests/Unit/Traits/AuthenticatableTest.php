@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  *
  * @internal
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 #[CoversNothing]
 final class AuthenticatableTest extends TestCase

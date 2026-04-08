@@ -17,7 +17,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
  *
  * @phpstan-require-extends \Illuminate\Database\Eloquent\Model
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface Identity extends Authenticatable {}

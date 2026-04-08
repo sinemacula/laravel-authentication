@@ -32,17 +32,12 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
  * `fastcgi_pass_header Authorization;`). If the header is not
  * forwarded, this guard will see no credentials.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class BasicGuard extends AbstractGuard
 {
-    /**
-     * @var string The credentials-array key under which the username is passed to the
-     *             identity provider. Read from package config so consumers whose
-     *             identity model keys off `username` / `phone` / a tenant-scoped
-     *             column can swap it without subclassing the guard.
-     */
+    /** @var string Credentials key passed to the identity provider; configurable via `laravel-authentication.credentials.identifier_field`. */
     private readonly string $identifierField;
 
     /**

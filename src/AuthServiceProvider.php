@@ -36,8 +36,8 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  * the default principal resolver binding, the `DeviceAuthenticated`
  * listener, and the config + migration publishing tags.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class AuthServiceProvider extends ServiceProvider
 {

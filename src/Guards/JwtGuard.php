@@ -32,8 +32,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
  * this guard is a thin lifecycle adapter that binds the resulting
  * contextual triple and dispatches the `Refreshed` event.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class JwtGuard extends AbstractGuard
 {
@@ -58,7 +58,8 @@ final class JwtGuard extends AbstractGuard
         Timebox $timebox,
         // Token service used to decode and issue JWTs on the access-token path.
         protected JwtTokenService $tokens,
-        // Refresh-credential exchange service — owns the entire refresh round trip.
+        // Refresh-credential exchange service — owns the entire refresh
+        // round trip.
         protected RefreshTokenExchange $exchange,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);

@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * Also implements `HasDevices` so JWT integration tests can resolve
  * a device from a token hint via the polymorphic devices table.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property int $id
  * @property string $email

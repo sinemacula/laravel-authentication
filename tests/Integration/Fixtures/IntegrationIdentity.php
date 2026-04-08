@@ -22,8 +22,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * Device model. Tests create rows in the backing `integration_identities`
  * table (seeded in `Tests\TestCase::defineDatabaseMigrations()`).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property int $id
  * @property string $email

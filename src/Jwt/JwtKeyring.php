@@ -27,22 +27,15 @@ use Firebase\JWT\Key;
  * raise `InvalidJwtConfigurationException` at construction time so
  * the package never silently issues or accepts forged tokens.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class JwtKeyring
 {
     /** @var string Sentinel kid used by single-secret mode (never embedded in headers). */
     private const string LEGACY_KID = '__legacy__';
 
-    /**
-     * Allow-listed JWT signing algorithms supported by both factories.
-     * Anything outside this list is rejected at boot rather than at
-     * first parse so a typo or deliberately weak setting fails loudly
-     * before any token is signed or verified.
-     *
-     * @var array<int, string>
-     */
+    /** @var array<int, string> Allow-listed JWT signing algorithms; anything outside is rejected at boot. */
     private const array SUPPORTED_ALGORITHMS = [
         'HS256',
         'HS384',
@@ -63,13 +56,19 @@ final class JwtKeyring
      */
     private function __construct(
 
-        /** Verification map keyed by kid. In legacy mode the only entry uses the sentinel kid. */
+        /**
+         * Verification map keyed by kid. In legacy mode the only
+         * entry uses the sentinel kid.
+         */
         private readonly array $keys,
 
         /** Kid of the key currently used to sign new tokens. */
         private readonly string $activeKid,
 
-        /** Whether tokens should embed and require a `kid` header (true) or remain headerless (false). */
+        /**
+         * Whether tokens should embed and require a `kid` header
+         * (true) or remain headerless (false).
+         */
         private readonly bool $kidMode,
 
     ) {}

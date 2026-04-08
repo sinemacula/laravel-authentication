@@ -21,8 +21,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * shapes can coexist in the same Laravel application without
  * cross-contamination.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property int $id
  * @property string $email

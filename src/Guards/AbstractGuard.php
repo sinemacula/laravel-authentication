@@ -39,8 +39,8 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * (timebox, standard `Attempting` / `Validated` / `Failed` event
  * firing) are composed in via the `ValidatesGuardCredentials` trait.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 abstract class AbstractGuard implements ContextualGuard
 {
@@ -51,11 +51,7 @@ abstract class AbstractGuard implements ContextualGuard
     //  Helpers used by subclasses
     // -----------------------------------------------------------------
 
-    /**
-     * @var \Illuminate\Contracts\Auth\Authenticatable|null last user retrieved by `resolveContextForCredentials()` or a
-     *                                                      subclass's bearer-resolution path, kept so the failure
-     *                                                      branch can include it on the `Failed` event
-     */
+    /** @var \Illuminate\Contracts\Auth\Authenticatable|null Last user retrieved on the credential or bearer path; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
 
     /**
@@ -82,7 +78,10 @@ abstract class AbstractGuard implements ContextualGuard
         /** Event dispatcher used for both standard and custom events. */
         protected Dispatcher $events,
 
-        /** Current request — refreshed on each rebind by the service provider. */
+        /**
+         * Current request — refreshed on each rebind by the service
+         * provider.
+         */
         protected Request $request,
 
         /** Timebox used to make credential validation constant-time. */

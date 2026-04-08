@@ -25,8 +25,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * `authenticatable()` morphTo and the `getRefreshKey()` accessor
  * intact for the refresh-token rotation flow to work.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property string $id
  * @property string $authenticatable_type

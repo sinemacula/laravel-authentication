@@ -16,8 +16,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * `stub_devices` so it never collides with the package's own
  * `devices` table.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property string $id
  * @property string $os

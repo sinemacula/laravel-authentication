@@ -16,8 +16,8 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * Use this to honour banned / suspended / soft-deleted identities
  * without relying on short access-token lifetimes alone.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface CanBeActive
 {

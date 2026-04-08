@@ -14,8 +14,8 @@ use Illuminate\Database\Eloquent\Model;
  * does not provide enough surface for retrieveById/retrieveByCredentials
  * coverage.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

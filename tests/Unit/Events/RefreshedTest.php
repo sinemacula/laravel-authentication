@@ -15,8 +15,8 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 /**
  * Refreshed event unit tests.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
@@ -57,7 +57,8 @@ final class RefreshedTest extends TestCase
     }
 
     /**
-     * Asserts the event retains the principal instance supplied at construction.
+     * Asserts the event retains the principal instance supplied at
+     * construction.
      *
      * @return void
      */

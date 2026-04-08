@@ -37,15 +37,15 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
  * listener remains safe to invoke against any `Device` contract
  * implementation.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class UpdateDeviceTimestamp
 {
     /** @var int Fallback throttle window (seconds) when the config key is missing or non-positive. */
     private const int DEFAULT_THROTTLE_SECONDS = 60;
 
-    /** @var string Fallback column name for the last-logged-in timestamp when the device does not use `ActsAsDevice`. */
+    /** @var string Fallback column name when the device does not use `ActsAsDevice`. */
     private const string DEFAULT_COLUMN = 'last_logged_in_at';
 
     /**

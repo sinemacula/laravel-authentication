@@ -8,8 +8,8 @@ namespace Tests\Unit\Traits\Fixtures;
  * Fixture backed enum exercising the BackedEnum branch of the
  * ActsAsOrganization scope resolver.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

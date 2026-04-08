@@ -16,8 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
  * modes in a single class. Consumers may bind a custom resolver in the
  * container if their domain needs per-guard or tenant-aware logic.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class DefaultPrincipalResolver implements PrincipalResolver
 {

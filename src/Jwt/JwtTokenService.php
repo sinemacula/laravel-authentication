@@ -35,8 +35,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *   verification,
  * - optionally embeds and strictly verifies `iss` and `aud` claims.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class JwtTokenService
 {
@@ -80,10 +80,16 @@ final class JwtTokenService
         /** Clock-skew tolerance in seconds applied on every verification. */
         protected int $leewaySeconds = 30,
 
-        /** Optional `iss` claim embedded in issued tokens and strictly verified on parse. */
+        /**
+         * Optional `iss` claim embedded in issued tokens and strictly
+         * verified on parse.
+         */
         protected ?string $issuer = null,
 
-        /** Optional `aud` claim embedded in issued tokens and strictly verified on parse. */
+        /**
+         * Optional `aud` claim embedded in issued tokens and strictly
+         * verified on parse.
+         */
         protected ?string $audience = null,
 
         // Optional PSR-3 logger — when supplied, parse failures are

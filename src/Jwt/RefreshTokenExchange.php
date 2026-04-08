@@ -35,8 +35,8 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * Failure paths dispatch `RefreshFailed` events with machine-readable
  * reason codes so SIEM consumers can attribute failures.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class RefreshTokenExchange
 {

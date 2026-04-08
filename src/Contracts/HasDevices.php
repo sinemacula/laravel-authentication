@@ -12,8 +12,8 @@ use Illuminate\Contracts\Database\Eloquent\Builder;
  * Implementing identities expose a `devices()` Eloquent relation
  * builder so guards can resolve a device record from a hint.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface HasDevices
 {

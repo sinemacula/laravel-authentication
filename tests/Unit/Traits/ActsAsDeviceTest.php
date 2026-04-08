@@ -21,8 +21,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * `IntegrationIdentity`, etc.) carry their own coverage via the
  * integration suites that exercise the full refresh lifecycle.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
@@ -75,7 +75,7 @@ final class ActsAsDeviceTest extends TestCase
             /** @var string The "type" of the primary key ID. */
             protected $keyType = 'string';
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -95,7 +95,7 @@ final class ActsAsDeviceTest extends TestCase
         $device = new class extends Model {
             use ActsAsDevice;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -119,7 +119,7 @@ final class ActsAsDeviceTest extends TestCase
         $device = new class extends Model {
             use ActsAsDevice;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -143,7 +143,7 @@ final class ActsAsDeviceTest extends TestCase
         $device = new class extends Model {
             use ActsAsDevice;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -163,7 +163,7 @@ final class ActsAsDeviceTest extends TestCase
         $device = new class extends Model {
             use ActsAsDevice;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
 
@@ -183,7 +183,7 @@ final class ActsAsDeviceTest extends TestCase
         $device = new class extends Model {
             use ActsAsDevice;
 
-            /** @var array<string> The attributes that aren't mass assignable. */
+            /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
 
             /**

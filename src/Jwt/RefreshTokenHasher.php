@@ -22,8 +22,8 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  *   indexable if consumers ever need to look up by refresh key
  *   (the default flow looks up by `did` instead).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 final class RefreshTokenHasher
 {

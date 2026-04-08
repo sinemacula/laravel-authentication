@@ -11,8 +11,8 @@ use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 /**
  * RefreshFailed event unit tests.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

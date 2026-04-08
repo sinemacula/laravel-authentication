@@ -33,8 +33,8 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * driver creators, facade macros, listeners, publishing tags, and
  * config merging.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
@@ -50,10 +50,10 @@ final class AuthServiceProviderTest extends TestCase
     /** @var int The access-token TTL used by the bound JwtTokenService. */
     private const int JWT_TTL_MINUTES = 25;
 
-    /** @var string Kid used by the current-generation key in the kid-mode config tests. */
+    /** @var string Kid used by the current-generation key in kid-mode tests. */
     private const string KID_NEW = '2026-04';
 
-    /** @var string Kid used by the previous-generation key in the kid-mode config tests. */
+    /** @var string Kid used by the previous-generation key in kid-mode tests. */
     private const string KID_OLD = '2026-03';
 
     /**

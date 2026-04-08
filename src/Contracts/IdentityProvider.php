@@ -13,7 +13,7 @@ use Illuminate\Contracts\Auth\UserProvider;
  * type-hint against an `IdentityProvider` while remaining a
  * drop-in replacement for any framework user provider.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface IdentityProvider extends UserProvider {}

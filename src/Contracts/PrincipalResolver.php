@@ -13,8 +13,8 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * (identity-is-principal) and 3D mode (`HasPrincipals` delegate);
  * consumers may bind a custom resolver in the container.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface PrincipalResolver
 {

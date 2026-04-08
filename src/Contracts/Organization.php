@@ -9,8 +9,8 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  *
  * Describes a tenant scope a principal acts within in the 3D model.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface Organization
 {

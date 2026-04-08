@@ -13,8 +13,8 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 /**
  * PrincipalAssigned event unit tests.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
@@ -38,7 +38,8 @@ final class PrincipalAssignedTest extends TestCase
     }
 
     /**
-     * Asserts the event retains the principal instance supplied at construction.
+     * Asserts the event retains the principal instance supplied at
+     * construction.
      *
      * @return void
      */

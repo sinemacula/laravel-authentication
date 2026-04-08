@@ -17,8 +17,8 @@ use Carbon\CarbonInterface;
  * dates as `CarbonImmutable` (via `Date::use(...)`) are not silently
  * broken.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 trait ActsAsDevice
 {
@@ -123,7 +123,8 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the last MFA verification timestamp. Override in the consuming model to remap.
+     * Column name holding the last MFA verification timestamp.
+     * Override in the consuming model to remap.
      *
      * @return string
      */
@@ -133,7 +134,8 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the operating system string. Override in the consuming model to remap.
+     * Column name holding the operating system string. Override in
+     * the consuming model to remap.
      *
      * @return string
      */

@@ -35,8 +35,8 @@ use SineMacula\Laravel\Authentication\Guards\BasicGuard;
  * `Request::create(...)` (per php-tst-034 fakes preference for
  * Symfony value objects).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

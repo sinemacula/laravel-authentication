@@ -19,8 +19,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
  * single `Key` from `verificationKeys()` and emits no kid header,
  * kid mode returns a `kid → Key` map and emits the active kid.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

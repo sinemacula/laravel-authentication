@@ -11,8 +11,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 /**
  * Unit tests for the RefreshResult value object.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

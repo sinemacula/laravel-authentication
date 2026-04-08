@@ -21,8 +21,8 @@ use Tests\TestCase;
  * before any schema mutation (REQ-13 / AC-13). Also verifies the
  * happy path when no collision is present.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

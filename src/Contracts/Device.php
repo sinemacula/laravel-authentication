@@ -12,8 +12,8 @@ use Carbon\CarbonInterface;
  * Describes a refreshable device record bound to an authenticated
  * identity. Implementations are typically Eloquent models.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface Device
 {

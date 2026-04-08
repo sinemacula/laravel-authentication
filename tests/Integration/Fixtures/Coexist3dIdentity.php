@@ -22,8 +22,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * that both adoption modes can coexist in a single Laravel
  * application without guard cross-contamination.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property int $id
  * @property string $email

@@ -24,8 +24,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
  *
  * @internal
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 #[CoversClass(Auth::class)]
 final class AuthFacadeTest extends TestCase

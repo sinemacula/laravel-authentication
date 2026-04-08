@@ -26,8 +26,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * fallback (`null` / `false`) when the guard is unauthenticated or
  * does not implement `ContextualGuard`.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

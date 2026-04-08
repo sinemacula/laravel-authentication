@@ -21,8 +21,8 @@ use Tests\Unit\Stubs\StubDevice;
  * manually-created `devices` table, so the test does not transitively
  * depend on the package migration file.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

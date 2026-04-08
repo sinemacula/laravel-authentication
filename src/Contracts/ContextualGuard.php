@@ -13,8 +13,8 @@ use Illuminate\Contracts\Auth\Guard;
  * (identity, principal, device, organization, scope, internal/external
  * helpers, principal/device setters, contextual `attempt` and `login`).
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 interface ContextualGuard extends Guard
 {

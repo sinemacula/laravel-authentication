@@ -21,8 +21,9 @@ return [
         'model'              => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
         'table'              => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
         'refresh_key_column' => env('AUTHENTICATION_DEVICE_REFRESH_KEY_COLUMN', 'refresh_key'),
-        // Throttle window (seconds) for the last-seen timestamp listener. Writes within
-        // this window are skipped to avoid a per-request write hot-spot on the device row.
+        // Throttle window (seconds) for the last-seen timestamp listener.
+        // Writes within this window are skipped to avoid a per-request write
+        // hot-spot on the device row.
         'last_seen_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_SEEN_THROTTLE_SECONDS', 60),
     ],
 
@@ -91,8 +92,8 @@ return [
         // populated, takes precedence over `secret` above.
         'keys' => [],
 
-        // Kid in the `keys` map that signs newly issued tokens. Required
-        // when `keys` is non-empty.
+        // Kid in the `keys` map that signs newly issued tokens. Required when
+        // `keys` is non-empty.
         'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', ''),
 
         'algorithm'           => env('AUTHENTICATION_JWT_ALGORITHM', 'HS256'),

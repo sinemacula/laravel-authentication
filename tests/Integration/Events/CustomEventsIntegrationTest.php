@@ -44,8 +44,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * `Principal` so the 2D-mode resolver returns the identity itself,
  * avoiding the need for a separate principal table.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
@@ -70,7 +70,7 @@ final class CustomEventsIntegrationTest extends TestCase
     /** @var string A shared test secret for hand-rolled JWTs (32+ bytes). */
     private const string JWT_SECRET = 'test-secret-key-with-at-least-32-bytes!';
 
-    /** @var \Carbon\Carbon Frozen clock shared by Carbon and the JWT library. */
+    /** @var \Carbon\Carbon frozen clock shared by Carbon and the JWT library */
     private Carbon $now;
 
     /**

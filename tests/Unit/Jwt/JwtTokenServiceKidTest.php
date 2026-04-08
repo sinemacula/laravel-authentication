@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * stay valid until they expire), and tokens signed under a kid that
  * is not in the verifier's map are rejected.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */

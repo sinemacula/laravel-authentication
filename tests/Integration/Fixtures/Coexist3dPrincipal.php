@@ -25,8 +25,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
  * which is only true when the principal is a first-class model in
  * its own right.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @property int $id
  * @property int $identity_id

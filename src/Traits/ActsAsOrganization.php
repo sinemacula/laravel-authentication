@@ -14,13 +14,14 @@ use UnitEnum;
  * Scope resolution handles `BackedEnum` (returns `value`),
  * `UnitEnum` (returns `name`), and arbitrary string-castable values.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  */
 trait ActsAsOrganization
 {
     /**
-     * Return the organization's stable identifier from the configured attribute.
+     * Return the organization's stable identifier from the
+     * configured attribute.
      *
      * @return mixed
      */
@@ -57,7 +58,8 @@ trait ActsAsOrganization
     }
 
     /**
-     * Column name holding the organization identifier. Override in the consuming model to remap.
+     * Column name holding the organization identifier. Override in
+     * the consuming model to remap.
      *
      * @return string
      */
@@ -67,7 +69,8 @@ trait ActsAsOrganization
     }
 
     /**
-     * Column name holding the organization scope. Override in the consuming model to remap.
+     * Column name holding the organization scope. Override in the
+     * consuming model to remap.
      *
      * @return string
      */

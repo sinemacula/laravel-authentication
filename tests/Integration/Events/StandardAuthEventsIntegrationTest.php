@@ -39,8 +39,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Authorization header, keeping the assertions focused on the
  * event-emission contract.
  *
- * @author    Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright 2026 Sine Macula Limited.
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
