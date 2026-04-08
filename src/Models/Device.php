@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  *
  * Polymorphic device record bound to an authenticatable identity via
  * the `authenticatable()` morphTo relation. Uses a ULID primary key
- * (NFR-10). Swappable via `config('laravel-authentication.device.model')`
+ * (NFR-10). Swappable via `config('authentication.device.model')`
  * and `device.table`.
  *
  * Intentionally non-`final` so consumers can either point
@@ -64,7 +64,7 @@ class Device extends Model implements DeviceContract
      * Create a new Device instance bound to the package-configured
      * table name. Reads the table name lazily from the Config facade
      * on each instantiation so consumers that swap
-     * `laravel-authentication.device.table` at runtime (tests,
+     * `authentication.device.table` at runtime (tests,
      * runtime tenancy) observe the new value immediately without
      * touching a process-wide cache.
      *
@@ -110,7 +110,7 @@ class Device extends Model implements DeviceContract
     private function resolveConfiguredTable(): string
     {
         try {
-            $table = Config::string('laravel-authentication.device.table', 'devices');
+            $table = Config::string('authentication.device.table', 'devices');
         } catch (\Throwable) {
             return 'devices';
         }

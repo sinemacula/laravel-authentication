@@ -233,7 +233,7 @@ final class RefreshTokenExchange
      */
     private function findDeviceById(mixed $id): ?Device
     {
-        $class = Config::string('laravel-authentication.device.model');
+        $class = Config::string('authentication.device.model');
 
         if ($class === '') {
             return null;
@@ -453,7 +453,7 @@ final class RefreshTokenExchange
             }
         }
 
-        return Config::string('laravel-authentication.device.refresh_key_column', 'refresh_key');
+        return Config::string('authentication.device.refresh_key_column', 'refresh_key');
     }
 
     /**

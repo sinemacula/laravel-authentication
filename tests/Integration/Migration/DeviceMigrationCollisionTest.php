@@ -43,8 +43,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     {
         parent::setUp();
 
-        config()->set('laravel-authentication.device.table', 'devices');
-        config()->set('laravel-authentication.device.refresh_key_column', 'refresh_key');
+        config()->set('authentication.device.table', 'devices');
+        config()->set('authentication.device.refresh_key_column', 'refresh_key');
 
         Schema::dropIfExists('devices');
         Schema::dropIfExists('app_devices');
@@ -150,7 +150,7 @@ final class DeviceMigrationCollisionTest extends TestCase
      */
     public function testMigrationSucceedsAgainstCustomTableNameWhenNoCollision(): void
     {
-        config()->set('laravel-authentication.device.table', 'app_devices');
+        config()->set('authentication.device.table', 'app_devices');
 
         $migration = $this->loadMigration();
         $this->runMigrationUp($migration);

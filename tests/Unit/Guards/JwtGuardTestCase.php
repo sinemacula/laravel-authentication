@@ -160,8 +160,8 @@ abstract class JwtGuardTestCase extends TestCase
             'prefix'   => '',
         ]);
 
-        $config->set('laravel-authentication.device.model', StubDevice::class);
-        $config->set('laravel-authentication.device.table', 'stub_devices');
+        $config->set('authentication.device.model', StubDevice::class);
+        $config->set('authentication.device.table', 'stub_devices');
     }
 
     /**
@@ -285,6 +285,6 @@ abstract class JwtGuardTestCase extends TestCase
 
         InjectableDeviceStub::$injectedBuilder = $builder;
 
-        config()->set('laravel-authentication.device.model', InjectableDeviceStub::class);
+        config()->set('authentication.device.model', InjectableDeviceStub::class);
     }
 }

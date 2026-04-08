@@ -37,7 +37,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
  */
 final class BasicGuard extends AbstractGuard
 {
-    /** @var string Credentials key passed to the identity provider; configurable via `laravel-authentication.credentials.identifier_field`. */
+    /** @var string Credentials key passed to the identity provider; configurable via `authentication.credentials.identifier_field`. */
     private readonly string $identifierField;
 
     /**

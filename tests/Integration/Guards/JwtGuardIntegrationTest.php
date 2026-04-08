@@ -212,9 +212,9 @@ final class JwtGuardIntegrationTest extends TestCase
             'model'  => StubPrincipal::class,
         ]);
 
-        $config->set('laravel-authentication.jwt.secret', self::JWT_SECRET);
-        $config->set('laravel-authentication.jwt.algorithm', 'HS256');
-        $config->set('laravel-authentication.jwt.access_ttl_minutes', 15);
+        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.access_ttl_minutes', 15);
     }
 
     /**

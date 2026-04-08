@@ -93,7 +93,7 @@ final class JwtKeyring
 
         if ($secret === '') {
 
-            $message = 'JWT secret is empty. Set `laravel-authentication.jwt.secret`'
+            $message = 'JWT secret is empty. Set `authentication.jwt.secret`'
                 . ' (env `AUTHENTICATION_JWT_SECRET`) to a strong random value —'
                 . ' an empty secret would silently accept forged tokens.';
 
@@ -141,7 +141,7 @@ final class JwtKeyring
 
         if ($keys === []) {
 
-            $message = 'JWT key map is empty. Set `laravel-authentication.jwt.keys`'
+            $message = 'JWT key map is empty. Set `authentication.jwt.keys`'
                 . ' to a kid → secret map of at least one entry, or remove the keys'
                 . ' block entirely to fall back to single-secret mode.';
 
@@ -151,8 +151,8 @@ final class JwtKeyring
         if ($activeKid === '' || !array_key_exists($activeKid, $keys)) {
 
             $message = "JWT active kid '{$activeKid}' is not present in the configured key map."
-                . ' Set `laravel-authentication.jwt.active_kid` to a kid that exists'
-                . ' in `laravel-authentication.jwt.keys`.';
+                . ' Set `authentication.jwt.active_kid` to a kid that exists'
+                . ' in `authentication.jwt.keys`.';
 
             throw new InvalidJwtConfigurationException($message);
         }
@@ -226,7 +226,7 @@ final class JwtKeyring
             if ($kid === '') {
 
                 $message = 'JWT key map contains an empty kid. Every entry under'
-                    . ' `laravel-authentication.jwt.keys` must be keyed by a'
+                    . ' `authentication.jwt.keys` must be keyed by a'
                     . ' non-empty string.';
 
                 throw new InvalidJwtConfigurationException($message);
@@ -235,7 +235,7 @@ final class JwtKeyring
             if (!is_string($material) || $material === '') {
 
                 $message = "JWT key '{$kid}' has empty material. Every kid in"
-                    . ' `laravel-authentication.jwt.keys` must map to a non-empty secret.';
+                    . ' `authentication.jwt.keys` must map to a non-empty secret.';
 
                 throw new InvalidJwtConfigurationException($message);
             }
@@ -264,7 +264,7 @@ final class JwtKeyring
         }
 
         $message = "JWT algorithm '{$algorithm}' is not supported."
-            . ' Set `laravel-authentication.jwt.algorithm` to one of: '
+            . ' Set `authentication.jwt.algorithm` to one of: '
             . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
 
         throw new InvalidJwtConfigurationException($message);

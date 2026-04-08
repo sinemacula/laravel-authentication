@@ -53,13 +53,13 @@ abstract class TestCase extends OrchestraTestCase
             'prefix'   => '',
         ]);
 
-        $config->set('laravel-authentication.device.model', Device::class);
-        $config->set('laravel-authentication.device.table', 'devices');
-        $config->set('laravel-authentication.device.refresh_key_column', 'refresh_key');
-        $config->set('laravel-authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
-        $config->set('laravel-authentication.jwt.algorithm', 'HS256');
-        $config->set('laravel-authentication.jwt.access_ttl_minutes', 15);
-        $config->set('laravel-authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);
+        $config->set('authentication.device.model', Device::class);
+        $config->set('authentication.device.table', 'devices');
+        $config->set('authentication.device.refresh_key_column', 'refresh_key');
+        $config->set('authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
+        $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.access_ttl_minutes', 15);
+        $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);
     }
 
     /**

@@ -86,7 +86,7 @@ trait ValidatesGuardCredentials
     {
         try {
             $configured = Config::integer(
-                'laravel-authentication.timebox.credentials_microseconds',
+                'authentication.timebox.credentials_microseconds',
                 self::DEFAULT_TIMEBOX_MICROSECONDS,
             );
         } catch (\Throwable) {

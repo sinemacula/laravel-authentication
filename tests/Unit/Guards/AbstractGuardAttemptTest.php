@@ -429,7 +429,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      */
     public function testTimeboxBudgetReadsConfiguredOverride(): void
     {
-        config()->set('laravel-authentication.timebox.credentials_microseconds', 750000);
+        config()->set('authentication.timebox.credentials_microseconds', 750000);
 
         $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')
@@ -461,7 +461,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      */
     public function testTimeboxBudgetFallsBackToDefaultOnNonPositiveOverride(): void
     {
-        config()->set('laravel-authentication.timebox.credentials_microseconds', 0);
+        config()->set('authentication.timebox.credentials_microseconds', 0);
 
         $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')

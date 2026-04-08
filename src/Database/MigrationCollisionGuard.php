@@ -48,7 +48,7 @@ final class MigrationCollisionGuard
 
         $message = sprintf(
             'Cannot install the laravel-authentication devices migration: a table named \'%s\' already exists on connection \'%s\'.'
-            . ' Set `device.table` in config/laravel-authentication.php to a different name and re-run the migration.',
+            . ' Set `device.table` in config/authentication.php to a different name and re-run the migration.',
             $table,
             $connection,
         );

@@ -66,7 +66,7 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts that swapping `laravel-authentication.device.table` at
+     * Asserts that swapping `authentication.device.table` at
      * runtime is observed by the next Device instantiation. The model
      * reads the config lazily in its constructor, so no cache priming
      * is required — tests and runtime tenancy swaps pick up the new
@@ -76,7 +76,7 @@ final class DeviceTest extends TestCase
      */
     public function testConstructorReadsConfiguredTableLazilyOnEachInstantiation(): void
     {
-        config()->set('laravel-authentication.device.table', 'custom_devices');
+        config()->set('authentication.device.table', 'custom_devices');
 
         $device = new Device;
 
@@ -84,7 +84,7 @@ final class DeviceTest extends TestCase
 
         // Restore the default so other tests in this class are not
         // contaminated.
-        config()->set('laravel-authentication.device.table', 'devices');
+        config()->set('authentication.device.table', 'devices');
     }
 
     /**
@@ -153,11 +153,11 @@ final class DeviceTest extends TestCase
      */
     public function testCustomDeviceClassResolvesViaConfig(): void
     {
-        config()->set('laravel-authentication.device.model', StubDevice::class);
+        config()->set('authentication.device.model', StubDevice::class);
 
         self::assertSame(
             StubDevice::class,
-            config('laravel-authentication.device.model'),
+            config('authentication.device.model'),
         );
     }
 
@@ -182,7 +182,7 @@ final class DeviceTest extends TestCase
             'prefix'   => '',
         ]);
 
-        $config->set('laravel-authentication.device.model', Device::class);
-        $config->set('laravel-authentication.device.table', 'devices');
+        $config->set('authentication.device.model', Device::class);
+        $config->set('authentication.device.table', 'devices');
     }
 }

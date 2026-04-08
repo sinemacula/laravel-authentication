@@ -18,8 +18,8 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        $table            = Config::string('laravel-authentication.device.table', 'devices');
-        $refreshKeyColumn = Config::string('laravel-authentication.device.refresh_key_column', 'refresh_key');
+        $table            = Config::string('authentication.device.table', 'devices');
+        $refreshKeyColumn = Config::string('authentication.device.refresh_key_column', 'refresh_key');
 
         $schema = Schema::getConnection()->getSchemaBuilder();
 
@@ -67,7 +67,7 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        $table = Config::string('laravel-authentication.device.table', 'devices');
+        $table = Config::string('authentication.device.table', 'devices');
 
         Schema::dropIfExists($table);
     }

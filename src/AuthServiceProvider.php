@@ -57,8 +57,8 @@ final class AuthServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(
-            __DIR__ . '/../config/laravel-authentication.php',
-            'laravel-authentication',
+            __DIR__ . '/../config/authentication.php',
+            'authentication',
         );
 
         $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
@@ -152,7 +152,7 @@ final class AuthServiceProvider extends ServiceProvider
         $provider = IlluminateAuth::createUserProvider(is_string($providerName) ? $providerName : '');
 
         $repository      = $app->make(ConfigRepository::class);
-        $identifierField = $repository->string('laravel-authentication.credentials.identifier_field', 'email');
+        $identifierField = $repository->string('authentication.credentials.identifier_field', 'email');
 
         $guard = new BasicGuard(
             $name,
@@ -252,12 +252,12 @@ final class AuthServiceProvider extends ServiceProvider
         }
 
         $this->publishes([
-            __DIR__ . '/../config/laravel-authentication.php' => config_path('laravel-authentication.php'),
-        ], 'laravel-authentication-config');
+            __DIR__ . '/../config/authentication.php' => config_path('authentication.php'),
+        ], 'authentication-config');
 
         $this->publishes([
             __DIR__ . '/../database/migrations/2026_04_06_000000_create_devices_table.php' => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
-        ], 'laravel-authentication-migrations');
+        ], 'authentication-migrations');
     }
 
     /**
@@ -292,20 +292,20 @@ final class AuthServiceProvider extends ServiceProvider
     {
         $config = $app->make(ConfigRepository::class);
 
-        $algorithm = $config->string('laravel-authentication.jwt.algorithm', 'HS256');
+        $algorithm = $config->string('authentication.jwt.algorithm', 'HS256');
 
         /** @var string|null $issuer */
-        $issuer = $config->get('laravel-authentication.jwt.issuer');
+        $issuer = $config->get('authentication.jwt.issuer');
 
         /** @var string|null $audience */
-        $audience = $config->get('laravel-authentication.jwt.audience');
+        $audience = $config->get('authentication.jwt.audience');
 
         return new JwtTokenService(
             self::buildKeyring($config, $algorithm),
             $algorithm,
-            $config->integer('laravel-authentication.jwt.access_ttl_minutes', 15),
-            $config->integer('laravel-authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30),
-            $config->integer('laravel-authentication.jwt.leeway_seconds', 30),
+            $config->integer('authentication.jwt.access_ttl_minutes', 15),
+            $config->integer('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30),
+            $config->integer('authentication.jwt.leeway_seconds', 30),
             $issuer   === null || $issuer === '' ? null : $issuer,
             $audience === null || $audience === '' ? null : $audience,
             self::resolveOptionalLogger($app),
@@ -314,11 +314,11 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Build a `JwtKeyring` from the package config. When
-     * `laravel-authentication.jwt.keys` is a non-empty map, kid mode
-     * is activated and `laravel-authentication.jwt.active_kid`
+     * `authentication.jwt.keys` is a non-empty map, kid mode
+     * is activated and `authentication.jwt.active_kid`
      * selects which kid signs new tokens. Otherwise the keyring
      * falls back to single-secret mode using
-     * `laravel-authentication.jwt.secret`.
+     * `authentication.jwt.secret`.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  string  $algorithm
@@ -327,25 +327,25 @@ final class AuthServiceProvider extends ServiceProvider
     private static function buildKeyring(ConfigRepository $config, string $algorithm): JwtKeyring
     {
         /** @var array<array-key, mixed>|null $rawKeys */
-        $rawKeys = $config->get('laravel-authentication.jwt.keys');
+        $rawKeys = $config->get('authentication.jwt.keys');
 
         if (is_array($rawKeys) && $rawKeys !== []) {
 
             return JwtKeyring::fromKeyMap(
                 self::coerceKeysConfig($rawKeys),
-                $config->string('laravel-authentication.jwt.active_kid', ''),
+                $config->string('authentication.jwt.active_kid', ''),
                 $algorithm,
             );
         }
 
         /** @var string|null $secret */
-        $secret = $config->get('laravel-authentication.jwt.secret');
+        $secret = $config->get('authentication.jwt.secret');
 
         return JwtKeyring::fromSecret($secret ?? '', $algorithm);
     }
 
     /**
-     * Validate the raw `laravel-authentication.jwt.keys` config map at
+     * Validate the raw `authentication.jwt.keys` config map at
      * runtime and return a strictly-typed `kid → secret` array. The
      * raw config is `mixed` (Laravel's repository accepts any payload),
      * so this guard rejects integer-indexed entries (a common mistake
@@ -366,7 +366,7 @@ final class AuthServiceProvider extends ServiceProvider
             if (!is_string($kid) || $kid === '') {
 
                 $message = 'JWT key map contains a non-string or empty kid in'
-                    . ' `laravel-authentication.jwt.keys`. Every entry must be'
+                    . ' `authentication.jwt.keys`. Every entry must be'
                     . ' keyed by a non-empty string kid (integer-indexed lists'
                     . ' such as `[\'secret_a\', \'secret_b\']` are rejected).';
 
@@ -375,7 +375,7 @@ final class AuthServiceProvider extends ServiceProvider
 
             if (!is_string($material)) {
 
-                $message = "JWT key '{$kid}' in `laravel-authentication.jwt.keys`"
+                $message = "JWT key '{$kid}' in `authentication.jwt.keys`"
                     . ' is not a string. Every kid must map to a non-empty string'
                     . ' secret — check the env var backing this entry is set.';
 

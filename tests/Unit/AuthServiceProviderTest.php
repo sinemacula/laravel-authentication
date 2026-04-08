@@ -214,7 +214,7 @@ final class AuthServiceProviderTest extends TestCase
      */
     public function testPackageConfigIsMergedIntoConfigRepository(): void
     {
-        self::assertSame('devices', config('laravel-authentication.device.table'));
+        self::assertSame('devices', config('authentication.device.table'));
     }
 
     /**
@@ -232,7 +232,7 @@ final class AuthServiceProviderTest extends TestCase
         $oldSecret = 'kid-mode-old-secret-with-32-bytes!';
 
         $config = new ConfigRepository([
-            'laravel-authentication' => [
+            'authentication' => [
                 'jwt' => [
                     'algorithm' => 'HS256',
                     'secret'    => null,
@@ -274,7 +274,7 @@ final class AuthServiceProviderTest extends TestCase
     public function testBuildKeyringRejectsIntegerIndexedKeys(): void
     {
         $config = new ConfigRepository([
-            'laravel-authentication' => [
+            'authentication' => [
                 'jwt' => [
                     'algorithm'  => 'HS256',
                     'secret'     => null,
@@ -305,7 +305,7 @@ final class AuthServiceProviderTest extends TestCase
     public function testBuildKeyringRejectsNullSecretValue(): void
     {
         $config = new ConfigRepository([
-            'laravel-authentication' => [
+            'authentication' => [
                 'jwt' => [
                     'algorithm'  => 'HS256',
                     'secret'     => null,
@@ -336,7 +336,7 @@ final class AuthServiceProviderTest extends TestCase
     public function testBuildKeyringFallsBackToLegacyModeWithoutKeys(): void
     {
         $config = new ConfigRepository([
-            'laravel-authentication' => [
+            'authentication' => [
                 'jwt' => [
                     'algorithm'  => 'HS256',
                     'secret'     => 'legacy-mode-secret-with-32-bytes!!',
@@ -358,7 +358,7 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `laravel-authentication-config` publish group is
+     * The `authentication-config` publish group is
      * registered with the framework's publish registry.
      *
      * @return void
@@ -366,13 +366,13 @@ final class AuthServiceProviderTest extends TestCase
     public function testConfigPublishingTagIsRegistered(): void
     {
         self::assertContains(
-            'laravel-authentication-config',
+            'authentication-config',
             ServiceProvider::publishableGroups(),
         );
     }
 
     /**
-     * The `laravel-authentication-migrations` publish group is
+     * The `authentication-migrations` publish group is
      * registered with the framework's publish registry.
      *
      * @return void
@@ -380,7 +380,7 @@ final class AuthServiceProviderTest extends TestCase
     public function testMigrationPublishingTagIsRegistered(): void
     {
         self::assertContains(
-            'laravel-authentication-migrations',
+            'authentication-migrations',
             ServiceProvider::publishableGroups(),
         );
     }
@@ -426,9 +426,9 @@ final class AuthServiceProviderTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('laravel-authentication.jwt.secret', self::JWT_SECRET);
-        $config->set('laravel-authentication.jwt.algorithm', self::JWT_ALGORITHM);
-        $config->set('laravel-authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
+        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.algorithm', self::JWT_ALGORITHM);
+        $config->set('authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
 
         $config->set('auth.providers.identities', [
             'driver' => 'model',

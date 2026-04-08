@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 
 /**
  * Thrown when the package's JWT configuration is missing required
- * fields (typically `laravel-authentication.jwt.secret`) at the
+ * fields (typically `authentication.jwt.secret`) at the
  * point the `JwtTokenService` is resolved from the container.
  *
  * Fail-closed: an empty signing secret would silently accept forged

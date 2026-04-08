@@ -58,8 +58,8 @@ composer require sinemacula/laravel-authentication
 Publish the config and the device migration, then migrate:
 
 ```bash
-php artisan vendor:publish --tag=laravel-authentication-config
-php artisan vendor:publish --tag=laravel-authentication-migrations
+php artisan vendor:publish --tag=authentication-config
+php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 ```
 

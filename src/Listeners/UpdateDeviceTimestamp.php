@@ -99,7 +99,7 @@ final class UpdateDeviceTimestamp
         }
 
         $windowSeconds = Config::integer(
-            'laravel-authentication.device.last_seen_throttle_seconds',
+            'authentication.device.last_seen_throttle_seconds',
             self::DEFAULT_THROTTLE_SECONDS,
         );
 

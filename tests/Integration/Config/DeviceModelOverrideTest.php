@@ -29,7 +29,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Integration test for the Device model override via package config.
  *
- * Verifies that overriding `config('laravel-authentication.device.model')`
+ * Verifies that overriding `config('authentication.device.model')`
  * with a custom `Device` subclass and `device.table` with a custom
  * table name causes the model, the shipped migration body, and the
  * JWT guard's device-hydration path to route through the override
@@ -68,8 +68,8 @@ final class DeviceModelOverrideTest extends TestCase
 
         $this->customModel = $class;
 
-        config()->set('laravel-authentication.device.model', $this->customModel);
-        config()->set('laravel-authentication.device.table', 'custom_devices');
+        config()->set('authentication.device.model', $this->customModel);
+        config()->set('authentication.device.table', 'custom_devices');
 
         // The Device model now caches the table name statically (set
         // The Device model reads the table name lazily in its
@@ -121,7 +121,7 @@ final class DeviceModelOverrideTest extends TestCase
     {
         self::assertSame(
             $this->customModel,
-            config('laravel-authentication.device.model'),
+            config('authentication.device.model'),
         );
     }
 

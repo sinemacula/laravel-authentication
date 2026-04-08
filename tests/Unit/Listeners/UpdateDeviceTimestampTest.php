@@ -148,7 +148,7 @@ final class UpdateDeviceTimestampTest extends TestCase
      */
     public function testHandleSkipsWriteWithinThrottleWindow(): void
     {
-        config()->set('laravel-authentication.device.last_seen_throttle_seconds', 60);
+        config()->set('authentication.device.last_seen_throttle_seconds', 60);
 
         $initial = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
 
@@ -180,7 +180,7 @@ final class UpdateDeviceTimestampTest extends TestCase
      */
     public function testHandleWritesOnceThrottleWindowHasElapsed(): void
     {
-        config()->set('laravel-authentication.device.last_seen_throttle_seconds', 60);
+        config()->set('authentication.device.last_seen_throttle_seconds', 60);
 
         $initial = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
 
