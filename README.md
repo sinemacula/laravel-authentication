@@ -22,7 +22,7 @@ Most auth packages collapse "who you are" and "who you're acting as" into a sing
 | **Identity**     | The authenticated subject — typically the human / service account           |
 | **Principal**    | The actor on whose behalf the request runs — may differ from the identity   |
 | **Device**       | The issuing client — bound to the credential, used for refresh rotation     |
-| **Organization** | Optional scope the principal acts within (internal vs external, multi-org)  |
+| **Organization** | Optional tenant scope the principal acts within (multi-tenant, multi-org)   |
 
 Both **2D** (identity-is-principal) and **3D** (identity → separate principal → organization) adoption modes are
 supported by the same guards. Start 2D, grow into 3D without re-platforming.
@@ -36,7 +36,7 @@ stateful, and the package owns that state so replay attacks and stale credential
 
 - **Two guards**, both stateless: `jwt` (Bearer token) and `basic` (HTTP Basic) — register via `auth.guards.*.driver`
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `organization()`,
-  `scope()`, `isInternal()`, `isExternal()`
+  `scope()`
 - **Hardened JWT pipeline**: enforces `iss` / `aud` / `typ` / `exp` / leeway on every parse, embeds a per-token `jti`
   on issue, fails closed on empty secrets, unsupported algorithms, type-confusion attacks, and mismatched `pid` /
   `did` claims
@@ -172,8 +172,8 @@ class AppMembership extends \Illuminate\Database\Eloquent\Model implements Princ
 }
 
 // The tenant scope — implements Organization so `Auth::organization()`
-// can return it and `Auth::isInternal()` / `isExternal()` can route
-// off its scope string.
+// can return it. Consumers can compose their own predicates from
+// `Auth::scope()` (e.g. `Auth::scope() === 'staff'`).
 class AppOrganization extends \Illuminate\Database\Eloquent\Model implements \SineMacula\Laravel\Authentication\Contracts\Organization
 {
     use ActsAsOrganization;
@@ -186,8 +186,8 @@ With that shape:
 - `Auth::principal()` returns the `AppMembership` (the tenant-scoped actor) — resolved via the `pid` claim in the
   access token, or via `resolveDefaultPrincipal()` on first login
 - `Auth::organization()` returns the `AppOrganization` the membership belongs to
-- `Auth::isInternal()` / `isExternal()` compare the organization's `scope()` against the strings configured in
-  `laravel-authentication.scopes`
+- `Auth::scope()` returns the organization's scope string (e.g. `'staff'`, `'customer'`); compose your own predicates
+  at the call site rather than relying on built-in helpers
 
 If you need a domain-specific resolution strategy (scoped by subdomain, header, session claim, etc.), implement
 `SineMacula\Laravel\Authentication\Contracts\PrincipalResolver` yourself and bind it in a service provider:
@@ -229,8 +229,6 @@ Auth::principal();      // Principal|null  — the acting principal
 Auth::device();         // Device|null     — the issuing device
 Auth::organization();   // Organization|null
 Auth::scope();          // string|null
-Auth::isInternal();     // bool
-Auth::isExternal();     // bool
 ```
 
 Issue and refresh JWTs through the guard:

@@ -76,19 +76,6 @@ final class ContextualGuardTest extends TestCase
             self::assertTrue($type->allowsNull(), "{$method}() must return a nullable type.");
             self::assertSame($returnType, $type->getName(), "{$method}() must return ?{$returnType}.");
         }
-
-        foreach (['isInternal', 'isExternal'] as $method) {
-
-            $reflection = new \ReflectionMethod(ContextualGuard::class, $method);
-
-            self::assertTrue($reflection->isPublic(), "{$method}() must be public.");
-
-            $type = $reflection->getReturnType();
-
-            self::assertInstanceOf(\ReflectionNamedType::class, $type, "{$method}() must declare a named return type.");
-            self::assertFalse($type->allowsNull(), "{$method}() must return a non-nullable bool.");
-            self::assertSame('bool', $type->getName(), "{$method}() must return bool.");
-        }
     }
 
     /**

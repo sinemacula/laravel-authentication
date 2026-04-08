@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Guards;
 
-use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
@@ -77,25 +76,6 @@ abstract class AbstractGuardTestCase extends TestCase
         $this->timebox->shouldReceive('call')
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
-    }
-
-    /**
-     * Define the package config keys that `isInternal()`/`isExternal()`
-     * read via the `config()` helper.
-     *
-     * @param  mixed  $app
-     * @return void
-     */
-    #[\Override]
-    protected function defineEnvironment(mixed $app): void
-    {
-        assert($app instanceof \Illuminate\Foundation\Application);
-
-        /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(ConfigRepository::class);
-
-        $config->set('laravel-authentication.scopes.internal', 'internal');
-        $config->set('laravel-authentication.scopes.external', 'external');
     }
 
     /**

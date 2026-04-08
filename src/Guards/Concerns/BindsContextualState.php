@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Organization;
@@ -93,28 +92,6 @@ trait BindsContextualState
     public function scope(): ?string
     {
         return $this->organization()?->getOrganizationScope();
-    }
-
-    /**
-     * Determine whether the active scope matches the configured
-     * internal scope string.
-     *
-     * @return bool
-     */
-    public function isInternal(): bool
-    {
-        return $this->scope() === Config::string('laravel-authentication.scopes.internal', 'internal');
-    }
-
-    /**
-     * Determine whether the active scope matches the configured
-     * external scope string.
-     *
-     * @return bool
-     */
-    public function isExternal(): bool
-    {
-        return $this->scope() === Config::string('laravel-authentication.scopes.external', 'external');
     }
 
     /**

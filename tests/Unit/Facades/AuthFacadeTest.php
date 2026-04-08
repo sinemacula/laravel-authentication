@@ -16,11 +16,11 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
  * Unit tests for the package's Auth facade subclass.
  *
  * Verifies that the package's Auth facade extends the framework
- * facade and that the six contextual macros (`principal`, `device`,
- * `organization`, `scope`, `isInternal`, `isExternal`) are registered
- * against the framework facade after boot. T22's AuthServiceProvider
- * will own the permanent registration; until then, setUp() registers
- * the macros inline so this test can run in isolation.
+ * facade and that the four contextual macros (`principal`, `device`,
+ * `organization`, `scope`) are registered against the framework
+ * facade after boot. T22's AuthServiceProvider will own the permanent
+ * registration; until then, setUp() registers the macros inline so
+ * this test can run in isolation.
  *
  * @internal
  *
@@ -40,14 +40,12 @@ final class AuthFacadeTest extends TestCase
         parent::setUp();
 
         // T22's AuthServiceProvider will replace the inline registration
-        // below once committed. Until then, register the six contextual
+        // below once committed. Until then, register the four contextual
         // macros here so the facade assertions run in isolation.
         IlluminateAuth::macro('principal', static fn (): ?Principal => null);
         IlluminateAuth::macro('device', static fn (): ?Device => null);
         IlluminateAuth::macro('organization', static fn (): ?Organization => null);
         IlluminateAuth::macro('scope', static fn (): ?string => null);
-        IlluminateAuth::macro('isInternal', static fn (): bool => false);
-        IlluminateAuth::macro('isExternal', static fn (): bool => false);
     }
 
     /**
@@ -116,25 +114,5 @@ final class AuthFacadeTest extends TestCase
     public function testScopeMacroIsRegistered(): void
     {
         self::assertTrue(IlluminateAuth::hasMacro('scope'));
-    }
-
-    /**
-     * The `isInternal` macro is registered against the framework facade.
-     *
-     * @return void
-     */
-    public function testIsInternalMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('isInternal'));
-    }
-
-    /**
-     * The `isExternal` macro is registered against the framework facade.
-     *
-     * @return void
-     */
-    public function testIsExternalMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('isExternal'));
     }
 }

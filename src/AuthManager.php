@@ -16,14 +16,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that implements the package's
- * `Factory` marker contract and exposes seven contextual accessors
- * (`identity`, `principal`, `device`, `organization`, `scope`,
- * `isInternal`, `isExternal`) directly on the manager so the
- * framework `Auth::principal()` etc. calls work without relying on
- * `Macroable` registration. The accessors forward to the active
- * guard when it implements `ContextualGuard` and return the safe
- * fallback (`null` for nullable accessors, `false` for boolean
- * accessors) otherwise.
+ * `Factory` marker contract and exposes five contextual accessors
+ * (`identity`, `principal`, `device`, `organization`, `scope`)
+ * directly on the manager so the framework `Auth::principal()` etc.
+ * calls work without relying on `Macroable` registration. The
+ * accessors forward to the active guard when it implements
+ * `ContextualGuard` and return `null` otherwise.
  *
  * Bound to the `auth` container key by `AuthServiceProvider`.
  * Intentionally not `final` so consumers may further subclass.
@@ -115,33 +113,5 @@ class AuthManager extends IlluminateAuthManager implements Factory
         $guard = $this->guard();
 
         return $guard instanceof ContextualGuard ? $guard->scope() : null;
-    }
-
-    /**
-     * Whether the active principal is internal to its organization.
-     *
-     * Returns `false` for non-contextual guards or unauthenticated requests.
-     *
-     * @return bool
-     */
-    public function isInternal(): bool
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard && $guard->isInternal();
-    }
-
-    /**
-     * Whether the active principal is external to its organization.
-     *
-     * Returns `false` for non-contextual guards or unauthenticated requests.
-     *
-     * @return bool
-     */
-    public function isExternal(): bool
-    {
-        $guard = $this->guard();
-
-        return $guard instanceof ContextualGuard && $guard->isExternal();
     }
 }

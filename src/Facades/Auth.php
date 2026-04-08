@@ -13,10 +13,9 @@ use SineMacula\Laravel\Authentication\AuthManager;
  *
  * Subclasses Laravel's framework `Auth` facade so consumers get
  * everything the framework facade gives them (`check`, `user`, `id`,
- * `guard`, `extend`, `provider`, etc.) plus the seven contextual
+ * `guard`, `extend`, `provider`, etc.) plus the five contextual
  * methods exposed directly on the package `AuthManager` subclass:
- * `identity`, `principal`, `device`, `organization`, `scope`,
- * `isInternal`, `isExternal`.
+ * `identity`, `principal`, `device`, `organization`, `scope`.
  *
  * Consumers may import either this facade or the framework facade —
  * the underlying `auth` container binding is identical, the package
@@ -40,8 +39,6 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Contracts\Device|null device()
  * @method static \SineMacula\Laravel\Authentication\Contracts\Organization|null organization()
  * @method static string|null scope()
- * @method static bool isInternal()
- * @method static bool isExternal()
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

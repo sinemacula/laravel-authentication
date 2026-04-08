@@ -16,8 +16,7 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 
 /**
  * Unit tests for the contextual state surface on `AbstractGuard`
- * (`setPrincipal`, `setDevice`, `organization`, `scope`,
- * `isInternal`, `isExternal`).
+ * (`setPrincipal`, `setDevice`, `organization`, `scope`).
  *
  * Split out of the original AbstractGuardTest so each derived class
  * stays well below the project's 20-method-per-class threshold
@@ -120,77 +119,5 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
         $guard->setPrincipal($principal);
 
         self::assertSame('internal', $guard->scope());
-    }
-
-    /**
-     * isInternal() compares the scope against the configured internal key.
-     *
-     * @return void
-     */
-    public function testIsInternalReadsFromPackageConfig(): void
-    {
-        config()->set('laravel-authentication.scopes.internal', 'staff');
-
-        $guard = $this->makeGuard();
-
-        $organization = \Mockery::mock(Organization::class);
-        $organization->shouldReceive('getOrganizationScope')
-            ->andReturn('staff');
-
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getOrganization')
-            ->andReturn($organization);
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        $guard->setPrincipal($principal);
-
-        self::assertTrue($guard->isInternal());
-    }
-
-    /**
-     * isExternal() compares the scope against the configured external key.
-     *
-     * @return void
-     */
-    public function testIsExternalReadsFromPackageConfig(): void
-    {
-        config()->set('laravel-authentication.scopes.external', 'customer');
-
-        $guard = $this->makeGuard();
-
-        $organization = \Mockery::mock(Organization::class);
-        $organization->shouldReceive('getOrganizationScope')
-            ->andReturn('customer');
-
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getOrganization')
-            ->andReturn($organization);
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        $guard->setPrincipal($principal);
-
-        self::assertTrue($guard->isExternal());
-    }
-
-    /**
-     * isInternal() is false on a fresh guard with no principal.
-     *
-     * @return void
-     */
-    public function testIsInternalReturnsFalseWhenNoPrincipal(): void
-    {
-        self::assertFalse($this->makeGuard()->isInternal());
-    }
-
-    /**
-     * isExternal() is false on a fresh guard with no principal.
-     *
-     * @return void
-     */
-    public function testIsExternalReturnsFalseWhenNoPrincipal(): void
-    {
-        self::assertFalse($this->makeGuard()->isExternal());
     }
 }

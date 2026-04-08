@@ -72,9 +72,9 @@ final class AuthServiceProvider extends ServiceProvider
      * Registers the `model` user provider driver, the `jwt` and
      * `basic` guard drivers, the `DeviceAuthenticated` listener, and
      * the publishing tags. The contextual accessors (`identity`,
-     * `principal`, `device`, `organization`, `scope`, `isInternal`,
-     * `isExternal`) are exposed directly on the package `AuthManager`
-     * subclass — see `SineMacula\Laravel\Authentication\AuthManager`.
+     * `principal`, `device`, `organization`, `scope`) are exposed
+     * directly on the package `AuthManager` subclass — see
+     * `SineMacula\Laravel\Authentication\AuthManager`.
      *
      * @return void
      */

@@ -29,21 +29,6 @@ return [
 
     /*
     |---------------------------------------------------------------------------
-    | Organization scopes
-    |---------------------------------------------------------------------------
-    |
-    | Strings used by AbstractGuard::isInternal()/isExternal() to compare
-    | against the resolved organization scope. Override per environment.
-    |
-    */
-
-    'scopes' => [
-        'internal' => env('AUTHENTICATION_SCOPE_INTERNAL', 'internal'),
-        'external' => env('AUTHENTICATION_SCOPE_EXTERNAL', 'external'),
-    ],
-
-    /*
-    |---------------------------------------------------------------------------
     | Credentials
     |---------------------------------------------------------------------------
     |

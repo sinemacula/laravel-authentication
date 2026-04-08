@@ -127,10 +127,10 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The package `AuthManager` exposes the six contextual accessors
-     * (`principal`, `device`, `organization`, `scope`, `isInternal`,
-     * `isExternal`) directly as instance methods so the framework
-     * `Auth::principal()` etc. calls work without macro registration.
+     * The package `AuthManager` exposes the four contextual accessors
+     * (`principal`, `device`, `organization`, `scope`) directly as
+     * instance methods so the framework `Auth::principal()` etc. calls
+     * work without macro registration.
      *
      * @return void
      */
@@ -142,17 +142,15 @@ final class AuthServiceProviderTest extends TestCase
         self::assertTrue($reflection->hasMethod('device'));
         self::assertTrue($reflection->hasMethod('organization'));
         self::assertTrue($reflection->hasMethod('scope'));
-        self::assertTrue($reflection->hasMethod('isInternal'));
-        self::assertTrue($reflection->hasMethod('isExternal'));
     }
 
     /**
-     * The contextual accessors return the safe fallback values
-     * (`null` / `false`) when the active guard is not contextual.
+     * The contextual accessors return `null` when the active guard is
+     * not contextual.
      *
      * @return void
      */
-    public function testContextualAccessorsReturnSafeFallbacksForNonContextualGuard(): void
+    public function testContextualAccessorsReturnNullForNonContextualGuard(): void
     {
         config()->set('auth.defaults.guard', 'web');
 
@@ -163,8 +161,6 @@ final class AuthServiceProviderTest extends TestCase
         self::assertNull($manager->device());
         self::assertNull($manager->organization());
         self::assertNull($manager->scope());
-        self::assertFalse($manager->isInternal());
-        self::assertFalse($manager->isExternal());
     }
 
     /**

@@ -56,8 +56,6 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('laravel-authentication.device.model', Device::class);
         $config->set('laravel-authentication.device.table', 'devices');
         $config->set('laravel-authentication.device.refresh_key_column', 'refresh_key');
-        $config->set('laravel-authentication.scopes.internal', 'internal');
-        $config->set('laravel-authentication.scopes.external', 'external');
         $config->set('laravel-authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
         $config->set('laravel-authentication.jwt.algorithm', 'HS256');
         $config->set('laravel-authentication.jwt.access_ttl_minutes', 15);

@@ -87,20 +87,6 @@ interface ContextualGuard extends Guard
     public function scope(): ?string;
 
     /**
-     * Return whether the active scope is the configured internal scope.
-     *
-     * @return bool
-     */
-    public function isInternal(): bool;
-
-    /**
-     * Return whether the active scope is the configured external scope.
-     *
-     * @return bool
-     */
-    public function isExternal(): bool;
-
-    /**
      * Pin the active principal for the current request.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

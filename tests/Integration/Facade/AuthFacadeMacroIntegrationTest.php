@@ -19,11 +19,10 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Integration test for the Auth facade contextual macros.
  *
  * Boots the package service provider through Testbench and asserts
- * that the six contextual `Auth::...()` macros (`principal`, `device`,
- * `organization`, `scope`, `isInternal`, `isExternal`) behave per
- * AC-07: returning resolved values when the active guard implements
- * `ContextualGuard` and a user is bound, and returning the safe
- * fallback (`null` / `false`) when the guard is unauthenticated or
+ * that the four contextual `Auth::...()` macros (`principal`, `device`,
+ * `organization`, `scope`) behave per AC-07: returning resolved values
+ * when the active guard implements `ContextualGuard` and a user is
+ * bound, and returning `null` when the guard is unauthenticated or
  * does not implement `ContextualGuard`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -78,29 +77,6 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     public function testAuthScopeReturnsNullForUnauthenticatedRequest(): void
     {
         self::assertNull(IlluminateAuth::scope());
-    }
-
-    /**
-     * `Auth::isInternal()` returns false for an unauthenticated
-     * request — a missing scope never matches the configured
-     * internal scope string.
-     *
-     * @return void
-     */
-    public function testAuthIsInternalReturnsFalseForUnauthenticatedRequest(): void
-    {
-        self::assertFalse(IlluminateAuth::isInternal());
-    }
-
-    /**
-     * `Auth::isExternal()` returns false for an unauthenticated
-     * request for the same reason.
-     *
-     * @return void
-     */
-    public function testAuthIsExternalReturnsFalseForUnauthenticatedRequest(): void
-    {
-        self::assertFalse(IlluminateAuth::isExternal());
     }
 
     /**
@@ -168,8 +144,6 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
         self::assertNull(IlluminateAuth::device());
         self::assertNull(IlluminateAuth::organization());
         self::assertNull(IlluminateAuth::scope());
-        self::assertFalse(IlluminateAuth::isInternal());
-        self::assertFalse(IlluminateAuth::isExternal());
     }
 
     /**
