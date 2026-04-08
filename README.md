@@ -9,7 +9,7 @@
 Stateless contextual authentication for Laravel. Distinguishes the authenticated **Identity** from the acting
 **Principal** and the issuing **Device**, exposed through Laravel's standard `Auth` facade, middleware, and events.
 
-Drops into Laravel's existing auth machinery — no new API to learn. Same `Auth::check()`, `Auth::user()`,
+Drops into Laravel's existing auth machinery - no new API to learn. Same `Auth::check()`, `Auth::user()`,
 `auth()->guard('api')`, same middleware, same events. Adds contextual accessors (`Auth::identity()`,
 `Auth::principal()`, `Auth::device()`) and ships hardened JWT and HTTP Basic guards.
 
@@ -19,22 +19,22 @@ Most auth packages collapse "who you are" and "who you're acting as" into a sing
 
 | Concept          | What it represents                                                          |
 |------------------|-----------------------------------------------------------------------------|
-| **Identity**     | The authenticated subject — typically the human / service account           |
-| **Principal**    | The actor on whose behalf the request runs — may differ from the identity   |
-| **Device**       | The issuing client — bound to the credential, used for refresh rotation     |
+| **Identity**     | The authenticated subject - typically the human / service account           |
+| **Principal**    | The actor on whose behalf the request runs - may differ from the identity   |
+| **Device**       | The issuing client - bound to the credential, used for refresh rotation     |
 | **Organization** | Optional tenant scope the principal acts within (multi-tenant, multi-org)   |
 
 Both **2D** (identity-is-principal) and **3D** (identity → separate principal → organization) adoption modes are
 supported by the same guards. Start 2D, grow into 3D without re-platforming.
 
 **Stateless for access, stateful for refresh.** Access tokens carry everything the guard needs to authenticate a
-request — no session, no database hit on the bearer-resolution path. Refresh tokens are a different story: the rotation
+request - no session, no database hit on the bearer-resolution path. Refresh tokens are a different story: the rotation
 digest, device record, and last-login timestamp all live in the `devices` table. Refresh is therefore inherently
 stateful, and the package owns that state so replay attacks and stale credentials can be detected server-side.
 
 ## Features
 
-- **Two guards**, both stateless: `jwt` (Bearer token) and `basic` (HTTP Basic) — register via `auth.guards.*.driver`
+- **Two guards**, both stateless: `jwt` (Bearer token) and `basic` (HTTP Basic) - register via `auth.guards.*.driver`
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `organization()`,
   `scope()`
 - **Hardened JWT pipeline**: enforces `iss` / `aud` / `typ` / `exp` / leeway on every parse, embeds a per-token `jti`
@@ -42,10 +42,10 @@ stateful, and the package owns that state so replay attacks and stale credential
   `did` claims
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and machine-readable
   `RefreshFailed` events on every failure path for SIEM attribution
-- **Kid-based key rotation** — issue under one kid, verify against a `kid → secret` map, retire old kids once their
+- **Kid-based key rotation** - issue under one kid, verify against a `kid → secret` map, retire old kids once their
   tokens expire
 - **Device tracking** with debounced `last_logged_in_at` writes to avoid per-request hot-spots
-- **First-class events** — fires Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
+- **First-class events** - fires Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`
 - **Pluggable everywhere**: identity model, device model, principal resolver, identifier field, table names
 
@@ -69,7 +69,7 @@ Set the JWT secret in your environment:
 AUTHENTICATION_JWT_SECRET="a-strong-random-value-of-at-least-32-bytes"
 ```
 
-The package refuses to boot with an empty secret — silent acceptance of forged tokens is never the default.
+The package refuses to boot with an empty secret - silent acceptance of forged tokens is never the default.
 
 ## Configuration
 
@@ -96,13 +96,13 @@ Register guards and providers in `config/auth.php` exactly as you would with any
 ```
 
 Your identity model implements `Identity` (and optionally `Principal`, `HasPrincipals`, `HasDevices`,
-`CanBeActive`) — most apps just `use Authenticatable` and `use ActsAsPrincipal` from the package traits.
+`CanBeActive`) - most apps just `use Authenticatable` and `use ActsAsPrincipal` from the package traits.
 
 ### Per-guard JWT configuration
 
 Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
 `authentication.jwt.*` defaults. Any guard may override these per-guard by adding a `jwt` sub-block to its
-`config/auth.php` entry — missing fields fall back to the package defaults. This lets you register multiple
+`config/auth.php` entry - missing fields fall back to the package defaults. This lets you register multiple
 jwt guards with distinct trust boundaries in a single app:
 
 ```php
@@ -127,7 +127,7 @@ jwt guards with distinct trust boundaries in a single app:
 ```
 
 Routes then opt into a specific boundary via `auth:staff` or `auth:customer` middleware, and the `aud` claim
-on every issued token matches the guard that issued it — tokens minted for one audience cannot authenticate
+on every issued token matches the guard that issued it - tokens minted for one audience cannot authenticate
 against the other. Any field from the package `jwt` block is overridable (`secret`, `keys`, `active_kid`,
 `algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`), so each
 guard can also carry its own kid-rotation set if you want fully independent signing-key lifecycles.
@@ -135,7 +135,7 @@ guard can also carry its own kid-rotation set if you want fully independent sign
 ### Per-guard basic-auth identifier field
 
 The same layering applies to the basic driver via `identifier_field`. Register multiple basic guards backed by
-different providers and looked up by different columns — e.g. an `email`-keyed web guard for users and a
+different providers and looked up by different columns - e.g. an `email`-keyed web guard for users and a
 `key_id`-keyed tenant API guard for per-tenant service credentials:
 
 ```php
@@ -143,7 +143,7 @@ different providers and looked up by different columns — e.g. an `email`-keyed
     'cli' => [
         'driver'   => 'basic',
         'provider' => 'users',
-        // identifier_field omitted — falls back to `authentication.credentials.identifier_field` (default `email`)
+        // identifier_field omitted - falls back to `authentication.credentials.identifier_field` (default `email`)
     ],
     'tenant_api' => [
         'driver'           => 'basic',
@@ -165,7 +165,7 @@ key your domain uses, and is hashed/verified against the standard Laravel hasher
 
 ### 2D adoption (identity is the principal)
 
-The simplest shape. One model implements both `Identity` and `Principal` — the user who logs in *is* the actor on
+The simplest shape. One model implements both `Identity` and `Principal` - the user who logs in *is* the actor on
 whose behalf the request runs:
 
 ```php
@@ -200,7 +200,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsOrganization;
 use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
-// The human — implements Identity + HasPrincipals, NOT Principal.
+// The human - implements Identity + HasPrincipals, NOT Principal.
 class AppIdentity extends User implements Identity, HasPrincipals
 {
     use Authenticatable;
@@ -222,7 +222,7 @@ class AppIdentity extends User implements Identity, HasPrincipals
     }
 }
 
-// The acting principal — a per-tenant membership. Implements Principal
+// The acting principal - a per-tenant membership. Implements Principal
 // and belongs to an Organization.
 class AppMembership extends \Illuminate\Database\Eloquent\Model implements PrincipalContract
 {
@@ -236,7 +236,7 @@ class AppMembership extends \Illuminate\Database\Eloquent\Model implements Princ
     }
 }
 
-// The tenant scope — implements Organization so `Auth::organization()`
+// The tenant scope - implements Organization so `Auth::organization()`
 // can return it. Consumers can compose their own predicates from
 // `Auth::scope()` (e.g. `Auth::scope() === 'staff'`).
 class AppOrganization extends \Illuminate\Database\Eloquent\Model implements \SineMacula\Laravel\Authentication\Contracts\Organization
@@ -248,7 +248,7 @@ class AppOrganization extends \Illuminate\Database\Eloquent\Model implements \Si
 With that shape:
 
 - `Auth::identity()` returns the `AppIdentity` (the human)
-- `Auth::principal()` returns the `AppMembership` (the tenant-scoped actor) — resolved via the `pid` claim in the
+- `Auth::principal()` returns the `AppMembership` (the tenant-scoped actor) - resolved via the `pid` claim in the
   access token, or via `resolveDefaultPrincipal()` on first login
 - `Auth::organization()` returns the `AppOrganization` the membership belongs to
 - `Auth::scope()` returns the organization's scope string (e.g. `'staff'`, `'customer'`); compose your own predicates
@@ -267,7 +267,7 @@ The guards will use your resolver for every bearer-token or refresh exchange. No
 
 The `basic` guard reads credentials via `Request::getUser()` / `Request::getPassword()`, which in turn pull from
 PHP's `$_SERVER['PHP_AUTH_USER']` / `PHP_AUTH_PW`. Behind **PHP-FPM + nginx**, the `Authorization` header is **not**
-automatically forwarded into those superglobals — the guard will see no credentials and return `null` from
+automatically forwarded into those superglobals - the guard will see no credentials and return `null` from
 `Auth::user()`. Forward the header explicitly in your nginx site config:
 
 ```nginx
@@ -286,12 +286,12 @@ The contextual accessors are exposed on the standard `Auth` facade:
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
-Auth::check();          // bool — same as Laravel
-Auth::user();           // Identity|null — same as Laravel
+Auth::check();          // bool - same as Laravel
+Auth::user();           // Identity|null - same as Laravel
 
-Auth::identity();       // Identity|null   — the authenticated subject
-Auth::principal();      // Principal|null  — the acting principal
-Auth::device();         // Device|null     — the issuing device
+Auth::identity();       // Identity|null   - the authenticated subject
+Auth::principal();      // Principal|null  - the acting principal
+Auth::device();         // Device|null     - the issuing device
 Auth::organization();   // Organization|null
 Auth::scope();          // string|null
 ```
@@ -329,7 +329,7 @@ For production deployments that need graceful signing-key rotation, configure `j
 ```
 
 New tokens are signed with the active kid and carry it in the JWT header. The verifier accepts any kid present in the
-map — add a new kid, point `active_kid` at it, retire the old kid once every token signed under it has expired.
+map - add a new kid, point `active_kid` at it, retire the old kid once every token signed under it has expired.
 
 ## Events
 

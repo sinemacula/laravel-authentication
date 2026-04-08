@@ -9,33 +9,27 @@ use Firebase\JWT\Key;
 /**
  * JWT key configuration value object.
  *
- * Encapsulates the signing material the `JwtTokenService` uses to
- * issue and verify tokens. Two construction modes are supported:
+ * Two construction modes:
  *
- * - **Single-secret mode** (`fromSecret()`): one shared secret signs
- *   and verifies every token. Tokens are issued without a `kid`
- *   header. This is the legacy / development default.
- * - **Kid mode** (`fromKeyMap()`): a map of `kid → secret` is
- *   supplied along with an active kid. Tokens are signed with the
- *   active key and carry its kid in the JWT header. Verification
- *   accepts any token whose kid is present in the map. This is the
- *   production rotation pattern — the operator adds a new key under
- *   a new kid, points `active_kid` at it, and only retires the old
- *   kid once every live token signed under it has expired.
+ * - **Single-secret mode** (`fromSecret()`): one secret signs and
+ *   verifies every token, no `kid` header.
+ * - **Kid mode** (`fromKeyMap()`): a `kid -> secret` map plus an
+ *   active kid. Tokens carry the active kid in the header;
+ *   verification accepts any kid present in the map. This is the
+ *   production rotation pattern.
  *
- * The keyring fails closed: empty secrets and unknown active kids
- * raise `InvalidJwtConfigurationException` at construction time so
- * the package never silently issues or accepts forged tokens.
+ * Fails closed: empty secrets and unknown active kids raise
+ * `InvalidJwtConfigurationException` at construction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  */
 final class JwtKeyring
 {
-    /** @var string Sentinel kid used by single-secret mode (never embedded in headers). */
+    /** @var string Sentinel kid for single-secret mode (never in headers). */
     private const string LEGACY_KID = '__legacy__';
 
-    /** @var array<int, string> Allow-listed JWT signing algorithms; anything outside is rejected at boot. */
+    /** @var array<int, string> Allow-listed JWT signing algorithms. */
     private const array SUPPORTED_ALGORITHMS = [
         'HS256',
         'HS384',
@@ -55,31 +49,13 @@ final class JwtKeyring
      * @param  bool  $kidMode
      */
     private function __construct(
-
-        /**
-         * Verification map keyed by kid. In legacy mode the only
-         * entry uses the sentinel kid.
-         */
         private readonly array $keys,
-
-        /** Kid of the key currently used to sign new tokens. */
         private readonly string $activeKid,
-
-        /**
-         * Whether tokens should embed and require a `kid` header
-         * (true) or remain headerless (false).
-         */
         private readonly bool $kidMode,
-
     ) {}
 
     /**
-     * Construct a single-secret keyring (legacy mode — no kid header).
-     *
-     * Tokens issued via this keyring carry no `kid` header and are
-     * verified against the same single secret. Suitable for
-     * development and small deployments where graceful key rotation
-     * is not yet required.
+     * Construct a single-secret keyring (no kid header).
      *
      * @param  string  $secret
      * @param  string  $algorithm
@@ -94,7 +70,7 @@ final class JwtKeyring
         if ($secret === '') {
 
             $message = 'JWT secret is empty. Set `authentication.jwt.secret`'
-                . ' (env `AUTHENTICATION_JWT_SECRET`) to a strong random value —'
+                . ' (env `AUTHENTICATION_JWT_SECRET`) to a strong random value -'
                 . ' an empty secret would silently accept forged tokens.';
 
             throw new InvalidJwtConfigurationException($message);
@@ -109,21 +85,15 @@ final class JwtKeyring
 
     /**
      * Construct a kid-aware keyring with an active signing key and a
-     * verification map covering current and previous keys for
-     * graceful rotation.
+     * verification map for graceful rotation.
      *
-     * Operators add a new key under a new kid, point `$activeKid` at
-     * it, and retire the old kid once every live token signed under
-     * it has expired.
-     *
-     * The `$keys` parameter is declared as `array<array-key, mixed>`
-     * (rather than the narrower `array<string, string>` the runtime
-     * guard ultimately enforces) because this factory is the
-     * fail-closed boundary at which null secrets, integer-indexed
-     * arrays, and non-string values are rejected with typed
-     * exceptions. Narrowing the signature would push the validation
-     * into the PHPStan-only realm and let misconfigurations reach
-     * `firebase/php-jwt` as opaque runtime errors.
+     * The `$keys` parameter is `array<array-key, mixed>` rather than
+     * `array<string, string>` because this factory is the fail-closed
+     * boundary at which null secrets, integer-indexed arrays, and
+     * non-string values are rejected with typed exceptions. Narrowing
+     * the signature would push validation into the PHPStan-only realm
+     * and let misconfigurations reach `firebase/php-jwt` as opaque
+     * runtime errors.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $activeKid
@@ -142,7 +112,7 @@ final class JwtKeyring
         if ($keys === []) {
 
             $message = 'JWT key map is empty. Set `authentication.jwt.keys`'
-                . ' to a kid → secret map of at least one entry, or remove the keys'
+                . ' to a kid -> secret map of at least one entry, or remove the keys'
                 . ' block entirely to fall back to single-secret mode.';
 
             throw new InvalidJwtConfigurationException($message);
@@ -165,8 +135,7 @@ final class JwtKeyring
     }
 
     /**
-     * Return the active signing key — the `Key` instance used to
-     * encode newly issued tokens.
+     * Return the active signing key.
      *
      * @return \Firebase\JWT\Key
      */
@@ -176,9 +145,8 @@ final class JwtKeyring
     }
 
     /**
-     * Return the kid embedded in newly issued tokens, or `null` when
-     * the keyring is in single-secret mode and tokens carry no `kid`
-     * header.
+     * Return the kid embedded in newly issued tokens, or `null` in
+     * single-secret mode.
      *
      * @return ?string
      */
@@ -189,10 +157,8 @@ final class JwtKeyring
 
     /**
      * Return the verification key set in the form `firebase/php-jwt`
-     * expects: a single `Key` in legacy single-secret mode (so a
-     * tokeen with no `kid` header decodes cleanly), or a `kid → Key`
-     * map in kid mode (so php-jwt picks the right key from the
-     * token's `kid` header).
+     * expects: a single `Key` in single-secret mode, or a `kid -> Key`
+     * map in kid mode.
      *
      * @return array<string, \Firebase\JWT\Key>|\Firebase\JWT\Key
      */
@@ -202,13 +168,9 @@ final class JwtKeyring
     }
 
     /**
-     * Validate every entry in the supplied kid → secret map and
-     * convert it into a kid → Key map suitable for storage on the
-     * keyring. Each kid must be a non-empty string and each secret
-     * must be a non-empty string — both conditions are enforced
-     * fail-closed at runtime regardless of the static-analysis hint
-     * supplied by the caller (e.g. an `env()` lookup that returned
-     * `null` because the variable was unset).
+     * Validate the supplied kid -> secret map and convert it into a
+     * kid -> Key map. Both kid and secret must be non-empty strings;
+     * fail-closed regardless of the caller's static type hint.
      *
      * @param  array<string, mixed>  $keys
      * @param  string  $algorithm
@@ -247,10 +209,8 @@ final class JwtKeyring
     }
 
     /**
-     * Reject any signing algorithm that is not in the allow-list. Run
-     * before any other validation in both factories so a typo or a
-     * deliberately weak setting fails fast at boot rather than at the
-     * first encode/decode call deep inside `firebase/php-jwt`.
+     * Reject any signing algorithm not on the allow-list. Run first
+     * in both factories so weak or typo'd settings fail fast at boot.
      *
      * @param  string  $algorithm
      * @return void

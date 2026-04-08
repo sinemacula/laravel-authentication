@@ -15,13 +15,6 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 /**
  * Unit tests for the package's Auth facade subclass.
  *
- * Verifies that the package's Auth facade extends the framework
- * facade and that the four contextual macros (`principal`, `device`,
- * `organization`, `scope`) are registered against the framework
- * facade after boot. T22's AuthServiceProvider will own the permanent
- * registration; until then, setUp() registers the macros inline so
- * this test can run in isolation.
- *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

@@ -11,22 +11,15 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Config;
 
 /**
- * Provides the credential-validation primitive plus the standard
- * Laravel `Attempting` / `Validated` / `Failed` event-firing helpers.
+ * Credential-validation primitive plus the standard Laravel
+ * `Attempting` / `Validated` / `Failed` event-firing helpers.
  *
- * Used by `AbstractGuard` and `BasicGuard` so the credential-validation
- * surface is decomposed away from the contextual binding surface.
- *
- * **Timing safety is the CALLER's responsibility.** This trait
- * intentionally does NOT wrap `hasValidCredentials()` in its own
- * `Timebox::call()` — the enclosing `attempt()` / `validate()` /
- * bearer-resolution flows each wrap the *entire* retrieve →
- * validate → dispatch pipeline inside a single top-level
- * `Timebox::call()` so the elapsed time is uniform regardless of
- * whether the supplied identifier resolves to a persisted user. A
- * nested timebox in this trait would either double-budget the
- * pipeline or, worse, leak timing information if the outer caller
- * short-circuits before reaching it.
+ * **Timing safety is the CALLER's responsibility.** This trait does
+ * NOT wrap `hasValidCredentials()` in its own `Timebox::call()`: the
+ * enclosing flows wrap the entire retrieve -> validate -> dispatch
+ * pipeline in a single top-level timebox. A nested timebox would
+ * either double-budget the pipeline or leak timing if the outer
+ * caller short-circuits.
  *
  * Expects the using class to declare:
  * - `protected string $name`
@@ -44,17 +37,15 @@ use Illuminate\Support\Facades\Config;
  */
 trait ValidatesGuardCredentials
 {
-    /** @var int Default timebox budget (microseconds) when no project override is set. */
+    /** @var int Default timebox budget in microseconds. */
     protected const int DEFAULT_TIMEBOX_MICROSECONDS = 400000;
 
     /**
-     * Credential validation — returns `true` when the supplied
-     * user resolved and its password matches, `false` otherwise.
-     * Fires the standard Laravel `Validated` event on success.
+     * Credential validation; fires `Validated` on success.
      *
      * Accepts a nullable user so callers can pass the
      * `retrieveByCredentials` result straight in without
-     * short-circuiting on `null` — the uniform call path is what
+     * short-circuiting on `null`. The uniform call path is what
      * gives the enclosing timebox its timing-safety guarantee.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable|null  $user
@@ -75,10 +66,9 @@ trait ValidatesGuardCredentials
     }
 
     /**
-     * Resolve the configured timebox budget (microseconds). Falls back
-     * to the trait default when the config key is missing,
-     * non-positive, or the Config facade is not bootstrapped (the
-     * latter matters only to plain-`TestCase` unit tests).
+     * Resolve the configured timebox budget in microseconds. Falls
+     * back to the default when the config key is missing,
+     * non-positive, or the Config facade is not bootstrapped.
      *
      * @return int
      */

@@ -19,19 +19,14 @@ use Illuminate\Contracts\Auth\Guard;
 interface ContextualGuard extends Guard
 {
     /**
-     * Contextual attempt — accepts an optional principal and device pinning.
+     * Contextual attempt with optional principal and device pinning.
      *
-     * Signature note: Laravel's `Illuminate\Contracts\Auth\StatefulGuard`
-     * declares `attempt(array $credentials, bool $remember = false): bool`.
-     * This contract intentionally diverges — the second and third
-     * positional parameters are the optional contextual `Principal`
-     * and `Device` pins, NOT a remember-me flag, because this package
-     * is stateless-only and does not issue remember-me cookies (NFR-08).
-     * The divergence is safe at the type level because `ContextualGuard`
-     * extends `Illuminate\Contracts\Auth\Guard` rather than `StatefulGuard`,
-     * so consumers cannot accidentally type-hint a stateful Laravel API
-     * helper against this contract. Consumers who need stateful semantics
-     * should keep using Laravel's `SessionGuard`.
+     * Signature diverges from Laravel's `StatefulGuard::attempt()`:
+     * the second and third parameters are contextual pins, NOT a
+     * remember-me flag (NFR-08, this package is stateless-only). Safe
+     * at the type level because `ContextualGuard` extends `Guard`,
+     * not `StatefulGuard`. Consumers needing stateful semantics
+     * should keep using `SessionGuard`.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -41,8 +36,7 @@ interface ContextualGuard extends Guard
     public function attempt(array $credentials, ?Principal $principal = null, ?Device $device = null): bool;
 
     /**
-     * Contextual login — bind a fully resolved identity, principal,
-     * and optional device.
+     * Bind a fully resolved identity, principal, and optional device.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

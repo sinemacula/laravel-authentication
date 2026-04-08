@@ -8,12 +8,10 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Organization;
 
 /**
- * Provides default Principal contract method implementations sourced
- * from configurable Eloquent model attribute and relation names.
- *
- * Consumers may override the protected accessor hooks below to map
- * the contract onto non-default columns or relations without
- * re-implementing the public surface.
+ * Provides default Principal contract implementations sourced from
+ * configurable Eloquent attribute and relation names. Override the
+ * protected accessor hooks to remap without re-implementing the
+ * public surface.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -39,10 +37,7 @@ trait ActsAsPrincipal
      */
     public function getIdentity(): Identity
     {
-        // 2D mode: when the consuming model implements both Identity
-        // and Principal, the principal IS the identity. Return $this
-        // directly rather than attempting to resolve a separate
-        // `identity` relation that does not exist in 2D mode.
+        // 2D mode: identity-is-principal, no `identity` relation.
         if ($this instanceof Identity) {
 
             return $this;
@@ -66,11 +61,8 @@ trait ActsAsPrincipal
 
     /**
      * Return the organization the principal acts within, if any.
-     *
-     * Triggers a relation lazy-load on first call. Tenant-aware
-     * applications should eager-load the relation in their principal
-     * resolver (e.g. `with('organization')`) to avoid a per-request
-     * extra query.
+     * Triggers a lazy-load on first call; tenant-aware apps should
+     * eager-load via their principal resolver.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Organization
      */

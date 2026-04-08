@@ -12,30 +12,17 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 
 /**
- * Listener: update the bound device's `last_logged_in_at` when a
- * device is authenticated.
+ * Listener that updates the bound device's `last_logged_in_at` when
+ * a device is authenticated.
  *
- * Debounced by a configurable throttle window so a high-throughput
- * API that binds the same device on every authenticated request does
- * not produce a per-request hot-spot write on the device row. The
- * update uses an atomic `update()` against the row, not a full
- * `forceFill+save`, so no in-memory model mutations sneak into the
- * persisted state.
- *
- * The throttle is CarbonImmutable-safe: the "last logged in"
- * comparison narrows to the `CarbonInterface` parent, not the
- * concrete `Carbon` class, so consumer apps that call
- * `Date::use(CarbonImmutable::class)` are not silently broken.
- *
- * The column name is resolved from the device's `ActsAsDevice`
- * accessor when present, so consumers that remap
- * `last_logged_in_at` via the trait's protected override hook have
- * their remapping respected by the listener.
- *
- * No-ops when the device is not an Eloquent model (e.g. a Mockery
- * double in unit tests) or when it has not been persisted yet so the
- * listener remains safe to invoke against any `Device` contract
- * implementation.
+ * Debounced by a configurable throttle window to avoid a per-request
+ * hot-spot write. Uses an atomic `update()` against the row (not
+ * `forceFill+save`) so no in-memory mutations sneak into persisted
+ * state. The "last logged in" comparison narrows to `CarbonInterface`
+ * so `CarbonImmutable` consumer configurations are not broken. The
+ * column name is resolved from `ActsAsDevice::getLastLoggedInName()`
+ * when present so trait remappings are honoured. No-ops for
+ * non-Eloquent or unpersisted device implementations.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -58,8 +45,7 @@ final class UpdateDeviceTimestamp
     {
         $device = $event->device;
 
-        // No-op for non-Eloquent doubles and for new (unpersisted)
-        // model instances — there is nothing to update on disk.
+        // No-op for non-Eloquent doubles and unpersisted instances.
         if (!$device instanceof Model || !$device->exists) {
             return;
         }
@@ -80,9 +66,8 @@ final class UpdateDeviceTimestamp
 
     /**
      * Whether the last-logged-in timestamp should be updated now.
-     * Returns true when the column is unset (first successful login)
-     * or when the configured throttle window has elapsed since the
-     * last successful persistence.
+     * Returns true on first login or when the configured throttle
+     * window has elapsed since the last persistence.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $device
      * @param  string  $column
@@ -113,9 +98,7 @@ final class UpdateDeviceTimestamp
     /**
      * Resolve the column name holding the last-logged-in timestamp.
      * Honours `ActsAsDevice::getLastLoggedInName()` when the device
-     * implementation exposes it (via a narrow contract check) so
-     * consumers that remap the column see the remap respected.
-     * Falls back to the package default otherwise.
+     * exposes it; falls back to the package default otherwise.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $device
      * @return string

@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * Exercises the trait through an anonymous Eloquent model because
  * the trait is defined against Eloquent's `getAttribute` accessor
  * contract. Marked `#[CoversNothing]` so phpunit does not attribute
- * the trait's runtime behaviour to a single concrete class — the
+ * the trait's runtime behaviour to a single concrete class - the
  * trait's real consumers (`Device`, `StubDevice`,
  * `IntegrationIdentity`, etc.) carry their own coverage via the
  * integration suites that exercise the full refresh lifecycle.

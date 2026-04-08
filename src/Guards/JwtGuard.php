@@ -24,13 +24,11 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
  * Stateless JWT bearer-token guard.
  *
  * Reads `Authorization: Bearer <token>` from the active request,
- * decodes via `JwtTokenService`, validates payload claims, and binds
- * the resolved identity, principal, and (optional) device.
+ * decodes via `JwtTokenService`, validates claims, and binds the
+ * resolved identity, principal, and optional device.
  *
- * Also exposes `refresh()` for refresh-credential exchange (REQ-03).
- * The refresh flow itself is delegated to `RefreshTokenExchange` —
- * this guard is a thin lifecycle adapter that binds the resulting
- * contextual triple and dispatches the `Refreshed` event.
+ * Exposes `refresh()` for refresh-credential exchange (REQ-03);
+ * the round trip is delegated to `RefreshTokenExchange`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -56,31 +54,20 @@ final class JwtGuard extends AbstractGuard
         Dispatcher $events,
         Request $request,
         Timebox $timebox,
-        // Token service used to decode and issue JWTs on the access-token path.
         protected JwtTokenService $tokens,
-        // Refresh-credential exchange service — owns the entire refresh
-        // round trip.
         protected RefreshTokenExchange $exchange,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
     }
 
     /**
-     * Return the authenticated identity bound to the guard, resolving
-     * it from the request's bearer token if necessary.
-     *
-     * Fires the standard `Attempting` and `Failed` events on the
-     * bearer-token resolution path so SIEM pipelines can observe
-     * failed authentications the same way they observe credential
-     * attempts on the BasicGuard. On success, the identity →
-     * principal → device lifecycle fires the usual custom events
-     * (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`).
+     * Return the authenticated identity, resolving it from the
+     * request's bearer token if necessary.
      *
      * Fail-closed semantics: a token that claims a specific `pid` or
      * `did` but does not resolve to that exact principal/device is
-     * rejected rather than silently downgraded to a default principal
-     * and a null device — a silent downgrade is a privilege-confusion
-     * vulnerability.
+     * rejected rather than silently downgraded - a silent downgrade
+     * is a privilege-confusion vulnerability.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
      */
@@ -104,12 +91,10 @@ final class JwtGuard extends AbstractGuard
      * Exchange a refresh token for a new access token + rotated
      * refresh token.
      *
-     * Delegates the entire round trip (parse, verify, hydrate,
-     * rotate, issue) to `RefreshTokenExchange`, then binds the
-     * resolved contextual triple onto the guard and dispatches the
-     * `Refreshed` event. Returns `null` on any failure path — the
-     * exchange service has already dispatched `RefreshFailed` with a
-     * machine-readable reason code before returning `null`.
+     * Delegates the round trip to `RefreshTokenExchange`, binds the
+     * resolved contextual triple, and dispatches `Refreshed`.
+     * Returns `null` on failure; the exchange has already dispatched
+     * `RefreshFailed` with a reason code.
      *
      * @param  string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Jwt\RefreshResult|null
@@ -126,17 +111,11 @@ final class JwtGuard extends AbstractGuard
             return null;
         }
 
-        // Route through login() so the refresh flow fires the same
-        // standard Laravel event sequence as `attempt()` and the
-        // bearer-resolution path — `Validated` → `Login` →
-        // `Authenticated` → `PrincipalAssigned` → `DeviceAuthenticated`.
-        // Consumers listening to `Login` for "session started"
-        // semantics (audit-log writes, analytics, rate-limit resets,
-        // etc.) observe every refresh the same way they observe a
-        // fresh credential login. The package-specific `Refreshed`
-        // event fires afterwards carrying the rotated triple so
-        // refresh-aware consumers can distinguish a rotation from a
-        // first login.
+        // Route through login() so refresh fires the same Laravel
+        // event sequence as attempt(): Validated -> Login ->
+        // Authenticated -> PrincipalAssigned -> DeviceAuthenticated.
+        // The package-specific Refreshed event fires afterwards so
+        // refresh-aware consumers can distinguish a rotation.
         $this->login($result->identity, $result->principal, $result->device);
 
         $this->events->dispatch(new Refreshed(
@@ -150,9 +129,9 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Resolve a device record for the identity from a hint (typically a
-     * device id from the access-token payload). Returns null when the
-     * identity does not implement `HasDevices` or the device is not found.
+     * Resolve a device for the identity from a hint (typically the
+     * `did` claim). Returns null when the identity does not implement
+     * `HasDevices` or the device is not found.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -170,12 +149,9 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Decode a bearer token, fire the success-path events, and bind
-     * identity/principal/device on the guard. Returns the bound
-     * identity on success or `null` after firing `Failed`.
-     *
-     * Single entry-and-exit helper extracted from `user()` so the
-     * top-level method stays within the project's branch budget.
+     * Decode a bearer token, fire success events, and bind
+     * identity/principal/device. Returns the bound identity, or
+     * `null` after firing `Failed`.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
@@ -184,19 +160,17 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireAttemptingEvent([]);
 
-        // Reset the tracker so a prior request's user cannot leak
-        // onto this failure path.
+        // Reset so a prior request's user cannot leak onto this
+        // failure path.
         $this->lastRetrievedUser = null;
 
         $context = $this->resolveContextFromToken($token);
 
         if ($context === null) {
-            // `lastRetrievedUser` carries the identity loaded from
-            // the `sub` claim whenever `loadIdentityFromClaims()` got
-            // that far — so SIEM consumers observe a Failed event
-            // with the resolved account name on inactive-identity,
-            // principal-unresolved, and device-missing branches, not
-            // a null that silently loses attribution.
+            // lastRetrievedUser carries the identity loaded from the
+            // sub claim whenever loadIdentityFromClaims() got that
+            // far, so Failed attributes to the resolved account on
+            // the inactive/unresolved/device-missing branches.
             $this->fireFailedEvent($this->lastRetrievedUser, []);
 
             return null;
@@ -209,8 +183,7 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * Resolve identity, principal, and device from a parsed bearer
-     * token, returning `null` on any validation failure. The caller
-     * is responsible for firing `Failed` and binding state on success.
+     * token. The caller fires `Failed` and binds state.
      *
      * @param  string  $token
      * @return array{
@@ -233,10 +206,10 @@ final class JwtGuard extends AbstractGuard
         $device     = $this->resolveDeviceFromHint($user, $deviceHint);
         $deviceLost = $deviceHint !== null && $device === null;
 
-        // Fail-closed: if the token carried a `did` but we could not
-        // resolve that exact device, reject rather than bind with a
-        // null device. Otherwise audit trails will record the request
-        // as "no device" despite the token claiming one.
+        // Fail-closed: if the token carried a did but we could not
+        // resolve that exact device, reject rather than bind null;
+        // otherwise audit trails record "no device" despite the
+        // token claiming one.
         return $deviceLost ? null : [
             'identity'  => $user,
             'principal' => $principal,
@@ -245,15 +218,10 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Look up the identity for an access-token's `sub` claim and
-     * confirm it is currently active. Returns `null` for missing /
-     * non-Identity / inactive identities.
-     *
-     * When the `sub` claim does resolve (even if the resulting user
-     * is not an `Identity` or reports inactive), the retrieved user
-     * is stored on `$this->lastRetrievedUser` so the bearer-failure
-     * path can attribute the `Failed` event to that specific
-     * account rather than dispatching with a `null` user.
+     * Look up the identity for the `sub` claim and confirm it is
+     * active. Stores the retrieved user on `$lastRetrievedUser` even
+     * on the inactive/non-Identity branches so `Failed` attributes
+     * to the resolved account rather than a null.
      *
      * @param  array<string, mixed>|null  $claims
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
@@ -266,10 +234,8 @@ final class JwtGuard extends AbstractGuard
 
         $user = $this->provider->retrieveById($claims[Claims::SUBJECT]);
 
-        // Track the retrieved user for the Failed-event attribution
-        // path even on the inactive/non-Identity branches. Only the
-        // `null` branch (no matching `sub`) leaves the tracker at
-        // its default `null` value.
+        // Track the retrieved user for Failed-event attribution
+        // even on the inactive/non-Identity branches.
         if ($user !== null) {
             $this->lastRetrievedUser = $user;
         }
@@ -282,9 +248,7 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Resolve a principal for the identity from the access-token claims
-     * and confirm it reports `isActive() === true`. Returns `null` for
-     * any failure path.
+     * Resolve a principal from the claims and confirm it is active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $user
      * @param  array<string, mixed>  $claims
@@ -298,9 +262,8 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Resolve a principal for the identity from the token claims,
-     * preserving fail-closed semantics on a present-but-unresolvable
-     * `pid` hint.
+     * Resolve a principal from the claims, preserving fail-closed
+     * semantics on a present-but-unresolvable `pid` hint.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<string, mixed>  $claims
@@ -322,20 +285,14 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Confirm that a resolver-returned principal matches the `pid`
-     * hint embedded in the access-token claims. Used by the
-     * fail-closed pid path so a hint that resolves to a *different*
-     * principal is rejected rather than silently downgraded.
+     * Confirm a resolver-returned principal matches the `pid` hint.
+     * Used by the fail-closed pid path so a hint that resolves to a
+     * different principal is rejected rather than silently downgraded.
      *
-     * Fail-closed semantics on unsaved principals: if the resolved
-     * principal's identifier stringifies to `null` (typically an
-     * unsaved Eloquent model returned by a misbehaving custom
-     * `PrincipalResolver`), the match returns `false` and the
-     * request is rejected as if the `pid` did not match. This is
-     * intentional — the guard cannot securely attribute the token
-     * to an unpersisted principal, so the conservative response is
-     * to refuse the authentication rather than silently bind a
-     * transient actor.
+     * Fail-closed on unsaved principals: if the resolved id
+     * stringifies to `null` (an unsaved model returned by a
+     * misbehaving custom resolver), the match returns `false` so
+     * the guard does not bind a transient actor.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal|null  $resolved
      * @param  mixed  $hint

@@ -59,7 +59,7 @@ final class DeviceModelOverrideTest extends TestCase
     {
         parent::setUp();
 
-        // Anonymous subclass of the shipped Device model — the FQCN is
+        // Anonymous subclass of the shipped Device model - the FQCN is
         // synthetic but usable as a `class-string` across the test.
         $anonymous = new class extends Device {};
 
@@ -73,7 +73,7 @@ final class DeviceModelOverrideTest extends TestCase
 
         // The Device model now caches the table name statically (set
         // The Device model reads the table name lazily in its
-        // constructor, so no manual cache priming is needed — the
+        // constructor, so no manual cache priming is needed - the
         // config swap in `defineEnvironment()` is picked up on the
         // next instantiation.
         Schema::create('custom_devices', static function (Blueprint $blueprint): void {
@@ -207,7 +207,7 @@ final class DeviceModelOverrideTest extends TestCase
      */
     protected function defineDatabaseMigrations(): void
     {
-        // intentionally empty — the test creates the custom table in setUp().
+        // intentionally empty - the test creates the custom table in setUp().
     }
 
     /**

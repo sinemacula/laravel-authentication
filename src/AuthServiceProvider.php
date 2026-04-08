@@ -44,13 +44,6 @@ final class AuthServiceProvider extends ServiceProvider
     /**
      * Register container bindings.
      *
-     * Merges the package config so consumers see defaults without
-     * publishing, swaps Laravel's `auth` manager for the package
-     * subclass while preserving any previously registered guard
-     * drivers and user provider drivers, binds the default
-     * `PrincipalResolver` implementation, and binds the
-     * `JwtTokenService` factory wired from config.
-     *
      * @return void
      */
     #[\Override]
@@ -69,13 +62,6 @@ final class AuthServiceProvider extends ServiceProvider
     /**
      * Bootstrap framework integrations.
      *
-     * Registers the `model` user provider driver, the `jwt` and
-     * `basic` guard drivers, the `DeviceAuthenticated` listener, and
-     * the publishing tags. The contextual accessors (`identity`,
-     * `principal`, `device`, `organization`, `scope`) are exposed
-     * directly on the package `AuthManager` subclass — see
-     * `SineMacula\Laravel\Authentication\AuthManager`.
-     *
      * @return void
      */
     public function boot(): void
@@ -89,9 +75,7 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Construct a `JwtGuard` from the supplied container, guard name,
-     * and Laravel guard config block. Wires the request rebind hook
-     * before returning so subsequent request rebinds propagate to the
-     * guard.
+     * and Laravel guard config block.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -108,11 +92,9 @@ final class AuthServiceProvider extends ServiceProvider
         $resolver = $app->make(PrincipalResolver::class);
         $events   = $app->make(Dispatcher::class);
 
-        // Per-guard JWT config block (if any) lives under `auth.guards.<name>.jwt`
-        // and layers over the package-wide `authentication.jwt.*` defaults. This
-        // lets consumers register multiple jwt guards with distinct secrets,
-        // audiences, or kid rotation sets — e.g. a `staff` guard with one
-        // audience and a `customer` guard with another.
+        // Per-guard JWT block at `auth.guards.<name>.jwt` layers over
+        // the package-wide `authentication.jwt.*` defaults so multiple
+        // jwt guards can have distinct secrets, audiences, or kids.
         $guardJwtConfig = is_array($config['jwt'] ?? null) ? $config['jwt'] : [];
 
         $tokens = self::buildJwtTokenService($app, $guardJwtConfig);
@@ -143,15 +125,9 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Construct a `BasicGuard` from the supplied container, guard
-     * name, and Laravel guard config block.
-     *
-     * The identifier field is resolved guard-first: if the guard
-     * config block carries an `identifier_field` value, that wins;
-     * otherwise the package-wide
-     * `authentication.credentials.identifier_field` default is used.
-     * This lets consumers register multiple basic guards that look
-     * up credentials by different columns — for example, a web guard
-     * keyed by `email` and a tenant API guard keyed by `key_id`.
+     * name, and Laravel guard config block. The identifier field is
+     * resolved guard-first, then falls back to the package-wide
+     * `authentication.credentials.identifier_field` default.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -191,16 +167,10 @@ final class AuthServiceProvider extends ServiceProvider
      * Replace the framework's `auth` container binding with the
      * package `AuthManager` subclass.
      *
-     * Deferred from `register()` to `boot()` deliberately. The
-     * container's `extend()` callback chain composes registration-order:
-     * an extend registered later in the lifecycle wraps any extends
-     * registered earlier. By running our extend during `boot()` —
-     * which fires after every provider's `register()` method — we
-     * guarantee the package manager is the outermost decorator,
-     * which means any guard / provider drivers other packages
-     * registered against the container during `register()` are still
-     * captured (via `inheritDriversFrom()`), and our contextual
-     * accessors are the ones consumers see when resolving `auth`.
+     * Deferred to `boot()` so this extend wraps any extends registered
+     * during other providers' `register()` phase, guaranteeing the
+     * package manager is the outermost decorator and previously
+     * registered drivers are captured via `inheritDriversFrom()`.
      *
      * @return void
      */
@@ -216,8 +186,7 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Register the `model` user provider driver against Laravel's
-     * `Auth` factory so consumers may set
-     * `auth.providers.<name>.driver = model` in `config/auth.php`.
+     * `Auth` factory.
      *
      * @return void
      */
@@ -233,9 +202,7 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Register the `jwt` and `basic` guard driver creators against
-     * Laravel's `Auth` factory. Each driver delegates to a focused
-     * factory method on this provider so the registration body stays
-     * within the project's method-length budget.
+     * Laravel's `Auth` factory.
      *
      * @return void
      */
@@ -247,8 +214,7 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `DeviceAuthenticated` event listener. The listener
-     * updates the bound device's `last_logged_in_at` timestamp.
+     * Register the `DeviceAuthenticated` event listener.
      *
      * @return void
      */
@@ -258,8 +224,7 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the package's config and migration publishing tags so
-     * consumers may publish either independently via `vendor:publish`.
+     * Register the package's config and migration publishing tags.
      *
      * @return void
      */
@@ -279,12 +244,9 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the container `refresh` hooks that propagate runtime
-     * rebinds of `request`, `events`, and the `PrincipalResolver` onto
-     * the supplied guard. Tests that swap any of those bindings (via
-     * `app()->instance(...)`, `Event::fake()`, etc.) get the new
-     * reference picked up automatically by every guard the package
-     * has constructed.
+     * Register container `refresh` hooks that propagate runtime
+     * rebinds of `request`, `events`, and the `PrincipalResolver`
+     * onto the supplied guard.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
@@ -298,15 +260,9 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Build a `JwtTokenService` instance from the package config,
-     * layered with an optional per-guard override block.
-     *
-     * Each JWT field (`secret`, `keys`, `active_kid`, `algorithm`,
-     * TTLs, `leeway_seconds`, `issuer`, `audience`) is resolved by
-     * checking the per-guard override first and falling back to the
-     * package-wide `authentication.jwt.*` default. This is what lets
-     * consumers register multiple jwt guards with distinct signing
-     * material or audiences in a single `config/auth.php`.
+     * Build a `JwtTokenService` from the package config, layered with
+     * an optional per-guard override block. Each JWT field is resolved
+     * guard-first, falling back to `authentication.jwt.*`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  array<string, mixed>  $guardJwtConfig
@@ -332,11 +288,9 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Build a `JwtKeyring` from the package config layered with an
-     * optional per-guard override block. When a non-empty `keys` map
-     * is found (guard first, package second), kid mode activates and
-     * the corresponding `active_kid` selects the signing key.
-     * Otherwise the keyring falls back to single-secret mode using the
-     * resolved `secret`.
+     * optional per-guard override. When a non-empty `keys` map is
+     * found, kid mode activates and `active_kid` selects the signing
+     * key; otherwise the keyring uses single-secret mode.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  array<string, mixed>  $guardJwtConfig
@@ -416,10 +370,9 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Resolve a nullable string JWT config value (`issuer` / `audience`),
-     * preferring the per-guard override and falling back to the package
-     * default. Empty strings are normalised to `null` so the JWT service
-     * treats unset and empty configurations identically.
+     * Resolve a nullable string JWT config value (`issuer` /
+     * `audience`), preferring the per-guard override and falling back
+     * to the package default. Empty strings are normalised to `null`.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  array<string, mixed>  $guardJwtConfig
@@ -446,13 +399,10 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Validate the raw `authentication.jwt.keys` config map at
-     * runtime and return a strictly-typed `kid → secret` array. The
-     * raw config is `mixed` (Laravel's repository accepts any payload),
-     * so this guard rejects integer-indexed entries (a common mistake
-     * when an operator writes `['secret_a', 'secret_b']` instead of a
-     * `kid → secret` map) and any non-string secret value (`null`,
-     * arrays, etc.) before forwarding to `JwtKeyring::fromKeyMap()`.
+     * Validate the raw `authentication.jwt.keys` config map and
+     * return a strictly-typed `kid -> secret` array. Rejects
+     * integer-indexed entries and non-string secrets before
+     * forwarding to `JwtKeyring::fromKeyMap()`.
      *
      * @param  array<array-key, mixed>  $rawKeys
      * @return array<string, string>
@@ -478,7 +428,7 @@ final class AuthServiceProvider extends ServiceProvider
 
                 $message = "JWT key '{$kid}' in `authentication.jwt.keys`"
                     . ' is not a string. Every kid must map to a non-empty string'
-                    . ' secret — check the env var backing this entry is set.';
+                    . ' secret - check the env var backing this entry is set.';
 
                 throw new InvalidJwtConfigurationException($message);
             }
@@ -490,12 +440,8 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Resolve the container's PSR-3 logger (`Psr\Log\LoggerInterface`)
-     * if it is bound, otherwise return `null` so the JWT service
-     * falls back to its `NullLogger`. Avoids hard-binding the package
-     * to a logger requirement — consumers without a PSR-3 logger
-     * binding still get a working JWT service, just without parse
-     * failure debug traces.
+     * Resolve the container's PSR-3 logger if bound, otherwise return
+     * `null` so the JWT service falls back to its `NullLogger`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @return \Psr\Log\LoggerInterface|null

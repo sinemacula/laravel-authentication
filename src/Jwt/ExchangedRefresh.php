@@ -10,12 +10,10 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Immutable DTO returned by `RefreshTokenExchange::exchange()` on a
- * successful refresh-token round trip.
+ * Immutable result of a successful refresh-token exchange.
  *
- * Carries the resolved contextual triple (identity, principal,
- * device) the `JwtGuard` should bind on its lifecycle, plus the
- * newly issued access + refresh token pair.
+ * Carries the resolved contextual triple plus the newly issued
+ * access + refresh token pair.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -31,18 +29,9 @@ final class ExchangedRefresh
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
      */
     public function __construct(
-
-        /** Identity hydrated from the device's `authenticatable` relation. */
         public Identity $identity,
-
-        /** Principal resolved for the identity. */
         public Principal $principal,
-
-        /** Device row whose rotation digest was rotated server-side. */
         public Device&Model $device,
-
-        /** Newly issued access + refresh token pair. */
         public RefreshResult $tokens,
-
     ) {}
 }

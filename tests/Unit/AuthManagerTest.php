@@ -14,11 +14,6 @@ use SineMacula\Laravel\Authentication\Contracts\Factory;
 /**
  * Unit tests for the package AuthManager subclass.
  *
- * Boots Orchestra Testbench with the package service provider so the
- * `auth` container binding is replaced by the package's manager. Each
- * test asserts a single inheritance/contract characteristic of the
- * resolved binding.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
@@ -40,8 +35,7 @@ final class AuthManagerTest extends TestCase
 
     /**
      * The package `AuthManager` is a subclass of Laravel's framework
-     * `AuthManager` so framework code that type-hints the parent
-     * still receives a working manager.
+     * `AuthManager`.
      *
      * @return void
      */

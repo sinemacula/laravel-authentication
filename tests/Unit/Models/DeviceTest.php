@@ -69,7 +69,7 @@ final class DeviceTest extends TestCase
      * Asserts that swapping `authentication.device.table` at
      * runtime is observed by the next Device instantiation. The model
      * reads the config lazily in its constructor, so no cache priming
-     * is required — tests and runtime tenancy swaps pick up the new
+     * is required - tests and runtime tenancy swaps pick up the new
      * value immediately.
      *
      * @return void

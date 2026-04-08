@@ -47,7 +47,7 @@ final class RefreshFailedTest extends TestCase
 
     /**
      * The reason constants cover every early-return path in the
-     * `JwtGuard::refresh()` flow — this assertion guards against
+     * `JwtGuard::refresh()` flow - this assertion guards against
      * accidentally introducing a new branch without a matching reason
      * string.
      *

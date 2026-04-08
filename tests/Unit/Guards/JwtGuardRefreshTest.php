@@ -336,10 +336,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * Reuse-detection regression test.
      *
      * When the refresh token verifies against the device's
-     * in-memory digest but the atomic CAS affects zero rows —
+     * in-memory digest but the atomic CAS affects zero rows -
      * meaning the database row's digest has been changed since the
      * read, typically by a concurrent refresh or a stolen-token
-     * replay — the exchange service revokes the entire device and
+     * replay - the exchange service revokes the entire device and
      * dispatches `RefreshFailed` with reason `rotation_reuse`. We
      * simulate the race by mutating the sqlite row directly between
      * the setRelation() setup and the refresh() call.

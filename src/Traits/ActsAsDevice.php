@@ -7,15 +7,10 @@ namespace SineMacula\Laravel\Authentication\Traits;
 use Carbon\CarbonInterface;
 
 /**
- * Provides default Device contract method implementations sourced
- * from configurable Eloquent model attribute names.
- *
- * Models using this trait may override the protected attribute-name
- * methods to map to non-default column names. All timestamp
- * accessors narrow to `CarbonInterface` rather than the concrete
- * `Carbon` class so consumer apps that configure Eloquent to cast
- * dates as `CarbonImmutable` (via `Date::use(...)`) are not silently
- * broken.
+ * Provides default Device contract implementations sourced from
+ * configurable Eloquent attribute names. Override the attribute-name
+ * methods to remap columns. Timestamp accessors narrow to
+ * `CarbonInterface` so `CarbonImmutable` consumers are not broken.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -67,9 +62,8 @@ trait ActsAsDevice
     }
 
     /**
-     * Return the hashed refresh key attribute, or null when the
-     * device has no refresh credential issued (newly registered,
-     * revoked, or cleared).
+     * Return the hashed refresh key attribute, or null when no
+     * refresh credential has been issued.
      *
      * @return ?string
      */
@@ -98,9 +92,9 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the device identifier. Override in the
-     * consuming model to remap. Public so listeners and the refresh
-     * exchange can resolve the correct column without reflection.
+     * Column name holding the device identifier. Public so listeners
+     * and the refresh exchange can resolve the column without
+     * reflection.
      *
      * @return string
      */
@@ -110,10 +104,8 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the last-login timestamp. Override in the
-     * consuming model to remap. Public so the
-     * `UpdateDeviceTimestamp` listener can honour the override when
-     * writing the atomic throttle update.
+     * Column name holding the last-login timestamp. Public so the
+     * `UpdateDeviceTimestamp` listener honours the override.
      *
      * @return string
      */
@@ -124,7 +116,6 @@ trait ActsAsDevice
 
     /**
      * Column name holding the last MFA verification timestamp.
-     * Override in the consuming model to remap.
      *
      * @return string
      */
@@ -134,8 +125,7 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the operating system string. Override in
-     * the consuming model to remap.
+     * Column name holding the operating system string.
      *
      * @return string
      */
@@ -145,9 +135,8 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the hashed refresh key. Override in the
-     * consuming model to remap. Public so the refresh-token exchange
-     * can compose its atomic CAS update against the correct column.
+     * Column name holding the hashed refresh key. Public so the
+     * refresh-token exchange can compose its atomic CAS update.
      *
      * @return string
      */
@@ -157,9 +146,8 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the revocation timestamp. Override in the
-     * consuming model to remap. Public so the refresh-token exchange
-     * can clear / set the column on the device row.
+     * Column name holding the revocation timestamp. Public so the
+     * refresh-token exchange can clear / set the column.
      *
      * @return string
      */

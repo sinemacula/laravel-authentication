@@ -98,7 +98,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
     /**
      * Asserts a token signed under a kid the verifier does not know
-     * is rejected — operators who fully retire a kid should see
+     * is rejected - operators who fully retire a kid should see
      * tokens signed under it stop working.
      *
      * @return void
@@ -129,7 +129,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
      * material. php-jwt ignores the `kid` header when handed a bare
      * `Key` rather than a map, so consumers may upgrade their issuer
      * to kid mode ahead of their verifier without invalidating
-     * in-flight tokens — the cutover is graceful in both directions.
+     * in-flight tokens - the cutover is graceful in both directions.
      *
      * @return void
      */
@@ -159,7 +159,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
     /**
      * Asserts the legacy single-secret service issues tokens with
-     * no `kid` header — the rotation header is opt-in.
+     * no `kid` header - the rotation header is opt-in.
      *
      * @return void
      */

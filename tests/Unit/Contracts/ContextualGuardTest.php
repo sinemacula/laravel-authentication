@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * Verifies that the published interface exposes the documented
  * contextual surface (accessors, setters, contextual `attempt`/`login`)
  * and that it inherits from Laravel's `Guard` contract. No instance of
- * the interface is constructed — the assertions run against interface
+ * the interface is constructed - the assertions run against interface
  * metadata only.
  *
  * @internal

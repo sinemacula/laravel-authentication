@@ -89,7 +89,7 @@ final class DeviceMigrationCollisionTest extends TestCase
 
     /**
      * When the collision guard throws, the pre-existing `devices`
-     * table remains untouched — specifically, the sentinel column
+     * table remains untouched - specifically, the sentinel column
      * seeded before the throw is still present, proving the abort
      * happened before `Schema::create(...)` could mutate the schema.
      *
@@ -109,7 +109,7 @@ final class DeviceMigrationCollisionTest extends TestCase
             $this->runMigrationUp($migration);
         } catch (\RuntimeException) {
 
-            // Expected — fall through to assertions below.
+            // Expected - fall through to assertions below.
         }
 
         self::assertTrue(Schema::hasTable('devices'));

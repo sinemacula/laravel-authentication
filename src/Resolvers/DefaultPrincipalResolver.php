@@ -12,9 +12,9 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 /**
  * Default principal resolver.
  *
- * Handles both 2D (identity-is-principal) and 3D (HasPrincipals delegate)
- * modes in a single class. Consumers may bind a custom resolver in the
- * container if their domain needs per-guard or tenant-aware logic.
+ * Handles both 2D (identity-is-principal) and 3D (HasPrincipals
+ * delegate) modes. Consumers may bind a custom resolver in the
+ * container for per-guard or tenant-aware logic.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -25,16 +25,10 @@ final class DefaultPrincipalResolver implements PrincipalResolver
      * Resolve a principal for the given identity.
      *
      * Resolution order:
-     *  1. Hint path: when a hint is supplied and the identity implements
-     *     `HasPrincipals`, look up the hinted principal via
-     *     `$identity->principals()->find($hint)`.
-     *  2. 2D path: if the identity itself implements `Principal`, return it.
-     *  3. 3D path: if the identity implements `HasPrincipals`, delegate to
-     *     `$identity->resolveDefaultPrincipal()`.
-     *  4. Otherwise throw `UnresolvableIdentityException` naming the
-     *     offending class. Guards catch this exception in the auth
-     *     path and convert it into a standard `Failed` event so the
-     *     request returns a 401 rather than a 500.
+     *  1. Hint + `HasPrincipals`: lookup via `principals()->find()`.
+     *  2. 2D: identity is itself a `Principal`.
+     *  3. 3D: delegate to `resolveDefaultPrincipal()`.
+     *  4. Otherwise throw `UnresolvableIdentityException`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed|null  $hint

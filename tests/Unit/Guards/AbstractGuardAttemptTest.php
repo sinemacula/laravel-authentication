@@ -273,7 +273,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
     /**
      * A `CanBeActive` identity reporting `false` is rejected after the
-     * hasher check passes — the resolver MUST NOT be invoked and the
+     * hasher check passes - the resolver MUST NOT be invoked and the
      * `Failed` event fires.
      *
      * @return void

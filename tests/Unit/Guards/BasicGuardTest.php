@@ -227,7 +227,7 @@ final class BasicGuardTest extends TestCase
      * `UnresolvableIdentityException` (the typed signal a
      * misconfigured identity model implements neither `Principal`
      * nor `HasPrincipals`) `BasicGuard::user()` MUST convert it to
-     * a `Failed` event and return null — NOT let it propagate as
+     * a `Failed` event and return null - NOT let it propagate as
      * an uncaught 500. The conversion mirrors `JwtGuard::user()`
      * and `AbstractGuard::attempt()`.
      *
@@ -460,7 +460,7 @@ final class BasicGuardTest extends TestCase
         $guard->logout();
 
         // After logout the stateless guard will re-read the request on
-        // the next `user()` call — swap in a credential-less request so
+        // the next `user()` call - swap in a credential-less request so
         // the re-read cannot resurrect the bound identity.
         $guard->setRequest($this->makeRequest(null, null));
 

@@ -11,11 +11,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * Dispatched after a successful refresh-token exchange.
- *
- * Carries the full contextual surface (identity, principal, device)
- * so activity-log consumers can attribute the refresh without a
- * second round-trip through the guard.
+ * Dispatched after a successful refresh-token exchange. Carries the
+ * full contextual surface so activity-log consumers can attribute
+ * the refresh without a second round-trip through the guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

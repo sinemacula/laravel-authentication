@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Jwt\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Parse-side unit tests for `JwtTokenService` — `parse()` and the
+ * Parse-side unit tests for `JwtTokenService` - `parse()` and the
  * issuer / audience / `typ` / leeway / logger surface.
  *
  * Split out of the original `JwtTokenServiceTest` so each derived
@@ -72,7 +72,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
     /**
      * A refresh token presented to `parse()` with `expectedType =
-     * access` is rejected — the `typ` check prevents token-type
+     * access` is rejected - the `typ` check prevents token-type
      * confusion.
      *
      * @return void
@@ -89,7 +89,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
     /**
      * An access token presented to `parse()` with `expectedType =
-     * refresh` is rejected — the `typ` check prevents token-type
+     * refresh` is rejected - the `typ` check prevents token-type
      * confusion.
      *
      * @return void
@@ -201,7 +201,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
     /**
      * After `parse()` returns, `JWT::$leeway` is restored to whatever
-     * value the consumer had set before the call — not hard-reset to
+     * value the consumer had set before the call - not hard-reset to
      * `0`. This regression guards against the package clobbering
      * consumer-configured clock-skew tolerance across our decode
      * window.

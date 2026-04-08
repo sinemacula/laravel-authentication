@@ -141,7 +141,7 @@ final class UpdateDeviceTimestampTest extends TestCase
 
     /**
      * Asserts the listener skips the DB write when the stored
-     * timestamp is still within the configured throttle window — the
+     * timestamp is still within the configured throttle window - the
      * debounce prevents a per-request hot-spot on the device row.
      *
      * @return void
@@ -204,7 +204,7 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener is invokable — registering it as a plain
+     * Asserts the listener is invokable - registering it as a plain
      * class name via `Event::listen` continues to work.
      *
      * @return void

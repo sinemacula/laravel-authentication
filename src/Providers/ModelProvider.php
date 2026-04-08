@@ -13,15 +13,11 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 /**
  * Eloquent-backed identity provider.
  *
- * Implements `IdentityProvider` (which extends Laravel's `UserProvider`) with
- * the same surface as Laravel's first-party `EloquentUserProvider`, minus the
- * remember-me token methods which this stateless package leaves inert.
- *
- * Intentionally non-`final` so consumers can subclass to plug in their own
- * retrieval logic (multi-tenant scoping, soft-deleted exclusion,
- * domain-specific lookups) by overriding `createModel()` or
- * `retrieveByCredentials()`. The unit suite also subclasses via anonymous
- * classes to inject pre-built models in tests.
+ * Mirrors the surface of Laravel's `EloquentUserProvider` minus the
+ * remember-me token methods, which are inert for this stateless
+ * package. Non-`final` so consumers may subclass `createModel()` or
+ * `retrieveByCredentials()` for tenant scoping, soft-delete
+ * exclusion, or other domain-specific lookups.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -50,7 +46,7 @@ class ModelProvider implements IdentityProvider
     ) {
         if ($model === '') {
 
-            $message = 'ModelProvider requires a non-empty Eloquent model class —'
+            $message = 'ModelProvider requires a non-empty Eloquent model class -'
                 . ' set `auth.providers.<name>.model` to a fully-qualified class'
                 . ' name in config/auth.php.';
 
@@ -87,10 +83,7 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Retrieve a user by a remember-me token.
-     *
-     * Inert in this stateless package: returns `null` unconditionally
-     * because remember-me tokens are not issued or stored. Implemented
+     * Inert in this stateless package: returns `null`. Implemented
      * only to satisfy `UserProvider`.
      *
      * @param  mixed  $identifier
@@ -104,11 +97,8 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Persist a new remember-me token for the given user.
-     *
-     * Intentionally empty in this stateless package: remember-me
-     * cookies are never issued so there is nothing to persist.
-     * Implemented only to satisfy `UserProvider`.
+     * Inert in this stateless package: empty no-op. Implemented only
+     * to satisfy `UserProvider`.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  mixed  $token
@@ -123,14 +113,11 @@ class ModelProvider implements IdentityProvider
     /**
      * Retrieve a user by the given credentials.
      *
-     * Password credentials are stripped before query composition so
-     * the hasher remains the single source of password verification.
-     *
-     * Filter rules — non-string keys and any key containing the
-     * substring `password` are dropped. After filtering, an empty
-     * credentials array returns `null` rather than running a
-     * where-less query (which would otherwise return the "first row
-     * in the table" — a surprising and unsafe authentication).
+     * Password keys are stripped before query composition so the
+     * hasher stays the single source of password verification. An
+     * empty filtered set returns `null` rather than running a
+     * where-less query, which would otherwise return the first row
+     * in the table - a surprising and unsafe authentication.
      *
      * @param  array<array-key, mixed>  $credentials
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
@@ -178,9 +165,8 @@ class ModelProvider implements IdentityProvider
 
     /**
      * Rehash the user's password when the current hash is outdated.
-     *
-     * No-ops when no password is supplied, the supplied password is
-     * not a string, or the user is not an Eloquent model.
+     * No-ops when no password is supplied or the user is not an
+     * Eloquent model.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
@@ -213,9 +199,6 @@ class ModelProvider implements IdentityProvider
     /**
      * Instantiate a fresh copy of the configured Eloquent model.
      *
-     * The constructor verifies the class is both an Eloquent `Model`
-     * and an `Authenticatable` so the runtime cast below is safe.
-     *
      * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
      */
     protected function createModel(): Authenticatable&Model
@@ -230,27 +213,24 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Build a fresh Eloquent query builder rooted at the supplied
-     * model. Single localised site for the dynamic-class `newQuery()`
-     * call so any phpstan suppressions live in one place.
+     * Build a fresh Eloquent query rooted at the supplied model.
+     * Single localised site for the dynamic-class `newQuery()` call
+     * so any phpstan suppressions live in one place.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
      * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>
      */
     private function freshQuery(Authenticatable&Model $model): Builder
     {
-        // See `persistRehashedPassword()` for the explanation of this
-        // suppression — same root cause (larastan exposes newQuery as
-        // a static alias even though it is genuinely an instance
-        // method on the Model class).
+        // See `persistRehashedPassword()` for the suppression
+        // rationale (larastan static-aliases the instance method).
         // @phpstan-ignore staticMethod.dynamicCall
         return $model->newQuery();
     }
 
     /**
      * Drop non-string keys, empty keys, and any key containing
-     * "password" so the remaining credentials can safely compose an
-     * Eloquent `where()` call. Returns the filtered associative array.
+     * "password" so the remainder can safely compose `where()` calls.
      *
      * @param  array<array-key, mixed>  $credentials
      * @return array<string, mixed>
@@ -272,10 +252,9 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Apply each credential to the query as a `where`/`whereIn`/closure
-     * clause. Returns `true` when every credential composed safely or
-     * `false` when any value is not a supported type — the caller
-     * should treat `false` as "refuse to authenticate".
+     * Apply each credential to the query as a `where`/`whereIn`/
+     * closure clause. Returns `false` if any value is unsupported;
+     * the caller should treat `false` as "refuse to authenticate".
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      * @param  array<string, mixed>  $credentials
@@ -296,8 +275,8 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Apply a single credential clause to the query. Returns `true`
-     * on success, `false` if the value is not a supported type.
+     * Apply a single credential clause to the query. Returns `false`
+     * if the value is not a supported type.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      * @param  string  $key
@@ -341,8 +320,8 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Hand the supplied query to a credential closure so the consumer
-     * can compose any additional `where` constraints they need.
+     * Hand the supplied query to a credential closure for additional
+     * `where` composition.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      * @param  \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>): mixed  $callback
@@ -356,7 +335,7 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Apply a scalar `=` clause built from a string/int/bool/Stringable
+     * Apply a scalar `=` clause for a string/int/bool/Stringable
      * credential value.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
@@ -376,11 +355,7 @@ class ModelProvider implements IdentityProvider
 
     /**
      * Persist a freshly hashed password onto an Eloquent user model.
-     *
-     * Single localised site for the Eloquent forceFill/save call so
-     * that any phpstan suppressions for the dynamic-class call shape
-     * live in one well-named method instead of leaking into the
-     * provider's public API surface.
+     * Localised so the dynamic-class phpstan suppression lives here.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $user
      * @param  string  $plain
@@ -390,14 +365,10 @@ class ModelProvider implements IdentityProvider
         Authenticatable&Model $user,
         #[\SensitiveParameter] string $plain,
     ): void {
-        // larastan exposes Eloquent Model methods like forceFill/save
-        // via @method static annotations, so phpstan strict-rules
-        // flags the instance-level call as a "dynamic call to static
-        // method". The call shape is correct PHP — both methods are
-        // declared as instance methods on the Model class — but the
+        // larastan static-aliases forceFill/save via @method static
+        // annotations even though they are instance methods; the
         // suppression is unavoidable while the model class is
-        // resolved at runtime via config rather than a class-string
-        // constant.
+        // resolved at runtime via config.
         // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
         $user->forceFill([
             $user->getAuthPasswordName() => $this->hasher->make($plain),

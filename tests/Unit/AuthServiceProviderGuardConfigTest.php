@@ -17,10 +17,10 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  *
  * Covers two override surfaces:
  *
- * - `auth.guards.<name>.jwt.*` for the jwt driver — secret, keys,
+ * - `auth.guards.<name>.jwt.*` for the jwt driver - secret, keys,
  *   audience, issuer, TTLs, etc. layered over the package-wide
  *   `authentication.jwt.*` defaults.
- * - `auth.guards.<name>.identifier_field` for the basic driver —
+ * - `auth.guards.<name>.identifier_field` for the basic driver -
  *   lookup column layered over the package-wide
  *   `authentication.credentials.identifier_field` default.
  *
@@ -67,7 +67,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
 
     /**
      * A per-guard `jwt.secret` override wins over the package default
-     * — the resulting keyring's active key holds the guard-specific
+     * - the resulting keyring's active key holds the guard-specific
      * signing material, not the package secret.
      *
      * @return void
@@ -120,7 +120,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
 
     /**
      * With no per-guard `jwt` block, the builder falls back to the
-     * package-wide `authentication.jwt.*` defaults unchanged —
+     * package-wide `authentication.jwt.*` defaults unchanged -
      * backwards-compatible with single-guard consumers.
      *
      * @return void
@@ -166,7 +166,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     /**
      * With no per-guard `identifier_field` override, `createBasicGuard`
      * falls back to the package-wide
-     * `authentication.credentials.identifier_field` default —
+     * `authentication.credentials.identifier_field` default -
      * backwards-compatible with single-guard consumers.
      *
      * @return void

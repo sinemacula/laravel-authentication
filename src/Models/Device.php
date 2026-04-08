@@ -15,16 +15,11 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * Default shipped Device Eloquent model.
  *
  * Polymorphic device record bound to an authenticatable identity via
- * the `authenticatable()` morphTo relation. Uses a UUID v7 primary
- * key (RFC 9562, time-ordered so inserts append to the B-tree).
- * Swappable via `config('authentication.device.model')`
- * and `device.table`.
- *
- * Intentionally non-`final` so consumers can either point
- * `device.model` at a subclass that adds domain columns/relations or
- * extend the shipped model directly. Subclasses MUST keep the
- * `authenticatable()` morphTo and the `getRefreshKey()` accessor
- * intact for the refresh-token rotation flow to work.
+ * the `authenticatable()` morphTo relation. UUID v7 primary key.
+ * Swappable via `config('authentication.device.model')` /
+ * `device.table`. Non-`final` so consumers may subclass; subclasses
+ * MUST preserve the `authenticatable()` morphTo and `getRefreshKey()`
+ * accessor for refresh-token rotation to work.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -62,12 +57,9 @@ class Device extends Model implements DeviceContract
     ];
 
     /**
-     * Create a new Device instance bound to the package-configured
-     * table name. Reads the table name lazily from the Config facade
-     * on each instantiation so consumers that swap
-     * `authentication.device.table` at runtime (tests,
-     * runtime tenancy) observe the new value immediately without
-     * touching a process-wide cache.
+     * Create a new Device bound to the package-configured table name.
+     * Reads the table name lazily on each instantiation so runtime
+     * config swaps (tests, tenancy) take effect immediately.
      *
      * @param  array<string, mixed>  $attributes
      */
@@ -100,11 +92,9 @@ class Device extends Model implements DeviceContract
     }
 
     /**
-     * Read the configured device table from the package config,
-     * falling back to `'devices'` when the key is absent or the
-     * Config facade is not bootstrapped (e.g. during certain unit
-     * tests that instantiate models before the Testbench container
-     * is ready).
+     * Read the configured device table, falling back to `'devices'`
+     * when the key is absent or the Config facade is not yet
+     * bootstrapped.
      *
      * @return string
      */

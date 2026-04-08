@@ -74,7 +74,7 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * `verify()` returns false for empty inputs — neither side can
+     * `verify()` returns false for empty inputs - neither side can
      * meaningfully match an empty string.
      *
      * @return void

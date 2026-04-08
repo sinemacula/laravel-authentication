@@ -117,7 +117,7 @@ final class DefaultPrincipalResolverTest extends TestCase
      * `UnresolvableIdentityException` (a `\LogicException` subclass)
      * whose message names the offending class. Guards catch this
      * specific type and convert it to a `Failed` event so the
-     * request still surfaces as a 401 — but consumer error reporters
+     * request still surfaces as a 401 - but consumer error reporters
      * can attribute the misconfiguration via the typed class.
      *
      * @return void

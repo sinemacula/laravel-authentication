@@ -19,21 +19,14 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 /**
  * Refresh-token exchange service.
  *
- * Encapsulates the entire refresh-credential round trip — parse the
- * refresh token, verify the rotation id against the device's stored
- * digest in constant time, hydrate the contextual lifecycle from the
- * device's polymorphic `authenticatable` relation, rotate the digest
- * server-side inside a database transaction, and issue a new access +
- * refresh token pair.
- *
- * Extracted out of `JwtGuard` so the (security-critical) refresh
- * surface lives in a single, narrowly-scoped class with explicit
- * dependencies. The guard becomes a thin caller that takes the
- * resulting `ExchangedRefresh` and binds the contextual triple onto
- * its own lifecycle.
+ * Encapsulates the refresh round trip: parse the token, verify the
+ * rotation id against the device's stored digest in constant time,
+ * hydrate the contextual lifecycle from the device's polymorphic
+ * `authenticatable` relation, rotate the digest server-side, and
+ * issue a new access + refresh token pair.
  *
  * Failure paths dispatch `RefreshFailed` events with machine-readable
- * reason codes so SIEM consumers can attribute failures.
+ * reason codes for SIEM attribution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -59,12 +52,8 @@ final class RefreshTokenExchange
 
     /**
      * Exchange a refresh token for a new access + refresh token pair,
-     * rotating the device's stored rotation digest in the process.
-     *
-     * Returns an `ExchangedRefresh` DTO on success carrying the
-     * resolved contextual triple plus the new tokens. Returns `null`
-     * on any failure path; a `RefreshFailed` event is dispatched
-     * with a machine-readable reason code first.
+     * rotating the device's stored digest. Returns `null` on any
+     * failure path; a `RefreshFailed` event is dispatched first.
      *
      * @param  string  $refreshToken
      * @return \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh|null
@@ -91,17 +80,14 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Mark a device as revoked by setting its `revoked_at` timestamp
-     * and clearing its stored refresh-key digest. Runs as a raw
-     * query-builder update so Eloquent observers do not fire and
-     * in-memory model attributes do not leak into the persisted
-     * write. Subsequent refresh attempts against this device row
-     * will be rejected with reason `device_revoked`.
+     * Mark a device revoked by setting its `revoked_at` and clearing
+     * its refresh-key digest. Runs as a raw query-builder update so
+     * Eloquent observers do not fire and in-memory model attributes
+     * do not leak into the persisted write.
      *
      * Exposed for consumer code that needs to force-revoke a device
-     * out-of-band (logout-everywhere flows, incident response) —
-     * the exchange service uses it internally on the reuse-detection
-     * path when the atomic rotation CAS affects zero rows.
+     * out-of-band; the exchange uses it internally on the
+     * reuse-detection path.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return void
@@ -122,9 +108,9 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Decode a refresh token and pull out the device record + plaintext
+     * Decode a refresh token and return the device + plaintext
      * rotation id. Dispatches `RefreshFailed` and returns `null` on
-     * any decode, claim, lookup, or rotation-mismatch failure.
+     * any failure.
      *
      * @param  string  $refreshToken
      * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device, 1: string}|null
@@ -148,8 +134,7 @@ final class RefreshTokenExchange
 
     /**
      * Extract and shape-check the refresh-token claims. Dispatches
-     * `RefreshFailed` with reason `token_invalid` and returns `null`
-     * for any malformed payload.
+     * `token_invalid` and returns `null` for any malformed payload.
      *
      * @param  array<string, mixed>|null  $claims
      * @return array{0: mixed, 1: string}|null
@@ -180,16 +165,12 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Load the device row named by the refresh-token's `did` claim
-     * and verify the supplied rotation id against its stored digest
-     * in constant time. Dispatches `RefreshFailed` with the
-     * appropriate reason and returns `null` for any failure path.
+     * Load the device named by the `did` claim and verify the
+     * supplied rotation id against its stored digest in constant time.
      *
-     * Rejects revoked devices (`revoked_at IS NOT NULL`) and devices
-     * that have no refresh credential issued (`refresh_key IS NULL`)
-     * before attempting the constant-time verification, so a
-     * revoked device row cannot be used to time-probe the valid
-     * rotation-id space.
+     * Rejects revoked devices and devices with no refresh credential
+     * before the constant-time verification, so a revoked row cannot
+     * be used to time-probe the valid rotation-id space.
      *
      * @param  mixed  $rawDeviceId
      * @param  string  $rotationId
@@ -248,9 +229,7 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Hydrate the contextual lifecycle (identity + principal) from a
-     * verified device row. Dispatches `RefreshFailed` and returns
-     * `null` on any inactive / unresolved branch.
+     * Hydrate identity + principal from a verified device row.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
@@ -272,9 +251,7 @@ final class RefreshTokenExchange
 
     /**
      * Validate the device's `authenticatable` relation and confirm
-     * the resolved identity is currently active. Dispatches the
-     * appropriate `RefreshFailed` reason and returns `null` for any
-     * failure path.
+     * the resolved identity is currently active.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  ?string  $deviceId
@@ -302,8 +279,7 @@ final class RefreshTokenExchange
 
     /**
      * Resolve a principal for the refresh-flow identity and verify
-     * it is currently active. Dispatches the appropriate
-     * `RefreshFailed` reason and returns `null` for any failure path.
+     * it is currently active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $deviceId
@@ -329,19 +305,14 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Final exchange phase: atomically rotate the device's stored
-     * digest via a compare-and-swap UPDATE, issue the new access +
-     * refresh token pair, and assemble the `ExchangedRefresh` DTO.
-     * Does NOT bind any state on a guard — the caller (typically
-     * `JwtGuard::refresh()`) is responsible for the lifecycle binding.
+     * Atomically rotate the digest via a compare-and-swap UPDATE,
+     * issue the new tokens, and assemble the DTO. Does NOT bind any
+     * state on a guard.
      *
-     * Returns `null` when the CAS affects zero rows — that signals
-     * a refresh-token reuse: the token verified against the stored
-     * digest earlier in the flow but another concurrent refresh
-     * request (or a stolen-token replay) has already rotated the
-     * digest in between. The entire device is revoked as a response
-     * and a `RefreshFailed` event with reason `rotation_reuse` is
-     * dispatched so the caller's `null` return surfaces as a 401.
+     * Returns `null` when the CAS affects zero rows: the token
+     * verified earlier but a concurrent refresh (or a stolen-token
+     * replay) has rotated the digest in between. The whole device is
+     * revoked and `rotation_reuse` is dispatched.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -362,17 +333,16 @@ final class RefreshTokenExchange
         if (!$rotated) {
             $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
 
-            // The CAS lost to a concurrent rotation — treat it as a
-            // refresh-token reuse and revoke the whole device family.
+            // CAS lost to a concurrent rotation: treat as refresh
+            // reuse and revoke the whole device family.
             $this->revokeDevice($device);
             $this->dispatchRefreshFailure(RefreshFailed::REASON_ROTATION_REUSE, $deviceId);
 
             return null;
         }
 
-        // Reflect the rotation on the in-memory model so any
-        // subsequent read on the bound device during this request
-        // sees the new digest (not the old one).
+        // Reflect the rotation on the in-memory model so subsequent
+        // reads during this request see the new digest.
         $refreshKeyColumn = $this->refreshKeyColumn($device);
         $device->setAttribute($refreshKeyColumn, RefreshTokenHasher::hash($newRotationId));
 
@@ -385,25 +355,15 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Rotate the device's stored digest atomically via a single
-     * compare-and-swap UPDATE:
-     *
-     *     UPDATE devices
-     *        SET refresh_key = :new_digest
-     *      WHERE id = :device_id
-     *        AND refresh_key = :old_digest
-     *        AND revoked_at IS NULL
-     *
-     * Returns `true` when exactly one row was affected (the rotation
-     * succeeded) and `false` when zero rows were affected (another
-     * concurrent rotation or a revocation has changed the row since
-     * the original read). The caller interprets `false` as a
-     * refresh-token reuse and revokes the device family.
+     * Rotate the device's stored digest via a single compare-and-swap
+     * UPDATE keyed on the device id, the old digest, and a null
+     * `revoked_at`. Returns `true` when exactly one row was affected.
+     * `false` signals a concurrent rotation or revocation and the
+     * caller treats it as refresh reuse.
      *
      * The raw query-builder update bypasses Eloquent model events so
-     * consumer observers registered against the device do not fire
-     * on every refresh — their side effects should trigger on the
-     * `Refreshed` package event instead.
+     * consumer observers do not fire on every refresh; their side
+     * effects should trigger on the `Refreshed` package event.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $oldRotationId
@@ -433,11 +393,9 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve the refresh-key column name for the supplied device,
-     * honouring the `ActsAsDevice` trait's public accessor when
-     * present (so consumers that remap the column via the trait's
-     * override hook are respected) and falling back to the package
-     * config otherwise.
+     * Resolve the refresh-key column for the device, honouring the
+     * `ActsAsDevice` trait's accessor when present and falling back
+     * to the package config.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return string
@@ -457,9 +415,8 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve the revoked-at column name for the supplied device.
-     * Honours the `ActsAsDevice` trait's public accessor when
-     * present and falls back to the default `'revoked_at'`.
+     * Resolve the revoked-at column for the device. Honours the
+     * `ActsAsDevice` trait's accessor and falls back to `revoked_at`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return string
@@ -479,11 +436,9 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve a principal for the supplied identity, catching the
-     * typed `UnresolvableIdentityException` thrown by the package's
-     * default resolver when an identity implements neither `Principal`
-     * nor `HasPrincipals`. Returns `null` so the caller surfaces a
-     * `RefreshFailed` event rather than propagating a 500.
+     * Resolve a principal for the identity, catching
+     * `UnresolvableIdentityException` and returning `null` so the
+     * caller surfaces `RefreshFailed` rather than a 500.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return \SineMacula\Laravel\Authentication\Contracts\Principal|null
@@ -498,8 +453,8 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Whether the supplied identity opts into activation checking
-     * and, if it does, whether it currently reports itself active.
+     * Whether the identity opts into activation checking and, if it
+     * does, whether it currently reports active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return bool
@@ -514,10 +469,8 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Dispatch a `RefreshFailed` event with the supplied reason and
-     * device id. Used by every early-return path in the exchange so
-     * failed refreshes are observable by audit-log consumers without
-     * scraping logs.
+     * Dispatch a `RefreshFailed` event with the supplied reason
+     * and device id.
      *
      * @param  string  $reason
      * @param  ?string  $deviceId

@@ -16,31 +16,24 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * JWT issue/parse service.
  *
  * Encapsulates `firebase/php-jwt` so the guards do not import it
- * directly. Single-purpose: issue access tokens, issue refresh tokens,
- * decode and verify tokens.
+ * directly. Issues access and refresh tokens, decodes and verifies.
  *
  * Hardening:
- * - signing material is encapsulated in a `JwtKeyring` value object
- *   that fails closed on empty / unknown / mismatched keys,
- * - supports kid-based key rotation: issue tokens with the active
- *   kid embedded in the JWT header, verify against a `kid → Key` map
- *   so old tokens stay valid until they expire,
- * - stringifies all identifier claims (`sub`, `pid`, `did`, `jti`) so
- *   the payload conforms to RFC 7519 §4.1.2,
- * - embeds a `typ` claim distinguishing access from refresh tokens so
- *   a refresh token cannot be presented as an access token,
- * - issues refresh tokens with an explicit `exp` claim derived from
- *   `refreshTtlMinutes` (no more "stateless refresh lives forever"),
- * - enforces configurable clock skew (`leewaySeconds`) on every
- *   verification,
- * - optionally embeds and strictly verifies `iss` and `aud` claims.
+ * - signing material lives in a `JwtKeyring` that fails closed,
+ * - kid-based rotation via the active kid header and `kid -> Key` map,
+ * - identifier claims (`sub`, `pid`, `did`, `jti`) stringified per
+ *   RFC 7519 §4.1.2,
+ * - `typ` claim distinguishes access from refresh,
+ * - refresh tokens carry an explicit `exp`,
+ * - configurable clock skew (`leewaySeconds`) on every verification,
+ * - optional strict `iss` / `aud` verification.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  */
 final class JwtTokenService
 {
-    /** @var \Psr\Log\LoggerInterface PSR-3 logger used to debug-trace parse failures (defaults to NullLogger). */
+    /** @var \Psr\Log\LoggerInterface PSR-3 logger for parse-failure debug traces. */
     private LoggerInterface $logger;
 
     /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring Signing / verification material. */
@@ -61,43 +54,14 @@ final class JwtTokenService
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     public function __construct(
-
-        // Either a legacy single-secret string (back-compat) or a
-        // pre-built `JwtKeyring`. The string form is forwarded to
-        // `JwtKeyring::fromSecret()` so the fail-closed empty-secret
-        // guard remains in a single place.
         #[\SensitiveParameter] JwtKeyring|string $secretOrKeyring,
-
-        /** Signing algorithm (e.g. HS256). */
         protected string $algorithm,
-
-        /** Access-token TTL in minutes. */
         protected int $accessTtlMinutes,
-
-        /** Refresh-token TTL in minutes. */
         protected int $refreshTtlMinutes,
-
-        /** Clock-skew tolerance in seconds applied on every verification. */
         protected int $leewaySeconds = 30,
-
-        /**
-         * Optional `iss` claim embedded in issued tokens and strictly
-         * verified on parse.
-         */
         protected ?string $issuer = null,
-
-        /**
-         * Optional `aud` claim embedded in issued tokens and strictly
-         * verified on parse.
-         */
         protected ?string $audience = null,
-
-        // Optional PSR-3 logger — when supplied, parse failures are
-        // debug-logged with their underlying exception class so
-        // consumer error reporters can attribute the failure mode
-        // without scraping logs.
         ?LoggerInterface $logger = null,
-
     ) {
         $this->keyring = is_string($secretOrKeyring)
             ? JwtKeyring::fromSecret($secretOrKeyring, $algorithm)
@@ -131,12 +95,8 @@ final class JwtTokenService
     /**
      * Encode a refresh-token payload bound to a specific device.
      *
-     * The token carries `did` (device id), `jti` (opaque rotation
-     * identifier the guard verifies against the hashed column on the
-     * device record), `typ = refresh`, `iat`, `exp` (derived from
-     * `refreshTtlMinutes`), and the optional `iss`/`aud` claims. The
-     * caller MUST hash the supplied plaintext `$rotationId` before
-     * persisting it on the device row.
+     * The caller MUST hash the supplied plaintext `$rotationId`
+     * before persisting it on the device row.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
@@ -155,13 +115,12 @@ final class JwtTokenService
     }
 
     /**
-     * Decode and verify a token, returning its claims as an associative array.
+     * Decode and verify a token, returning claims as an array.
      *
-     * Returns `null` for any decode, signature, expiry, issuer, or
-     * audience failure so callers can treat parse as a total function.
-     * When `$expectedType` is supplied, tokens whose `typ` claim does
-     * not match are rejected — this prevents a refresh token from
-     * being presented as an access token (and vice versa).
+     * Returns `null` on any failure so callers can treat parse as a
+     * total function. When `$expectedType` is supplied, tokens whose
+     * `typ` claim does not match are rejected to prevent a refresh
+     * token being presented as an access token (and vice versa).
      *
      * @param  string  $token
      * @param  ?string  $expectedType
@@ -181,8 +140,8 @@ final class JwtTokenService
     }
 
     /**
-     * Encode the supplied claim payload as a JWT, embedding the
-     * keyring's active kid in the header when kid mode is active.
+     * Encode the claim payload as a JWT, embedding the keyring's
+     * active kid in the header when kid mode is active.
      *
      * @param  array<string, mixed>  $payload
      * @return string
@@ -198,34 +157,23 @@ final class JwtTokenService
     }
 
     /**
-     * Run the firebase/php-jwt decoder with the configured leeway and
-     * return the decoded payload object on success, or `null` on any
-     * decode/signature/expiry failure.
+     * Run firebase/php-jwt with the configured leeway. Returns the
+     * decoded payload, or `null` on any decode/signature/expiry failure.
      *
      * Concurrency note: `firebase/php-jwt` exposes clock-skew tolerance
-     * only via the public static property `JWT::$leeway`, and offers no
-     * per-call or per-`Key` leeway API. To avoid clobbering a consumer
-     * value that may have been set outside this package, we capture the
-     * previous leeway before the decode and restore it in the `finally`
-     * block (rather than hard-resetting to `0`). This preserves any
-     * consumer-configured leeway across our decode window.
+     * only via the public static property `JWT::$leeway` and offers no
+     * per-call API. We capture and restore the previous value rather
+     * than hard-resetting to `0` so a consumer-configured leeway
+     * survives our decode window.
      *
-     * Known limitation — fiber-based runtimes: in truly concurrent
-     * environments that run multiple decodes in the same worker process
-     * (Laravel Octane persistent workers, Swoole coroutines, ReactPHP
-     * fibers), `JWT::$leeway` remains shared mutable state and a second
-     * decode scheduled during our capture/restore window will observe
-     * this service's leeway value. The correct long-term fixes are
-     * either (a) a per-call leeway API upstream in `firebase/php-jwt`
-     * or (b) forking the library. We deliberately do NOT wrap the
-     * decode in a mutex: `firebase/php-jwt` has no per-call leeway
-     * hook, so any such lock would have to serialise *every* decode in
-     * the worker process, which is a throughput regression that is
-     * strictly worse than accepting the narrow race window. Consumers
-     * running in persistent-worker runtimes should rely on the
-     * runtime's request-isolation model (Octane's `OCTANE_RESET`,
-     * per-coroutine context) to keep decodes logically serialised
-     * within a single request.
+     * Known limitation - fiber-based runtimes: in truly concurrent
+     * environments (Laravel Octane, Swoole coroutines, ReactPHP fibers)
+     * `JWT::$leeway` is shared mutable state and a second decode
+     * scheduled during the capture/restore window observes this
+     * service's leeway value. We deliberately do NOT wrap the decode
+     * in a mutex: any such lock would serialise every decode in the
+     * worker process. Consumers in persistent-worker runtimes should
+     * rely on the runtime's request-isolation model.
      *
      * @param  string  $token
      * @return \stdClass|null
@@ -251,8 +199,8 @@ final class JwtTokenService
     }
 
     /**
-     * Convert the decoded `\stdClass` payload into a string-keyed
-     * associative array, dropping any numeric keys.
+     * Convert the decoded payload into a string-keyed array, dropping
+     * any numeric keys.
      *
      * @param  \stdClass  $decoded
      * @return array<string, mixed>
@@ -271,9 +219,7 @@ final class JwtTokenService
     }
 
     /**
-     * Verify the issuer, audience, and `typ` claims against the
-     * configured/expected values. Returns `true` when every check
-     * passes (or is unconfigured) and `false` otherwise.
+     * Verify issuer, audience, and `typ` against expected values.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?string  $expectedType
@@ -296,9 +242,8 @@ final class JwtTokenService
     }
 
     /**
-     * Locate the first issuer/audience/`typ` claim mismatch against
-     * the configured/expected values, or return `null` when every
-     * check passes (or is unconfigured).
+     * Locate the first issuer/audience/`typ` mismatch, or return
+     * `null` when every check passes.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?string  $expectedType
@@ -326,8 +271,7 @@ final class JwtTokenService
     }
 
     /**
-     * Build the base claim set (iat, exp, typ, iss, aud) for an
-     * issued token.
+     * Build the base claim set (iat, exp, typ, iss, aud).
      *
      * @param  int  $issuedAt
      * @param  int  $expiresAt

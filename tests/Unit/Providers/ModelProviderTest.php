@@ -187,7 +187,7 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * Numeric credential keys are silently dropped — they cannot be
+     * Numeric credential keys are silently dropped - they cannot be
      * passed safely to `where()` and would otherwise crash the query.
      *
      * @return void
@@ -197,7 +197,7 @@ final class ModelProviderTest extends TestCase
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
         // After dropping numeric keys the credentials array is empty
-        // — the provider returns null without composing a query.
+        // - the provider returns null without composing a query.
         self::assertNull($provider->retrieveByCredentials(['alice@example.test']));
     }
 

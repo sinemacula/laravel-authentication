@@ -5,13 +5,9 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 /**
- * Dispatched when a refresh-token exchange fails for any reason.
- *
- * Carries a short machine-readable `reason` code so SIEM / audit-log
- * consumers can count failure modes (token_invalid, device_unknown,
- * rotation_mismatch, rotation_reuse, device_revoked, identity_inactive,
- * principal_inactive, principal_unresolved, authenticatable_missing)
- * without scraping log messages.
+ * Dispatched when a refresh-token exchange fails. Carries a short
+ * machine-readable `reason` code so SIEM / audit-log consumers can
+ * count failure modes without scraping log messages.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -27,7 +23,7 @@ final class RefreshFailed
     /** @var string Rotation id did not match digest. */
     public const string REASON_ROTATION_MISMATCH = 'rotation_mismatch';
 
-    /** @var string CAS lost — replay/concurrent rotation; device family revoked. */
+    /** @var string CAS lost: replay/concurrent rotation; family revoked. */
     public const string REASON_ROTATION_REUSE = 'rotation_reuse';
 
     /** @var string Device row marked revoked. */
@@ -57,16 +53,10 @@ final class RefreshFailed
         /** Name of the guard that attempted the refresh. */
         public string $guard,
 
-        /**
-         * Machine-readable failure reason — one of the REASON_*
-         * constants.
-         */
+        /** Machine-readable failure reason; one of REASON_*. */
         public string $reason,
 
-        /**
-         * Device identifier from the token, when the token was
-         * parseable enough to yield one.
-         */
+        /** Device identifier from the token, when parseable. */
         public ?string $deviceId = null,
 
     ) {}

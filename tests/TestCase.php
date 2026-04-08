@@ -67,11 +67,6 @@ abstract class TestCase extends OrchestraTestCase
      * `devices` table exists for tests that bind devices via the
      * shipped `Device` Eloquent model.
      *
-     * Tests that need a different table layout (e.g. T25's device
-     * model override test) should either skip this hook by overriding
-     * `defineDatabaseMigrations` or drop and re-create the table in
-     * their own setUp.
-     *
      * @return void
      */
     protected function defineDatabaseMigrations(): void

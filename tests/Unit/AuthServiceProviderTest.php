@@ -27,12 +27,6 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 /**
  * Unit tests for the package AuthServiceProvider.
  *
- * Boots Orchestra Testbench with the package service provider so the
- * full register/boot lifecycle runs against a real Laravel container.
- * Each test asserts a single registration concern: container bindings,
- * driver creators, facade macros, listeners, publishing tags, and
- * config merging.
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
@@ -178,7 +172,7 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `JwtTokenService` is bound from package config — the
+     * The `JwtTokenService` is bound from package config - the
      * resolved instance reflects the configured secret (via the
      * keyring's active key), algorithm, and TTL via reflection on
      * its private/promoted properties.
@@ -207,7 +201,7 @@ final class AuthServiceProviderTest extends TestCase
 
     /**
      * `mergeConfigFrom` exposes the package config defaults at
-     * runtime — the `device.table` default of `'devices'` is the
+     * runtime - the `device.table` default of `'devices'` is the
      * canonical assertion.
      *
      * @return void

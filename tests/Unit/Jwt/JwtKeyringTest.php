@@ -130,7 +130,7 @@ final class JwtKeyringTest extends TestCase
 
     /**
      * Asserts `fromKeyMap()` rejects an entry whose secret material
-     * is the empty string — every kid must map to real material.
+     * is the empty string - every kid must map to real material.
      *
      * @return void
      */
@@ -148,7 +148,7 @@ final class JwtKeyringTest extends TestCase
 
     /**
      * Asserts `fromKeyMap()` rejects an entry whose secret material
-     * is `null` — `env()` returns `null` for unset variables, so the
+     * is `null` - `env()` returns `null` for unset variables, so the
      * runtime guard must catch this case as well as the empty string
      * to fail closed with a friendly message naming the offending kid.
      *
@@ -171,7 +171,7 @@ final class JwtKeyringTest extends TestCase
 
     /**
      * Asserts `fromSecret()` rejects a signing algorithm that is not
-     * on the supported allow-list — typos and weak settings must fail
+     * on the supported allow-list - typos and weak settings must fail
      * at boot rather than at the first encode/decode call.
      *
      * @return void

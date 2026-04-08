@@ -1,6 +1,6 @@
 # Project Overview
 
-`sinemacula/laravel-authentication` — Stateless contextual authentication for Laravel. Distinguishes the authenticated *
+`sinemacula/laravel-authentication` - Stateless contextual authentication for Laravel. Distinguishes the authenticated *
 *Identity** from the acting **Principal** and the issuing **Device**, exposed through Laravel's standard `Auth` facade,
 middleware, and events.
 
@@ -12,7 +12,7 @@ middleware, and events.
 ## Architecture
 
 Standalone Auth core. Sibling IAM packages (MFA, SSO, Authorization, Audit Log, IAM umbrella) are documented in
-`docs/prd/` and live in their own repositories — this package has zero runtime dependencies on them.
+`docs/prd/` and live in their own repositories - this package has zero runtime dependencies on them.
 
 Core model: **Identity → Principal → Device**, with optional Organization scope. Both 2D (identity-is-principal) and
 3D (identity → separate principal → organization) adoption modes are supported by the same guards.

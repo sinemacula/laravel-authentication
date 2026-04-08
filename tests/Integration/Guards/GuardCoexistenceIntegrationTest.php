@@ -24,9 +24,9 @@ use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\TestCase;
 
 /**
- * Integration test proving that two package guards — one in 2D mode
+ * Integration test proving that two package guards - one in 2D mode
  * (identity-is-principal) and one in 3D mode (identity → distinct
- * principal via `HasPrincipals`) — can coexist in the same Laravel
+ * principal via `HasPrincipals`) - can coexist in the same Laravel
  * application without cross-contamination.
  *
  * Satisfies the PRD P0 acceptance criterion: "A test application
@@ -139,7 +139,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *   2. the 3D guard's `identity()` and `principal()` return
      *      distinct model instances of distinct classes (3D mode),
      *   3. after binding the 3D guard, the 2D guard still exposes
-     *      its own 2D identity — i.e. no cross-contamination,
+     *      its own 2D identity - i.e. no cross-contamination,
      *   4. and `Auth::id()` on each guard returns that guard's
      *      identity key, not the other's.
      *
@@ -164,7 +164,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
 
         self::assertInstanceOf(ContextualGuard::class, $guard2d);
 
-        // Trigger bearer-token resolution via `user()` — the resolved
+        // Trigger bearer-token resolution via `user()` - the resolved
         // identity is asserted via the contextual `identity()`
         // accessor below because larastan narrows Laravel's
         // `Guard::user()` return type to the framework default
@@ -248,7 +248,7 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         self::assertInstanceOf(ContextualGuard::class, $guard2d);
 
         // Trigger resolution of the bearer token before reading the
-        // manager's contextual accessors — `Auth::identity()` returns
+        // manager's contextual accessors - `Auth::identity()` returns
         // the guard's already-bound identity rather than eagerly
         // resolving the token itself.
         self::assertNotNull($guard2d->user());

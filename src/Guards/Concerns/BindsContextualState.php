@@ -13,16 +13,11 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 
 /**
- * Holds the identity → principal → device contextual triple bound to
- * a guard instance and exposes the read-side accessors plus the
- * principal/device setters that fire the package's custom contextual
- * events.
- *
- * Used by `AbstractGuard` so the contextual surface is decomposed
- * away from the credential-validation and Laravel-contract surface.
+ * Holds the identity -> principal -> device triple bound to a guard
+ * and exposes accessors plus setters that fire the contextual events.
  *
  * Expects the using class to declare:
- * - `protected string $name` (the registered guard name)
+ * - `protected string $name`
  * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -127,9 +122,8 @@ trait BindsContextualState
     }
 
     /**
-     * Clear identity, principal, and device state without firing any
-     * events. Used by `login()` and `logout()` — the caller is
-     * responsible for any event dispatch.
+     * Clear identity, principal, and device state without firing
+     * events. The caller dispatches any events.
      *
      * @return void
      */
@@ -141,8 +135,7 @@ trait BindsContextualState
     }
 
     /**
-     * Return the host class's event dispatcher. Centralised so the
-     * trait does not have to repeat the `$this->events` access path.
+     * Return the host class's event dispatcher.
      *
      * @return \Illuminate\Contracts\Events\Dispatcher
      */

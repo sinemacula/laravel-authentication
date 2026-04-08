@@ -18,7 +18,7 @@ use Carbon\CarbonInterface;
 interface Device
 {
     /**
-     * Return the device's stable identifier (typically the UUID v7 primary key).
+     * Return the device's stable identifier (typically a UUID v7).
      *
      * @return mixed
      */
@@ -26,10 +26,8 @@ interface Device
 
     /**
      * Return when the device was last successfully authenticated.
-     *
-     * Returns a `CarbonInterface` so consumer apps that configure
-     * Eloquent to cast timestamps as `CarbonImmutable` (via
-     * `Date::use(CarbonImmutable::class)`) are not silently broken.
+     * Returns `CarbonInterface` so consumer apps that configure
+     * `CarbonImmutable` casts are not silently broken.
      *
      * @return ?\Carbon\CarbonInterface
      */
@@ -50,27 +48,19 @@ interface Device
     public function getOperatingSystem(): string;
 
     /**
-     * Return the hashed refresh-key used for refresh-credential lookup.
-     *
-     * The returned value is the opaque digest stored on the device
-     * row — typically a SHA-256 hex string produced via
-     * `RefreshTokenHasher::hash()`. It is NEVER the plaintext
-     * rotation identifier. The refresh exchange verifies the
-     * plaintext from the refresh token against this digest via
-     * `hash_equals()` (constant-time).
-     *
-     * Returns `null` when the device has no refresh credential
-     * issued (e.g. immediately after device registration, or after
-     * revocation cleared the column).
+     * Return the hashed refresh-key digest stored on the device row.
+     * NEVER the plaintext rotation identifier - the refresh exchange
+     * verifies the plaintext against this digest via `hash_equals()`.
+     * Returns `null` when no refresh credential has been issued or
+     * after revocation cleared the column.
      *
      * @return ?string
      */
     public function getRefreshKey(): ?string;
 
     /**
-     * Return when the device was revoked, or `null` if it has not
-     * been revoked. A non-null value causes the refresh exchange
-     * to reject any refresh attempt against this device with
+     * Return when the device was revoked, or `null`. A non-null value
+     * causes the refresh exchange to reject refresh attempts with
      * reason `device_revoked`.
      *
      * @return ?\Carbon\CarbonInterface

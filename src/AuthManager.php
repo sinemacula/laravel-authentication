@@ -15,16 +15,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 /**
  * Package AuthManager.
  *
- * Subclass of Laravel's `AuthManager` that implements the package's
- * `Factory` marker contract and exposes five contextual accessors
- * (`identity`, `principal`, `device`, `organization`, `scope`)
- * directly on the manager so the framework `Auth::principal()` etc.
- * calls work without relying on `Macroable` registration. The
- * accessors forward to the active guard when it implements
- * `ContextualGuard` and return `null` otherwise.
- *
- * Bound to the `auth` container key by `AuthServiceProvider`.
- * Intentionally not `final` so consumers may further subclass.
+ * Subclass of Laravel's `AuthManager` that exposes the contextual
+ * accessors (`identity`, `principal`, `device`, `organization`,
+ * `scope`) directly on the manager. Each accessor forwards to the
+ * active guard when it implements `ContextualGuard`, otherwise
+ * returns `null`. Bound to the `auth` container key by
+ * `AuthServiceProvider`. Not `final` so consumers may subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -33,13 +29,9 @@ class AuthManager extends IlluminateAuthManager implements Factory
 {
     /**
      * Adopt the guard-driver and user-provider-driver registrations
-     * from another `Illuminate\Auth\AuthManager` instance.
-     *
-     * Used by `AuthServiceProvider` when wrapping the framework's
-     * existing manager so that any `Auth::extend(...)` /
-     * `Auth::provider(...)` calls made before this provider booted
-     * survive the container swap. Protected access from a descendant
-     * class is the legitimate replacement for reflection here.
+     * from another `Illuminate\Auth\AuthManager` instance so that any
+     * `Auth::extend(...)` / `Auth::provider(...)` calls made before
+     * this provider booted survive the container swap.
      *
      * @param  \Illuminate\Auth\AuthManager  $existing
      * @return void

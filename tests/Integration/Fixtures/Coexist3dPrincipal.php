@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 /**
  * Eloquent fixture for the 3D guard coexistence test.
  *
- * Implements `Principal` only — distinct from its owning identity —
+ * Implements `Principal` only - distinct from its owning identity -
  * so the default principal resolver's 3D branch resolves a separate
  * acting principal via `HasPrincipals::resolveDefaultPrincipal()`.
  * Rows on the backing `coexist_3d_principals` table carry an

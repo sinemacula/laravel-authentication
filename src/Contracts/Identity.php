@@ -9,11 +9,9 @@ use Illuminate\Contracts\Auth\Authenticatable;
 /**
  * Identity contract.
  *
- * Marks an Eloquent model as a contextual identity. Implementations
- * carry no methods beyond Laravel's Authenticatable surface; the
- * `@phpstan-require-extends` tag below pins implementations to
- * Eloquent so guards may safely call Eloquent-only methods such as
- * `getKey()` against an `Identity`.
+ * Marks an Eloquent model as a contextual identity. The
+ * `@phpstan-require-extends` tag pins implementations to Eloquent so
+ * guards may safely call Eloquent-only methods like `getKey()`.
  *
  * @phpstan-require-extends \Illuminate\Database\Eloquent\Model
  *

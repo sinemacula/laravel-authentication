@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Issuance-side unit tests for `JwtTokenService` —
+ * Issuance-side unit tests for `JwtTokenService` -
  * `issueAccessToken()`, `issueRefreshToken()`, and the empty-secret
  * fail-loud constructor guard.
  *
@@ -71,7 +71,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Every issued access token carries a `jti` claim — the unique
+     * Every issued access token carries a `jti` claim - the unique
      * token identifier that consumers can layer an external
      * revocation denylist against.
      *
