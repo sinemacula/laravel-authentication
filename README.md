@@ -1,151 +1,291 @@
-# Laravel Modules
+# Laravel Authentication
 
-[![Latest Stable Version](https://img.shields.io/packagist/v/sinemacula/laravel-modules.svg)](https://packagist.org/packages/sinemacula/laravel-modules)
-[![Build Status](https://github.com/sinemacula/laravel-modules/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/sinemacula/laravel-modules/actions/workflows/tests.yml)
-[![Maintainability](https://qlty.sh/gh/sinemacula/projects/laravel-modules/maintainability.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-modules)
-[![Code Coverage](https://qlty.sh/gh/sinemacula/projects/laravel-modules/coverage.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-modules)
-[![Total Downloads](https://img.shields.io/packagist/dt/sinemacula/laravel-modules.svg)](https://packagist.org/packages/sinemacula/laravel-modules)
+[![Latest Stable Version](https://img.shields.io/packagist/v/sinemacula/laravel-authentication.svg)](https://packagist.org/packages/sinemacula/laravel-authentication)
+[![Build Status](https://github.com/sinemacula/laravel-authentication/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/sinemacula/laravel-authentication/actions/workflows/tests.yml)
+[![Maintainability](https://qlty.sh/gh/sinemacula/projects/laravel-authentication/maintainability.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-authentication)
+[![Code Coverage](https://qlty.sh/gh/sinemacula/projects/laravel-authentication/coverage.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-authentication)
+[![Total Downloads](https://img.shields.io/packagist/dt/sinemacula/laravel-authentication.svg)](https://packagist.org/packages/sinemacula/laravel-authentication)
 
-A lightweight, convention-driven modular architecture package for Laravel. Replaces the standard `app/` directory with a
-`modules/` directory where each subdirectory is a self-contained module following standard Laravel conventions.
+Stateless contextual authentication for Laravel. Distinguishes the authenticated **Identity** from the acting
+**Principal** and the issuing **Device**, exposed through Laravel's standard `Auth` facade, middleware, and events.
 
-Modules are auto-discovered at boot time and cached for performance. All standard Laravel conventions work inside each
-module — there is no new API to learn.
+Drops into Laravel's existing auth machinery — no new API to learn. Same `Auth::check()`, `Auth::user()`,
+`auth()->guard('api')`, same middleware, same events. Adds contextual accessors (`Auth::identity()`,
+`Auth::principal()`, `Auth::device()`) and ships hardened JWT and HTTP Basic guards.
 
-## How It Works
+## Core Concept
 
-Each subdirectory under `modules/` is a self-contained module with its own models, controllers, routes, commands,
-listeners, events, observers, policies, and more:
+Most auth packages collapse "who you are" and "who you're acting as" into a single user. This package separates them:
 
-```text
-modules/
-├── Foundation/              # Core framework module
-│   ├── Console/             # Commands and schedule
-│   └── Providers/           # Service providers
-└── Billing/                 # Example domain module
-    ├── Events/
-    ├── Http/
-    │   ├── Controllers/
-    │   ├── Requests/
-    │   ├── Resources/
-    │   └── routes.php
-    ├── Listeners/
-    ├── Models/
-    ├── Observers/
-    └── Policies/
-```
+| Concept          | What it represents                                                          |
+|------------------|-----------------------------------------------------------------------------|
+| **Identity**     | The authenticated subject — typically the human / service account           |
+| **Principal**    | The actor on whose behalf the request runs — may differ from the identity   |
+| **Device**       | The issuing client — bound to the credential, used for refresh rotation     |
+| **Organization** | Optional scope the principal acts within (internal vs external, multi-org)  |
 
-### What Gets Discovered
+Both **2D** (identity-is-principal) and **3D** (identity → separate principal → organization) adoption modes are
+supported by the same guards. Start 2D, grow into 3D without re-platforming.
 
-| Convention        | Module Path            | How It's Loaded                       |
-|-------------------|------------------------|---------------------------------------|
-| Routes            | `Http/routes.php`      | Passed to `withRouting(api: ...)`     |
-| Console commands  | `Console/Commands/`    | Glob-based via `withCommands()`       |
-| Scheduled tasks   | `Console/schedule.php` | Glob-based via `withCommands()`       |
-| Event listeners   | `Listeners/`           | Glob-based via `withEvents()`         |
-| Views             | `Resources/views/`     | Registered in `ModuleServiceProvider` |
-| Translations      | `Resources/lang/`      | Registered in `ModuleServiceProvider` |
-| Service providers | `Providers/`           | Loaded via `withProviders()`          |
+**Stateless for access, stateful for refresh.** Access tokens carry everything the guard needs to authenticate a
+request — no session, no database hit on the bearer-resolution path. Refresh tokens are a different story: the rotation
+digest, device record, and last-login timestamp all live in the `devices` table. Refresh is therefore inherently
+stateful, and the package owns that state so replay attacks and stale credentials can be detected server-side.
 
-Everything else — controllers, requests, resources, events, observers, policies, models, jobs, mail, notifications —
-works via PSR-4 autoloading. No registration required.
+## Features
 
-### Artisan Commands
-
-| Command              | Description                                                  |
-|----------------------|--------------------------------------------------------------|
-| `module:make {name}` | Scaffold a new module with the standard directory structure  |
-| `module:list`        | List all discovered modules and their paths                  |
-| `module:cache`       | Cache discovered module paths for faster resolution          |
-| `module:clear`       | Clear the cached module paths                                |
-
-`module:make Billing` creates:
-
-```text
-modules/Billing/
-├── Console/Commands/
-├── Http/
-│   ├── Controllers/
-│   ├── Requests/
-│   └── routes.php
-├── Listeners/
-└── Models/
-```
-
-### Module Caching
-
-Module paths are cached to `bootstrap/cache/modules.php` and integrated into Laravel's `optimize` / `optimize:clear`
-lifecycle:
-
-```bash
-php artisan optimize        # Includes module:cache
-php artisan optimize:clear  # Includes module:clear
-```
+- **Two guards**, both stateless: `jwt` (Bearer token) and `basic` (HTTP Basic) — register via `auth.guards.*.driver`
+- **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `organization()`,
+  `scope()`, `isInternal()`, `isExternal()`
+- **Hardened JWT pipeline**: enforces `iss` / `aud` / `typ` / `exp` / leeway on every parse, embeds a per-token `jti`
+  on issue, fails closed on empty secrets, unsupported algorithms, type-confusion attacks, and mismatched `pid` /
+  `did` claims
+- **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and machine-readable
+  `RefreshFailed` events on every failure path for SIEM attribution
+- **Kid-based key rotation** — issue under one kid, verify against a `kid → secret` map, retire old kids once their
+  tokens expire
+- **Device tracking** with debounced `last_logged_in_at` writes to avoid per-request hot-spots
+- **First-class events** — fires Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
+  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`
+- **Pluggable everywhere**: identity model, device model, principal resolver, identifier field, table names
 
 ## Installation
 
 ```bash
-composer require sinemacula/laravel-modules
+composer require sinemacula/laravel-authentication
 ```
 
-### 1. Edit `bootstrap/app.php`
+Publish the config and the device migration, then migrate:
 
-Replace the default Laravel application with the modular variant:
+```bash
+php artisan vendor:publish --tag=laravel-authentication-config
+php artisan vendor:publish --tag=laravel-authentication-migrations
+php artisan migrate
+```
+
+Set the JWT secret in your environment:
+
+```dotenv
+AUTHENTICATION_JWT_SECRET="a-strong-random-value-of-at-least-32-bytes"
+```
+
+The package refuses to boot with an empty secret — silent acceptance of forged tokens is never the default.
+
+## Configuration
+
+Register guards and providers in `config/auth.php` exactly as you would with any first-party guard:
 
 ```php
-<?php
+'guards' => [
+    'api' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+    ],
+    'cli' => [
+        'driver'   => 'basic',
+        'provider' => 'users',
+    ],
+],
 
-use Illuminate\Foundation\Configuration\Exceptions;
-use Illuminate\Foundation\Configuration\Middleware;
-use SineMacula\Laravel\Modules\Application;
-use SineMacula\Laravel\Modules\Configuration\Modules;
-
-Modules::setBasePath(dirname(__DIR__));
-
-return Application::configure(basePath: dirname(__DIR__))
-    ->withRouting(
-        api      : Modules::routePaths(),
-        health   : '/health',
-        apiPrefix: '',
-    )
-    ->withMiddleware(function (Middleware $middleware): void {})
-    ->withExceptions(function (Exceptions $exceptions): void {})
-    ->create();
+'providers' => [
+    'users' => [
+        'driver' => 'model',
+        'model'  => App\Models\User::class,
+    ],
+],
 ```
 
-### 2. Update your autoload mapping
+Your identity model implements `Identity` (and optionally `Principal`, `HasPrincipals`, `HasDevices`,
+`CanBeActive`) — most apps just `use Authenticatable` and `use ActsAsPrincipal` from the package traits.
 
-In your application's `composer.json`, point the PSR-4 autoload at the `modules/` directory:
+### 2D adoption (identity is the principal)
 
-```json
+The simplest shape. One model implements both `Identity` and `Principal` — the user who logs in *is* the actor on
+whose behalf the request runs:
+
+```php
+use Illuminate\Foundation\Auth\User;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+
+class AppUser extends User implements Identity, Principal
 {
-    "autoload": {
-        "psr-4": {
-            "App\\": "modules/"
-        }
-    }
+    use Authenticatable;
+    use ActsAsPrincipal;
 }
 ```
 
-Then run `composer dump-autoload`.
+Point `auth.providers.users.model` at `AppUser::class` and you're done. `Auth::identity()` and `Auth::principal()`
+both return the same `AppUser` instance.
 
-### 3. Create the `modules/` directory
+### 3D adoption (separate identity, principal, and organization)
 
-Create a `modules/` directory at your project root and add your first module:
+For multi-tenant apps where the logged-in human operates on behalf of a tenant-scoped actor, split identity and
+principal into two models. The identity implements `HasPrincipals` and returns its own `principals()` query:
 
-```bash
-mkdir -p modules/Foundation/Providers
+```php
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Foundation\Auth\User;
+use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
+use SineMacula\Laravel\Authentication\Traits\ActsAsOrganization;
+use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+
+// The human — implements Identity + HasPrincipals, NOT Principal.
+class AppIdentity extends User implements Identity, HasPrincipals
+{
+    use Authenticatable;
+
+    /**
+     * Returns the principals this identity is permitted to act as.
+     * The package's default resolver calls `->find($hint)` when the
+     * access token carries a `pid` claim, and `resolveDefaultPrincipal()`
+     * otherwise.
+     */
+    public function principals(): HasMany
+    {
+        return $this->hasMany(AppMembership::class, 'identity_id');
+    }
+
+    public function resolveDefaultPrincipal(): ?PrincipalContract
+    {
+        return $this->principals()->where('is_active', true)->first();
+    }
+}
+
+// The acting principal — a per-tenant membership. Implements Principal
+// and belongs to an Organization.
+class AppMembership extends \Illuminate\Database\Eloquent\Model implements PrincipalContract
+{
+    use ActsAsPrincipal;
+
+    protected $fillable = ['identity_id', 'organization_id', 'role', 'is_active'];
+
+    public function organization(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(AppOrganization::class);
+    }
+}
+
+// The tenant scope — implements Organization so `Auth::organization()`
+// can return it and `Auth::isInternal()` / `isExternal()` can route
+// off its scope string.
+class AppOrganization extends \Illuminate\Database\Eloquent\Model implements \SineMacula\Laravel\Authentication\Contracts\Organization
+{
+    use ActsAsOrganization;
+}
 ```
 
-### 4. Wire up routing
+With that shape:
 
-Each module defines its own routes in `Http/routes.php`. These are automatically discovered and passed to
-`withRouting()` as shown in the `bootstrap/app.php` example above.
+- `Auth::identity()` returns the `AppIdentity` (the human)
+- `Auth::principal()` returns the `AppMembership` (the tenant-scoped actor) — resolved via the `pid` claim in the
+  access token, or via `resolveDefaultPrincipal()` on first login
+- `Auth::organization()` returns the `AppOrganization` the membership belongs to
+- `Auth::isInternal()` / `isExternal()` compare the organization's `scope()` against the strings configured in
+  `laravel-authentication.scopes`
+
+If you need a domain-specific resolution strategy (scoped by subdomain, header, session claim, etc.), implement
+`SineMacula\Laravel\Authentication\Contracts\PrincipalResolver` yourself and bind it in a service provider:
+
+```php
+$this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
+```
+
+The guards will use your resolver for every bearer-token or refresh exchange. No guard subclassing required.
+
+### HTTP Basic behind PHP-FPM / nginx
+
+The `basic` guard reads credentials via `Request::getUser()` / `Request::getPassword()`, which in turn pull from
+PHP's `$_SERVER['PHP_AUTH_USER']` / `PHP_AUTH_PW`. Behind **PHP-FPM + nginx**, the `Authorization` header is **not**
+automatically forwarded into those superglobals — the guard will see no credentials and return `null` from
+`Auth::user()`. Forward the header explicitly in your nginx site config:
+
+```nginx
+location ~ \.php$ {
+    fastcgi_pass_header Authorization;
+    # …rest of the fastcgi block
+}
+```
+
+Apache with `mod_php` populates these variables automatically; the gotcha is specific to FastCGI transports.
+
+## Usage
+
+The contextual accessors are exposed on the standard `Auth` facade:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Auth::check();          // bool — same as Laravel
+Auth::user();           // Identity|null — same as Laravel
+
+Auth::identity();       // Identity|null   — the authenticated subject
+Auth::principal();      // Principal|null  — the acting principal
+Auth::device();         // Device|null     — the issuing device
+Auth::organization();   // Organization|null
+Auth::scope();          // string|null
+Auth::isInternal();     // bool
+Auth::isExternal();     // bool
+```
+
+Issue and refresh JWTs through the guard:
+
+```php
+$guard = auth()->guard('api');
+
+$tokens = $guard->refresh($refreshToken);   // RefreshResult|null
+
+if ($tokens === null) {
+    // RefreshFailed event already dispatched with a machine-readable reason
+    abort(401);
+}
+
+return [
+    'access_token'  => $tokens->accessToken,
+    'refresh_token' => $tokens->refreshToken,
+];
+```
+
+## Key Rotation
+
+For production deployments that need graceful signing-key rotation, configure `jwt.keys` and `jwt.active_kid`:
+
+```php
+'jwt' => [
+    'keys' => [
+        '2026-04' => env('AUTHENTICATION_JWT_KEY_2026_04'),
+        '2026-03' => env('AUTHENTICATION_JWT_KEY_2026_03'),
+    ],
+    'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', '2026-04'),
+],
+```
+
+New tokens are signed with the active kid and carry it in the JWT header. The verifier accepts any kid present in the
+map — add a new kid, point `active_kid` at it, retire the old kid once every token signed under it has expired.
+
+## Events
+
+| Event                                       | Fired when                                                |
+|---------------------------------------------|-----------------------------------------------------------|
+| `Illuminate\Auth\Events\Attempting`         | Credential / bearer attempt starts                        |
+| `Illuminate\Auth\Events\Validated`          | Credentials match (before contextual binding)             |
+| `Illuminate\Auth\Events\Authenticated`      | Identity bound to the guard                               |
+| `Illuminate\Auth\Events\Login`              | Full lifecycle complete                                   |
+| `Illuminate\Auth\Events\Failed`             | Any rejection on the auth path                            |
+| `SineMacula\...\Events\PrincipalAssigned`   | Principal resolved and bound                              |
+| `SineMacula\...\Events\DeviceAuthenticated` | Device hydrated and bound                                 |
+| `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
+| `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 
 ## Requirements
 
 - PHP ^8.3
-- Laravel ^13.0
+- Laravel ^12.40 || ^13.3
 
 ## Testing
 

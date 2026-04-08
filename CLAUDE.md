@@ -1,25 +1,21 @@
 # Project Overview
 
-`sinemacula/laravel-iam` — Contextual identity and access management for Laravel. Implements a multi-dimensional
-identity model (Identity → Principal → Device) with MFA, SSO, activity logging, and IAM-style permissions.
+`sinemacula/laravel-authentication` — Stateless contextual authentication for Laravel. Distinguishes the authenticated *
+*Identity** from the acting **Principal** and the issuing **Device**, exposed through Laravel's standard `Auth` facade,
+middleware, and events.
 
-- **Namespace:** `SineMacula\Laravel\Iam`
+- **Namespace:** `SineMacula\Laravel\Authentication`
 - **Source:** `src/`
 - **Type:** Library (Composer package)
+- **PHP 8.3+ / Laravel 12 / 13**
 
 ## Architecture
 
-The package is organised into five modules, each with its own service provider:
+Standalone Auth core. Sibling IAM packages (MFA, SSO, Authorization, Audit Log, IAM umbrella) are documented in
+`docs/prd/` and live in their own repositories — this package has zero runtime dependencies on them.
 
-| Module        | Namespace                          | Responsibility                                      |
-|---------------|------------------------------------|-----------------------------------------------------|
-| Auth          | `SineMacula\Laravel\Iam\Auth`      | Core contextual auth: guards, identity, principals  |
-| MFA           | `SineMacula\Laravel\Iam\Mfa`       | Multi-factor authentication with driver pattern     |
-| SSO           | `SineMacula\Laravel\Iam\Sso`       | Single sign-on with driver pattern                  |
-| Activity Log  | `SineMacula\Laravel\Iam\ActivityLog` | Event-driven auth activity auditing               |
-| Permissions   | `SineMacula\Laravel\Iam\Permissions` | RBAC + IAM-style policy evaluation               |
-
-All modules depend only on Auth (the core). No cross-dependencies between non-core modules.
+Core model: **Identity → Principal → Device**, with optional Organization scope. Both 2D (identity-is-principal) and
+3D (identity → separate principal → organization) adoption modes are supported by the same guards.
 
 ## Commands
 
