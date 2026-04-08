@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Guards;
 
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Failed;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -44,6 +46,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     {
         $guard = $this->makeGuard($this->makeRequest(null));
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
@@ -64,6 +67,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $token = $this->encodeRefreshToken(['jti' => 'some-rotation-id']);
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
@@ -87,6 +91,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'jti' => 'rotation-id',
         ]);
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
@@ -114,6 +119,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'jti' => 'tampered-rotation-id',
         ]);
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
@@ -150,6 +156,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $this->resolver->shouldNotReceive('resolve');
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
@@ -186,6 +193,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $this->resolver->shouldNotReceive('resolve');
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
@@ -229,6 +237,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'jti' => $plainRotationId,
         ]);
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
@@ -276,12 +285,125 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'jti' => $plainRotationId,
         ]);
 
+        $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
                     && $event->reason === RefreshFailed::REASON_PRINCIPAL_INACTIVE));
 
         self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * A refresh attempt against a device whose `revoked_at` column
+     * is set returns null and fires `RefreshFailed` with reason
+     * `device_revoked`, regardless of whether the rotation id
+     * verifies against the stored digest.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenDeviceHasBeenRevoked(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'refresh_key' => RefreshTokenHasher::hash($plainRotationId),
+            'revoked_at'  => \Carbon\Carbon::now(),
+        ])->save();
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_DEVICE_REVOKED));
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * Reuse-detection regression test.
+     *
+     * When the refresh token verifies against the device's
+     * in-memory digest but the atomic CAS affects zero rows —
+     * meaning the database row's digest has been changed since the
+     * read, typically by a concurrent refresh or a stolen-token
+     * replay — the exchange service revokes the entire device and
+     * dispatches `RefreshFailed` with reason `rotation_reuse`. We
+     * simulate the race by mutating the sqlite row directly between
+     * the setRelation() setup and the refresh() call.
+     *
+     * @return void
+     */
+    public function testRefreshRevokesDeviceOnRotationReuseWhenCasAffectsZeroRows(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+        $staleDigest     = RefreshTokenHasher::hash($plainRotationId);
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 13]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '13',
+            'refresh_key'          => $staleDigest,
+        ])->save();
+
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        // Simulate a concurrent rotation: mutate the sqlite row's
+        // refresh_key directly so the in-memory digest (which
+        // `loadDeviceForRefresh` still verifies against) is stale
+        // from the CAS's point of view. The CAS will then affect
+        // zero rows and the exchange must detect the reuse.
+        StubDevice::query()
+            ->whereKey($device->id)
+            ->update(['refresh_key' => RefreshTokenHasher::hash('concurrent-rotation')]);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-13');
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailed::REASON_ROTATION_REUSE));
+
+        self::assertNull($guard->refresh($token));
+
+        // The device row has been revoked: revoked_at is set and the
+        // refresh-key column is cleared, so subsequent refresh
+        // attempts produce REASON_DEVICE_REVOKED.
+        $fresh = StubDevice::query()->findOrFail($device->id);
+        self::assertNotNull($fresh->revoked_at);
+        self::assertNull($fresh->refresh_key);
     }
 
     /**
@@ -421,5 +543,22 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
         self::assertSame($device, $guard->device());
+    }
+
+    /**
+     * Allow the standard `Attempting` + `Failed` events that every
+     * failed `JwtGuard::refresh()` call now dispatches (alongside
+     * the package-specific `RefreshFailed` event). Tests that assert
+     * a specific `RefreshFailed` reason call this helper first to
+     * permit the standard events without constraining them.
+     *
+     * @return void
+     */
+    private function expectRefreshFailureEvents(): void
+    {
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
     }
 }

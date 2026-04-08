@@ -6,7 +6,8 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -19,7 +20,11 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * decode and verify tokens.
  *
  * Hardening:
- * - refuses to construct with an empty secret (fail-closed),
+ * - signing material is encapsulated in a `JwtKeyring` value object
+ *   that fails closed on empty / unknown / mismatched keys,
+ * - supports kid-based key rotation: issue tokens with the active
+ *   kid embedded in the JWT header, verify against a `kid → Key` map
+ *   so old tokens stay valid until they expire,
  * - stringifies all identifier claims (`sub`, `pid`, `did`, `jti`) so
  *   the payload conforms to RFC 7519 §4.1.2,
  * - embeds a `typ` claim distinguishing access from refresh tokens so
@@ -35,23 +40,33 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  */
 final class JwtTokenService
 {
+    /** @var \Psr\Log\LoggerInterface PSR-3 logger used to debug-trace parse failures (defaults to NullLogger). */
+    private LoggerInterface $logger;
+
+    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring Signing / verification material. */
+    private JwtKeyring $keyring;
+
     /**
      * Constructor.
      *
-     * @param  string  $secret
+     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtKeyring|string  $secretOrKeyring
      * @param  string  $algorithm
      * @param  int  $accessTtlMinutes
      * @param  int  $refreshTtlMinutes
      * @param  int  $leewaySeconds
      * @param  ?string  $issuer
      * @param  ?string  $audience
+     * @param  ?\Psr\Log\LoggerInterface  $logger
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     public function __construct(
 
-        /** Shared secret used for HMAC algorithms (HS256/HS384/HS512). */
-        #[\SensitiveParameter] protected string $secret,
+        // Either a legacy single-secret string (back-compat) or a
+        // pre-built `JwtKeyring`. The string form is forwarded to
+        // `JwtKeyring::fromSecret()` so the fail-closed empty-secret
+        // guard remains in a single place.
+        #[\SensitiveParameter] JwtKeyring|string $secretOrKeyring,
 
         /** Signing algorithm (e.g. HS256). */
         protected string $algorithm,
@@ -71,15 +86,18 @@ final class JwtTokenService
         /** Optional `aud` claim embedded in issued tokens and strictly verified on parse. */
         protected ?string $audience = null,
 
+        // Optional PSR-3 logger — when supplied, parse failures are
+        // debug-logged with their underlying exception class so
+        // consumer error reporters can attribute the failure mode
+        // without scraping logs.
+        ?LoggerInterface $logger = null,
+
     ) {
-        if ($secret === '') {
+        $this->keyring = is_string($secretOrKeyring)
+            ? JwtKeyring::fromSecret($secretOrKeyring, $algorithm)
+            : $secretOrKeyring;
 
-            $message = 'JWT secret is empty. Set `laravel-authentication.jwt.secret`'
-                . ' (env `AUTHENTICATION_JWT_SECRET`) to a strong random value —'
-                . ' an empty secret would silently accept forged tokens.';
-
-            throw new InvalidJwtConfigurationException($message);
-        }
+        $this->logger = $logger ?? new NullLogger;
     }
 
     /**
@@ -99,8 +117,9 @@ final class JwtTokenService
         $payload[Claims::SUBJECT]      = IdentifierCoercion::stringify($identity->getAuthIdentifier());
         $payload[Claims::PRINCIPAL_ID] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
         $payload[Claims::DEVICE_ID]    = $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier());
+        $payload[Claims::JWT_ID]       = RefreshTokenHasher::generate();
 
-        return JWT::encode($payload, $this->secret, $this->algorithm);
+        return $this->encode($payload);
     }
 
     /**
@@ -126,7 +145,7 @@ final class JwtTokenService
         $payload[Claims::DEVICE_ID] = IdentifierCoercion::stringify($device->getDeviceIdentifier());
         $payload[Claims::JWT_ID]    = $rotationId;
 
-        return JWT::encode($payload, $this->secret, $this->algorithm);
+        return $this->encode($payload);
     }
 
     /**
@@ -156,23 +175,72 @@ final class JwtTokenService
     }
 
     /**
+     * Encode the supplied claim payload as a JWT, embedding the
+     * keyring's active kid in the header when kid mode is active.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return string
+     */
+    private function encode(array $payload): string
+    {
+        return JWT::encode(
+            $payload,
+            $this->keyring->activeKey()->getKeyMaterial(),
+            $this->algorithm,
+            $this->keyring->activeKid(),
+        );
+    }
+
+    /**
      * Run the firebase/php-jwt decoder with the configured leeway and
      * return the decoded payload object on success, or `null` on any
      * decode/signature/expiry failure.
+     *
+     * Concurrency note: `firebase/php-jwt` exposes clock-skew tolerance
+     * only via the public static property `JWT::$leeway`, and offers no
+     * per-call or per-`Key` leeway API. To avoid clobbering a consumer
+     * value that may have been set outside this package, we capture the
+     * previous leeway before the decode and restore it in the `finally`
+     * block (rather than hard-resetting to `0`). This preserves any
+     * consumer-configured leeway across our decode window.
+     *
+     * Known limitation — fiber-based runtimes: in truly concurrent
+     * environments that run multiple decodes in the same worker process
+     * (Laravel Octane persistent workers, Swoole coroutines, ReactPHP
+     * fibers), `JWT::$leeway` remains shared mutable state and a second
+     * decode scheduled during our capture/restore window will observe
+     * this service's leeway value. The correct long-term fixes are
+     * either (a) a per-call leeway API upstream in `firebase/php-jwt`
+     * or (b) forking the library. We deliberately do NOT wrap the
+     * decode in a mutex: `firebase/php-jwt` has no per-call leeway
+     * hook, so any such lock would have to serialise *every* decode in
+     * the worker process, which is a throughput regression that is
+     * strictly worse than accepting the narrow race window. Consumers
+     * running in persistent-worker runtimes should rely on the
+     * runtime's request-isolation model (Octane's `OCTANE_RESET`,
+     * per-coroutine context) to keep decodes logically serialised
+     * within a single request.
      *
      * @param  string  $token
      * @return \stdClass|null
      */
     private function decodeToken(#[\SensitiveParameter] string $token): ?\stdClass
     {
+        $previousLeeway = JWT::$leeway;
+
         try {
             JWT::$leeway = $this->leewaySeconds;
 
-            return JWT::decode($token, new Key($this->secret, $this->algorithm));
-        } catch (\Throwable) {
+            return JWT::decode($token, $this->keyring->verificationKeys());
+        } catch (\Throwable $e) {
+            $this->logger->debug('JWT decode failed', [
+                'exception' => $e::class,
+                'reason'    => $e->getMessage(),
+            ]);
+
             return null;
         } finally {
-            JWT::$leeway = 0;
+            JWT::$leeway = $previousLeeway;
         }
     }
 
@@ -207,15 +275,48 @@ final class JwtTokenService
      */
     private function matchesExpectedClaims(array $claims, ?string $expectedType): bool
     {
-        if ($this->issuer !== null && ($claims[Claims::ISSUER] ?? null) !== $this->issuer) {
-            return false;
+        $mismatch = $this->firstClaimMismatch($claims, $expectedType);
+
+        if ($mismatch === null) {
+            return true;
         }
 
-        if ($this->audience !== null && ($claims[Claims::AUDIENCE] ?? null) !== $this->audience) {
-            return false;
+        $this->logger->debug($mismatch['message'], [
+            'expected' => $mismatch['expected'],
+            'received' => $mismatch['received'],
+        ]);
+
+        return false;
+    }
+
+    /**
+     * Locate the first issuer/audience/`typ` claim mismatch against
+     * the configured/expected values, or return `null` when every
+     * check passes (or is unconfigured).
+     *
+     * @param  array<string, mixed>  $claims
+     * @param  ?string  $expectedType
+     * @return array{message: string, expected: mixed, received: mixed}|null
+     */
+    private function firstClaimMismatch(array $claims, ?string $expectedType): ?array
+    {
+        $checks = [
+            [Claims::ISSUER, $this->issuer, 'JWT issuer mismatch'],
+            [Claims::AUDIENCE, $this->audience, 'JWT audience mismatch'],
+            [Claims::TYPE, $expectedType, 'JWT typ mismatch'],
+        ];
+
+        foreach ($checks as [$claimKey, $expected, $message]) {
+            if ($expected !== null && ($claims[$claimKey] ?? null) !== $expected) {
+                return [
+                    'message'  => $message,
+                    'expected' => $expected,
+                    'received' => $claims[$claimKey] ?? null,
+                ];
+            }
         }
 
-        return !($expectedType !== null && ($claims[Claims::TYPE] ?? null) !== $expectedType);
+        return null;
     }
 
     /**

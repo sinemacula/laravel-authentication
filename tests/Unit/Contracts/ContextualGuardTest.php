@@ -6,7 +6,7 @@ namespace Tests\Unit\Contracts;
 
 use Illuminate\Contracts\Auth\Authenticatable as LaravelAuthenticatable;
 use Illuminate\Contracts\Auth\Guard as LaravelGuard;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
@@ -28,7 +28,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  */
-#[CoversNothing]
+#[CoversClass(ContextualGuard::class)]
 final class ContextualGuardTest extends TestCase
 {
     /**

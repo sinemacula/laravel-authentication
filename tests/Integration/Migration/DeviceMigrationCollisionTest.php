@@ -7,7 +7,8 @@ namespace Tests\Integration\Migration;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 use Tests\TestCase;
 
 /**
@@ -25,7 +26,7 @@ use Tests\TestCase;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(MigrationCollisionGuard::class)]
 final class DeviceMigrationCollisionTest extends TestCase
 {
     /** Absolute path to the shipped devices migration file. */

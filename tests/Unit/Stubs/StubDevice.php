@@ -21,9 +21,10 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  *
  * @property string $id
  * @property string $os
- * @property string $refresh_key
- * @property \Carbon\Carbon|null $last_logged_in_at
- * @property \Carbon\Carbon|null $last_mfa_verified_at
+ * @property ?string $refresh_key
+ * @property \Carbon\CarbonInterface|null $revoked_at
+ * @property \Carbon\CarbonInterface|null $last_logged_in_at
+ * @property \Carbon\CarbonInterface|null $last_mfa_verified_at
  *
  * @internal
  */
@@ -40,6 +41,7 @@ class StubDevice extends Model implements Device
 
     /** @var array<string, string> The attributes that should be cast. */
     protected $casts = [
+        'revoked_at'           => 'datetime',
         'last_logged_in_at'    => 'datetime',
         'last_mfa_verified_at' => 'datetime',
     ];

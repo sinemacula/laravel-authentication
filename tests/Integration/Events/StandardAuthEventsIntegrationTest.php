@@ -16,9 +16,10 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -43,7 +44,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(BasicGuard::class)]
 final class StandardAuthEventsIntegrationTest extends TestCase
 {
     /** @var string The guard name under test. */

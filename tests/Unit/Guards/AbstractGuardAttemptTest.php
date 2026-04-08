@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
  * Unit tests for the credential `attempt()` flow on `AbstractGuard`,
@@ -92,7 +93,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
         self::assertSame(
-            [Attempting::class, Validated::class, Authenticated::class, PrincipalAssigned::class, Login::class],
+            [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class],
             $dispatched,
         );
     }
@@ -195,6 +196,45 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
+     * Regression test for the C1 timing-attack fix.
+     *
+     * `attempt()` MUST route the entire `retrieveByCredentials` →
+     * `hasValidCredentials` → `fireFailedEvent` pipeline through
+     * `Timebox::call()` so the elapsed time is uniform regardless of
+     * whether the supplied identifier resolved to a persisted user.
+     * Before the fix, the short-circuit on a null user bypassed the
+     * timebox entirely, leaking "user exists" vs "user does not
+     * exist" over a timing side-channel. This test asserts
+     * `Timebox::call` is invoked once even on the null-user path.
+     *
+     * @return void
+     */
+    public function testAttemptAlwaysInvokesTimeboxOnNullUserPath(): void
+    {
+        // Replace the default pass-through timebox expectation with a
+        // strict "called exactly once" expectation that still invokes
+        // the closure so the rest of the test observes the failure
+        // event dispatch.
+        $this->timebox->shouldReceive('call')
+            ->once()
+            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
+
+        $guard = $this->makeGuard();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturnNull();
+        $this->provider->shouldNotReceive('validateCredentials');
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
+
+        self::assertFalse($guard->attempt(['email' => 'nonexistent@example.test']));
+    }
+
+    /**
      * A successful hasher check but null principal dispatches Failed.
      *
      * @return void
@@ -293,6 +333,45 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with($identity)
             ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Validated::class));
+        $this->events->shouldNotReceive('dispatch')
+            ->with(\Mockery::type(Login::class));
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Failed::class));
+
+        self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
+    }
+
+    /**
+     * When the principal resolver throws `UnresolvableIdentityException`
+     * (i.e. the identity model implements neither `Principal` nor
+     * `HasPrincipals`), the guard catches it and converts to a
+     * `Failed` event so the request returns 401, not 500.
+     *
+     * @return void
+     */
+    public function testAttemptConvertsUnresolvableIdentityExceptionToFailedEvent(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity = $this->mockIdentity();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andThrow(new UnresolvableIdentityException('Cannot resolve a principal'));
 
         $this->events->shouldReceive('dispatch')
             ->with(\Mockery::type(Attempting::class));

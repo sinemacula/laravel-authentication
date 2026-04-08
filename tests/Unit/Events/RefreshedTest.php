@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Unit\Events;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(Refreshed::class)]
 final class RefreshedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

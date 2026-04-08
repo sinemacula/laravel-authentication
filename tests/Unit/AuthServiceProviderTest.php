@@ -10,13 +10,14 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
@@ -37,7 +38,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(AuthServiceProvider::class)]
 final class AuthServiceProviderTest extends TestCase
 {
     /** @var string The shared JWT secret used by the bound JwtTokenService. */
@@ -48,6 +49,12 @@ final class AuthServiceProviderTest extends TestCase
 
     /** @var int The access-token TTL used by the bound JwtTokenService. */
     private const int JWT_TTL_MINUTES = 25;
+
+    /** @var string Kid used by the current-generation key in the kid-mode config tests. */
+    private const string KID_NEW = '2026-04';
+
+    /** @var string Kid used by the previous-generation key in the kid-mode config tests. */
+    private const string KID_OLD = '2026-03';
 
     /**
      * The `auth` container binding resolves to the package
@@ -176,8 +183,9 @@ final class AuthServiceProviderTest extends TestCase
 
     /**
      * The `JwtTokenService` is bound from package config — the
-     * resolved instance reflects the configured secret, algorithm,
-     * and TTL via reflection on its protected promoted properties.
+     * resolved instance reflects the configured secret (via the
+     * keyring's active key), algorithm, and TTL via reflection on
+     * its private/promoted properties.
      *
      * @return void
      */
@@ -189,11 +197,14 @@ final class AuthServiceProviderTest extends TestCase
 
         $reflection = new \ReflectionClass($service);
 
-        $secret    = $reflection->getProperty('secret');
-        $algorithm = $reflection->getProperty('algorithm');
-        $ttl       = $reflection->getProperty('accessTtlMinutes');
+        $keyringProp = $reflection->getProperty('keyring');
+        $algorithm   = $reflection->getProperty('algorithm');
+        $ttl         = $reflection->getProperty('accessTtlMinutes');
 
-        self::assertSame(self::JWT_SECRET, $secret->getValue($service));    // NOSONAR
+        $keyring = $keyringProp->getValue($service);    // NOSONAR
+
+        self::assertInstanceOf(\SineMacula\Laravel\Authentication\Jwt\JwtKeyring::class, $keyring);
+        self::assertSame(self::JWT_SECRET, $keyring->activeKey()->getKeyMaterial());    // NOSONAR
         self::assertSame(self::JWT_ALGORITHM, $algorithm->getValue($service));  // NOSONAR
         self::assertSame(self::JWT_TTL_MINUTES, $ttl->getValue($service));  // NOSONAR
     }
@@ -208,6 +219,146 @@ final class AuthServiceProviderTest extends TestCase
     public function testPackageConfigIsMergedIntoConfigRepository(): void
     {
         self::assertSame('devices', config('laravel-authentication.device.table'));
+    }
+
+    /**
+     * `buildKeyring` selects kid mode when `jwt.keys` is populated:
+     * the resulting keyring exposes the configured `active_kid`
+     * (rather than `null`, which is the legacy single-secret signal),
+     * and `verificationKeys()` returns a `kid → Key` map covering
+     * every entry in the supplied keys array.
+     *
+     * @return void
+     */
+    public function testBuildKeyringPicksKidModeWhenKeysAreConfigured(): void
+    {
+        $newSecret = 'kid-mode-new-secret-with-32-bytes!';
+        $oldSecret = 'kid-mode-old-secret-with-32-bytes!';
+
+        $config = new ConfigRepository([
+            'laravel-authentication' => [
+                'jwt' => [
+                    'algorithm' => 'HS256',
+                    'secret'    => null,
+                    'keys'      => [
+                        self::KID_NEW => $newSecret,
+                        self::KID_OLD => $oldSecret,
+                    ],
+                    'active_kid' => self::KID_NEW,
+                ],
+            ],
+        ]);
+
+        $reflection = new \ReflectionClass(AuthServiceProvider::class);
+
+        $build = $reflection->getMethod('buildKeyring');
+
+        /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring $keyring */
+        $keyring = $build->invoke(null, $config, 'HS256');
+
+        self::assertInstanceOf(\SineMacula\Laravel\Authentication\Jwt\JwtKeyring::class, $keyring);
+        self::assertSame(self::KID_NEW, $keyring->activeKid());
+
+        $verificationKeys = $keyring->verificationKeys();
+
+        self::assertIsArray($verificationKeys);
+        self::assertArrayHasKey(self::KID_NEW, $verificationKeys);
+        self::assertArrayHasKey(self::KID_OLD, $verificationKeys);
+    }
+
+    /**
+     * `buildKeyring` rejects an integer-indexed `jwt.keys` config (a
+     * common operator mistake when writing `['secret_a', 'secret_b']`
+     * instead of a `kid → secret` map). Without this guard the kids
+     * would silently become `"0"` and `"1"`, producing meaningless
+     * `kid` headers in issued tokens.
+     *
+     * @return void
+     */
+    public function testBuildKeyringRejectsIntegerIndexedKeys(): void
+    {
+        $config = new ConfigRepository([
+            'laravel-authentication' => [
+                'jwt' => [
+                    'algorithm'  => 'HS256',
+                    'secret'     => null,
+                    'keys'       => ['secret_a', 'secret_b'],
+                    'active_kid' => 'whatever',
+                ],
+            ],
+        ]);
+
+        $reflection = new \ReflectionClass(AuthServiceProvider::class);
+
+        $build = $reflection->getMethod('buildKeyring');
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage('non-string or empty kid');
+
+        $build->invoke(null, $config, 'HS256');
+    }
+
+    /**
+     * `buildKeyring` rejects a `jwt.keys` entry whose secret value is
+     * `null` (typically because the env var backing it is unset). The
+     * runtime guard must reject this before forwarding to the keyring
+     * factory and the message must name the offending kid.
+     *
+     * @return void
+     */
+    public function testBuildKeyringRejectsNullSecretValue(): void
+    {
+        $config = new ConfigRepository([
+            'laravel-authentication' => [
+                'jwt' => [
+                    'algorithm'  => 'HS256',
+                    'secret'     => null,
+                    'keys'       => [self::KID_NEW => null],
+                    'active_kid' => self::KID_NEW,
+                ],
+            ],
+        ]);
+
+        $reflection = new \ReflectionClass(AuthServiceProvider::class);
+
+        $build = $reflection->getMethod('buildKeyring');
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(sprintf('JWT key \'%s\'', self::KID_NEW));
+
+        $build->invoke(null, $config, 'HS256');
+    }
+
+    /**
+     * `buildKeyring` falls back to legacy single-secret mode when
+     * `jwt.keys` is absent or empty: the resulting keyring reports
+     * `null` from `activeKid()` (no header on issued tokens) and
+     * `verificationKeys()` returns a single bare `Key`.
+     *
+     * @return void
+     */
+    public function testBuildKeyringFallsBackToLegacyModeWithoutKeys(): void
+    {
+        $config = new ConfigRepository([
+            'laravel-authentication' => [
+                'jwt' => [
+                    'algorithm'  => 'HS256',
+                    'secret'     => 'legacy-mode-secret-with-32-bytes!!',
+                    'keys'       => [],
+                    'active_kid' => '',
+                ],
+            ],
+        ]);
+
+        $reflection = new \ReflectionClass(AuthServiceProvider::class);
+
+        $build = $reflection->getMethod('buildKeyring');
+
+        /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring $keyring */
+        $keyring = $build->invoke(null, $config, 'HS256');
+
+        self::assertNull($keyring->activeKid());
+        self::assertInstanceOf(\Firebase\JWT\Key::class, $keyring->verificationKeys());
     }
 
     /**

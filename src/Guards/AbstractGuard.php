@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
+use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
  * Abstract base for the package's stateless contextual guards.
@@ -50,8 +51,12 @@ abstract class AbstractGuard implements ContextualGuard
     //  Helpers used by subclasses
     // -----------------------------------------------------------------
 
-    /** @var \Illuminate\Contracts\Auth\Authenticatable|null Last user retrieved by `resolveContextForCredentials()`, kept so the failure path can include it on the `Failed` event. */
-    private ?Authenticatable $lastRetrievedUser = null;
+    /**
+     * @var \Illuminate\Contracts\Auth\Authenticatable|null last user retrieved by `resolveContextForCredentials()` or a
+     *                                                      subclass's bearer-resolution path, kept so the failure
+     *                                                      branch can include it on the `Failed` event
+     */
+    protected ?Authenticatable $lastRetrievedUser = null;
 
     /**
      * Constructor.
@@ -143,19 +148,29 @@ abstract class AbstractGuard implements ContextualGuard
      * Validate the supplied credentials against the identity provider
      * without mutating the guard's state.
      *
+     * Wraps the entire `retrieveByCredentials` → `hasValidCredentials`
+     * pipeline in a single `Timebox::call()` so the elapsed time is
+     * uniform regardless of whether the supplied identifier resolves
+     * to a persisted user — preserves the timing-safety guarantee
+     * against user-enumeration attacks (NFR-04).
+     *
      * @param  array<array-key, mixed>  $credentials
      * @return bool
      */
     #[\Override]
     public function validate(#[\SensitiveParameter] array $credentials = []): bool
     {
-        $user = $this->provider->retrieveByCredentials($credentials);
+        return $this->timebox->call(function (Timebox $timebox) use ($credentials): bool {
+            $user = $this->provider->retrieveByCredentials($credentials);
 
-        if ($user === null) {
+            if ($this->hasValidCredentials($user, $credentials)) {
+                $timebox->returnEarly();
+
+                return true;
+            }
+
             return false;
-        }
-
-        return $this->hasValidCredentials($user, $credentials);
+        }, $this->timeboxMicroseconds());
     }
 
     /**
@@ -208,27 +223,47 @@ abstract class AbstractGuard implements ContextualGuard
         ?Principal $principal = null,
         ?Device $device = null,
     ): bool {
+        return $this->timebox->call(function (Timebox $timebox) use ($credentials, $principal, $device): bool {
+            $this->fireAttemptingEvent($credentials);
 
-        $this->fireAttemptingEvent($credentials);
+            $resolved = $this->resolveContextForCredentials($credentials, $principal);
 
-        $resolved = $this->resolveContextForCredentials($credentials, $principal);
+            if ($resolved === null) {
+                $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
 
-        if ($resolved === null) {
-            $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
+                return false;
+            }
 
-            return false;
-        }
+            [$identity, $resolvedPrincipal] = $resolved;
 
-        [$identity, $resolvedPrincipal] = $resolved;
+            // attempt() bypasses the public login() because the
+            // Validated event has already fired from inside
+            // hasValidCredentials() — calling login() here would
+            // double-dispatch.
+            $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $device);
 
-        $this->login($identity, $resolvedPrincipal, $device);
+            $timebox->returnEarly();
 
-        return true;
+            return true;
+        }, $this->timeboxMicroseconds());
     }
 
     /**
      * Bind a fully resolved identity, principal, and optional device to
-     * the guard, firing the standard Laravel `Login` event on completion.
+     * the guard, firing the standard Laravel `Validated` and `Login`
+     * events around the bind.
+     *
+     * Public entry point for callers that have validated the identity
+     * out-of-band — refresh-token exchanges, OAuth callbacks, SSO
+     * flows, test helpers — and now want to surface the bind through
+     * the same event sequence the credential `attempt()` path emits.
+     * Subclass `user()` paths that *did not* go through
+     * `hasValidCredentials()` (notably the JWT bearer-token resolver)
+     * should call this method so they pick up the `Validated` firing
+     * for free; subclass paths that *did* go through
+     * `hasValidCredentials()` (notably `BasicGuard::user()`) should
+     * call `bindAuthenticationLifecycle()` directly to avoid the
+     * double-fire.
      *
      * Any previously bound state (identity, principal, device) is
      * cleared first so callers cannot accidentally inherit a stale
@@ -242,16 +277,9 @@ abstract class AbstractGuard implements ContextualGuard
     #[\Override]
     public function login(Identity $identity, Principal $principal, ?Device $device = null): void
     {
-        $this->clearContextualState();
+        $this->fireValidatedEvent($identity);
 
-        $this->setIdentity($identity);
-        $this->setPrincipal($principal);
-
-        if ($device !== null) {
-            $this->setDevice($device);
-        }
-
-        $this->events->dispatch(new Login($this->name, $identity, false));
+        $this->bindAuthenticationLifecycle($identity, $principal, $device);
     }
 
     /**
@@ -296,6 +324,80 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
+     * Rebind the event dispatcher onto the guard. Called by the
+     * service provider via `$app->refresh('events', ...)` so test
+     * suites that swap the dispatcher (e.g. via `Event::fake()`
+     * after the guard has been resolved) get a fresh reference
+     * instead of holding the original.
+     *
+     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
+     * @return static
+     */
+    public function setDispatcher(Dispatcher $events): static
+    {
+        $this->events = $events;
+
+        return $this;
+    }
+
+    /**
+     * Rebind the principal resolver onto the guard. Called by the
+     * service provider via `$app->refresh(PrincipalResolver::class,
+     * ...)` so consumers that swap the resolver after guard
+     * construction (test fakes, runtime tenancy switches) propagate
+     * the new resolver into the guard.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
+     * @return static
+     */
+    public function setPrincipalResolver(PrincipalResolver $resolver): static
+    {
+        $this->resolver = $resolver;
+
+        return $this;
+    }
+
+    /**
+     * Internal bind: clear any prior state, dispatch the standard
+     * `Login` event, and then set the contextual triple (which
+     * dispatches `Authenticated`, `PrincipalAssigned`, and
+     * `DeviceAuthenticated` in that order).
+     *
+     * The Login-before-Authenticated order mirrors Laravel's
+     * first-party `SessionGuard::login()` (it calls
+     * `fireLoginEvent()` before `setUser()`, and `setUser()` is
+     * where `Authenticated` fires from). Consumers listening to
+     * the standard Laravel auth events therefore see the exact
+     * same ordering whether they use a package guard or the
+     * framework's session guard.
+     *
+     * Used by both `attempt()` (which already fired `Validated`
+     * via `hasValidCredentials`) and `login()` (which fires
+     * `Validated` itself before calling this helper).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device|null  $device
+     * @return void
+     */
+    protected function bindAuthenticationLifecycle(
+        Identity $identity,
+        Principal $principal,
+        ?Device $device = null,
+    ): void {
+        $this->clearContextualState();
+
+        $this->events->dispatch(new Login($this->name, $identity, false));
+
+        $this->setIdentity($identity);
+        $this->setPrincipal($principal);
+
+        if ($device !== null) {
+            $this->setDevice($device);
+        }
+    }
+
+    /**
      * Bind an identity to the guard and fire the standard Laravel
      * `Authenticated` event. Shared entry point for `setUser()` and
      * the contextual `login()` path.
@@ -329,6 +431,33 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
+     * Resolve a principal for the supplied identity, catching the
+     * typed `UnresolvableIdentityException` thrown by the package's
+     * default resolver when an identity implements neither `Principal`
+     * nor `HasPrincipals`. The exception is converted into a `null`
+     * return so the calling auth path surfaces a `Failed` event +
+     * 401 response rather than propagating a 500 to the consumer.
+     *
+     * Subclass guards (`JwtGuard`) call this helper from their own
+     * `user()` and `refresh()` paths so the misconfigured-identity
+     * surface is handled consistently.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return \SineMacula\Laravel\Authentication\Contracts\Principal|null
+     */
+    protected function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
+    {
+        try {
+            return $hint === null
+                ? $this->resolver->resolve($identity)
+                : $this->resolver->resolve($identity, $hint);
+        } catch (UnresolvableIdentityException) {
+            return null;
+        }
+    }
+
+    /**
      * Resolve the (identity, principal) pair for an `attempt()` call,
      * or `null` if any check fails.
      *
@@ -349,22 +478,22 @@ abstract class AbstractGuard implements ContextualGuard
         $this->lastRetrievedUser = $this->provider->retrieveByCredentials($credentials);
         $user                    = $this->lastRetrievedUser;
 
-        $credentialsValid = $user !== null
-            && $this->hasValidCredentials($user, $credentials)
+        // `hasValidCredentials` is called unconditionally (even on a
+        // null user) so the elapsed time is uniform regardless of
+        // whether the supplied identifier resolved. The trait's
+        // implementation handles the null case internally and the
+        // enclosing `attempt()` timebox absorbs the whole pipeline.
+        $credentialsAccepted = $this->hasValidCredentials($user, $credentials)
             && $user instanceof Identity
             && $this->isIdentityActive($user);
 
-        if (!$credentialsValid) {
+        if (!$credentialsAccepted) {
             return null;
         }
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        $resolved = $principal ?? $this->resolver->resolve($user);
+        $resolved = $principal ?? $this->safeResolvePrincipal($user);
 
-        if ($resolved === null || !$resolved->isActive()) {
-            return null;
-        }
-
-        return [$user, $resolved];
+        return $resolved !== null && $resolved->isActive() ? [$user, $resolved] : null;
     }
 }

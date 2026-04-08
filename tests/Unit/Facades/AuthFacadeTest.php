@@ -6,7 +6,7 @@ namespace Tests\Unit\Facades;
 
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Orchestra\Testbench\TestCase;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Organization;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -27,7 +27,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  */
-#[CoversNothing]
+#[CoversClass(Auth::class)]
 final class AuthFacadeTest extends TestCase
 {
     /**

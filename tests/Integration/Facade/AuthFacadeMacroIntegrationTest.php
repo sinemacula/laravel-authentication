@@ -6,7 +6,9 @@ namespace Tests\Integration\Facade;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Auth\Factory as IlluminateAuthFactoryContract;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth as IlluminateAuth;
 use Tests\TestCase;
@@ -29,7 +31,9 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(IlluminateAuth::class)]
+#[CoversClass(AuthServiceProvider::class)]
+#[CoversClass(AuthManager::class)]
 final class AuthFacadeMacroIntegrationTest extends TestCase
 {
     /**

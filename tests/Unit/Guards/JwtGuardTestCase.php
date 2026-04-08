@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use Tests\Unit\Stubs\InjectableDeviceStub;
 use Tests\Unit\Stubs\StubDevice;
 
@@ -111,7 +112,8 @@ abstract class JwtGuardTestCase extends TestCase
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key')->default('');
+            $blueprint->string('refresh_key', 64)->nullable();
+            $blueprint->timestamp('revoked_at')->nullable();
             $blueprint->timestamp('last_logged_in_at')->nullable();
             $blueprint->timestamp('last_mfa_verified_at')->nullable();
             $blueprint->timestamps();
@@ -175,6 +177,14 @@ abstract class JwtGuardTestCase extends TestCase
 
         assert($app !== null);
 
+        $exchange = new RefreshTokenExchange(
+            $this->tokens,
+            $app->make(ConnectionResolverInterface::class),
+            $this->events,
+            $this->resolver,
+            self::GUARD_NAME,
+        );
+
         return new JwtGuard(
             self::GUARD_NAME,
             $this->provider,
@@ -183,7 +193,7 @@ abstract class JwtGuardTestCase extends TestCase
             $request,
             $this->timebox,
             $this->tokens,
-            $app->make(ConnectionResolverInterface::class),
+            $exchange,
         );
     }
 

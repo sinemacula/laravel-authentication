@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -40,7 +40,7 @@ use SineMacula\Laravel\Authentication\Guards\BasicGuard;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(BasicGuard::class)]
 final class BasicGuardTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -206,6 +206,52 @@ final class BasicGuardTest extends TestCase
             ->once()
             ->with($identity)
             ->andReturnNull();
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        self::assertNull($guard->user());
+        self::assertContains(Validated::class, $dispatched);
+        self::assertContains(Failed::class, $dispatched);
+        self::assertNotContains(Login::class, $dispatched);
+    }
+
+    /**
+     * H1 regression test.
+     *
+     * When the principal resolver throws
+     * `UnresolvableIdentityException` (the typed signal a
+     * misconfigured identity model implements neither `Principal`
+     * nor `HasPrincipals`) `BasicGuard::user()` MUST convert it to
+     * a `Failed` event and return null — NOT let it propagate as
+     * an uncaught 500. The conversion mirrors `JwtGuard::user()`
+     * and `AbstractGuard::attempt()`.
+     *
+     * @return void
+     */
+    public function testUserConvertsUnresolvableIdentityExceptionToFailedEvent(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andThrow(new \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException(
+                'identity implements neither Principal nor HasPrincipals',
+            ));
 
         $dispatched = [];
 
@@ -466,7 +512,7 @@ final class BasicGuardTest extends TestCase
         ]));
 
         self::assertSame(
-            [Attempting::class, Validated::class, Authenticated::class, PrincipalAssigned::class, Login::class],
+            [Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class],
             $dispatched,
         );
     }

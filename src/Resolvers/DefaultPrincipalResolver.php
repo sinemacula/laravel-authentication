@@ -31,11 +31,16 @@ final class DefaultPrincipalResolver implements PrincipalResolver
      *  2. 2D path: if the identity itself implements `Principal`, return it.
      *  3. 3D path: if the identity implements `HasPrincipals`, delegate to
      *     `$identity->resolveDefaultPrincipal()`.
-     *  4. Otherwise throw a `\LogicException` naming the offending class.
+     *  4. Otherwise throw `UnresolvableIdentityException` naming the
+     *     offending class. Guards catch this exception in the auth
+     *     path and convert it into a standard `Failed` event so the
+     *     request returns a 401 rather than a 500.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed|null  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
@@ -57,6 +62,6 @@ final class DefaultPrincipalResolver implements PrincipalResolver
             return $identity->resolveDefaultPrincipal();
         }
 
-        throw new \LogicException(sprintf('Cannot resolve a principal for identity %s: it implements neither Principal nor HasPrincipals.', $identity::class));
+        throw new UnresolvableIdentityException(sprintf('Cannot resolve a principal for identity %s: it implements neither Principal nor HasPrincipals.', $identity::class));
     }
 }

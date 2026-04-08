@@ -5,14 +5,14 @@ declare(strict_types = 1);
 namespace Tests\Unit\Resolvers;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
-use LogicException;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
  * Unit tests for the DefaultPrincipalResolver.
@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(DefaultPrincipalResolver::class)]
 final class DefaultPrincipalResolverTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -112,22 +112,42 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts a bare Identity mock that implements neither Principal nor
-     * HasPrincipals throws a LogicException whose message names the
-     * offending class.
+     * Asserts a bare Identity mock that implements neither Principal
+     * nor HasPrincipals throws the typed
+     * `UnresolvableIdentityException` (a `\LogicException` subclass)
+     * whose message names the offending class. Guards catch this
+     * specific type and convert it to a `Failed` event so the
+     * request still surfaces as a 401 — but consumer error reporters
+     * can attribute the misconfiguration via the typed class.
      *
      * @return void
      */
-    public function testThrowsLogicExceptionWhenIdentityImplementsNeitherInterface(): void
+    public function testThrowsUnresolvableIdentityExceptionWhenIdentityImplementsNeitherInterface(): void
     {
         $identity = \Mockery::mock(Identity::class);
 
         $resolver = new DefaultPrincipalResolver;
 
-        $this->expectException(\LogicException::class);
+        $this->expectException(UnresolvableIdentityException::class);
         $this->expectExceptionMessage($identity::class);
         $this->expectExceptionMessage('implements neither Principal nor HasPrincipals');
 
         $resolver->resolve($identity);
+    }
+
+    /**
+     * Asserts the typed exception inherits from `\LogicException`,
+     * preserving the existing exception-handler contract for
+     * consumers who catch `\LogicException` broadly. Verified via a
+     * runtime instance check rather than `is_subclass_of(...)` so
+     * phpstan can statically narrow the relationship.
+     *
+     * @return void
+     */
+    public function testUnresolvableIdentityExceptionExtendsLogicException(): void
+    {
+        $exception = new UnresolvableIdentityException('test');
+
+        self::assertInstanceOf(\LogicException::class, $exception);
     }
 }

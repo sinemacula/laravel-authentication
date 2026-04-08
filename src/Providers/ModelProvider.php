@@ -17,6 +17,12 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
  * minus the remember-me token methods which this stateless package
  * leaves inert.
  *
+ * Intentionally non-`final` so consumers can subclass to plug in their
+ * own retrieval logic (multi-tenant scoping, soft-deleted exclusion,
+ * domain-specific lookups) by overriding `createModel()` or
+ * `retrieveByCredentials()`. The unit suite also subclasses via
+ * anonymous classes to inject pre-built models in tests.
+ *
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  */
@@ -68,9 +74,7 @@ class ModelProvider implements IdentityProvider
     {
         $model = $this->createModel();
 
-        // @phpstan-ignore staticMethod.dynamicCall
-        $user = $model
-            ->newQuery()
+        $user = $this->freshQuery($model)
             ->where($model->getAuthIdentifierName(), $identifier)
             ->first();
 
@@ -137,8 +141,7 @@ class ModelProvider implements IdentityProvider
             return null;
         }
 
-        // @phpstan-ignore staticMethod.dynamicCall
-        $query = $this->createModel()->newQuery();
+        $query = $this->freshQuery($this->createModel());
 
         if (!$this->applyCredentialClauses($query, $filtered)) {
             return null;
@@ -201,10 +204,7 @@ class ModelProvider implements IdentityProvider
             return;
         }
 
-        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
-        $user->forceFill([
-            $user->getAuthPasswordName() => $this->hasher->make($plain),
-        ])->save();
+        $this->persistRehashedPassword($user, $plain);
     }
 
     /**
@@ -224,6 +224,54 @@ class ModelProvider implements IdentityProvider
         assert($instance instanceof Authenticatable && $instance instanceof Model);
 
         return $instance;
+    }
+
+    /**
+     * Persist a freshly hashed password onto an Eloquent user model.
+     *
+     * Single localised site for the Eloquent forceFill/save call so
+     * that any phpstan suppressions for the dynamic-class call shape
+     * live in one well-named method instead of leaking into the
+     * provider's public API surface.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $user
+     * @param  string  $plain
+     * @return void
+     */
+    private function persistRehashedPassword(
+        Authenticatable&Model $user,
+        #[\SensitiveParameter] string $plain,
+    ): void {
+        // larastan exposes Eloquent Model methods like forceFill/save
+        // via @method static annotations, so phpstan strict-rules
+        // flags the instance-level call as a "dynamic call to static
+        // method". The call shape is correct PHP — both methods are
+        // declared as instance methods on the Model class — but the
+        // suppression is unavoidable while the model class is
+        // resolved at runtime via config rather than a class-string
+        // constant.
+        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
+        $user->forceFill([
+            $user->getAuthPasswordName() => $this->hasher->make($plain),
+        ])->save();
+    }
+
+    /**
+     * Build a fresh Eloquent query builder rooted at the supplied
+     * model. Single localised site for the dynamic-class `newQuery()`
+     * call so any phpstan suppressions live in one place.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
+     * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>
+     */
+    private function freshQuery(Authenticatable&Model $model): \Illuminate\Database\Eloquent\Builder
+    {
+        // See `persistRehashedPassword()` for the explanation of this
+        // suppression — same root cause (larastan exposes newQuery as
+        // a static alias even though it is genuinely an instance
+        // method on the Model class).
+        // @phpstan-ignore staticMethod.dynamicCall
+        return $model->newQuery();
     }
 
     /**

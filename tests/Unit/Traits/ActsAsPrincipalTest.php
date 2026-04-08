@@ -16,6 +16,11 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 /**
  * Unit tests for the ActsAsPrincipal trait.
  *
+ * Marked `#[CoversNothing]` so phpunit does not attribute the
+ * trait's runtime behaviour to a single concrete class — the
+ * trait's real consumers carry their own coverage via the
+ * integration suites.
+ *
  * @internal
  *
  * @author    Ben Carey <bdmc@sinemacula.co.uk>

@@ -10,7 +10,8 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -18,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
@@ -38,7 +40,9 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(AuthServiceProvider::class)]
+#[CoversClass(Device::class)]
+#[CoversClass(RefreshTokenExchange::class)]
 final class DeviceModelOverrideTest extends TestCase
 {
     /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> FQCN of the custom device subclass under test. */
@@ -67,6 +71,11 @@ final class DeviceModelOverrideTest extends TestCase
         config()->set('laravel-authentication.device.model', $this->customModel);
         config()->set('laravel-authentication.device.table', 'custom_devices');
 
+        // The Device model now caches the table name statically (set
+        // The Device model reads the table name lazily in its
+        // constructor, so no manual cache priming is needed — the
+        // config swap in `defineEnvironment()` is picked up on the
+        // next instantiation.
         Schema::create('custom_devices', static function (Blueprint $blueprint): void {
 
             $blueprint->ulid('id')->primary();
@@ -74,6 +83,7 @@ final class DeviceModelOverrideTest extends TestCase
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('os')->default('');
             $blueprint->string('refresh_key', 64)->nullable();
+            $blueprint->timestamp('revoked_at')->nullable();
             $blueprint->timestamp('last_logged_in_at')->nullable();
             $blueprint->timestamp('last_mfa_verified_at')->nullable();
             $blueprint->timestamps();
@@ -289,15 +299,25 @@ final class DeviceModelOverrideTest extends TestCase
             }
         };
 
+        $tokens   = app(JwtTokenService::class);
+        $events   = app(Dispatcher::class);
+        $exchange = new RefreshTokenExchange(
+            $tokens,
+            app(ConnectionResolverInterface::class),
+            $events,
+            $resolver,
+            'custom-jwt',
+        );
+
         return new JwtGuard(
             'custom-jwt',
             $provider,
             $resolver,
-            app(Dispatcher::class),
+            $events,
             app('request'),
             app(Timebox::class),
-            app(JwtTokenService::class),
-            app(ConnectionResolverInterface::class),
+            $tokens,
+            $exchange,
         );
     }
 }

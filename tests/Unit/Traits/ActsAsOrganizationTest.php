@@ -14,6 +14,11 @@ use Tests\Unit\Traits\Fixtures\ActsAsOrganizationTestUnitScope;
 /**
  * Unit tests for the package ActsAsOrganization trait.
  *
+ * Marked `#[CoversNothing]` so phpunit does not attribute the
+ * trait's runtime behaviour to a single concrete class — the
+ * trait's real consumers carry their own coverage via the
+ * integration suites.
+ *
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  *

@@ -19,6 +19,12 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * (NFR-10). Swappable via `config('laravel-authentication.device.model')`
  * and `device.table`.
  *
+ * Intentionally non-`final` so consumers can either point
+ * `device.model` at a subclass that adds domain columns/relations or
+ * extend the shipped model directly. Subclasses MUST keep the
+ * `authenticatable()` morphTo and the `getRefreshKey()` accessor
+ * intact for the refresh-token rotation flow to work.
+ *
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  *
@@ -26,9 +32,10 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * @property string $authenticatable_type
  * @property string $authenticatable_id
  * @property string $os
- * @property string $refresh_key
- * @property \Carbon\Carbon|null $last_logged_in_at
- * @property \Carbon\Carbon|null $last_mfa_verified_at
+ * @property ?string $refresh_key
+ * @property \Carbon\CarbonInterface|null $revoked_at
+ * @property \Carbon\CarbonInterface|null $last_logged_in_at
+ * @property \Carbon\CarbonInterface|null $last_mfa_verified_at
  */
 class Device extends Model implements DeviceContract
 {
@@ -41,26 +48,31 @@ class Device extends Model implements DeviceContract
         'authenticatable_id',
         'os',
         'refresh_key',
+        'revoked_at',
         'last_logged_in_at',
         'last_mfa_verified_at',
     ];
 
     /** @var array<string, string> The attributes that should be cast. */
     protected $casts = [
+        'revoked_at'           => 'datetime',
         'last_logged_in_at'    => 'datetime',
         'last_mfa_verified_at' => 'datetime',
     ];
 
     /**
-     * Create a new Device instance reading its table name from package
-     * config so consumers may remap the underlying table without
-     * subclassing.
+     * Create a new Device instance bound to the package-configured
+     * table name. Reads the table name lazily from the Config facade
+     * on each instantiation so consumers that swap
+     * `laravel-authentication.device.table` at runtime (tests,
+     * runtime tenancy) observe the new value immediately without
+     * touching a process-wide cache.
      *
      * @param  array<string, mixed>  $attributes
      */
     public function __construct(array $attributes = [])
     {
-        $this->setTable(Config::string('laravel-authentication.device.table', 'devices'));
+        $this->setTable($this->resolveConfiguredTable());
 
         parent::__construct($attributes);
     }
@@ -84,5 +96,25 @@ class Device extends Model implements DeviceContract
     public function uniqueIds(): array
     {
         return ['id'];
+    }
+
+    /**
+     * Read the configured device table from the package config,
+     * falling back to `'devices'` when the key is absent or the
+     * Config facade is not bootstrapped (e.g. during certain unit
+     * tests that instantiate models before the Testbench container
+     * is ready).
+     *
+     * @return string
+     */
+    private function resolveConfiguredTable(): string
+    {
+        try {
+            $table = Config::string('laravel-authentication.device.table', 'devices');
+        } catch (\Throwable) {
+            return 'devices';
+        }
+
+        return $table === '' ? 'devices' : $table;
     }
 }

@@ -13,7 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device as DeviceContract;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Claims;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
@@ -48,7 +49,10 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(DeviceAuthenticated::class)]
+#[CoversClass(PrincipalAssigned::class)]
+#[CoversClass(Refreshed::class)]
+#[CoversClass(RefreshTokenExchange::class)]
 final class CustomEventsIntegrationTest extends TestCase
 {
     /** @var string The name of the basic-driven guard under test. */

@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
-use Carbon\Carbon;
+use Carbon\CarbonInterface;
 
 /**
  * Device contract.
@@ -27,16 +27,20 @@ interface Device
     /**
      * Return when the device was last successfully authenticated.
      *
-     * @return ?\Carbon\Carbon
+     * Returns a `CarbonInterface` so consumer apps that configure
+     * Eloquent to cast timestamps as `CarbonImmutable` (via
+     * `Date::use(CarbonImmutable::class)`) are not silently broken.
+     *
+     * @return ?\Carbon\CarbonInterface
      */
-    public function getLastLoggedIn(): ?Carbon;
+    public function getLastLoggedIn(): ?CarbonInterface;
 
     /**
      * Return when the device's MFA factor was last verified.
      *
-     * @return ?\Carbon\Carbon
+     * @return ?\Carbon\CarbonInterface
      */
-    public function getLastMfaVerification(): ?Carbon;
+    public function getLastMfaVerification(): ?CarbonInterface;
 
     /**
      * Return the operating system string captured at registration.
@@ -48,13 +52,28 @@ interface Device
     /**
      * Return the hashed refresh-key used for refresh-credential lookup.
      *
-     * The returned value is the opaque digest stored on the device row
-     * — typically a SHA-256 hex string produced via `hashRotationId()`.
-     * It is NEVER the plaintext rotation identifier. The guard
-     * verifies the plaintext from the refresh token against this
-     * digest via `hash_equals()` (constant-time).
+     * The returned value is the opaque digest stored on the device
+     * row — typically a SHA-256 hex string produced via
+     * `RefreshTokenHasher::hash()`. It is NEVER the plaintext
+     * rotation identifier. The refresh exchange verifies the
+     * plaintext from the refresh token against this digest via
+     * `hash_equals()` (constant-time).
      *
-     * @return string
+     * Returns `null` when the device has no refresh credential
+     * issued (e.g. immediately after device registration, or after
+     * revocation cleared the column).
+     *
+     * @return ?string
      */
-    public function getRefreshKey(): string;
+    public function getRefreshKey(): ?string;
+
+    /**
+     * Return when the device was revoked, or `null` if it has not
+     * been revoked. A non-null value causes the refresh exchange
+     * to reject any refresh attempt against this device with
+     * reason `device_revoked`.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    public function getRevokedAt(): ?CarbonInterface;
 }

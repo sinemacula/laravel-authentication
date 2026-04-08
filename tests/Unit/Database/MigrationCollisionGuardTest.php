@@ -7,7 +7,7 @@ namespace Tests\Unit\Database;
 use Illuminate\Database\Schema\Builder;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(MigrationCollisionGuard::class)]
 final class MigrationCollisionGuardTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

@@ -12,7 +12,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Claims;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -27,7 +28,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(JwtGuard::class)]
 final class JwtGuardIntegrationTest extends TestCase
 {
     /** @var string */

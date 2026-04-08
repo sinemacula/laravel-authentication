@@ -5,7 +5,9 @@ declare(strict_types = 1);
 namespace Tests\Unit\Guards;
 
 use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -253,6 +255,42 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard->logout();
 
         self::assertNull($guard->user());
+    }
+
+    /**
+     * Calling `login()` directly (e.g. from a refresh exchange or
+     * an OAuth callback) fires the standard `Validated` event before
+     * the bind, even though no `hasValidCredentials()` call happened.
+     * This is the M14 design call: `login()` is the public entry
+     * point that asserts "this identity has been validated", and the
+     * standard event sequence reflects that.
+     *
+     * @return void
+     */
+    public function testLoginFiresValidatedEventBeforeBindingState(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity  = $this->mockIdentity();
+        $principal = \Mockery::mock(Principal::class);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        $guard->login($identity, $principal);
+
+        self::assertContains(Validated::class, $dispatched);
+        self::assertContains(Authenticated::class, $dispatched);
+        self::assertContains(Login::class, $dispatched);
+        self::assertSame(
+            array_search(Validated::class, $dispatched, true),
+            0,
+            'Validated must fire before Authenticated/PrincipalAssigned/Login on the direct login() path.',
+        );
     }
 
     /**

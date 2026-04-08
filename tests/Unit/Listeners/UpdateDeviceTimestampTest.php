@@ -10,7 +10,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
@@ -29,7 +29,7 @@ use Tests\Unit\Stubs\StubDevice;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(UpdateDeviceTimestamp::class)]
 final class UpdateDeviceTimestampTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

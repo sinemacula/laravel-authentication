@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -23,7 +23,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
  */
-#[CoversNothing]
+#[CoversClass(ModelProvider::class)]
 final class ModelProviderTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

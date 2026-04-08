@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Events;
 
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 
@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Events\RefreshFailed;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(RefreshFailed::class)]
 final class RefreshFailedTest extends TestCase
 {
     /**

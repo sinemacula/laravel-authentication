@@ -9,15 +9,24 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Timebox;
 
 /**
- * Provides the timing-safe credential-validation primitive plus the
- * standard Laravel `Attempting` / `Validated` / `Failed` event-firing
- * helpers.
+ * Provides the credential-validation primitive plus the standard
+ * Laravel `Attempting` / `Validated` / `Failed` event-firing helpers.
  *
- * Used by `AbstractGuard` so the credential-validation surface is
- * decomposed away from the contextual binding surface.
+ * Used by `AbstractGuard` and `BasicGuard` so the credential-validation
+ * surface is decomposed away from the contextual binding surface.
+ *
+ * **Timing safety is the CALLER's responsibility.** This trait
+ * intentionally does NOT wrap `hasValidCredentials()` in its own
+ * `Timebox::call()` — the enclosing `attempt()` / `validate()` /
+ * bearer-resolution flows each wrap the *entire* retrieve →
+ * validate → dispatch pipeline inside a single top-level
+ * `Timebox::call()` so the elapsed time is uniform regardless of
+ * whether the supplied identifier resolves to a persisted user. A
+ * nested timebox in this trait would either double-budget the
+ * pipeline or, worse, leak timing information if the outer caller
+ * short-circuits before reaching it.
  *
  * Expects the using class to declare:
  * - `protected string $name`
@@ -39,13 +48,14 @@ trait ValidatesGuardCredentials
     protected const int DEFAULT_TIMEBOX_MICROSECONDS = 400000;
 
     /**
-     * Timing-safe credential validation.
+     * Credential validation — returns `true` when the supplied
+     * user resolved and its password matches, `false` otherwise.
+     * Fires the standard Laravel `Validated` event on success.
      *
-     * Wraps the hasher check inside `Timebox::call()` so the call site
-     * takes the same elapsed time regardless of whether the supplied
-     * identifier resolved to a persisted user (NFR-04). The `Validated`
-     * standard event is fired from inside the timebox so subscribers
-     * still observe a successful hasher check.
+     * Accepts a nullable user so callers can pass the
+     * `retrieveByCredentials` result straight in without
+     * short-circuiting on `null` — the uniform call path is what
+     * gives the enclosing timebox its timing-safety guarantee.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable|null  $user
      * @param  array<string, mixed>  $credentials
@@ -55,17 +65,13 @@ trait ValidatesGuardCredentials
         ?Authenticatable $user,
         #[\SensitiveParameter] array $credentials,
     ): bool {
+        $valid = $user !== null && $this->provider->validateCredentials($user, $credentials);
 
-        return $this->timebox->call(function () use ($user, $credentials): bool {
+        if ($valid) {
+            $this->fireValidatedEvent($user);
+        }
 
-            $valid = $user !== null && $this->provider->validateCredentials($user, $credentials);
-
-            if ($valid) {
-                $this->fireValidatedEvent($user);
-            }
-
-            return $valid;
-        }, $this->timeboxMicroseconds());
+        return $valid;
     }
 
     /**

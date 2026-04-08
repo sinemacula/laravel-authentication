@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
-use Illuminate\Auth\Events\Login;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
@@ -120,34 +119,43 @@ final class BasicGuard extends AbstractGuard
      * identity/principal on the guard. Returns the bound identity on
      * success or `null` after firing `Failed` on any failure branch.
      *
-     * Single entry-and-exit helper extracted from `user()` so the
-     * top-level method stays within the project's branch budget.
+     * Wraps the entire `retrieveByCredentials` → `hasValidCredentials`
+     * → principal-resolution pipeline in a single `Timebox::call()`
+     * so the elapsed time is uniform regardless of whether the
+     * supplied identifier resolves to a persisted user — preserves
+     * the timing-safety guarantee against user-enumeration attacks.
      *
      * @param  array<string, string>  $credentials
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
      */
     private function resolveCredentials(#[\SensitiveParameter] array $credentials): ?Identity
     {
-        $this->fireAttemptingEvent($credentials);
+        return $this->timebox->call(function (Timebox $timebox) use ($credentials): ?Identity {
+            $this->fireAttemptingEvent($credentials);
 
-        $user = $this->provider->retrieveByCredentials($credentials);
+            $user = $this->provider->retrieveByCredentials($credentials);
 
-        $resolved = $this->validateAndResolvePrincipal($user, $credentials);
+            $resolved = $this->validateAndResolvePrincipal($user, $credentials);
 
-        if ($resolved === null) {
-            $this->fireFailedEvent($user, $credentials);
+            if ($resolved === null) {
+                $this->fireFailedEvent($user, $credentials);
 
-            return null;
-        }
+                return null;
+            }
 
-        [$identity, $principal] = $resolved;
+            [$identity, $principal] = $resolved;
 
-        $this->setIdentity($identity);
-        $this->setPrincipal($principal);
+            // BasicGuard's user() resolver path runs through
+            // hasValidCredentials() (which already dispatched the
+            // Validated event), so we bind directly without going
+            // through login() — calling login() would double-fire
+            // Validated.
+            $this->bindAuthenticationLifecycle($identity, $principal);
 
-        $this->events->dispatch(new Login($this->name, $identity, false));
+            $timebox->returnEarly();
 
-        return $identity;
+            return $identity;
+        }, $this->timeboxMicroseconds());
     }
 
     /**
@@ -173,7 +181,12 @@ final class BasicGuard extends AbstractGuard
         }
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        $principal = $this->resolver->resolve($user);
+        // Route through `safeResolvePrincipal()` so a consumer whose
+        // identity model implements neither `Principal` nor
+        // `HasPrincipals` surfaces as a `Failed` event (→ 401) rather
+        // than an uncaught `UnresolvableIdentityException` (→ 500).
+        // This matches `JwtGuard::user()` and `AbstractGuard::attempt()`.
+        $principal = $this->safeResolvePrincipal($user);
 
         if (!$principal instanceof Principal || !$principal->isActive()) {
             return null;

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Unit\Stubs\StubDevice;
 
@@ -26,7 +26,7 @@ use Tests\Unit\Stubs\StubDevice;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(Device::class)]
 final class DeviceTest extends TestCase
 {
     /**
@@ -45,7 +45,8 @@ final class DeviceTest extends TestCase
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key')->default('');
+            $blueprint->string('refresh_key', 64)->nullable();
+            $blueprint->timestamp('revoked_at')->nullable();
             $blueprint->timestamp('last_logged_in_at')->nullable();
             $blueprint->timestamp('last_mfa_verified_at')->nullable();
             $blueprint->timestamps();
@@ -65,18 +66,25 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the Device model reads its table name from package
-     * config at construction time.
+     * Asserts that swapping `laravel-authentication.device.table` at
+     * runtime is observed by the next Device instantiation. The model
+     * reads the config lazily in its constructor, so no cache priming
+     * is required — tests and runtime tenancy swaps pick up the new
+     * value immediately.
      *
      * @return void
      */
-    public function testReadsTableNameFromConfigOnConstruction(): void
+    public function testConstructorReadsConfiguredTableLazilyOnEachInstantiation(): void
     {
         config()->set('laravel-authentication.device.table', 'custom_devices');
 
         $device = new Device;
 
         self::assertSame('custom_devices', $device->getTable());
+
+        // Restore the default so other tests in this class are not
+        // contaminated.
+        config()->set('laravel-authentication.device.table', 'devices');
     }
 
     /**

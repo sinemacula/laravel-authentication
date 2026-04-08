@@ -9,9 +9,9 @@ namespace SineMacula\Laravel\Authentication\Events;
  *
  * Carries a short machine-readable `reason` code so SIEM / audit-log
  * consumers can count failure modes (token_invalid, device_unknown,
- * rotation_mismatch, identity_inactive, principal_inactive,
- * principal_unresolved, authenticatable_missing) without scraping
- * log messages.
+ * rotation_mismatch, rotation_reuse, device_revoked, identity_inactive,
+ * principal_inactive, principal_unresolved, authenticatable_missing)
+ * without scraping log messages.
  *
  * @author    Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright 2026 Sine Macula Limited.
@@ -26,6 +26,17 @@ final class RefreshFailed
 
     /** @var string Reason: the token's rotation id did not hash-equal the device's stored digest. */
     public const string REASON_ROTATION_MISMATCH = 'rotation_mismatch';
+
+    /**
+     * @var string Reason: the token's rotation id verified against the stored digest, but the atomic CAS update
+     *             affected zero rows — meaning another refresh request rotated the digest between the read and
+     *             the write. Classic refresh-token replay signal. The exchange service revokes the device in
+     *             response, forcing the entire token family to re-authenticate.
+     */
+    public const string REASON_ROTATION_REUSE = 'rotation_reuse';
+
+    /** @var string Reason: the device row carries a non-null `revoked_at`, so the refresh is rejected. */
+    public const string REASON_DEVICE_REVOKED = 'device_revoked';
 
     /** @var string Reason: the device's `authenticatable` relation did not resolve to an Identity. */
     public const string REASON_AUTHENTICATABLE_MISSING = 'authenticatable_missing';

@@ -6,7 +6,7 @@ namespace Tests\Unit;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Orchestra\Testbench\TestCase;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Factory;
@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Contracts\Factory;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(AuthManager::class)]
 final class AuthManagerTest extends TestCase
 {
     /**
