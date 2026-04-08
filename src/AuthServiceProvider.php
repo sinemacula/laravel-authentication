@@ -107,7 +107,15 @@ final class AuthServiceProvider extends ServiceProvider
 
         $resolver = $app->make(PrincipalResolver::class);
         $events   = $app->make(Dispatcher::class);
-        $tokens   = $app->make(JwtTokenService::class);
+
+        // Per-guard JWT config block (if any) lives under `auth.guards.<name>.jwt`
+        // and layers over the package-wide `authentication.jwt.*` defaults. This
+        // lets consumers register multiple jwt guards with distinct secrets,
+        // audiences, or kid rotation sets — e.g. a `staff` guard with one
+        // audience and a `customer` guard with another.
+        $guardJwtConfig = is_array($config['jwt'] ?? null) ? $config['jwt'] : [];
+
+        $tokens = self::buildJwtTokenService($app, $guardJwtConfig);
 
         $exchange = new RefreshTokenExchange(
             $tokens,
@@ -280,68 +288,151 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Build a `JwtTokenService` instance from the package config and
-     * the container's PSR-3 logger (when bound). Extracted from the
-     * singleton closure so the registration body stays small and the
-     * build path is unit testable in isolation.
+     * Build a `JwtTokenService` instance from the package config,
+     * layered with an optional per-guard override block.
+     *
+     * Each JWT field (`secret`, `keys`, `active_kid`, `algorithm`,
+     * TTLs, `leeway_seconds`, `issuer`, `audience`) is resolved by
+     * checking the per-guard override first and falling back to the
+     * package-wide `authentication.jwt.*` default. This is what lets
+     * consumers register multiple jwt guards with distinct signing
+     * material or audiences in a single `config/auth.php`.
      *
      * @param  \Illuminate\Foundation\Application  $app
+     * @param  array<string, mixed>  $guardJwtConfig
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
-    private static function buildJwtTokenService(Application $app): JwtTokenService
+    private static function buildJwtTokenService(Application $app, array $guardJwtConfig = []): JwtTokenService
     {
         $config = $app->make(ConfigRepository::class);
 
-        $algorithm = $config->string('authentication.jwt.algorithm', 'HS256');
-
-        /** @var string|null $issuer */
-        $issuer = $config->get('authentication.jwt.issuer');
-
-        /** @var string|null $audience */
-        $audience = $config->get('authentication.jwt.audience');
+        $algorithm = self::resolveJwtString($config, $guardJwtConfig, 'algorithm', 'HS256');
 
         return new JwtTokenService(
-            self::buildKeyring($config, $algorithm),
+            self::buildKeyring($config, $guardJwtConfig, $algorithm),
             $algorithm,
-            $config->integer('authentication.jwt.access_ttl_minutes', 15),
-            $config->integer('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30),
-            $config->integer('authentication.jwt.leeway_seconds', 30),
-            $issuer   === null || $issuer === '' ? null : $issuer,
-            $audience === null || $audience === '' ? null : $audience,
+            self::resolveJwtInteger($config, $guardJwtConfig, 'access_ttl_minutes', 15),
+            self::resolveJwtInteger($config, $guardJwtConfig, 'refresh_ttl_minutes', 60 * 24 * 30),
+            self::resolveJwtInteger($config, $guardJwtConfig, 'leeway_seconds', 30),
+            self::resolveJwtNullableString($config, $guardJwtConfig, 'issuer'),
+            self::resolveJwtNullableString($config, $guardJwtConfig, 'audience'),
             self::resolveOptionalLogger($app),
         );
     }
 
     /**
-     * Build a `JwtKeyring` from the package config. When
-     * `authentication.jwt.keys` is a non-empty map, kid mode
-     * is activated and `authentication.jwt.active_kid`
-     * selects which kid signs new tokens. Otherwise the keyring
-     * falls back to single-secret mode using
-     * `authentication.jwt.secret`.
+     * Build a `JwtKeyring` from the package config layered with an
+     * optional per-guard override block. When a non-empty `keys` map
+     * is found (guard first, package second), kid mode activates and
+     * the corresponding `active_kid` selects the signing key.
+     * Otherwise the keyring falls back to single-secret mode using the
+     * resolved `secret`.
      *
      * @param  \Illuminate\Config\Repository  $config
+     * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $algorithm
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtKeyring
      */
-    private static function buildKeyring(ConfigRepository $config, string $algorithm): JwtKeyring
-    {
+    private static function buildKeyring(
+        ConfigRepository $config,
+        array $guardJwtConfig,
+        string $algorithm,
+    ): JwtKeyring {
+
         /** @var array<array-key, mixed>|null $rawKeys */
-        $rawKeys = $config->get('authentication.jwt.keys');
+        $rawKeys = $guardJwtConfig['keys'] ?? $config->get('authentication.jwt.keys');
 
         if (is_array($rawKeys) && $rawKeys !== []) {
 
             return JwtKeyring::fromKeyMap(
                 self::coerceKeysConfig($rawKeys),
-                $config->string('authentication.jwt.active_kid', ''),
+                self::resolveJwtString($config, $guardJwtConfig, 'active_kid', ''),
                 $algorithm,
             );
         }
 
         /** @var string|null $secret */
-        $secret = $config->get('authentication.jwt.secret');
+        $secret = $guardJwtConfig['secret'] ?? $config->get('authentication.jwt.secret');
 
-        return JwtKeyring::fromSecret($secret ?? '', $algorithm);
+        return JwtKeyring::fromSecret(is_string($secret) ? $secret : '', $algorithm);
+    }
+
+    /**
+     * Resolve a string JWT config value, preferring the per-guard
+     * override and falling back to the package-wide default.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @param  string  $key
+     * @param  string  $default
+     * @return string
+     */
+    private static function resolveJwtString(
+        ConfigRepository $config,
+        array $guardJwtConfig,
+        string $key,
+        string $default,
+    ): string {
+
+        if (isset($guardJwtConfig[$key]) && is_string($guardJwtConfig[$key])) {
+            return $guardJwtConfig[$key];
+        }
+
+        return $config->string("authentication.jwt.{$key}", $default);
+    }
+
+    /**
+     * Resolve an integer JWT config value, preferring the per-guard
+     * override and falling back to the package-wide default.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @param  string  $key
+     * @param  int  $default
+     * @return int
+     */
+    private static function resolveJwtInteger(
+        ConfigRepository $config,
+        array $guardJwtConfig,
+        string $key,
+        int $default,
+    ): int {
+
+        if (isset($guardJwtConfig[$key]) && is_int($guardJwtConfig[$key])) {
+            return $guardJwtConfig[$key];
+        }
+
+        return $config->integer("authentication.jwt.{$key}", $default);
+    }
+
+    /**
+     * Resolve a nullable string JWT config value (`issuer` / `audience`),
+     * preferring the per-guard override and falling back to the package
+     * default. Empty strings are normalised to `null` so the JWT service
+     * treats unset and empty configurations identically.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @param  string  $key
+     * @return string|null
+     */
+    private static function resolveJwtNullableString(
+        ConfigRepository $config,
+        array $guardJwtConfig,
+        string $key,
+    ): ?string {
+
+        if (array_key_exists($key, $guardJwtConfig)) {
+
+            $value = $guardJwtConfig[$key];
+
+            return is_string($value) && $value !== '' ? $value : null;
+        }
+
+        /** @var string|null $value */
+        $value = $config->get("authentication.jwt.{$key}");
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**

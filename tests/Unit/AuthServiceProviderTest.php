@@ -250,7 +250,7 @@ final class AuthServiceProviderTest extends TestCase
         $build = $reflection->getMethod('buildKeyring');
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring $keyring */
-        $keyring = $build->invoke(null, $config, 'HS256');
+        $keyring = $build->invoke(null, $config, [], 'HS256');
 
         self::assertInstanceOf(\SineMacula\Laravel\Authentication\Jwt\JwtKeyring::class, $keyring);
         self::assertSame(self::KID_NEW, $keyring->activeKid());
@@ -291,7 +291,7 @@ final class AuthServiceProviderTest extends TestCase
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage('non-string or empty kid');
 
-        $build->invoke(null, $config, 'HS256');
+        $build->invoke(null, $config, [], 'HS256');
     }
 
     /**
@@ -322,7 +322,7 @@ final class AuthServiceProviderTest extends TestCase
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage(sprintf('JWT key \'%s\'', self::KID_NEW));
 
-        $build->invoke(null, $config, 'HS256');
+        $build->invoke(null, $config, [], 'HS256');
     }
 
     /**
@@ -351,7 +351,7 @@ final class AuthServiceProviderTest extends TestCase
         $build = $reflection->getMethod('buildKeyring');
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring $keyring */
-        $keyring = $build->invoke(null, $config, 'HS256');
+        $keyring = $build->invoke(null, $config, [], 'HS256');
 
         self::assertNull($keyring->activeKid());
         self::assertInstanceOf(\Firebase\JWT\Key::class, $keyring->verificationKeys());

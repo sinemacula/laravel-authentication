@@ -98,6 +98,40 @@ Register guards and providers in `config/auth.php` exactly as you would with any
 Your identity model implements `Identity` (and optionally `Principal`, `HasPrincipals`, `HasDevices`,
 `CanBeActive`) — most apps just `use Authenticatable` and `use ActsAsPrincipal` from the package traits.
 
+### Per-guard JWT configuration
+
+Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
+`authentication.jwt.*` defaults. Any guard may override these per-guard by adding a `jwt` sub-block to its
+`config/auth.php` entry — missing fields fall back to the package defaults. This lets you register multiple
+jwt guards with distinct trust boundaries in a single app:
+
+```php
+'guards' => [
+    'staff' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'jwt'      => [
+            'secret'   => env('STAFF_JWT_SECRET'),
+            'audience' => 'staff-api',
+        ],
+    ],
+    'customer' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'jwt'      => [
+            'secret'   => env('CUSTOMER_JWT_SECRET'),
+            'audience' => 'customer-api',
+        ],
+    ],
+],
+```
+
+Routes then opt into a specific boundary via `auth:staff` or `auth:customer` middleware, and the `aud` claim
+on every issued token matches the guard that issued it — tokens minted for one audience cannot authenticate
+against the other. Any field from the package `jwt` block is overridable (`secret`, `keys`, `active_kid`,
+`algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`), so each
+guard can also carry its own kid-rotation set if you want fully independent signing-key lifecycles.
+
 ### 2D adoption (identity is the principal)
 
 The simplest shape. One model implements both `Identity` and `Principal` — the user who logs in *is* the actor on
