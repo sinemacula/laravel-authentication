@@ -18,12 +18,9 @@ return [
     */
 
     'device' => [
-        'model'              => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
-        'table'              => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
-        'refresh_key_column' => env('AUTHENTICATION_DEVICE_REFRESH_KEY_COLUMN', 'refresh_key'),
-        // Throttle window (seconds) for the last-seen timestamp listener.
-        // Writes within this window are skipped to avoid a per-request write
-        // hot-spot on the device row.
+        'model'                      => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
+        'table'                      => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
+        'refresh_key_column'         => env('AUTHENTICATION_DEVICE_REFRESH_KEY_COLUMN', 'refresh_key'),
         'last_seen_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_SEEN_THROTTLE_SECONDS', 60),
     ],
 

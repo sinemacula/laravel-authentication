@@ -32,11 +32,11 @@ interface Principal
     public function getIdentity(): Identity;
 
     /**
-     * Return the organization the principal acts within, if any.
+     * Return the tenant the principal acts within, if any.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Organization
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
-    public function getOrganization(): ?Organization;
+    public function getTenant(): ?Tenant;
 
     /**
      * Return whether the principal is currently active and may authenticate.

@@ -6,9 +6,10 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Contracts\Events\Dispatcher;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 
@@ -70,23 +71,26 @@ trait BindsContextualState
     }
 
     /**
-     * Return the organization the active principal acts within, if any.
+     * Return the tenant the active principal acts within, if any.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Organization|null
+     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant|null
      */
-    public function organization(): ?Organization
+    public function tenant(): ?Tenant
     {
-        return $this->principal?->getOrganization();
+        return $this->principal?->getTenant();
     }
 
     /**
-     * Return the active organization scope string, if any.
+     * Return the active tenant's type string, if the tenant declares
+     * the `HasType` capability.
      *
      * @return string|null
      */
-    public function scope(): ?string
+    public function type(): ?string
     {
-        return $this->organization()?->getOrganizationScope();
+        $tenant = $this->tenant();
+
+        return $tenant instanceof HasType ? $tenant->getType() : null;
     }
 
     /**

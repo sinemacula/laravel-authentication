@@ -9,17 +9,17 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Factory;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual
- * accessors (`identity`, `principal`, `device`, `organization`,
- * `scope`) directly on the manager. Each accessor forwards to the
- * active guard when it implements `ContextualGuard`, otherwise
- * returns `null`. Bound to the `auth` container key by
+ * accessors (`identity`, `principal`, `device`, `tenant`, `type`)
+ * directly on the manager. Each accessor forwards to the active
+ * guard when it implements `ContextualGuard`, otherwise returns
+ * `null`. Bound to the `auth` container key by
  * `AuthServiceProvider`. Not `final` so consumers may subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -84,26 +84,26 @@ class AuthManager extends IlluminateAuthManager implements Factory
     }
 
     /**
-     * The active organization, when the active guard is contextual.
+     * The active tenant, when the active guard is contextual.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Organization
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
-    public function organization(): ?Organization
+    public function tenant(): ?Tenant
     {
         $guard = $this->guard();
 
-        return $guard instanceof ContextualGuard ? $guard->organization() : null;
+        return $guard instanceof ContextualGuard ? $guard->tenant() : null;
     }
 
     /**
-     * The active organization scope string, when resolvable.
+     * The active tenant's type string, when resolvable.
      *
      * @return ?string
      */
-    public function scope(): ?string
+    public function type(): ?string
     {
         $guard = $this->guard();
 
-        return $guard instanceof ContextualGuard ? $guard->scope() : null;
+        return $guard instanceof ContextualGuard ? $guard->type() : null;
     }
 }

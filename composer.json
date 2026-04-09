@@ -2,7 +2,7 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "sinemacula/laravel-authentication",
     "type": "library",
-    "description": "Stateless contextual authentication primitives (Identity, Principal, Device, Organization) for Laravel 12 and 13.",
+    "description": "Stateless contextual authentication primitives (Identity, Principal, Device, Tenant) for Laravel 12 and 13.",
     "keywords": [
         "sine macula",
         "laravel",

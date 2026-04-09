@@ -20,10 +20,10 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * Boots the package service provider through Testbench and asserts
  * that the four contextual `Auth::...()` macros (`principal`, `device`,
- * `organization`, `scope`) behave per AC-07: returning resolved values
- * when the active guard implements `ContextualGuard` and a user is
- * bound, and returning `null` when the guard is unauthenticated or
- * does not implement `ContextualGuard`.
+ * `tenant`, `type`) return resolved values when the active guard
+ * implements `ContextualGuard` and a user is bound, and return `null`
+ * when the guard is unauthenticated or does not implement
+ * `ContextualGuard`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -59,24 +59,23 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * `Auth::organization()` returns null for an unauthenticated
-     * request.
+     * `Auth::tenant()` returns null for an unauthenticated request.
      *
      * @return void
      */
-    public function testAuthOrganizationReturnsNullForUnauthenticatedRequest(): void
+    public function testAuthTenantReturnsNullForUnauthenticatedRequest(): void
     {
-        self::assertNull(IlluminateAuth::organization());
+        self::assertNull(IlluminateAuth::tenant());
     }
 
     /**
-     * `Auth::scope()` returns null for an unauthenticated request.
+     * `Auth::type()` returns null for an unauthenticated request.
      *
      * @return void
      */
-    public function testAuthScopeReturnsNullForUnauthenticatedRequest(): void
+    public function testAuthTypeReturnsNullForUnauthenticatedRequest(): void
     {
-        self::assertNull(IlluminateAuth::scope());
+        self::assertNull(IlluminateAuth::type());
     }
 
     /**
@@ -142,8 +141,8 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
 
         self::assertNull(IlluminateAuth::principal());
         self::assertNull(IlluminateAuth::device());
-        self::assertNull(IlluminateAuth::organization());
-        self::assertNull(IlluminateAuth::scope());
+        self::assertNull(IlluminateAuth::tenant());
+        self::assertNull(IlluminateAuth::type());
     }
 
     /**

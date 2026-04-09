@@ -122,9 +122,9 @@ final class AuthServiceProviderTest extends TestCase
 
     /**
      * The package `AuthManager` exposes the four contextual accessors
-     * (`principal`, `device`, `organization`, `scope`) directly as
-     * instance methods so the framework `Auth::principal()` etc. calls
-     * work without macro registration.
+     * (`principal`, `device`, `tenant`, `type`) directly as instance
+     * methods so the framework `Auth::principal()` etc. calls work
+     * without macro registration.
      *
      * @return void
      */
@@ -134,8 +134,8 @@ final class AuthServiceProviderTest extends TestCase
 
         self::assertTrue($reflection->hasMethod('principal'));
         self::assertTrue($reflection->hasMethod('device'));
-        self::assertTrue($reflection->hasMethod('organization'));
-        self::assertTrue($reflection->hasMethod('scope'));
+        self::assertTrue($reflection->hasMethod('tenant'));
+        self::assertTrue($reflection->hasMethod('type'));
     }
 
     /**
@@ -153,8 +153,8 @@ final class AuthServiceProviderTest extends TestCase
 
         self::assertNull($manager->principal());
         self::assertNull($manager->device());
-        self::assertNull($manager->organization());
-        self::assertNull($manager->scope());
+        self::assertNull($manager->tenant());
+        self::assertNull($manager->type());
     }
 
     /**

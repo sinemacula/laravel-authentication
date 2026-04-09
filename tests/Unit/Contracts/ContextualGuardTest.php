@@ -11,8 +11,8 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
  * Reflection-based structural tests for the ContextualGuard contract.
@@ -57,11 +57,11 @@ final class ContextualGuardTest extends TestCase
     public function testContextualGuardDeclaresContextualAccessors(): void
     {
         $expected = [
-            'identity'     => Identity::class,
-            'principal'    => Principal::class,
-            'device'       => Device::class,
-            'organization' => Organization::class,
-            'scope'        => 'string',
+            'identity'  => Identity::class,
+            'principal' => Principal::class,
+            'device'    => Device::class,
+            'tenant'    => Tenant::class,
+            'type'      => 'string',
         ];
 
         foreach ($expected as $method => $returnType) {

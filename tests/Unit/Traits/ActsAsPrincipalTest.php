@@ -10,7 +10,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 
 /**
@@ -91,13 +91,13 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * Trait returns the organization relation when it implements Organization.
+     * Trait returns the tenant relation when it implements Tenant.
      *
      * @return void
      */
-    public function testGetOrganizationReturnsRelatedOrganization(): void
+    public function testGetTenantReturnsRelatedTenant(): void
     {
-        $organization = \Mockery::mock(Organization::class);
+        $tenant = \Mockery::mock(Tenant::class);
 
         $principal = new class extends Model {
             use ActsAsPrincipal;
@@ -105,17 +105,17 @@ final class ActsAsPrincipalTest extends TestCase
             /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
-        $principal->setRelation('organization', $organization);
+        $principal->setRelation('tenant', $tenant);
 
-        self::assertSame($organization, $principal->getOrganization());
+        self::assertSame($tenant, $principal->getTenant());
     }
 
     /**
-     * Trait returns null when the organization relation is absent.
+     * Trait returns null when the tenant relation is absent.
      *
      * @return void
      */
-    public function testGetOrganizationReturnsNullWhenAbsent(): void
+    public function testGetTenantReturnsNullWhenAbsent(): void
     {
         $principal = new class extends Model {
             use ActsAsPrincipal;
@@ -123,9 +123,9 @@ final class ActsAsPrincipalTest extends TestCase
             /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
-        $principal->setRelation('organization', null);
+        $principal->setRelation('tenant', null);
 
-        self::assertNull($principal->getOrganization());
+        self::assertNull($principal->getTenant());
     }
 
     /**

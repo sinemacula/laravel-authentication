@@ -7,8 +7,9 @@ namespace Tests\Unit\Guards;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
@@ -16,7 +17,7 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 
 /**
  * Unit tests for the contextual state surface on `AbstractGuard`
- * (`setPrincipal`, `setDevice`, `organization`, `scope`).
+ * (`setPrincipal`, `setDevice`, `tenant`, `type`).
  *
  * Split out of the original AbstractGuardTest so each derived class
  * stays well below the project's 20-method-per-class threshold
@@ -76,48 +77,72 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     }
 
     /**
-     * organization() reads the principal's getOrganization().
+     * tenant() reads the principal's getTenant().
      *
      * @return void
      */
-    public function testOrganizationReturnsPrincipalsOrganization(): void
+    public function testTenantReturnsPrincipalsTenant(): void
     {
         $guard = $this->makeGuard();
 
-        $organization = \Mockery::mock(Organization::class);
+        $tenant = \Mockery::mock(Tenant::class);
 
         $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getOrganization')
-            ->andReturn($organization);
+        $principal->shouldReceive('getTenant')
+            ->andReturn($tenant);
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
         $guard->setPrincipal($principal);
 
-        self::assertSame($organization, $guard->organization());
+        self::assertSame($tenant, $guard->tenant());
     }
 
     /**
-     * scope() reads the organization's scope string.
+     * type() returns the tenant's type when the tenant declares the
+     * `HasType` capability.
      *
      * @return void
      */
-    public function testScopeReturnsOrganizationScope(): void
+    public function testTypeReturnsTenantTypeWhenCapabilityDeclared(): void
     {
         $guard = $this->makeGuard();
 
-        $organization = \Mockery::mock(Organization::class);
-        $organization->shouldReceive('getOrganizationScope')
-            ->andReturn('internal');
+        $tenant = \Mockery::mock(Tenant::class, HasType::class);
+        $tenant->shouldReceive('getType')
+            ->andReturn('staff');
 
         $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getOrganization')
-            ->andReturn($organization);
+        $principal->shouldReceive('getTenant')
+            ->andReturn($tenant);
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
         $guard->setPrincipal($principal);
 
-        self::assertSame('internal', $guard->scope());
+        self::assertSame('staff', $guard->type());
+    }
+
+    /**
+     * type() returns null when the tenant does not declare the
+     * `HasType` capability.
+     *
+     * @return void
+     */
+    public function testTypeReturnsNullWhenTenantHasNoTypeCapability(): void
+    {
+        $guard = $this->makeGuard();
+
+        $tenant = \Mockery::mock(Tenant::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')
+            ->andReturn($tenant);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        $guard->setPrincipal($principal);
+
+        self::assertNull($guard->type());
     }
 }

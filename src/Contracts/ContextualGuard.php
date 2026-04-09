@@ -9,9 +9,9 @@ use Illuminate\Contracts\Auth\Guard;
 /**
  * Contextual guard contract.
  *
- * Extends Laravel's `Guard` with the package's contextual surface
- * (identity, principal, device, organization, scope, internal/external
- * helpers, principal/device setters, contextual `attempt` and `login`).
+ * Extends Laravel's `Guard` with the package's contextual surface (identity,
+ * principal, device, tenant, type, principal/device setters, contextual
+ * `attempt` and `login`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -21,12 +21,11 @@ interface ContextualGuard extends Guard
     /**
      * Contextual attempt with optional principal and device pinning.
      *
-     * Signature diverges from Laravel's `StatefulGuard::attempt()`:
-     * the second and third parameters are contextual pins, NOT a
-     * remember-me flag (NFR-08, this package is stateless-only). Safe
-     * at the type level because `ContextualGuard` extends `Guard`,
-     * not `StatefulGuard`. Consumers needing stateful semantics
-     * should keep using `SessionGuard`.
+     * Signature diverges from Laravel's `StatefulGuard::attempt()`: the second
+     * and third parameters are contextual pins, NOT a remember-me flag - this
+     * package is stateless-only. Safe at the type level because
+     * `ContextualGuard` extends `Guard`, not `StatefulGuard`. Consumers needing
+     * stateful semantics should keep using `SessionGuard`.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -67,18 +66,19 @@ interface ContextualGuard extends Guard
     public function device(): ?Device;
 
     /**
-     * Return the organization the active principal acts within, if any.
+     * Return the tenant the active principal acts within, if any.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Organization
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
-    public function organization(): ?Organization;
+    public function tenant(): ?Tenant;
 
     /**
-     * Return the active organization scope string, if any.
+     * Return the active tenant's type string, if the tenant declares the
+     * `HasType` capability.
      *
      * @return ?string
      */
-    public function scope(): ?string;
+    public function type(): ?string;
 
     /**
      * Pin the active principal for the current request.

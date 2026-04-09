@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Traits;
 
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
  * Provides default Principal contract implementations sourced from
@@ -60,17 +60,17 @@ trait ActsAsPrincipal
     }
 
     /**
-     * Return the organization the principal acts within, if any.
+     * Return the tenant the principal acts within, if any.
      * Triggers a lazy-load on first call; tenant-aware apps should
      * eager-load via their principal resolver.
      *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Organization
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
-    public function getOrganization(): ?Organization
+    public function getTenant(): ?Tenant
     {
-        $organization = $this->getAttribute($this->getOrganizationRelationName());
+        $tenant = $this->getAttribute($this->getTenantRelationName());
 
-        return $organization instanceof Organization ? $organization : null;
+        return $tenant instanceof Tenant ? $tenant : null;
     }
 
     /**
@@ -104,13 +104,13 @@ trait ActsAsPrincipal
     }
 
     /**
-     * Return the relation name resolving to the acting organization.
+     * Return the relation name resolving to the acting tenant.
      *
      * @return string
      */
-    protected function getOrganizationRelationName(): string
+    protected function getTenantRelationName(): string
     {
-        return 'organization';
+        return 'tenant';
     }
 
     /**

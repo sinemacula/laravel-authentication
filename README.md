@@ -17,14 +17,15 @@ Drops into Laravel's existing auth machinery - no new API to learn. Same `Auth::
 
 Most auth packages collapse "who you are" and "who you're acting as" into a single user. This package separates them:
 
-| Concept          | What it represents                                                          |
-|------------------|-----------------------------------------------------------------------------|
-| **Identity**     | The authenticated subject - typically the human / service account           |
-| **Principal**    | The actor on whose behalf the request runs - may differ from the identity   |
-| **Device**       | The issuing client - bound to the credential, used for refresh rotation     |
-| **Organization** | Optional tenant scope the principal acts within (multi-tenant, multi-org)   |
+| Concept       | What it is                                                                                 |
+|---------------|--------------------------------------------------------------------------------------------|
+| **Identity**  | Who logged in. The account behind the request - a person or a service account.             |
+| **Principal** | Who the request is acting as. Often the same as the identity; can be a role or membership. |
+| **Device**    | Which client obtained the login - a browser, a mobile app, a CLI session.                  |
+| **Tenant**    | The isolation boundary the principal acts within. Optional, for multi-tenant apps.         |
+| **Type**      | An optional categorical label on the tenant - e.g. `"staff"` vs `"customer"`.              |
 
-Both **2D** (identity-is-principal) and **3D** (identity → separate principal → organization) adoption modes are
+Both **2D** (identity-is-principal) and **3D** (identity → separate principal → tenant) adoption modes are
 supported by the same guards. Start 2D, grow into 3D without re-platforming.
 
 **Stateless for access, stateful for refresh.** Access tokens carry everything the guard needs to authenticate a
@@ -35,8 +36,8 @@ stateful, and the package owns that state so replay attacks and stale credential
 ## Features
 
 - **Two guards**, both stateless: `jwt` (Bearer token) and `basic` (HTTP Basic) - register via `auth.guards.*.driver`
-- **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `organization()`,
-  `scope()`
+- **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
+  `type()`
 - **Hardened JWT pipeline**: enforces `iss` / `aud` / `typ` / `exp` / leeway on every parse, embeds a per-token `jti`
   on issue, fails closed on empty secrets, unsupported algorithms, type-confusion attacks, and mismatched `pid` /
   `did` claims
@@ -85,8 +86,8 @@ entirely:
 4. Do not call `$guard->refresh($refreshToken)`. Clients re-authenticate when their access token expires.
 
 In this mode the package never touches a `devices` table, `Auth::device()` returns `null`, and the full
-identity/principal contextual surface (`Auth::identity()`, `Auth::principal()`, `Auth::organization()`,
-`Auth::scope()`) still works normally. Add the migration and refresh flow later if the use case grows into
+identity/principal contextual surface (`Auth::identity()`, `Auth::principal()`, `Auth::tenant()`,
+`Auth::type()`) still works normally. Add the migration and refresh flow later if the use case grows into
 it - it's additive, not a rewrite.
 
 ## Configuration
@@ -203,7 +204,7 @@ class AppUser extends User implements Identity, Principal
 Point `auth.providers.users.model` at `AppUser::class` and you're done. `Auth::identity()` and `Auth::principal()`
 both return the same `AppUser` instance.
 
-### 3D adoption (separate identity, principal, and organization)
+### 3D adoption (separate identity, principal, and tenant)
 
 For multi-tenant apps where the logged-in human operates on behalf of a tenant-scoped actor, split identity and
 principal into two models. The identity implements `HasPrincipals` and returns its own `principals()` query:
@@ -212,11 +213,14 @@ principal into two models. The identity implements `HasPrincipals` and returns i
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
-use SineMacula\Laravel\Authentication\Traits\ActsAsOrganization;
+use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
 use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
 // The human - implements Identity + HasPrincipals, NOT Principal.
 class AppIdentity extends User implements Identity, HasPrincipals
@@ -241,25 +245,27 @@ class AppIdentity extends User implements Identity, HasPrincipals
 }
 
 // The acting principal - a per-tenant membership. Implements Principal
-// and belongs to an Organization.
+// and belongs to a Tenant.
 class AppMembership extends \Illuminate\Database\Eloquent\Model implements PrincipalContract
 {
     use ActsAsPrincipal;
 
-    protected $fillable = ['identity_id', 'organization_id', 'role', 'is_active'];
+    protected $fillable = ['identity_id', 'tenant_id', 'role', 'is_active'];
 
-    public function organization(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function tenant(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
-        return $this->belongsTo(AppOrganization::class);
+        return $this->belongsTo(AppTenant::class);
     }
 }
 
-// The tenant scope - implements Organization so `Auth::organization()`
-// can return it. Consumers can compose their own predicates from
-// `Auth::scope()` (e.g. `Auth::scope() === 'staff'`).
-class AppOrganization extends \Illuminate\Database\Eloquent\Model implements \SineMacula\Laravel\Authentication\Contracts\Organization
+// The tenant - implements Tenant so `Auth::tenant()` can return it.
+// Also declares HasType so `Auth::type()` exposes the tenant's
+// category label (e.g. `'staff'` vs `'customer'`). The HasType
+// capability is optional - drop it if your app doesn't need it.
+class AppTenant extends \Illuminate\Database\Eloquent\Model implements HasType, TenantContract
 {
-    use ActsAsOrganization;
+    use ActsAsTenant;
+    use ProvidesTenantType;
 }
 ```
 
@@ -268,9 +274,9 @@ With that shape:
 - `Auth::identity()` returns the `AppIdentity` (the human)
 - `Auth::principal()` returns the `AppMembership` (the tenant-scoped actor) - resolved via the `pid` claim in the
   access token, or via `resolveDefaultPrincipal()` on first login
-- `Auth::organization()` returns the `AppOrganization` the membership belongs to
-- `Auth::scope()` returns the organization's scope string (e.g. `'staff'`, `'customer'`); compose your own predicates
-  at the call site rather than relying on built-in helpers
+- `Auth::tenant()` returns the `AppTenant` the membership belongs to
+- `Auth::type()` returns the tenant's type string (e.g. `'staff'`, `'customer'`) when the tenant implements
+  `HasType`, and `null` otherwise; compose your own predicates at the call site (`Auth::type() === 'staff'`)
 
 If you need a domain-specific resolution strategy (scoped by subdomain, header, session claim, etc.), implement
 `SineMacula\Laravel\Authentication\Contracts\PrincipalResolver` yourself and bind it in a service provider:
@@ -310,8 +316,8 @@ Auth::user();           // Identity|null - same as Laravel
 Auth::identity();       // Identity|null   - the authenticated subject
 Auth::principal();      // Principal|null  - the acting principal
 Auth::device();         // Device|null     - the issuing device
-Auth::organization();   // Organization|null
-Auth::scope();          // string|null
+Auth::tenant();         // Tenant|null     - the tenant the principal acts within
+Auth::type();           // string|null     - the tenant's type, when the tenant declares HasType
 ```
 
 Issue and refresh JWTs through the guard:

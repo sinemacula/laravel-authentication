@@ -21,8 +21,8 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Contracts\Identity|null identity()
  * @method static \SineMacula\Laravel\Authentication\Contracts\Principal|null principal()
  * @method static \SineMacula\Laravel\Authentication\Contracts\Device|null device()
- * @method static \SineMacula\Laravel\Authentication\Contracts\Organization|null organization()
- * @method static string|null scope()
+ * @method static \SineMacula\Laravel\Authentication\Contracts\Tenant|null tenant()
+ * @method static string|null type()
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

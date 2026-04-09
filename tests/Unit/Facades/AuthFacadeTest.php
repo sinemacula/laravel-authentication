@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Organization;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
 /**
@@ -37,8 +37,8 @@ final class AuthFacadeTest extends TestCase
         // macros here so the facade assertions run in isolation.
         IlluminateAuth::macro('principal', static fn (): ?Principal => null);
         IlluminateAuth::macro('device', static fn (): ?Device => null);
-        IlluminateAuth::macro('organization', static fn (): ?Organization => null);
-        IlluminateAuth::macro('scope', static fn (): ?string => null);
+        IlluminateAuth::macro('tenant', static fn (): ?Tenant => null);
+        IlluminateAuth::macro('type', static fn (): ?string => null);
     }
 
     /**
@@ -90,22 +90,22 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * The `organization` macro is registered against the framework facade.
+     * The `tenant` macro is registered against the framework facade.
      *
      * @return void
      */
-    public function testOrganizationMacroIsRegistered(): void
+    public function testTenantMacroIsRegistered(): void
     {
-        self::assertTrue(IlluminateAuth::hasMacro('organization'));
+        self::assertTrue(IlluminateAuth::hasMacro('tenant'));
     }
 
     /**
-     * The `scope` macro is registered against the framework facade.
+     * The `type` macro is registered against the framework facade.
      *
      * @return void
      */
-    public function testScopeMacroIsRegistered(): void
+    public function testTypeMacroIsRegistered(): void
     {
-        self::assertTrue(IlluminateAuth::hasMacro('scope'));
+        self::assertTrue(IlluminateAuth::hasMacro('type'));
     }
 }

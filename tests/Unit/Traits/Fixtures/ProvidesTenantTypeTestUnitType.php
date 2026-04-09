@@ -6,15 +6,15 @@ namespace Tests\Unit\Traits\Fixtures;
 
 /**
  * Fixture unit enum exercising the non-backed UnitEnum branch of the
- * ActsAsOrganization scope resolver.
+ * ProvidesTenantType type resolver.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
-enum ActsAsOrganizationTestUnitScope
+enum ProvidesTenantTypeTestUnitType
 {
-    case Internal;
-    case External;
+    case Staff;
+    case Customer;
 }
