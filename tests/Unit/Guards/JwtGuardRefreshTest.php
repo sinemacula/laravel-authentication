@@ -4,16 +4,19 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Guards;
 
+use Carbon\Carbon;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Unit\Stubs\StubDevice;
@@ -49,8 +52,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_TOKEN_INVALID));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::TOKEN_INVALID),
+            );
 
         self::assertNull($guard->refresh('not-a-jwt'));
     }
@@ -70,8 +75,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_TOKEN_INVALID));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::TOKEN_INVALID),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -94,8 +101,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_DEVICE_UNKNOWN));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -122,8 +131,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_ROTATION_MISMATCH));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::ROTATION_MISMATCH),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -159,8 +170,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_AUTHENTICATABLE_MISSING));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::AUTHENTICATABLE_MISSING),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -196,8 +209,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_IDENTITY_INACTIVE));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::IDENTITY_INACTIVE),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -240,8 +255,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_PRINCIPAL_UNRESOLVED));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -288,8 +305,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_PRINCIPAL_INACTIVE));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_INACTIVE),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -309,7 +328,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $device = new StubDevice;
         $device->forceFill([
             'refresh_key' => RefreshTokenHasher::hash($plainRotationId),
-            'revoked_at'  => \Carbon\Carbon::now(),
+            'revoked_at'  => Carbon::now(),
         ])->save();
 
         $this->swapDeviceModelToInMemoryInstance($device);
@@ -326,8 +345,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_DEVICE_REVOKED));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::DEVICE_REVOKED),
+            );
 
         self::assertNull($guard->refresh($token));
     }
@@ -393,8 +414,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->expectRefreshFailureEvents();
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailed::REASON_ROTATION_REUSE));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::ROTATION_REUSE),
+            );
 
         self::assertNull($guard->refresh($token));
 
@@ -463,28 +486,30 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         self::assertInstanceOf(RefreshResult::class, $result);
 
-        $accessClaims = $this->tokens->parse($result->accessToken, Claims::TYPE_ACCESS);
+        $accessClaims = $this->tokens->parse($result->accessToken, TokenType::ACCESS);
         self::assertIsArray($accessClaims);
-        self::assertSame('7', $accessClaims[Claims::SUBJECT]);
-        self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL_ID]);
-        self::assertSame($device->id, $accessClaims[Claims::DEVICE_ID]);
+        self::assertSame('7', $accessClaims[Claims::SUBJECT->value]);
+        self::assertSame('p-1', $accessClaims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame($device->id, $accessClaims[Claims::DEVICE_ID->value]);
 
-        $refreshClaims = $this->tokens->parse($result->refreshToken, Claims::TYPE_REFRESH);
+        $refreshClaims = $this->tokens->parse($result->refreshToken, TokenType::REFRESH);
         self::assertIsArray($refreshClaims);
-        self::assertSame($device->id, $refreshClaims[Claims::DEVICE_ID]);
-        self::assertIsString($refreshClaims[Claims::JWT_ID]);
-        self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID]);
+        self::assertSame($device->id, $refreshClaims[Claims::DEVICE_ID->value]);
+        self::assertIsString($refreshClaims[Claims::JWT_ID->value]);
+        self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID->value]);
 
         // The device's stored digest has been rotated and the old
         // digest is no longer valid.
         $fresh = StubDevice::query()->findOrFail($device->id);
         self::assertNotSame($oldDigest, $fresh->refresh_key);
-        self::assertTrue(RefreshTokenHasher::verify($refreshClaims[Claims::JWT_ID], $fresh->refresh_key));
+        self::assertTrue(RefreshTokenHasher::verify($refreshClaims[Claims::JWT_ID->value], $fresh->refresh_key));
 
-        $refreshed = array_values(array_filter(
-            $dispatched,
-            static fn (object $event): bool => $event instanceof Refreshed,
-        ));
+        $refreshed = array_values(
+            array_filter(
+                $dispatched,
+                static fn (object $event): bool => $event instanceof Refreshed,
+            ),
+        );
 
         self::assertCount(1, $refreshed);
         self::assertInstanceOf(Refreshed::class, $refreshed[0]);

@@ -6,7 +6,8 @@ namespace Tests\Unit\Jwt;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
@@ -59,15 +60,15 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
 
         $token  = $service->issueAccessToken($identity, $principal, $device);
-        $claims = $service->parse($token, Claims::TYPE_ACCESS);
+        $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertSame('identity-7', $claims[Claims::SUBJECT]);
-        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID]);
-        self::assertSame('device-42', $claims[Claims::DEVICE_ID]);
-        self::assertSame(Claims::TYPE_ACCESS, $claims[Claims::TYPE]);
-        self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT]);
-        self::assertSame($this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT]);
+        self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
+        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
+        self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
+        self::assertSame(TokenType::ACCESS->value, $claims[Claims::TYPE->value]);
+        self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
+        self::assertSame($this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT->value]);
     }
 
     /**
@@ -84,14 +85,14 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
         $service = $this->makeService();
 
-        $first  = $service->parse($service->issueAccessToken($identity, $principal, null), Claims::TYPE_ACCESS);
-        $second = $service->parse($service->issueAccessToken($identity, $principal, null), Claims::TYPE_ACCESS);
+        $first  = $service->parse($service->issueAccessToken($identity, $principal, null), TokenType::ACCESS);
+        $second = $service->parse($service->issueAccessToken($identity, $principal, null), TokenType::ACCESS);
 
         self::assertIsArray($first);
         self::assertIsArray($second);
-        self::assertIsString($first[Claims::JWT_ID]);
-        self::assertIsString($second[Claims::JWT_ID]);
-        self::assertNotSame($first[Claims::JWT_ID], $second[Claims::JWT_ID], 'Each access token should carry a fresh jti.');
+        self::assertIsString($first[Claims::JWT_ID->value]);
+        self::assertIsString($second[Claims::JWT_ID->value]);
+        self::assertNotSame($first[Claims::JWT_ID->value], $second[Claims::JWT_ID->value], 'Each access token should carry a fresh jti.');
     }
 
     /**
@@ -111,10 +112,10 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
 
         $token  = $service->issueAccessToken($identity, $principal, null);
-        $claims = $service->parse($token, Claims::TYPE_ACCESS);
+        $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertSame('42', $claims[Claims::SUBJECT]);
+        self::assertSame('42', $claims[Claims::SUBJECT->value]);
     }
 
     /**
@@ -131,10 +132,10 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
 
         $token  = $service->issueAccessToken($identity, $principal, null);
-        $claims = $service->parse($token, Claims::TYPE_ACCESS);
+        $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertNull($claims[Claims::DEVICE_ID]);
+        self::assertNull($claims[Claims::DEVICE_ID->value]);
     }
 
     /**
@@ -151,13 +152,13 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
 
         $token  = $service->issueRefreshToken($device, 'opaque-rotation-id');
-        $claims = $service->parse($token, Claims::TYPE_REFRESH);
+        $claims = $service->parse($token, TokenType::REFRESH);
 
         self::assertIsArray($claims);
-        self::assertSame('device-42', $claims[Claims::DEVICE_ID]);
-        self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID]);
-        self::assertSame(Claims::TYPE_REFRESH, $claims[Claims::TYPE]);
-        self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT]);
-        self::assertSame($this->now->getTimestamp() + (self::REFRESH_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT]);
+        self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
+        self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
+        self::assertSame(TokenType::REFRESH->value, $claims[Claims::TYPE->value]);
+        self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
+        self::assertSame($this->now->getTimestamp() + (self::REFRESH_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT->value]);
     }
 }

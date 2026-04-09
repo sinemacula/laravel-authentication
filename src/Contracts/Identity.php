@@ -9,11 +9,10 @@ use Illuminate\Contracts\Auth\Authenticatable;
 /**
  * Identity contract.
  *
- * Marks an Eloquent model as a contextual identity. The
- * `@phpstan-require-extends` tag pins implementations to Eloquent so
- * guards may safely call Eloquent-only methods like `getKey()`.
- *
- * @phpstan-require-extends \Illuminate\Database\Eloquent\Model
+ * Marks a model as a contextual identity. Implementations are typically
+ * Eloquent models; sites that need the `Model` surface should express it at
+ * the call site via an `Identity&\Illuminate\Database\Eloquent\Model`
+ * intersection type.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

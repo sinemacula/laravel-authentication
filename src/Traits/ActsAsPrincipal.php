@@ -8,10 +8,9 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * Provides default Principal contract implementations sourced from
- * configurable Eloquent attribute and relation names. Override the
- * protected accessor hooks to remap without re-implementing the
- * public surface.
+ * Provides default Principal contract implementations sourced from configurable
+ * Eloquent attribute and relation names. Override the protected accessor hooks
+ * to remap without re-implementing the public surface.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -60,9 +59,9 @@ trait ActsAsPrincipal
     }
 
     /**
-     * Return the tenant the principal acts within, if any.
-     * Triggers a lazy-load on first call; tenant-aware apps should
-     * eager-load via their principal resolver.
+     * Return the tenant the principal acts within, if any. Triggers a lazy-load
+     * on first call; tenant-aware apps should eager-load via their principal
+     * resolver.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */

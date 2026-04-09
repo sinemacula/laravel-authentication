@@ -13,8 +13,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
@@ -170,7 +172,7 @@ final class JwtGuardIntegrationTest extends TestCase
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/context', static function (): array {
             $manager = app('auth');
 
-            assert($manager instanceof \SineMacula\Laravel\Authentication\AuthManager);
+            assert($manager instanceof AuthManager);
 
             return [
                 'principal_present' => $manager->principal() !== null,
@@ -239,7 +241,7 @@ final class JwtGuardIntegrationTest extends TestCase
     private function encodeAccessToken(array $claims): string
     {
         return JWT::encode(
-            array_merge($claims, [Claims::TYPE => Claims::TYPE_ACCESS]),
+            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
             self::JWT_SECRET,
             'HS256',
         );

@@ -12,9 +12,9 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 /**
  * Default principal resolver.
  *
- * Handles both 2D (identity-is-principal) and 3D (HasPrincipals
- * delegate) modes. Consumers may bind a custom resolver in the
- * container for per-guard or tenant-aware logic.
+ * Handles both 2D (identity-is-principal) and 3D (HasPrincipals delegate)
+ * modes. Consumers may bind a custom resolver in the container for per-guard or
+ * tenant-aware logic.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

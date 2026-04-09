@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 
 /**
- * Holds the identity -> principal -> device triple bound to a guard
- * and exposes accessors plus setters that fire the contextual events.
+ * Holds the identity -> principal -> device triple bound to a guard and exposes
+ * accessors plus setters that fire the contextual events.
  *
  * Expects the using class to declare:
  * - `protected string $name`
@@ -71,18 +71,8 @@ trait BindsContextualState
     }
 
     /**
-     * Return the tenant the active principal acts within, if any.
-     *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant|null
-     */
-    public function tenant(): ?Tenant
-    {
-        return $this->principal?->getTenant();
-    }
-
-    /**
-     * Return the active tenant's type string, if the tenant declares
-     * the `HasType` capability.
+     * Return the active tenant's type string, if the tenant declares the
+     * `HasType` capability.
      *
      * @return string|null
      */
@@ -94,8 +84,18 @@ trait BindsContextualState
     }
 
     /**
-     * Pin the active principal for the current request and fire
-     * the `PrincipalAssigned` custom event.
+     * Return the tenant the active principal acts within, if any.
+     *
+     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant|null
+     */
+    public function tenant(): ?Tenant
+    {
+        return $this->principal?->getTenant();
+    }
+
+    /**
+     * Pin the active principal for the current request and fire the
+     * `PrincipalAssigned` custom event.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return static
@@ -110,8 +110,8 @@ trait BindsContextualState
     }
 
     /**
-     * Pin the active device for the current request and fire
-     * the `DeviceAuthenticated` custom event.
+     * Pin the active device for the current request and fire the
+     * `DeviceAuthenticated` custom event.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return static
@@ -126,8 +126,8 @@ trait BindsContextualState
     }
 
     /**
-     * Clear identity, principal, and device state without firing
-     * events. The caller dispatches any events.
+     * Clear identity, principal, and device state without firing events. The
+     * caller dispatches any events.
      *
      * @return void
      */

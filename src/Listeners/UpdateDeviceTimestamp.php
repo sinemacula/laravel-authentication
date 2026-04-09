@@ -12,17 +12,16 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 
 /**
- * Listener that updates the bound device's `last_logged_in_at` when
- * a device is authenticated.
+ * Listener that updates the bound device's `last_logged_in_at` when a device is
+ * authenticated.
  *
- * Debounced by a configurable throttle window to avoid a per-request
- * hot-spot write. Uses an atomic `update()` against the row (not
- * `forceFill+save`) so no in-memory mutations sneak into persisted
- * state. The "last logged in" comparison narrows to `CarbonInterface`
- * so `CarbonImmutable` consumer configurations are not broken. The
- * column name is resolved from `ActsAsDevice::getLastLoggedInName()`
- * when present so trait remappings are honoured. No-ops for
- * non-Eloquent or unpersisted device implementations.
+ * Debounced by a configurable throttle window to avoid a per-request hot-spot
+ * write. Uses an atomic `update()` against the row (not `forceFill+save`) so no
+ * in-memory mutations sneak into persisted state. The "last logged in"
+ * comparison narrows to `CarbonInterface` so `CarbonImmutable` consumer
+ * configurations are not broken. The column name is resolved from
+ * `ActsAsDevice::getLastLoggedInName()` when present so trait remappings are
+ * honoured. No-ops for non-Eloquent or unpersisted device implementations.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -65,9 +64,29 @@ final class UpdateDeviceTimestamp
     }
 
     /**
-     * Whether the last-logged-in timestamp should be updated now.
-     * Returns true on first login or when the configured throttle
-     * window has elapsed since the last persistence.
+     * Resolve the column name holding the last-logged-in timestamp. Honours
+     * `ActsAsDevice::getLastLoggedInName()` when the device exposes it; falls
+     * back to the package default otherwise.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $device
+     * @return string
+     */
+    private function resolveColumnName(Model $device): string
+    {
+        if (!$device instanceof Device || !method_exists($device, 'getLastLoggedInName')) {
+            return self::DEFAULT_COLUMN;
+        }
+
+        /** @var string $column */
+        $column = $device->getLastLoggedInName();
+
+        return $column === '' ? self::DEFAULT_COLUMN : $column;
+    }
+
+    /**
+     * Whether the last-logged-in timestamp should be updated now. Returns true
+     * on first login or when the configured throttle window has elapsed since
+     * the last persistence.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $device
      * @param  string  $column
@@ -93,25 +112,5 @@ final class UpdateDeviceTimestamp
         }
 
         return $current->diffInSeconds($now, true) >= $windowSeconds;
-    }
-
-    /**
-     * Resolve the column name holding the last-logged-in timestamp.
-     * Honours `ActsAsDevice::getLastLoggedInName()` when the device
-     * exposes it; falls back to the package default otherwise.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model  $device
-     * @return string
-     */
-    private function resolveColumnName(Model $device): string
-    {
-        if (!$device instanceof Device || !method_exists($device, 'getLastLoggedInName')) {
-            return self::DEFAULT_COLUMN;
-        }
-
-        /** @var string $column */
-        $column = $device->getLastLoggedInName();
-
-        return $column === '' ? self::DEFAULT_COLUMN : $column;
     }
 }

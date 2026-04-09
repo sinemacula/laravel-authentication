@@ -14,12 +14,11 @@ use Illuminate\Support\Facades\Config;
  * Credential-validation primitive plus the standard Laravel
  * `Attempting` / `Validated` / `Failed` event-firing helpers.
  *
- * **Timing safety is the CALLER's responsibility.** This trait does
- * NOT wrap `hasValidCredentials()` in its own `Timebox::call()`: the
- * enclosing flows wrap the entire retrieve -> validate -> dispatch
- * pipeline in a single top-level timebox. A nested timebox would
- * either double-budget the pipeline or leak timing if the outer
- * caller short-circuits.
+ * **Timing safety is the CALLER's responsibility.** This trait does NOT wrap
+ * `hasValidCredentials()` in its own `Timebox::call()`: the enclosing flows
+ * wrap the entire retrieve -> validate -> dispatch pipeline in a single
+ * top-level timebox. A nested timebox would either double-budget the pipeline
+ * or leak timing if the outer caller short-circuits.
  *
  * Expects the using class to declare:
  * - `protected string $name`
@@ -43,19 +42,16 @@ trait ValidatesGuardCredentials
     /**
      * Credential validation; fires `Validated` on success.
      *
-     * Accepts a nullable user so callers can pass the
-     * `retrieveByCredentials` result straight in without
-     * short-circuiting on `null`. The uniform call path is what
-     * gives the enclosing timebox its timing-safety guarantee.
+     * Accepts a nullable user so callers can pass the `retrieveByCredentials`
+     * result straight in without short-circuiting on `null`. The uniform call
+     * path is what gives the enclosing timebox its timing-safety guarantee.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable|null  $user
      * @param  array<string, mixed>  $credentials
      * @return bool
      */
-    protected function hasValidCredentials(
-        ?Authenticatable $user,
-        #[\SensitiveParameter] array $credentials,
-    ): bool {
+    protected function hasValidCredentials(?Authenticatable $user, #[\SensitiveParameter] array $credentials): bool
+    {
         $valid = $user !== null && $this->provider->validateCredentials($user, $credentials);
 
         if ($valid) {
@@ -66,9 +62,20 @@ trait ValidatesGuardCredentials
     }
 
     /**
-     * Resolve the configured timebox budget in microseconds. Falls
-     * back to the default when the config key is missing,
-     * non-positive, or the Config facade is not bootstrapped.
+     * Fire the standard Laravel `Validated` event.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @return void
+     */
+    protected function fireValidatedEvent(Authenticatable $user): void
+    {
+        $this->events->dispatch(new Validated($this->name, $user));
+    }
+
+    /**
+     * Resolve the configured timebox budget in microseconds. Falls back to the
+     * default when the config key is missing, non-positive, or the Config
+     * facade is not bootstrapped.
      *
      * @return int
      */
@@ -98,27 +105,14 @@ trait ValidatesGuardCredentials
     }
 
     /**
-     * Fire the standard Laravel `Validated` event.
-     *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
-     * @return void
-     */
-    protected function fireValidatedEvent(Authenticatable $user): void
-    {
-        $this->events->dispatch(new Validated($this->name, $user));
-    }
-
-    /**
      * Fire the standard Laravel `Failed` event.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable|null  $user
      * @param  array<string, mixed>  $credentials
      * @return void
      */
-    protected function fireFailedEvent(
-        ?Authenticatable $user,
-        #[\SensitiveParameter] array $credentials,
-    ): void {
+    protected function fireFailedEvent(?Authenticatable $user, #[\SensitiveParameter] array $credentials): void
+    {
         $this->events->dispatch(new Failed($this->name, $user, $credentials));
     }
 }

@@ -18,8 +18,8 @@ use Tests\TestCase;
  * Verifies that the migration aborts with a `\RuntimeException`
  * carrying an actionable message when the configured devices table
  * already exists on the target connection, and that the abort occurs
- * before any schema mutation (REQ-13 / AC-13). Also verifies the
- * happy path when no collision is present.
+ * before any schema mutation. Also verifies the happy path when no
+ * collision is present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

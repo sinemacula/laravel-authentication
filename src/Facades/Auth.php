@@ -6,22 +6,26 @@ namespace SineMacula\Laravel\Authentication\Facades;
 
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
  * Package `Auth` facade.
  *
- * Subclasses Laravel's framework `Auth` facade and adds `@method`
- * annotations for the contextual accessors so IDEs get full
- * autocompletion. Both this facade and the framework facade resolve
- * through the same `auth` container key, which the package service
- * provider has already replaced with the `AuthManager` subclass.
+ * Subclasses Laravel's framework `Auth` facade and adds `@method` annotations
+ * for the contextual accessors so IDEs get full autocompletion. Both this
+ * facade and the framework facade resolve through the same `auth` container
+ * key, which the package service provider has already replaced with the
+ * `AuthManager` subclass.
  *
  * @see \SineMacula\Laravel\Authentication\AuthManager
  *
- * @method static \SineMacula\Laravel\Authentication\Contracts\Identity|null identity()
- * @method static \SineMacula\Laravel\Authentication\Contracts\Principal|null principal()
- * @method static \SineMacula\Laravel\Authentication\Contracts\Device|null device()
- * @method static \SineMacula\Laravel\Authentication\Contracts\Tenant|null tenant()
+ * @method static Identity|null identity()
+ * @method static Principal|null principal()
+ * @method static Device|null device()
+ * @method static Tenant|null tenant()
  * @method static string|null type()
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
@@ -31,11 +35,12 @@ use SineMacula\Laravel\Authentication\AuthManager;
 final class Auth extends IlluminateAuth
 {
     /**
-     * Resolve the package `AuthManager` directly from the container.
-     * Equivalent to `app('auth')` but type-narrowed to the package
-     * subclass.
+     * Resolve the package `AuthManager` directly from the container. Equivalent
+     * to `app('auth')` but type-narrowed to the package subclass.
      *
      * @return \SineMacula\Laravel\Authentication\AuthManager
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public static function manager(): AuthManager
     {

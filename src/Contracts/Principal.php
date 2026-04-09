@@ -7,9 +7,9 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 /**
  * Principal contract.
  *
- * Describes the *acting* entity for an authenticated request,
- * which may differ from the underlying identity (in the 3D model)
- * or be the identity itself (in the 2D model).
+ * Describes the *acting* entity for an authenticated request, which may differ
+ * from the underlying identity (in the 3D model) or be the identity itself (in
+ * the 2D model).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

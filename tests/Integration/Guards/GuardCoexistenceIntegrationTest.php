@@ -29,13 +29,6 @@ use Tests\TestCase;
  * principal via `HasPrincipals`) - can coexist in the same Laravel
  * application without cross-contamination.
  *
- * Satisfies the PRD P0 acceptance criterion: "A test application
- * configures one route protected by a 2D guard and another protected
- * by a 3D guard. Authenticating against the 2D route exposes identity
- * and principal as the same model; authenticating against the 3D
- * route exposes a principal and organization distinct from the
- * identity. Both routes return correct results in the same test run."
- *
  * Both guards run through the real `JwtGuard::user()` bearer-token
  * resolution path using tokens issued by the real `JwtTokenService`
  * resolved from the container, so the test exercises the full

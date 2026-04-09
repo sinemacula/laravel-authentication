@@ -9,7 +9,6 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
-use SineMacula\Laravel\Authentication\Contracts\Factory;
 
 /**
  * Unit tests for the package AuthManager subclass.
@@ -46,23 +45,6 @@ final class AuthManagerTest extends TestCase
         self::assertTrue(
             $reflection->isSubclassOf(IlluminateAuthManager::class),
             'Package AuthManager must extend Illuminate\Auth\AuthManager.',
-        );
-    }
-
-    /**
-     * The package `AuthManager` implements the package `Factory`
-     * marker contract so consumers may type-hint the contract in
-     * tests and IDE-friendly bindings.
-     *
-     * @return void
-     */
-    public function testAuthManagerImplementsPackageFactoryContract(): void
-    {
-        $reflection = new \ReflectionClass(AuthManager::class);
-
-        self::assertTrue(
-            $reflection->implementsInterface(Factory::class),
-            'Package AuthManager must implement the package Factory contract.',
         );
     }
 

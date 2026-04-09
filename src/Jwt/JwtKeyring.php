@@ -11,12 +11,11 @@ use Firebase\JWT\Key;
  *
  * Two construction modes:
  *
- * - **Single-secret mode** (`fromSecret()`): one secret signs and
- *   verifies every token, no `kid` header.
- * - **Kid mode** (`fromKeyMap()`): a `kid -> secret` map plus an
- *   active kid. Tokens carry the active kid in the header;
- *   verification accepts any kid present in the map. This is the
- *   production rotation pattern.
+ * - **Single-secret mode** (`fromSecret()`): one secret signs and verifies
+ *   every token, no `kid` header.
+ * - **Kid mode** (`fromKeyMap()`): a `kid -> secret` map plus an active kid.
+ *   Tokens carry the active kid in the header; verification accepts any kid
+ *   present in the map. This is the production rotation pattern.
  *
  * Fails closed: empty secrets and unknown active kids raise
  * `InvalidJwtConfigurationException` at construction.
@@ -49,9 +48,16 @@ final class JwtKeyring
      * @param  bool  $kidMode
      */
     private function __construct(
+
+        /** Map of `kid -> Firebase\JWT\Key` used for verification. */
         private readonly array $keys,
+
+        /** Kid stamped into every issued token; empty string when kid mode is off. */
         private readonly string $activeKid,
+
+        /** Whether the keyring operates in kid mode (true) or legacy single-secret mode (false). */
         private readonly bool $kidMode,
+
     ) {}
 
     /**
@@ -88,12 +94,11 @@ final class JwtKeyring
      * verification map for graceful rotation.
      *
      * The `$keys` parameter is `array<array-key, mixed>` rather than
-     * `array<string, string>` because this factory is the fail-closed
-     * boundary at which null secrets, integer-indexed arrays, and
-     * non-string values are rejected with typed exceptions. Narrowing
-     * the signature would push validation into the PHPStan-only realm
-     * and let misconfigurations reach `firebase/php-jwt` as opaque
-     * runtime errors.
+     * `array<string, string>` because this factory is the fail-closed boundary
+     * at which null secrets, integer-indexed arrays, and non-string values are
+     * rejected with typed exceptions. Narrowing the signature would push
+     * validation into the PHPStan-only realm and let misconfigurations reach
+     * `firebase/php-jwt` as opaque runtime errors.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $activeKid
@@ -102,11 +107,8 @@ final class JwtKeyring
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
-    public static function fromKeyMap(
-        #[\SensitiveParameter] array $keys,
-        string $activeKid,
-        string $algorithm,
-    ): self {
+    public static function fromKeyMap(#[\SensitiveParameter] array $keys, string $activeKid, string $algorithm): self
+    {
         self::assertAlgorithmSupported($algorithm);
 
         if ($keys === []) {
@@ -156,9 +158,8 @@ final class JwtKeyring
     }
 
     /**
-     * Return the verification key set in the form `firebase/php-jwt`
-     * expects: a single `Key` in single-secret mode, or a `kid -> Key`
-     * map in kid mode.
+     * Return the verification key set in the form `firebase/php-jwt` expects:
+     * a single `Key` in single-secret mode, or a `kid -> Key` map in kid mode.
      *
      * @return array<string, \Firebase\JWT\Key>|\Firebase\JWT\Key
      */
@@ -168,9 +169,31 @@ final class JwtKeyring
     }
 
     /**
-     * Validate the supplied kid -> secret map and convert it into a
-     * kid -> Key map. Both kid and secret must be non-empty strings;
-     * fail-closed regardless of the caller's static type hint.
+     * Reject any signing algorithm not on the allow-list. Run first in both
+     * factories so weak or typo'd settings fail fast at boot.
+     *
+     * @param  string  $algorithm
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private static function assertAlgorithmSupported(string $algorithm): void
+    {
+        if (in_array($algorithm, self::SUPPORTED_ALGORITHMS, true)) {
+            return;
+        }
+
+        $message = "JWT algorithm '{$algorithm}' is not supported."
+            . ' Set `authentication.jwt.algorithm` to one of: '
+            . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
+
+        throw new InvalidJwtConfigurationException($message);
+    }
+
+    /**
+     * Validate the supplied kid -> secret map and convert it into a kid -> Key
+     * map. Both kid and secret must be non-empty strings; fail-closed
+     * regardless of the caller's static type hint.
      *
      * @param  array<string, mixed>  $keys
      * @param  string  $algorithm
@@ -178,10 +201,8 @@ final class JwtKeyring
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
-    private static function buildKeyMap(
-        #[\SensitiveParameter] array $keys,
-        string $algorithm,
-    ): array {
+    private static function buildKeyMap(#[\SensitiveParameter] array $keys, string $algorithm): array
+    {
         $built = [];
 
         foreach ($keys as $kid => $material) {
@@ -206,27 +227,5 @@ final class JwtKeyring
         }
 
         return $built;
-    }
-
-    /**
-     * Reject any signing algorithm not on the allow-list. Run first
-     * in both factories so weak or typo'd settings fail fast at boot.
-     *
-     * @param  string  $algorithm
-     * @return void
-     *
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
-     */
-    private static function assertAlgorithmSupported(string $algorithm): void
-    {
-        if (in_array($algorithm, self::SUPPORTED_ALGORITHMS, true)) {
-            return;
-        }
-
-        $message = "JWT algorithm '{$algorithm}' is not supported."
-            . ' Set `authentication.jwt.algorithm` to one of: '
-            . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
-
-        throw new InvalidJwtConfigurationException($message);
     }
 }

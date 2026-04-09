@@ -9,8 +9,8 @@ use Carbon\CarbonInterface;
 /**
  * Device contract.
  *
- * Describes a refreshable device record bound to an authenticated
- * identity. Implementations are typically Eloquent models.
+ * Describes a refreshable device record bound to an authenticated identity.
+ * Implementations are typically Eloquent models.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -25,9 +25,9 @@ interface Device
     public function getDeviceIdentifier(): mixed;
 
     /**
-     * Return when the device was last successfully authenticated.
-     * Returns `CarbonInterface` so consumer apps that configure
-     * `CarbonImmutable` casts are not silently broken.
+     * Return when the device was last successfully authenticated. Returns
+     * `CarbonInterface` so consumer apps that configure `CarbonImmutable` casts
+     * are not silently broken.
      *
      * @return ?\Carbon\CarbonInterface
      */
@@ -48,20 +48,19 @@ interface Device
     public function getOperatingSystem(): string;
 
     /**
-     * Return the hashed refresh-key digest stored on the device row.
-     * NEVER the plaintext rotation identifier - the refresh exchange
-     * verifies the plaintext against this digest via `hash_equals()`.
-     * Returns `null` when no refresh credential has been issued or
-     * after revocation cleared the column.
+     * Return the hashed refresh-key digest stored on the device row. NEVER the
+     * plaintext rotation identifier - the refresh exchange verifies the
+     * plaintext against this digest via `hash_equals()`. Returns `null` when no
+     * refresh credential has been issued or after revocation cleared the column.
      *
      * @return ?string
      */
     public function getRefreshKey(): ?string;
 
     /**
-     * Return when the device was revoked, or `null`. A non-null value
-     * causes the refresh exchange to reject refresh attempts with
-     * reason `device_revoked`.
+     * Return when the device was revoked, or `null`. A non-null value causes
+     * the refresh exchange to reject refresh attempts with reason
+     * `device_revoked`.
      *
      * @return ?\Carbon\CarbonInterface
      */

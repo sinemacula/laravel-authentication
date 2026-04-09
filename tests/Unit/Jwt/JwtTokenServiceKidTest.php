@@ -6,7 +6,8 @@ namespace Tests\Unit\Jwt;
 
 use Firebase\JWT\JWT;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
@@ -90,10 +91,10 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
         $token = $oldOnlyService->issueAccessToken($identity, $principal, null);
 
-        $claims = $rotatedService->parse($token, Claims::TYPE_ACCESS);
+        $claims = $rotatedService->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertSame('identity-7', $claims[Claims::SUBJECT]);
+        self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
     }
 
     /**
@@ -120,7 +121,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
         $token = $retiredOnlyService->issueAccessToken($identity, $principal, null);
 
-        self::assertNull($newOnlyService->parse($token, Claims::TYPE_ACCESS));
+        self::assertNull($newOnlyService->parse($token, TokenType::ACCESS));
     }
 
     /**
@@ -151,10 +152,10 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         $principal = $this->mockPrincipal('principal-3');
 
         $token  = $kidService->issueAccessToken($identity, $principal, null);
-        $claims = $legacyService->parse($token, Claims::TYPE_ACCESS);
+        $claims = $legacyService->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertSame('identity-7', $claims[Claims::SUBJECT]);
+        self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
     }
 
     /**

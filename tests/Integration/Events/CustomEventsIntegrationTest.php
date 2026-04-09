@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
@@ -21,7 +22,7 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -246,7 +247,7 @@ final class CustomEventsIntegrationTest extends TestCase
                 'jti' => $plainRotationId,
                 'iat' => $this->now->getTimestamp(),
                 'exp' => $this->now->getTimestamp() + 3600,
-                'typ' => Claims::TYPE_REFRESH,
+                'typ' => TokenType::REFRESH->value,
             ],
             self::JWT_SECRET,
             'HS256',
@@ -310,7 +311,7 @@ final class CustomEventsIntegrationTest extends TestCase
     {
         parent::defineEnvironment($app);
 
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
@@ -362,7 +363,7 @@ final class CustomEventsIntegrationTest extends TestCase
             array_merge($claims, [
                 'iat' => $now,
                 'exp' => $now + (15 * 60),
-                'typ' => Claims::TYPE_ACCESS,
+                'typ' => TokenType::ACCESS->value,
             ]),
             self::JWT_SECRET,
             'HS256',

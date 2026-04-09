@@ -5,13 +5,12 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Jwt;
 
 /**
- * Coerce identifier values returned by package contracts into JWT
- * claim strings.
+ * Coerce identifier values returned by package contracts into JWT claim strings.
  *
- * RFC 7519 §4.1.2 requires `sub` (and by extension `pid`/`did`/`jti`)
- * to be a `StringOrURI`, but the contract getters return `mixed`.
- * Centralised so the JWT service and the fail-closed pid-hint
- * comparison in `JwtGuard` cannot drift apart.
+ * RFC 7519 §4.1.2 requires `sub` (and by extension `pid`/`did`/`jti`) to be a
+ * `StringOrURI`, but the contract getters return `mixed`. Centralised so the
+ * JWT service and the fail-closed pid-hint comparison in `JwtGuard` cannot
+ * drift apart.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -24,8 +23,8 @@ final class IdentifierCoercion
     private function __construct() {}
 
     /**
-     * Coerce an identifier to a string for embedding in a JWT claim.
-     * Returns `null` for `null` and for non-scalar, non-Stringable input.
+     * Coerce an identifier to a string for embedding in a JWT claim. Returns
+     * `null` for `null` and for non-scalar, non-Stringable input.
      *
      * @param  mixed  $identifier
      * @return string|null

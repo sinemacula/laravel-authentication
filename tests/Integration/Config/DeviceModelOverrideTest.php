@@ -32,8 +32,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Verifies that overriding `config('authentication.device.model')`
  * with a custom `Device` subclass and `device.table` with a custom
  * table name causes the model, the shipped migration body, and the
- * JWT guard's device-hydration path to route through the override
- * (REQ-10 / AC-10).
+ * JWT guard's device-hydration path to route through the override.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

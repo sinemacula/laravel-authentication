@@ -8,7 +8,8 @@ use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Psr\Log\LoggerInterface;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
@@ -49,7 +50,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
         $token = $issuer->issueAccessToken($identity, $principal, null);
 
-        self::assertNull($verifier->parse($token, Claims::TYPE_ACCESS));
+        self::assertNull($verifier->parse($token, TokenType::ACCESS));
     }
 
     /**
@@ -67,7 +68,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
         $this->advanceClock(self::ACCESS_TTL_MINUTES + 1);
 
-        self::assertNull($service->parse($token, Claims::TYPE_ACCESS));
+        self::assertNull($service->parse($token, TokenType::ACCESS));
     }
 
     /**
@@ -84,7 +85,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
         $token   = $service->issueRefreshToken($device, 'rotation-id');
 
-        self::assertNull($service->parse($token, Claims::TYPE_ACCESS));
+        self::assertNull($service->parse($token, TokenType::ACCESS));
     }
 
     /**
@@ -102,7 +103,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $service = $this->makeService();
         $token   = $service->issueAccessToken($identity, $principal, null);
 
-        self::assertNull($service->parse($token, Claims::TYPE_REFRESH));
+        self::assertNull($service->parse($token, TokenType::REFRESH));
     }
 
     /**
@@ -127,11 +128,11 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         );
 
         $token  = $service->issueAccessToken($identity, $principal, null);
-        $claims = $service->parse($token, Claims::TYPE_ACCESS);
+        $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertSame('https://issuer.example.test', $claims[Claims::ISSUER]);
-        self::assertSame('https://audience.example.test', $claims[Claims::AUDIENCE]);
+        self::assertSame('https://issuer.example.test', $claims[Claims::ISSUER->value]);
+        self::assertSame('https://audience.example.test', $claims[Claims::AUDIENCE->value]);
     }
 
     /**
@@ -165,7 +166,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
 
         $token = $issuer->issueAccessToken($identity, $principal, null);
 
-        self::assertNull($verifier->parse($token, Claims::TYPE_ACCESS));
+        self::assertNull($verifier->parse($token, TokenType::ACCESS));
     }
 
     /**
@@ -194,7 +195,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         Carbon::setTestNow($advanced);
         JWT::$timestamp = $advanced->getTimestamp();
 
-        $claims = $service->parse($token, Claims::TYPE_ACCESS);
+        $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
     }
@@ -225,7 +226,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
             );
 
             $token  = $service->issueAccessToken($identity, $principal, null);
-            $claims = $service->parse($token, Claims::TYPE_ACCESS);
+            $claims = $service->parse($token, TokenType::ACCESS);
 
             self::assertIsArray($claims);
             self::assertSame(99, JWT::$leeway);

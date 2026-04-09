@@ -32,7 +32,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * `attempt`, failed `attempt`, and `logout` paths to assert the
  * dispatched standard events (`Attempting`, `Validated`, `Login`,
  * `Authenticated`, `Failed`, `Logout`) match Laravel's first-party
- * contract with the expected constructor payload shapes (AC-05).
+ * contract with the expected constructor payload shapes.
  *
  * The `cli` guard uses the package's `basic` driver so credentials
  * can be passed directly via `attempt()` without needing an HTTP

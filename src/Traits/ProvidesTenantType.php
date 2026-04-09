@@ -4,13 +4,10 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Traits;
 
-use BackedEnum;
-use UnitEnum;
-
 /**
- * Provides a default `HasType` implementation sourced from a
- * configurable Eloquent attribute. Resolves `BackedEnum` (`value`),
- * `UnitEnum` (`name`), and arbitrary string-castable values.
+ * Provides a default `HasType` implementation sourced from a configurable
+ * Eloquent attribute. Resolves `BackedEnum` (`value`), `UnitEnum` (`name`), and
+ * arbitrary string-castable values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -18,8 +15,8 @@ use UnitEnum;
 trait ProvidesTenantType
 {
     /**
-     * Return the tenant's type as a string. Resolves `BackedEnum`
-     * via `value`, `UnitEnum` via `name`, otherwise casts to string.
+     * Return the tenant's type as a string. Resolves `BackedEnum` via `value`,
+     * `UnitEnum` via `name`, otherwise casts to string.
      *
      * @return string
      */

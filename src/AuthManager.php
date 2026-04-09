@@ -7,7 +7,6 @@ namespace SineMacula\Laravel\Authentication;
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Factory;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -15,23 +14,22 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 /**
  * Package AuthManager.
  *
- * Subclass of Laravel's `AuthManager` that exposes the contextual
- * accessors (`identity`, `principal`, `device`, `tenant`, `type`)
- * directly on the manager. Each accessor forwards to the active
- * guard when it implements `ContextualGuard`, otherwise returns
- * `null`. Bound to the `auth` container key by
- * `AuthServiceProvider`. Not `final` so consumers may subclass.
+ * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
+ * (`identity`, `principal`, `device`, `tenant`, `type`) directly on the
+ * manager. Each accessor forwards to the active guard when it implements
+ * `ContextualGuard`, otherwise returns `null`. Bound to the `auth` container
+ * key by `AuthServiceProvider`. Not `final` so consumers may subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  */
-class AuthManager extends IlluminateAuthManager implements Factory
+class AuthManager extends IlluminateAuthManager
 {
     /**
-     * Adopt the guard-driver and user-provider-driver registrations
-     * from another `Illuminate\Auth\AuthManager` instance so that any
-     * `Auth::extend(...)` / `Auth::provider(...)` calls made before
-     * this provider booted survive the container swap.
+     * Adopt the guard-driver and user-provider-driver registrations from
+     * another `Illuminate\Auth\AuthManager` instance so that any
+     * `Auth::extend(...)` / `Auth::provider(...)` calls made before this
+     * provider booted survive the container swap.
      *
      * @param  \Illuminate\Auth\AuthManager  $existing
      * @return void

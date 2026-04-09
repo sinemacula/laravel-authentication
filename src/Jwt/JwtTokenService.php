@@ -11,18 +11,20 @@ use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 
 /**
  * JWT issue/parse service.
  *
- * Encapsulates `firebase/php-jwt` so the guards do not import it
- * directly. Issues access and refresh tokens, decodes and verifies.
+ * Encapsulates `firebase/php-jwt` so the guards do not import it directly.
+ * Issues access and refresh tokens, decodes and verifies.
  *
  * Hardening:
  * - signing material lives in a `JwtKeyring` that fails closed,
  * - kid-based rotation via the active kid header and `kid -> Key` map,
- * - identifier claims (`sub`, `pid`, `did`, `jti`) stringified per
- *   RFC 7519 §4.1.2,
+ * - identifier claims (`sub`, `pid`, `did`, `jti`) stringified per RFC 7519
+ *   §4.1.2,
  * - `typ` claim distinguishes access from refresh,
  * - refresh tokens carry an explicit `exp`,
  * - configurable clock skew (`leewaySeconds`) on every verification,
@@ -54,14 +56,31 @@ final class JwtTokenService
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     public function __construct(
+
+        // Pre-built keyring, or a single HMAC secret to wrap in a one-kid keyring.
         #[\SensitiveParameter] JwtKeyring|string $secretOrKeyring,
-        protected string $algorithm,
-        protected int $accessTtlMinutes,
-        protected int $refreshTtlMinutes,
-        protected int $leewaySeconds = 30,
-        protected ?string $issuer = null,
-        protected ?string $audience = null,
+
+        /** JWS signing algorithm (e.g. `HS256`, `RS256`). */
+        private string $algorithm,
+
+        /** Access-token lifetime in minutes, written into the `exp` claim. */
+        private int $accessTtlMinutes,
+
+        /** Refresh-token lifetime in minutes, written into the `exp` claim. */
+        private int $refreshTtlMinutes,
+
+        /** Clock-skew tolerance in seconds applied to every `exp` / `iat` check. */
+        private int $leewaySeconds = 30,
+
+        /** Optional `iss` claim; when set, parse() rejects tokens whose issuer differs. */
+        private ?string $issuer = null,
+
+        /** Optional `aud` claim; when set, parse() rejects tokens whose audience differs. */
+        private ?string $audience = null,
+
+        // Optional PSR-3 logger for parse-failure debug traces; defaults to NullLogger.
         ?LoggerInterface $logger = null,
+
     ) {
         $this->keyring = is_string($secretOrKeyring)
             ? JwtKeyring::fromSecret($secretOrKeyring, $algorithm)
@@ -82,12 +101,12 @@ final class JwtTokenService
     {
         $now = Carbon::now()->getTimestamp();
 
-        $payload = $this->baseClaims($now, $now + ($this->accessTtlMinutes * 60), Claims::TYPE_ACCESS);
+        $payload = $this->baseClaims($now, $now + ($this->accessTtlMinutes * 60), TokenType::ACCESS);
 
-        $payload[Claims::SUBJECT]      = IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $payload[Claims::PRINCIPAL_ID] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
-        $payload[Claims::DEVICE_ID]    = $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier());
-        $payload[Claims::JWT_ID]       = RefreshTokenHasher::generate();
+        $payload[Claims::SUBJECT->value]      = IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $payload[Claims::PRINCIPAL_ID->value] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
+        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier());
+        $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
 
         return $this->encode($payload);
     }
@@ -95,8 +114,8 @@ final class JwtTokenService
     /**
      * Encode a refresh-token payload bound to a specific device.
      *
-     * The caller MUST hash the supplied plaintext `$rotationId`
-     * before persisting it on the device row.
+     * The caller MUST hash the supplied plaintext `$rotationId` before
+     * persisting it on the device row.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
@@ -106,10 +125,10 @@ final class JwtTokenService
     {
         $now = Carbon::now()->getTimestamp();
 
-        $payload = $this->baseClaims($now, $now + ($this->refreshTtlMinutes * 60), Claims::TYPE_REFRESH);
+        $payload = $this->baseClaims($now, $now + ($this->refreshTtlMinutes * 60), TokenType::REFRESH);
 
-        $payload[Claims::DEVICE_ID] = IdentifierCoercion::stringify($device->getDeviceIdentifier());
-        $payload[Claims::JWT_ID]    = $rotationId;
+        $payload[Claims::DEVICE_ID->value] = IdentifierCoercion::stringify($device->getDeviceIdentifier());
+        $payload[Claims::JWT_ID->value]    = $rotationId;
 
         return $this->encode($payload);
     }
@@ -117,16 +136,16 @@ final class JwtTokenService
     /**
      * Decode and verify a token, returning claims as an array.
      *
-     * Returns `null` on any failure so callers can treat parse as a
-     * total function. When `$expectedType` is supplied, tokens whose
-     * `typ` claim does not match are rejected to prevent a refresh
-     * token being presented as an access token (and vice versa).
+     * Returns `null` on any failure so callers can treat parse as a total
+     * function. When `$expectedType` is supplied, tokens whose `typ` claim does
+     * not match are rejected to prevent a refresh token being presented as an
+     * access token (and vice versa).
      *
      * @param  string  $token
-     * @param  ?string  $expectedType
+     * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
      * @return array<string, mixed>|null
      */
-    public function parse(#[\SensitiveParameter] string $token, ?string $expectedType = null): ?array
+    public function parse(#[\SensitiveParameter] string $token, ?TokenType $expectedType = null): ?array
     {
         $decoded = $this->decodeToken($token);
 
@@ -140,8 +159,35 @@ final class JwtTokenService
     }
 
     /**
-     * Encode the claim payload as a JWT, embedding the keyring's
-     * active kid in the header when kid mode is active.
+     * Build the base claim set (iat, exp, typ, iss, aud).
+     *
+     * @param  int  $issuedAt
+     * @param  int  $expiresAt
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @return array<string, mixed>
+     */
+    private function baseClaims(int $issuedAt, int $expiresAt, TokenType $type): array
+    {
+        $claims = [
+            Claims::ISSUED_AT->value  => $issuedAt,
+            Claims::EXPIRES_AT->value => $expiresAt,
+            Claims::TYPE->value       => $type->value,
+        ];
+
+        if ($this->issuer !== null) {
+            $claims[Claims::ISSUER->value] = $this->issuer;
+        }
+
+        if ($this->audience !== null) {
+            $claims[Claims::AUDIENCE->value] = $this->audience;
+        }
+
+        return $claims;
+    }
+
+    /**
+     * Encode the claim payload as a JWT, embedding the keyring's active kid in
+     * the header when kid mode is active.
      *
      * @param  array<string, mixed>  $payload
      * @return string
@@ -157,23 +203,22 @@ final class JwtTokenService
     }
 
     /**
-     * Run firebase/php-jwt with the configured leeway. Returns the
-     * decoded payload, or `null` on any decode/signature/expiry failure.
+     * Run firebase/php-jwt with the configured leeway. Returns the decoded
+     * payload, or `null` on any decode/signature/expiry failure.
      *
-     * Concurrency note: `firebase/php-jwt` exposes clock-skew tolerance
-     * only via the public static property `JWT::$leeway` and offers no
-     * per-call API. We capture and restore the previous value rather
-     * than hard-resetting to `0` so a consumer-configured leeway
-     * survives our decode window.
+     * Concurrency note: `firebase/php-jwt` exposes clock-skew tolerance only
+     * via the public static property `JWT::$leeway` and offers no per-call API.
+     * We capture and restore the previous value rather than hard-resetting to
+     * `0` so a consumer-configured leeway survives our decode window.
      *
-     * Known limitation - fiber-based runtimes: in truly concurrent
-     * environments (Laravel Octane, Swoole coroutines, ReactPHP fibers)
-     * `JWT::$leeway` is shared mutable state and a second decode
-     * scheduled during the capture/restore window observes this
-     * service's leeway value. We deliberately do NOT wrap the decode
-     * in a mutex: any such lock would serialise every decode in the
-     * worker process. Consumers in persistent-worker runtimes should
-     * rely on the runtime's request-isolation model.
+     * Known limitation - fiber-based runtimes: in truly concurrent environments
+     * (Laravel Octane, Swoole coroutines, ReactPHP fibers) `JWT::$leeway` is
+     * shared mutable state and a second decode scheduled during the
+     * capture/restore window observes this service's leeway value. We
+     * deliberately do NOT wrap the decode in a mutex: any such lock would
+     * serialise every decode in the worker process. Consumers in
+     * persistent-worker runtimes should rely on the runtime's request-isolation
+     * model.
      *
      * @param  string  $token
      * @return \stdClass|null
@@ -199,8 +244,8 @@ final class JwtTokenService
     }
 
     /**
-     * Convert the decoded payload into a string-keyed array, dropping
-     * any numeric keys.
+     * Convert the decoded payload into a string-keyed array, dropping any
+     * numeric keys.
      *
      * @param  \stdClass  $decoded
      * @return array<string, mixed>
@@ -222,10 +267,10 @@ final class JwtTokenService
      * Verify issuer, audience, and `typ` against expected values.
      *
      * @param  array<string, mixed>  $claims
-     * @param  ?string  $expectedType
+     * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
      * @return bool
      */
-    private function matchesExpectedClaims(array $claims, ?string $expectedType): bool
+    private function matchesExpectedClaims(array $claims, ?TokenType $expectedType): bool
     {
         $mismatch = $this->firstClaimMismatch($claims, $expectedType);
 
@@ -242,19 +287,19 @@ final class JwtTokenService
     }
 
     /**
-     * Locate the first issuer/audience/`typ` mismatch, or return
-     * `null` when every check passes.
+     * Locate the first issuer/audience/`typ` mismatch, or return `null` when
+     * every check passes.
      *
      * @param  array<string, mixed>  $claims
-     * @param  ?string  $expectedType
+     * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
      * @return array{message: string, expected: mixed, received: mixed}|null
      */
-    private function firstClaimMismatch(array $claims, ?string $expectedType): ?array
+    private function firstClaimMismatch(array $claims, ?TokenType $expectedType): ?array
     {
         $checks = [
-            [Claims::ISSUER, $this->issuer, 'JWT issuer mismatch'],
-            [Claims::AUDIENCE, $this->audience, 'JWT audience mismatch'],
-            [Claims::TYPE, $expectedType, 'JWT typ mismatch'],
+            [Claims::ISSUER->value, $this->issuer, 'JWT issuer mismatch'],
+            [Claims::AUDIENCE->value, $this->audience, 'JWT audience mismatch'],
+            [Claims::TYPE->value, $expectedType?->value, 'JWT typ mismatch'],
         ];
 
         foreach ($checks as [$claimKey, $expected, $message]) {
@@ -268,32 +313,5 @@ final class JwtTokenService
         }
 
         return null;
-    }
-
-    /**
-     * Build the base claim set (iat, exp, typ, iss, aud).
-     *
-     * @param  int  $issuedAt
-     * @param  int  $expiresAt
-     * @param  string  $type
-     * @return array<string, mixed>
-     */
-    private function baseClaims(int $issuedAt, int $expiresAt, string $type): array
-    {
-        $claims = [
-            Claims::ISSUED_AT  => $issuedAt,
-            Claims::EXPIRES_AT => $expiresAt,
-            Claims::TYPE       => $type,
-        ];
-
-        if ($this->issuer !== null) {
-            $claims[Claims::ISSUER] = $this->issuer;
-        }
-
-        if ($this->audience !== null) {
-            $claims[Claims::AUDIENCE] = $this->audience;
-        }
-
-        return $claims;
     }
 }

@@ -6,6 +6,7 @@ namespace Tests\Unit\Events;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 
 /**
@@ -26,10 +27,10 @@ final class RefreshFailedTest extends TestCase
      */
     public function testStoresGuardReasonAndDeviceIdOnConstruction(): void
     {
-        $event = new RefreshFailed('api', RefreshFailed::REASON_ROTATION_MISMATCH, 'd-1');
+        $event = new RefreshFailed('api', RefreshFailureReason::ROTATION_MISMATCH, 'd-1');
 
         self::assertSame('api', $event->guard);
-        self::assertSame(RefreshFailed::REASON_ROTATION_MISMATCH, $event->reason);
+        self::assertSame(RefreshFailureReason::ROTATION_MISMATCH, $event->reason);
         self::assertSame('d-1', $event->deviceId);
     }
 
@@ -40,27 +41,29 @@ final class RefreshFailedTest extends TestCase
      */
     public function testDeviceIdDefaultsToNull(): void
     {
-        $event = new RefreshFailed('api', RefreshFailed::REASON_TOKEN_INVALID);
+        $event = new RefreshFailed('api', RefreshFailureReason::TOKEN_INVALID);
 
         self::assertNull($event->deviceId);
     }
 
     /**
-     * The reason constants cover every early-return path in the
+     * The reason enum covers every early-return path in the
      * `JwtGuard::refresh()` flow - this assertion guards against
-     * accidentally introducing a new branch without a matching reason
-     * string.
+     * accidentally introducing a new branch without a matching enum
+     * case.
      *
      * @return void
      */
-    public function testReasonConstantsCoverEveryFailurePath(): void
+    public function testReasonEnumCoversEveryFailurePath(): void
     {
-        self::assertSame('token_invalid', RefreshFailed::REASON_TOKEN_INVALID);
-        self::assertSame('device_unknown', RefreshFailed::REASON_DEVICE_UNKNOWN);
-        self::assertSame('rotation_mismatch', RefreshFailed::REASON_ROTATION_MISMATCH);
-        self::assertSame('authenticatable_missing', RefreshFailed::REASON_AUTHENTICATABLE_MISSING);
-        self::assertSame('identity_inactive', RefreshFailed::REASON_IDENTITY_INACTIVE);
-        self::assertSame('principal_unresolved', RefreshFailed::REASON_PRINCIPAL_UNRESOLVED);
-        self::assertSame('principal_inactive', RefreshFailed::REASON_PRINCIPAL_INACTIVE);
+        self::assertSame('token_invalid', RefreshFailureReason::TOKEN_INVALID->value);
+        self::assertSame('device_unknown', RefreshFailureReason::DEVICE_UNKNOWN->value);
+        self::assertSame('rotation_mismatch', RefreshFailureReason::ROTATION_MISMATCH->value);
+        self::assertSame('rotation_reuse', RefreshFailureReason::ROTATION_REUSE->value);
+        self::assertSame('device_revoked', RefreshFailureReason::DEVICE_REVOKED->value);
+        self::assertSame('authenticatable_missing', RefreshFailureReason::AUTHENTICATABLE_MISSING->value);
+        self::assertSame('identity_inactive', RefreshFailureReason::IDENTITY_INACTIVE->value);
+        self::assertSame('principal_unresolved', RefreshFailureReason::PRINCIPAL_UNRESOLVED->value);
+        self::assertSame('principal_inactive', RefreshFailureReason::PRINCIPAL_INACTIVE->value);
     }
 }

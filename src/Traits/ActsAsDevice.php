@@ -7,10 +7,10 @@ namespace SineMacula\Laravel\Authentication\Traits;
 use Carbon\CarbonInterface;
 
 /**
- * Provides default Device contract implementations sourced from
- * configurable Eloquent attribute names. Override the attribute-name
- * methods to remap columns. Timestamp accessors narrow to
- * `CarbonInterface` so `CarbonImmutable` consumers are not broken.
+ * Provides default Device contract implementations sourced from configurable
+ * Eloquent attribute names. Override the attribute-name methods to remap
+ * columns. Timestamp accessors narrow to `CarbonInterface` so `CarbonImmutable`
+ * consumers are not broken.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -28,6 +28,17 @@ trait ActsAsDevice
     }
 
     /**
+     * Column name holding the device identifier. Public so listeners and the
+     * refresh exchange can resolve the column without reflection.
+     *
+     * @return string
+     */
+    public function getDeviceIdentifierName(): string
+    {
+        return 'id';
+    }
+
+    /**
      * Return the last login timestamp, or null when absent.
      *
      * @return ?\Carbon\CarbonInterface
@@ -37,6 +48,17 @@ trait ActsAsDevice
         $value = $this->getAttribute($this->getLastLoggedInName());
 
         return $value instanceof CarbonInterface ? $value : null;
+    }
+
+    /**
+     * Column name holding the last-login timestamp. Public so the
+     * `UpdateDeviceTimestamp` listener honours the override.
+     *
+     * @return string
+     */
+    public function getLastLoggedInName(): string
+    {
+        return 'last_logged_in_at';
     }
 
     /**
@@ -52,6 +74,16 @@ trait ActsAsDevice
     }
 
     /**
+     * Column name holding the last MFA verification timestamp.
+     *
+     * @return string
+     */
+    public function getLastMfaVerificationName(): string
+    {
+        return 'last_mfa_verified_at';
+    }
+
+    /**
      * Return the operating system attribute cast to string.
      *
      * @return string
@@ -62,8 +94,18 @@ trait ActsAsDevice
     }
 
     /**
-     * Return the hashed refresh key attribute, or null when no
-     * refresh credential has been issued.
+     * Column name holding the operating system string.
+     *
+     * @return string
+     */
+    public function getOperatingSystemName(): string
+    {
+        return 'os';
+    }
+
+    /**
+     * Return the hashed refresh key attribute, or null when no refresh
+     * credential has been issued.
      *
      * @return ?string
      */
@@ -79,8 +121,18 @@ trait ActsAsDevice
     }
 
     /**
-     * Return the revocation timestamp, or null when the device is
-     * not revoked.
+     * Column name holding the hashed refresh key. Public so the refresh-token
+     * exchange can compose its atomic CAS update.
+     *
+     * @return string
+     */
+    public function getRefreshKeyName(): string
+    {
+        return 'refresh_key';
+    }
+
+    /**
+     * Return the revocation timestamp, or null when the device is not revoked.
      *
      * @return ?\Carbon\CarbonInterface
      */
@@ -92,62 +144,8 @@ trait ActsAsDevice
     }
 
     /**
-     * Column name holding the device identifier. Public so listeners
-     * and the refresh exchange can resolve the column without
-     * reflection.
-     *
-     * @return string
-     */
-    public function getDeviceIdentifierName(): string
-    {
-        return 'id';
-    }
-
-    /**
-     * Column name holding the last-login timestamp. Public so the
-     * `UpdateDeviceTimestamp` listener honours the override.
-     *
-     * @return string
-     */
-    public function getLastLoggedInName(): string
-    {
-        return 'last_logged_in_at';
-    }
-
-    /**
-     * Column name holding the last MFA verification timestamp.
-     *
-     * @return string
-     */
-    public function getLastMfaVerificationName(): string
-    {
-        return 'last_mfa_verified_at';
-    }
-
-    /**
-     * Column name holding the operating system string.
-     *
-     * @return string
-     */
-    public function getOperatingSystemName(): string
-    {
-        return 'os';
-    }
-
-    /**
-     * Column name holding the hashed refresh key. Public so the
-     * refresh-token exchange can compose its atomic CAS update.
-     *
-     * @return string
-     */
-    public function getRefreshKeyName(): string
-    {
-        return 'refresh_key';
-    }
-
-    /**
-     * Column name holding the revocation timestamp. Public so the
-     * refresh-token exchange can clear / set the column.
+     * Column name holding the revocation timestamp. Public so the refresh-token
+     * exchange can clear / set the column.
      *
      * @return string
      */

@@ -355,7 +355,7 @@ final class BasicGuardTest extends TestCase
 
     /**
      * Credential validation runs inside `Timebox::call()` with the
-     * default 400,000 microsecond budget (NFR-04).
+     * default 400,000 microsecond budget.
      *
      * @return void
      */

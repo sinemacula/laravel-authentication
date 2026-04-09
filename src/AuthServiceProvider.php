@@ -14,10 +14,12 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
+use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
@@ -31,10 +33,10 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 /**
  * Package service provider.
  *
- * Registers configuration, the package `AuthManager` singleton, the
- * `model` user provider driver, the `jwt` and `basic` guard drivers,
- * the default principal resolver binding, the `DeviceAuthenticated`
- * listener, and the config + migration publishing tags.
+ * Registers configuration, the package `AuthManager` singleton, the `model`
+ * user provider driver, the `jwt` and `basic` guard drivers, the default
+ * principal resolver binding, the `DeviceAuthenticated` listener, and the
+ * config + migration publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -74,13 +76,15 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Construct a `JwtGuard` from the supplied container, guard name,
-     * and Laravel guard config block.
+     * Construct a `JwtGuard` from the supplied container, guard name, and
+     * Laravel guard config block.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
      * @param  array<string, mixed>  $config
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public static function createJwtGuard(Application $app, string $name, array $config): JwtGuard
     {
@@ -92,9 +96,9 @@ final class AuthServiceProvider extends ServiceProvider
         $resolver = $app->make(PrincipalResolver::class);
         $events   = $app->make(Dispatcher::class);
 
-        // Per-guard JWT block at `auth.guards.<name>.jwt` layers over
-        // the package-wide `authentication.jwt.*` defaults so multiple
-        // jwt guards can have distinct secrets, audiences, or kids.
+        // Per-guard JWT block at `auth.guards.<name>.jwt` layers over the
+        // package-wide `authentication.jwt.*` defaults so multiple jwt guards
+        // can have distinct secrets, audiences, or kids.
         $guardJwtConfig = is_array($config['jwt'] ?? null) ? $config['jwt'] : [];
 
         $tokens = self::buildJwtTokenService($app, $guardJwtConfig);
@@ -124,15 +128,17 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Construct a `BasicGuard` from the supplied container, guard
-     * name, and Laravel guard config block. The identifier field is
-     * resolved guard-first, then falls back to the package-wide
+     * Construct a `BasicGuard` from the supplied container, guard name, and
+     * Laravel guard config block. The identifier field is resolved guard-first,
+     * then falls back to the package-wide
      * `authentication.credentials.identifier_field` default.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
      * @param  array<string, mixed>  $config
      * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public static function createBasicGuard(Application $app, string $name, array $config): BasicGuard
     {
@@ -164,13 +170,13 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Replace the framework's `auth` container binding with the
-     * package `AuthManager` subclass.
+     * Replace the framework's `auth` container binding with the package
+     * `AuthManager` subclass.
      *
-     * Deferred to `boot()` so this extend wraps any extends registered
-     * during other providers' `register()` phase, guaranteeing the
-     * package manager is the outermost decorator and previously
-     * registered drivers are captured via `inheritDriversFrom()`.
+     * Deferred to `boot()` so this extend wraps any extends registered during
+     * other providers' `register()` phase, guaranteeing the package manager is
+     * the outermost decorator and previously registered drivers are captured
+     * via `inheritDriversFrom()`.
      *
      * @return void
      */
@@ -185,8 +191,8 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `model` user provider driver against Laravel's
-     * `Auth` factory.
+     * Register the `model` user provider driver against Laravel's `Auth`
+     * factory.
      *
      * @return void
      */
@@ -201,8 +207,8 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `jwt` and `basic` guard driver creators against
-     * Laravel's `Auth` factory.
+     * Register the `jwt` and `basic` guard driver creators against Laravel's
+     * `Auth` factory.
      *
      * @return void
      */
@@ -244,31 +250,17 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register container `refresh` hooks that propagate runtime
-     * rebinds of `request`, `events`, and the `PrincipalResolver`
-     * onto the supplied guard.
-     *
-     * @param  \Illuminate\Foundation\Application  $app
-     * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
-     * @return void
-     */
-    private static function wireGuardRebinds(Application $app, \SineMacula\Laravel\Authentication\Guards\AbstractGuard $guard): void
-    {
-        $app->refresh('request', $guard, 'setRequest');
-        $app->refresh('events', $guard, 'setDispatcher');
-        $app->refresh(PrincipalResolver::class, $guard, 'setPrincipalResolver');
-    }
-
-    /**
-     * Build a `JwtTokenService` from the package config, layered with
-     * an optional per-guard override block. Each JWT field is resolved
+     * Build a `JwtTokenService` from the package config, layered with an
+     * optional per-guard override block. Each JWT field is resolved
      * guard-first, falling back to `authentication.jwt.*`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  array<string, mixed>  $guardJwtConfig
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private static function buildJwtTokenService(Application $app, array $guardJwtConfig = []): JwtTokenService
+    private static function buildJwtTokenService(Application $app, #[\SensitiveParameter] array $guardJwtConfig = []): JwtTokenService
     {
         $config = $app->make(ConfigRepository::class);
 
@@ -287,22 +279,37 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Build a `JwtKeyring` from the package config layered with an
-     * optional per-guard override. When a non-empty `keys` map is
-     * found, kid mode activates and `active_kid` selects the signing
-     * key; otherwise the keyring uses single-secret mode.
+     * Resolve a string JWT config value, preferring the per-guard override and
+     * falling back to the package-wide default.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @param  string  $key
+     * @param  string  $default
+     * @return string
+     */
+    private static function resolveJwtString(ConfigRepository $config, #[\SensitiveParameter] array $guardJwtConfig, string $key, string $default): string
+    {
+        if (isset($guardJwtConfig[$key]) && is_string($guardJwtConfig[$key])) {
+            return $guardJwtConfig[$key];
+        }
+
+        return $config->string("authentication.jwt.{$key}", $default);
+    }
+
+    /**
+     * Build a `JwtKeyring` from the package config layered with an optional
+     * per-guard override. When a non-empty `keys` map is found, kid mode
+     * activates and `active_kid` selects the signing key; otherwise the keyring
+     * uses single-secret mode.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $algorithm
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtKeyring
      */
-    private static function buildKeyring(
-        ConfigRepository $config,
-        array $guardJwtConfig,
-        string $algorithm,
-    ): JwtKeyring {
-
+    private static function buildKeyring(ConfigRepository $config, #[\SensitiveParameter] array $guardJwtConfig, string $algorithm): JwtKeyring
+    {
         /** @var array<array-key, mixed>|null $rawKeys */
         $rawKeys = $guardJwtConfig['keys'] ?? $config->get('authentication.jwt.keys');
 
@@ -322,94 +329,16 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Resolve a string JWT config value, preferring the per-guard
-     * override and falling back to the package-wide default.
-     *
-     * @param  \Illuminate\Config\Repository  $config
-     * @param  array<string, mixed>  $guardJwtConfig
-     * @param  string  $key
-     * @param  string  $default
-     * @return string
-     */
-    private static function resolveJwtString(
-        ConfigRepository $config,
-        array $guardJwtConfig,
-        string $key,
-        string $default,
-    ): string {
-
-        if (isset($guardJwtConfig[$key]) && is_string($guardJwtConfig[$key])) {
-            return $guardJwtConfig[$key];
-        }
-
-        return $config->string("authentication.jwt.{$key}", $default);
-    }
-
-    /**
-     * Resolve an integer JWT config value, preferring the per-guard
-     * override and falling back to the package-wide default.
-     *
-     * @param  \Illuminate\Config\Repository  $config
-     * @param  array<string, mixed>  $guardJwtConfig
-     * @param  string  $key
-     * @param  int  $default
-     * @return int
-     */
-    private static function resolveJwtInteger(
-        ConfigRepository $config,
-        array $guardJwtConfig,
-        string $key,
-        int $default,
-    ): int {
-
-        if (isset($guardJwtConfig[$key]) && is_int($guardJwtConfig[$key])) {
-            return $guardJwtConfig[$key];
-        }
-
-        return $config->integer("authentication.jwt.{$key}", $default);
-    }
-
-    /**
-     * Resolve a nullable string JWT config value (`issuer` /
-     * `audience`), preferring the per-guard override and falling back
-     * to the package default. Empty strings are normalised to `null`.
-     *
-     * @param  \Illuminate\Config\Repository  $config
-     * @param  array<string, mixed>  $guardJwtConfig
-     * @param  string  $key
-     * @return string|null
-     */
-    private static function resolveJwtNullableString(
-        ConfigRepository $config,
-        array $guardJwtConfig,
-        string $key,
-    ): ?string {
-
-        if (array_key_exists($key, $guardJwtConfig)) {
-
-            $value = $guardJwtConfig[$key];
-
-            return is_string($value) && $value !== '' ? $value : null;
-        }
-
-        /** @var string|null $value */
-        $value = $config->get("authentication.jwt.{$key}");
-
-        return is_string($value) && $value !== '' ? $value : null;
-    }
-
-    /**
-     * Validate the raw `authentication.jwt.keys` config map and
-     * return a strictly-typed `kid -> secret` array. Rejects
-     * integer-indexed entries and non-string secrets before
-     * forwarding to `JwtKeyring::fromKeyMap()`.
+     * Validate the raw `authentication.jwt.keys` config map and return a
+     * strictly-typed `kid -> secret` array. Rejects integer-indexed entries and
+     * non-string secrets before forwarding to `JwtKeyring::fromKeyMap()`.
      *
      * @param  array<array-key, mixed>  $rawKeys
      * @return array<string, string>
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
-    private static function coerceKeysConfig(array $rawKeys): array
+    private static function coerceKeysConfig(#[\SensitiveParameter] array $rawKeys): array
     {
         $coerced = [];
 
@@ -440,18 +369,79 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Resolve the container's PSR-3 logger if bound, otherwise return
-     * `null` so the JWT service falls back to its `NullLogger`.
+     * Resolve an integer JWT config value, preferring the per-guard override
+     * and falling back to the package-wide default.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @param  string  $key
+     * @param  int  $default
+     * @return int
+     */
+    private static function resolveJwtInteger(ConfigRepository $config, #[\SensitiveParameter] array $guardJwtConfig, string $key, int $default): int
+    {
+        if (isset($guardJwtConfig[$key]) && is_int($guardJwtConfig[$key])) {
+            return $guardJwtConfig[$key];
+        }
+
+        return $config->integer("authentication.jwt.{$key}", $default);
+    }
+
+    /**
+     * Resolve a nullable string JWT config value (`issuer` / `audience`),
+     * preferring the per-guard override and falling back to the package
+     * default. Empty strings are normalised to `null`.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @param  string  $key
+     * @return string|null
+     */
+    private static function resolveJwtNullableString(ConfigRepository $config, #[\SensitiveParameter] array $guardJwtConfig, string $key): ?string
+    {
+        if (array_key_exists($key, $guardJwtConfig)) {
+
+            $value = $guardJwtConfig[$key];
+
+            return is_string($value) && $value !== '' ? $value : null;
+        }
+
+        /** @var string|null $value */
+        $value = $config->get("authentication.jwt.{$key}");
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * Resolve the container's PSR-3 logger if bound, otherwise return `null` so
+     * the JWT service falls back to its `NullLogger`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @return \Psr\Log\LoggerInterface|null
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private static function resolveOptionalLogger(Application $app): ?\Psr\Log\LoggerInterface
+    private static function resolveOptionalLogger(Application $app): ?LoggerInterface
     {
-        if (!$app->bound(\Psr\Log\LoggerInterface::class)) {
+        if (!$app->bound(LoggerInterface::class)) {
             return null;
         }
 
-        return $app->make(\Psr\Log\LoggerInterface::class);
+        return $app->make(LoggerInterface::class);
+    }
+
+    /**
+     * Register container `refresh` hooks that propagate runtime rebinds of
+     * `request`, `events`, and the `PrincipalResolver` onto the supplied guard.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
+     * @return void
+     */
+    private static function wireGuardRebinds(Application $app, AbstractGuard $guard): void
+    {
+        $app->refresh('request', $guard, 'setRequest');
+        $app->refresh('events', $guard, 'setDispatcher');
+        $app->refresh(PrincipalResolver::class, $guard, 'setPrincipalResolver');
     }
 }

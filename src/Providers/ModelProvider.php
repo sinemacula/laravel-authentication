@@ -13,11 +13,10 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 /**
  * Eloquent-backed identity provider.
  *
- * Mirrors the surface of Laravel's `EloquentUserProvider` minus the
- * remember-me token methods, which are inert for this stateless
- * package. Non-`final` so consumers may subclass `createModel()` or
- * `retrieveByCredentials()` for tenant scoping, soft-delete
- * exclusion, or other domain-specific lookups.
+ * Mirrors the surface of Laravel's `EloquentUserProvider` minus the remember-me
+ * token methods, which are inert for this stateless package. Non-`final` so
+ * consumers may subclass `createModel()` or `retrieveByCredentials()` for
+ * tenant scoping, soft-delete exclusion, or other domain-specific lookups.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -37,10 +36,7 @@ class ModelProvider implements IdentityProvider
         /** Hasher used to verify and optionally re-hash passwords. */
         protected Hasher $hasher,
 
-        /**
-         * Fully-qualified Eloquent model class name to authenticate
-         * against.
-         */
+        /** Fully-qualified Eloquent model class name to authenticate against. */
         protected string $model,
 
     ) {
@@ -83,8 +79,8 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Inert in this stateless package: returns `null`. Implemented
-     * only to satisfy `UserProvider`.
+     * Inert in this stateless package: returns `null`. Implemented only to
+     * satisfy `UserProvider`.
      *
      * @param  mixed  $identifier
      * @param  mixed  $token
@@ -97,8 +93,8 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Inert in this stateless package: empty no-op. Implemented only
-     * to satisfy `UserProvider`.
+     * Inert in this stateless package: empty no-op. Implemented only to satisfy
+     * `UserProvider`.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  mixed  $token
@@ -113,11 +109,11 @@ class ModelProvider implements IdentityProvider
     /**
      * Retrieve a user by the given credentials.
      *
-     * Password keys are stripped before query composition so the
-     * hasher stays the single source of password verification. An
-     * empty filtered set returns `null` rather than running a
-     * where-less query, which would otherwise return the first row
-     * in the table - a surprising and unsafe authentication.
+     * Password keys are stripped before query composition so the hasher stays
+     * the single source of password verification. An empty filtered set returns
+     * `null` rather than running a where-less query, which would otherwise
+     * return the first row in the table - a surprising and unsafe
+     * authentication.
      *
      * @param  array<array-key, mixed>  $credentials
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
@@ -164,9 +160,8 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Rehash the user's password when the current hash is outdated.
-     * No-ops when no password is supplied or the user is not an
-     * Eloquent model.
+     * Rehash the user's password when the current hash is outdated. No-ops when
+     * no password is supplied or the user is not an Eloquent model.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
@@ -174,11 +169,8 @@ class ModelProvider implements IdentityProvider
      * @return void
      */
     #[\Override]
-    public function rehashPasswordIfRequired(
-        Authenticatable $user,
-        #[\SensitiveParameter] array $credentials,
-        bool $force = false,
-    ): void {
+    public function rehashPasswordIfRequired(Authenticatable $user, #[\SensitiveParameter] array $credentials, bool $force = false): void
+    {
         $plain = $credentials['password'] ?? null;
 
         if (!is_string($plain) || $plain === '') {
@@ -213,24 +205,24 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Build a fresh Eloquent query rooted at the supplied model.
-     * Single localised site for the dynamic-class `newQuery()` call
-     * so any phpstan suppressions live in one place.
+     * Build a fresh Eloquent query rooted at the supplied model. Single
+     * localised site for the dynamic-class `newQuery()` call so any phpstan
+     * suppressions live in one place.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
      * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>
      */
     private function freshQuery(Authenticatable&Model $model): Builder
     {
-        // See `persistRehashedPassword()` for the suppression
-        // rationale (larastan static-aliases the instance method).
+        // See `persistRehashedPassword()` for the suppression rationale
+        // (larastan static-aliases the instance method).
         // @phpstan-ignore staticMethod.dynamicCall
         return $model->newQuery();
     }
 
     /**
-     * Drop non-string keys, empty keys, and any key containing
-     * "password" so the remainder can safely compose `where()` calls.
+     * Drop non-string keys, empty keys, and any key containing "password" so
+     * the remainder can safely compose `where()` calls.
      *
      * @param  array<array-key, mixed>  $credentials
      * @return array<string, mixed>
@@ -241,7 +233,15 @@ class ModelProvider implements IdentityProvider
 
         foreach ($credentials as $key => $value) {
 
-            if (!is_string($key) || $key === '' || str_contains($key, 'password')) {
+            if (!is_string($key) || $key === '' || str_contains(strtolower($key), 'password')) {
+                continue;
+            }
+
+            // Defense in depth: the key becomes an SQL column name downstream,
+            // so reject anything that is not a valid identifier (optionally
+            // dotted). Structurally prevents trailing dots, consecutive dots,
+            // and any non-identifier byte from reaching `where()`/`whereIn()`.
+            if (preg_match('/^[a-zA-Z_]\w*(\.[a-zA-Z_]\w*)*$/', $key) !== 1) {
                 continue;
             }
 
@@ -252,19 +252,16 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Apply each credential to the query as a `where`/`whereIn`/
-     * closure clause. Returns `false` if any value is unsupported;
-     * the caller should treat `false` as "refuse to authenticate".
+     * Apply each credential to the query as a `where`/`whereIn`/ closure
+     * clause. Returns `false` if any value is unsupported; the caller should
+     * treat `false` as "refuse to authenticate".
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      * @param  array<string, mixed>  $credentials
      * @return bool
      */
-    private function applyCredentialClauses(
-        Builder $query,
-        #[\SensitiveParameter] array $credentials,
-    ): bool {
-
+    private function applyCredentialClauses(Builder $query, #[\SensitiveParameter] array $credentials): bool
+    {
         foreach ($credentials as $key => $value) {
             if (!$this->applyCredentialClause($query, $key, $value)) {
                 return false;
@@ -275,20 +272,16 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Apply a single credential clause to the query. Returns `false`
-     * if the value is not a supported type.
+     * Apply a single credential clause to the query. Returns `false` if the
+     * value is not a supported type.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      * @param  string  $key
      * @param  mixed  $value
      * @return bool
      */
-    private function applyCredentialClause(
-        Builder $query,
-        string $key,
-        mixed $value,
-    ): bool {
-
+    private function applyCredentialClause(Builder $query, string $key, #[\SensitiveParameter] mixed $value): bool
+    {
         return match (true) {
             is_array($value)           => $this->applyArrayClause($query, $key, $value),
             $value instanceof \Closure => $this->applyClosureClause($query, $value),
@@ -308,11 +301,8 @@ class ModelProvider implements IdentityProvider
      * @param  array<array-key, mixed>  $values
      * @return bool
      */
-    private function applyArrayClause(
-        Builder $query,
-        string $key,
-        array $values,
-    ): bool {
+    private function applyArrayClause(Builder $query, string $key, #[\SensitiveParameter] array $values): bool
+    {
         // @phpstan-ignore staticMethod.dynamicCall
         $query->whereIn($key, $values);
 
@@ -320,8 +310,8 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Hand the supplied query to a credential closure for additional
-     * `where` composition.
+     * Hand the supplied query to a credential closure for additional `where`
+     * composition.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      * @param  \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>): mixed  $callback
@@ -335,40 +325,34 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Apply a scalar `=` clause for a string/int/bool/Stringable
-     * credential value.
+     * Apply a scalar `=` clause for a string/int/bool/Stringable credential
+     * value.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>  $query
      * @param  string  $key
      * @param  bool|int|string|\Stringable  $value
      * @return bool
      */
-    private function applyScalarClause(
-        Builder $query,
-        string $key,
-        bool|int|string|\Stringable $value,
-    ): bool {
+    private function applyScalarClause(Builder $query, string $key, #[\SensitiveParameter] bool|int|string|\Stringable $value): bool
+    {
         $query->where($key, $value);
 
         return true;
     }
 
     /**
-     * Persist a freshly hashed password onto an Eloquent user model.
-     * Localised so the dynamic-class phpstan suppression lives here.
+     * Persist a freshly hashed password onto an Eloquent user model. Localised
+     * so the dynamic-class phpstan suppression lives here.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $user
      * @param  string  $plain
      * @return void
      */
-    private function persistRehashedPassword(
-        Authenticatable&Model $user,
-        #[\SensitiveParameter] string $plain,
-    ): void {
-        // larastan static-aliases forceFill/save via @method static
-        // annotations even though they are instance methods; the
-        // suppression is unavoidable while the model class is
-        // resolved at runtime via config.
+    private function persistRehashedPassword(Authenticatable&Model $user, #[\SensitiveParameter] string $plain): void
+    {
+        // larastan static-aliases forceFill/save via @method static annotations
+        // even though they are instance methods; the suppression is unavoidable
+        // while the model class is resolved at runtime via config.
         // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
         $user->forceFill([
             $user->getAuthPasswordName() => $this->hasher->make($plain),

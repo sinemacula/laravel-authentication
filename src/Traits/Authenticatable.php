@@ -9,10 +9,10 @@ use Illuminate\Auth\Authenticatable as IlluminateAuthenticatable;
 /**
  * Stateless re-export of Laravel's Authenticatable trait.
  *
- * Overrides the three remember-token accessors to inert no-ops
- * because the package is stateless-only (NFR-08). Without the
- * explicit overrides `EloquentUserProvider::retrieveByToken` would
- * still attempt to query the literal `""` column.
+ * Overrides the three remember-token accessors to inert no-ops because the
+ * package is stateless-only. Without the explicit overrides
+ * `EloquentUserProvider::retrieveByToken` would still attempt to query the
+ * literal `""` column.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -49,6 +49,6 @@ trait Authenticatable
      */
     public function setRememberToken(#[\SensitiveParameter] mixed $value): void
     {
-        unset($value); // contract-conformance no-op
+        unset($value);
     }
 }

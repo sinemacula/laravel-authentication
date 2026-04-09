@@ -11,6 +11,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
@@ -20,7 +21,7 @@ use Orchestra\Testbench\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use Tests\Unit\Stubs\InjectableDeviceStub;
@@ -148,7 +149,7 @@ abstract class JwtGuardTestCase extends TestCase
     #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
@@ -216,17 +217,6 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode a raw payload as a JWT using the shared test secret.
-     *
-     * @param  array<string, mixed>  $payload
-     * @return string
-     */
-    protected function encodeToken(array $payload): string
-    {
-        return JWT::encode($payload, self::SECRET, self::ALGORITHM);
-    }
-
-    /**
      * Encode an access-token-style JWT with `iat`, `exp`, and
      * `typ = access` claims baked in so the real
      * `JwtTokenService::parse(..., TYPE_ACCESS)` path accepts it.
@@ -241,8 +231,19 @@ abstract class JwtGuardTestCase extends TestCase
         return $this->encodeToken(array_merge($claims, [
             'iat' => $now,
             'exp' => $now + (self::ACCESS_TTL * 60),
-            'typ' => Claims::TYPE_ACCESS,
+            'typ' => TokenType::ACCESS->value,
         ]));
+    }
+
+    /**
+     * Encode a raw payload as a JWT using the shared test secret.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return string
+     */
+    protected function encodeToken(array $payload): string
+    {
+        return JWT::encode($payload, self::SECRET, self::ALGORITHM);
     }
 
     /**
@@ -260,7 +261,7 @@ abstract class JwtGuardTestCase extends TestCase
         return $this->encodeToken(array_merge($claims, [
             'iat' => $now,
             'exp' => $now + (self::REFRESH_TTL * 60),
-            'typ' => Claims::TYPE_REFRESH,
+            'typ' => TokenType::REFRESH->value,
         ]));
     }
 

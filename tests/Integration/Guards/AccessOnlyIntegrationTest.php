@@ -7,13 +7,15 @@ namespace Tests\Integration\Guards;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 
@@ -84,10 +86,10 @@ final class AccessOnlyIntegrationTest extends TestCase
         $tokens = app(JwtTokenService::class);
         $token  = $tokens->issueAccessToken($user, $user, null);
 
-        $claims = $tokens->parse($token, Claims::TYPE_ACCESS);
+        $claims = $tokens->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
-        self::assertNull($claims[Claims::DEVICE_ID] ?? null);
+        self::assertNull($claims[Claims::DEVICE_ID->value] ?? null);
         self::assertFalse(Schema::hasTable('devices'));
 
         $request = Request::create('/me', 'GET');
@@ -138,7 +140,7 @@ final class AccessOnlyIntegrationTest extends TestCase
      */
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
