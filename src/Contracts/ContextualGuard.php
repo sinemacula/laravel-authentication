@@ -21,11 +21,9 @@ interface ContextualGuard extends Guard
     /**
      * Contextual attempt with optional principal and device pinning.
      *
-     * Signature diverges from Laravel's `StatefulGuard::attempt()`: the second
-     * and third parameters are contextual pins, NOT a remember-me flag - this
-     * package is stateless-only. Safe at the type level because
-     * `ContextualGuard` extends `Guard`, not `StatefulGuard`. Consumers needing
-     * stateful semantics should keep using `SessionGuard`.
+     * Signature diverges from Laravel's `StatefulGuard::attempt()`: the
+     * second and third parameters are contextual pins, not a remember-me
+     * flag. This package is stateless-only.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal

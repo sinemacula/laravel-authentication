@@ -40,7 +40,7 @@ abstract class AbstractGuard implements ContextualGuard
 {
     use BindsContextualState, ValidatesGuardCredentials;
 
-    /** @var \Illuminate\Contracts\Auth\Authenticatable|null Last retrieved user; attached to the `Failed` event. */
+    /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
 
     /**
@@ -100,7 +100,7 @@ abstract class AbstractGuard implements ContextualGuard
     /**
      * Return the authenticated identity bound to the guard, if any.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     #[\Override]
     public function user(): ?Identity
@@ -189,8 +189,8 @@ abstract class AbstractGuard implements ContextualGuard
      * optionally pinning a specific principal and device on success.
      *
      * @param  array<string, mixed>  $credentials
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal|null  $principal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device|null  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return bool
      */
     #[\Override]
@@ -210,9 +210,8 @@ abstract class AbstractGuard implements ContextualGuard
 
             [$identity, $resolvedPrincipal] = $resolved;
 
-            // attempt() bypasses login() because Validated already fired from
-            // hasValidCredentials() - calling login() here would
-            // double-dispatch.
+            // hasValidCredentials() already fired Validated; bind directly
+            // and skip login() to avoid double-dispatching.
             $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $device);
 
             $timebox->returnEarly();
@@ -225,18 +224,17 @@ abstract class AbstractGuard implements ContextualGuard
      * Bind a fully resolved identity, principal, and optional device, firing
      * `Validated` and `Login` around the bind.
      *
-     * Public entry point for callers that validated the identity out-of-band
-     * (refresh, OAuth, SSO, test helpers). Subclass `user()` paths that did NOT
-     * go through `hasValidCredentials()` should call this so they pick up
-     * `Validated` for free; paths that did should call
-     * `bindAuthenticationLifecycle()` directly to avoid the double-fire.
+     * Public entry point for callers that validated the identity
+     * out-of-band (refresh, OAuth, SSO). Paths that already went through
+     * `hasValidCredentials()` should call `bindAuthenticationLifecycle()`
+     * directly to avoid double-firing `Validated`.
      *
-     * Any previously bound state is cleared first so callers cannot
-     * inherit a stale device from a prior login on the same instance.
+     * Previously bound state is cleared first so callers cannot inherit a
+     * stale device from a prior login on the same instance.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device|null  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return void
      */
     #[\Override]
@@ -356,7 +354,7 @@ abstract class AbstractGuard implements ContextualGuard
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
-     * @return \SineMacula\Laravel\Authentication\Contracts\Principal|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     protected function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
     {
@@ -374,13 +372,11 @@ abstract class AbstractGuard implements ContextualGuard
      * contextual triple (which dispatches `Authenticated`, `PrincipalAssigned`,
      * and `DeviceAuthenticated` in order).
      *
-     * The Login-before-Authenticated order mirrors Laravel's first-party
-     * `SessionGuard::login()` so consumers see the same ordering regardless of
-     * which guard they use.
+     * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device|null  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return void
      */
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
@@ -406,7 +402,7 @@ abstract class AbstractGuard implements ContextualGuard
      * @formatter:off
      *
      * @param  array<string, mixed>  $credentials
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal|null  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
      *
      * @formatter:on

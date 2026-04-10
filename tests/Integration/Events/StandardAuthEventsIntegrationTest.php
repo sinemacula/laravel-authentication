@@ -205,6 +205,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
 
             self::assertSame(self::GUARD_NAME, $event->guard);
             self::assertInstanceOf(Identity::class, $event->user);
+            self::assertInstanceOf(StubPrincipal::class, $event->user);
             self::assertSame(self::USER_EMAIL, $event->user->getAttribute('email'));
 
             return true;
@@ -231,6 +232,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
 
             self::assertSame(self::GUARD_NAME, $event->guard);
             self::assertInstanceOf(Identity::class, $event->user);
+            self::assertInstanceOf(StubPrincipal::class, $event->user);
             self::assertSame(self::USER_EMAIL, $event->user->getAttribute('email'));
             self::assertFalse($event->remember);
 

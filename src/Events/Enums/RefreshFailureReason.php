@@ -7,9 +7,9 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 /**
  * Machine-readable failure reason carried on a `RefreshFailed` event.
  *
- * Backed enum so SIEM / audit-log consumers can count failure modes without
- * scraping log messages, and so every callsite that dispatches the event gets
- * compile-time protection against typo'd reason strings.
+ * Backed enum so SIEM consumers count failure modes without scraping log
+ * messages and every dispatch site gets compile-time protection against
+ * typo'd reason strings.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

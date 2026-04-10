@@ -31,19 +31,19 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
  */
 trait BindsContextualState
 {
-    /** @var \SineMacula\Laravel\Authentication\Contracts\Identity|null Identity bound to the guard, if any. */
+    /** @var ?\SineMacula\Laravel\Authentication\Contracts\Identity Identity bound to the guard, if any. */
     protected ?Identity $identity = null;
 
-    /** @var \SineMacula\Laravel\Authentication\Contracts\Principal|null Principal bound to the guard, if any. */
+    /** @var ?\SineMacula\Laravel\Authentication\Contracts\Principal Principal bound to the guard, if any. */
     protected ?Principal $principal = null;
 
-    /** @var \SineMacula\Laravel\Authentication\Contracts\Device|null Device bound to the guard, if any. */
+    /** @var ?\SineMacula\Laravel\Authentication\Contracts\Device Device bound to the guard, if any. */
     protected ?Device $device = null;
 
     /**
      * Return the authenticated identity, if any.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     public function identity(): ?Identity
     {
@@ -53,7 +53,7 @@ trait BindsContextualState
     /**
      * Return the active principal, if any.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Principal|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     public function principal(): ?Principal
     {
@@ -63,7 +63,7 @@ trait BindsContextualState
     /**
      * Return the pinned device, if any.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Device|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
      */
     public function device(): ?Device
     {
@@ -74,7 +74,7 @@ trait BindsContextualState
      * Return the active tenant's type string, if the tenant declares the
      * `HasType` capability.
      *
-     * @return string|null
+     * @return ?string
      */
     public function type(): ?string
     {
@@ -86,7 +86,7 @@ trait BindsContextualState
     /**
      * Return the tenant the active principal acts within, if any.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Tenant|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
     public function tenant(): ?Tenant
     {

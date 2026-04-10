@@ -62,20 +62,17 @@ class ModelProvider implements IdentityProvider
      * Retrieve a user by its unique identifier.
      *
      * @param  mixed  $identifier
-     * @return \Illuminate\Contracts\Auth\Authenticatable|null
+     * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
     #[\Override]
     public function retrieveById(mixed $identifier): ?Authenticatable
     {
         $model = $this->createModel();
 
-        $user = $this->freshQuery($model)
+        // @phpstan-ignore return.type
+        return $this->freshQuery($model)
             ->where($model->getAuthIdentifierName(), $identifier)
             ->first();
-
-        assert($user === null || $user instanceof Authenticatable);
-
-        return $user;
     }
 
     /**
@@ -84,7 +81,7 @@ class ModelProvider implements IdentityProvider
      *
      * @param  mixed  $identifier
      * @param  mixed  $token
-     * @return \Illuminate\Contracts\Auth\Authenticatable|null
+     * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
     #[\Override]
     public function retrieveByToken(mixed $identifier, #[\SensitiveParameter] mixed $token): ?Authenticatable
@@ -109,14 +106,12 @@ class ModelProvider implements IdentityProvider
     /**
      * Retrieve a user by the given credentials.
      *
-     * Password keys are stripped before query composition so the hasher stays
-     * the single source of password verification. An empty filtered set returns
-     * `null` rather than running a where-less query, which would otherwise
-     * return the first row in the table - a surprising and unsafe
-     * authentication.
+     * Password keys are stripped before query composition so the hasher
+     * stays the single source of password verification. An empty filtered
+     * set returns `null` rather than running a where-less query.
      *
      * @param  array<array-key, mixed>  $credentials
-     * @return \Illuminate\Contracts\Auth\Authenticatable|null
+     * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
     #[\Override]
     public function retrieveByCredentials(#[\SensitiveParameter] array $credentials): ?Authenticatable
@@ -133,11 +128,8 @@ class ModelProvider implements IdentityProvider
             return null;
         }
 
-        $user = $query->first();
-
-        assert($user === null || $user instanceof Authenticatable);
-
-        return $user;
+        // @phpstan-ignore return.type
+        return $query->first();
     }
 
     /**
@@ -197,11 +189,8 @@ class ModelProvider implements IdentityProvider
     {
         $class = $this->model;
 
-        $instance = new $class;
-
-        assert($instance instanceof Authenticatable && $instance instanceof Model);
-
-        return $instance;
+        // @phpstan-ignore return.type
+        return new $class;
     }
 
     /**
@@ -214,8 +203,7 @@ class ModelProvider implements IdentityProvider
      */
     private function freshQuery(Authenticatable&Model $model): Builder
     {
-        // See `persistRehashedPassword()` for the suppression rationale
-        // (larastan static-aliases the instance method).
+        // larastan static-aliases the instance method.
         // @phpstan-ignore staticMethod.dynamicCall
         return $model->newQuery();
     }
@@ -350,9 +338,8 @@ class ModelProvider implements IdentityProvider
      */
     private function persistRehashedPassword(Authenticatable&Model $user, #[\SensitiveParameter] string $plain): void
     {
-        // larastan static-aliases forceFill/save via @method static annotations
-        // even though they are instance methods; the suppression is unavoidable
-        // while the model class is resolved at runtime via config.
+        // larastan static-aliases forceFill/save; unavoidable while the model
+        // class is resolved at runtime.
         // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
         $user->forceFill([
             $user->getAuthPasswordName() => $this->hasher->make($plain),

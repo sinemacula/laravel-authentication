@@ -34,7 +34,7 @@ trait Authenticatable
     /**
      * Stateless package: returns `null`.
      *
-     * @return string|null
+     * @return ?string
      */
     public function getRememberToken(): ?string
     {

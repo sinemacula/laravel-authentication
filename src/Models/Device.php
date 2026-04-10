@@ -28,9 +28,9 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * @property string $authenticatable_id
  * @property string $os
  * @property ?string $refresh_key
- * @property \Carbon\CarbonInterface|null $revoked_at
- * @property \Carbon\CarbonInterface|null $last_logged_in_at
- * @property \Carbon\CarbonInterface|null $last_mfa_verified_at
+ * @property ?\Carbon\CarbonInterface $revoked_at
+ * @property ?\Carbon\CarbonInterface $last_logged_in_at
+ * @property ?\Carbon\CarbonInterface $last_mfa_verified_at
  */
 class Device extends Model implements DeviceContract
 {

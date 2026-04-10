@@ -144,7 +144,11 @@ final class CustomEventsIntegrationTest extends TestCase
 
             self::assertSame(self::BASIC_GUARD, $event->guard);
             self::assertInstanceOf(Principal::class, $event->principal);
-            self::assertSame(self::USER_EMAIL, $event->principal->getIdentity()->getAttribute('email'));
+
+            $identity = $event->principal->getIdentity();
+
+            self::assertInstanceOf(StubPrincipal::class, $identity);
+            self::assertSame(self::USER_EMAIL, $identity->getAttribute('email'));
 
             return true;
         });
@@ -268,6 +272,7 @@ final class CustomEventsIntegrationTest extends TestCase
 
             self::assertSame(self::JWT_GUARD, $event->guard);
             self::assertInstanceOf(Identity::class, $event->identity);
+            self::assertInstanceOf(StubPrincipal::class, $event->identity);
             self::assertSame(self::USER_EMAIL, $event->identity->getAttribute('email'));
 
             return true;

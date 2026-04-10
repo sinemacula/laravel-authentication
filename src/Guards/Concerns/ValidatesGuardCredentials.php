@@ -14,11 +14,9 @@ use Illuminate\Support\Facades\Config;
  * Credential-validation primitive plus the standard Laravel
  * `Attempting` / `Validated` / `Failed` event-firing helpers.
  *
- * **Timing safety is the CALLER's responsibility.** This trait does NOT wrap
- * `hasValidCredentials()` in its own `Timebox::call()`: the enclosing flows
- * wrap the entire retrieve -> validate -> dispatch pipeline in a single
- * top-level timebox. A nested timebox would either double-budget the pipeline
- * or leak timing if the outer caller short-circuits.
+ * Timing safety is the caller's responsibility: the enclosing guard flow
+ * wraps the retrieve -> validate -> dispatch pipeline in a single
+ * top-level timebox. Do not nest another timebox here.
  *
  * Expects the using class to declare:
  * - `protected string $name`
@@ -46,7 +44,7 @@ trait ValidatesGuardCredentials
      * result straight in without short-circuiting on `null`. The uniform call
      * path is what gives the enclosing timebox its timing-safety guarantee.
      *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable|null  $user
+     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<string, mixed>  $credentials
      * @return bool
      */
@@ -107,7 +105,7 @@ trait ValidatesGuardCredentials
     /**
      * Fire the standard Laravel `Failed` event.
      *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable|null  $user
+     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<string, mixed>  $credentials
      * @return void
      */

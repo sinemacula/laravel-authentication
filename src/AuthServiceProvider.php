@@ -129,9 +129,8 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Construct a `BasicGuard` from the supplied container, guard name, and
-     * Laravel guard config block. The identifier field is resolved guard-first,
-     * then falls back to the package-wide
-     * `authentication.credentials.identifier_field` default.
+     * Laravel guard config block. Identifier field resolves guard-first,
+     * then falls back to `authentication.credentials.identifier_field`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -310,7 +309,7 @@ final class AuthServiceProvider extends ServiceProvider
      */
     private static function buildKeyring(ConfigRepository $config, #[\SensitiveParameter] array $guardJwtConfig, string $algorithm): JwtKeyring
     {
-        /** @var array<array-key, mixed>|null $rawKeys */
+        /** @var ?array<array-key, mixed> $rawKeys */
         $rawKeys = $guardJwtConfig['keys'] ?? $config->get('authentication.jwt.keys');
 
         if (is_array($rawKeys) && $rawKeys !== []) {
@@ -322,7 +321,7 @@ final class AuthServiceProvider extends ServiceProvider
             );
         }
 
-        /** @var string|null $secret */
+        /** @var ?string $secret */
         $secret = $guardJwtConfig['secret'] ?? $config->get('authentication.jwt.secret');
 
         return JwtKeyring::fromSecret(is_string($secret) ? $secret : '', $algorithm);
@@ -395,7 +394,7 @@ final class AuthServiceProvider extends ServiceProvider
      * @param  \Illuminate\Config\Repository  $config
      * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $key
-     * @return string|null
+     * @return ?string
      */
     private static function resolveJwtNullableString(ConfigRepository $config, #[\SensitiveParameter] array $guardJwtConfig, string $key): ?string
     {
@@ -406,7 +405,7 @@ final class AuthServiceProvider extends ServiceProvider
             return is_string($value) && $value !== '' ? $value : null;
         }
 
-        /** @var string|null $value */
+        /** @var ?string $value */
         $value = $config->get("authentication.jwt.{$key}");
 
         return is_string($value) && $value !== '' ? $value : null;
@@ -417,7 +416,7 @@ final class AuthServiceProvider extends ServiceProvider
      * the JWT service falls back to its `NullLogger`.
      *
      * @param  \Illuminate\Foundation\Application  $app
-     * @return \Psr\Log\LoggerInterface|null
+     * @return ?\Psr\Log\LoggerInterface
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */

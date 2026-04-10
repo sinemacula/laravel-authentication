@@ -77,7 +77,7 @@ final class BasicGuard extends AbstractGuard
      * Return the authenticated identity bound to the guard, resolving it from
      * the request's HTTP Basic credentials if necessary.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     #[\Override]
     public function user(): ?Identity
@@ -99,7 +99,7 @@ final class BasicGuard extends AbstractGuard
      * Build the credentials array from the request's HTTP Basic
      * username/password, or return `null` when either is missing.
      *
-     * @return array<string, string>|null
+     * @return ?array<string, string>
      */
     private function credentialsFromRequest(): ?array
     {
@@ -127,7 +127,7 @@ final class BasicGuard extends AbstractGuard
      * user-enumeration.
      *
      * @param  array<string, string>  $credentials
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     private function resolveCredentials(#[\SensitiveParameter] array $credentials): ?Identity
     {
@@ -165,7 +165,7 @@ final class BasicGuard extends AbstractGuard
      *
      * @formatter:off
      *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable|null  $user
+     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<string, string>  $credentials
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
      *
@@ -182,10 +182,8 @@ final class BasicGuard extends AbstractGuard
         }
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        // Route through safeResolvePrincipal() so an identity that implements
-        // neither Principal nor HasPrincipals surfaces as Failed (-> 401)
-        // rather than UnresolvableIdentityException (-> 500). Matches
-        // JwtGuard::user() and AbstractGuard::attempt().
+        // safeResolvePrincipal() converts UnresolvableIdentityException into a
+        // Failed event so the request surfaces as 401 rather than 500
         $principal = $this->safeResolvePrincipal($user);
 
         if (!$principal instanceof Principal || !$principal->isActive()) {

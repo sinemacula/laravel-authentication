@@ -22,11 +22,11 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  *
  * @see \SineMacula\Laravel\Authentication\AuthManager
  *
- * @method static Identity|null identity()
- * @method static Principal|null principal()
- * @method static Device|null device()
- * @method static Tenant|null tenant()
- * @method static string|null type()
+ * @method static ?\SineMacula\Laravel\Authentication\Contracts\Identity identity()
+ * @method static ?\SineMacula\Laravel\Authentication\Contracts\Principal principal()
+ * @method static ?\SineMacula\Laravel\Authentication\Contracts\Device device()
+ * @method static ?\SineMacula\Laravel\Authentication\Contracts\Tenant tenant()
+ * @method static ?string type()
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -40,13 +40,21 @@ final class Auth extends IlluminateAuth
      *
      * @return \SineMacula\Laravel\Authentication\AuthManager
      *
+     * @throws \LogicException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public static function manager(): AuthManager
     {
         $manager = self::getFacadeApplication()?->make('auth');
 
-        assert($manager instanceof AuthManager);
+        if (!$manager instanceof AuthManager) {
+
+            $message = 'The `auth` container binding did not resolve to an'
+                . ' AuthManager instance - check that AuthServiceProvider'
+                . ' is registered.';
+
+            throw new \LogicException($message);
+        }
 
         return $manager;
     }

@@ -12,16 +12,13 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 
 /**
- * Listener that updates the bound device's `last_logged_in_at` when a device is
- * authenticated.
- *
- * Debounced by a configurable throttle window to avoid a per-request hot-spot
- * write. Uses an atomic `update()` against the row (not `forceFill+save`) so no
- * in-memory mutations sneak into persisted state. The "last logged in"
- * comparison narrows to `CarbonInterface` so `CarbonImmutable` consumer
- * configurations are not broken. The column name is resolved from
- * `ActsAsDevice::getLastLoggedInName()` when present so trait remappings are
- * honoured. No-ops for non-Eloquent or unpersisted device implementations.
+ * Updates the bound device's `last_logged_in_at` when a device is
+ * authenticated. Debounced by a configurable throttle to avoid per-request
+ * hot-spot writes. Uses an atomic `update()` so in-memory mutations do not
+ * leak into persisted state. The comparison narrows to `CarbonInterface`
+ * so `CarbonImmutable` consumers are not broken. Honours
+ * `ActsAsDevice::getLastLoggedInName()` for column remappings and no-ops
+ * for non-Eloquent or unpersisted device implementations.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

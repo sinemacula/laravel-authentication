@@ -11,10 +11,9 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * claim. The server stores a SHA-256 digest on the device row and compares
  * candidates in constant time via `hash_equals()`.
  *
- * SHA-256 is intentional rather than bcrypt/argon2: the plaintext is already a
- * 256-bit random value so a slow KDF adds no meaningful security, refresh
- * verification runs on every exchange and must be fast, and the deterministic
- * digest keeps the stored value indexable.
+ * SHA-256, not bcrypt/argon2: the plaintext is already a 256-bit random value
+ * so a slow KDF adds no security, and the deterministic digest keeps the stored
+ * value indexable.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

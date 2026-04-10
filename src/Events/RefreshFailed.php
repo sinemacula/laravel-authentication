@@ -8,8 +8,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 
 /**
  * Dispatched when a refresh-token exchange fails. Carries a machine-readable
- * `reason` code so SIEM / audit-log consumers can count failure modes without
- * scraping log messages.
+ * `reason` code for attribution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

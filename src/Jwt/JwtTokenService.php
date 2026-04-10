@@ -20,15 +20,11 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  * Encapsulates `firebase/php-jwt` so the guards do not import it directly.
  * Issues access and refresh tokens, decodes and verifies.
  *
- * Hardening:
- * - signing material lives in a `JwtKeyring` that fails closed,
- * - kid-based rotation via the active kid header and `kid -> Key` map,
- * - identifier claims (`sub`, `pid`, `did`, `jti`) stringified per RFC 7519
- *   §4.1.2,
- * - `typ` claim distinguishes access from refresh,
- * - refresh tokens carry an explicit `exp`,
- * - configurable clock skew (`leewaySeconds`) on every verification,
- * - optional strict `iss` / `aud` verification.
+ * - signing material lives in a `JwtKeyring` that fails closed
+ * - kid-based rotation via the active kid header and `kid -> Key` map
+ * - `typ` claim distinguishes access from refresh
+ * - configurable clock skew via `leewaySeconds` on every verification
+ * - optional strict `iss` / `aud` verification
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -143,7 +139,7 @@ final class JwtTokenService
      *
      * @param  string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
-     * @return array<string, mixed>|null
+     * @return ?array<string, mixed>
      */
     public function parse(#[\SensitiveParameter] string $token, ?TokenType $expectedType = null): ?array
     {
@@ -206,22 +202,14 @@ final class JwtTokenService
      * Run firebase/php-jwt with the configured leeway. Returns the decoded
      * payload, or `null` on any decode/signature/expiry failure.
      *
-     * Concurrency note: `firebase/php-jwt` exposes clock-skew tolerance only
-     * via the public static property `JWT::$leeway` and offers no per-call API.
-     * We capture and restore the previous value rather than hard-resetting to
-     * `0` so a consumer-configured leeway survives our decode window.
-     *
-     * Known limitation - fiber-based runtimes: in truly concurrent environments
-     * (Laravel Octane, Swoole coroutines, ReactPHP fibers) `JWT::$leeway` is
-     * shared mutable state and a second decode scheduled during the
-     * capture/restore window observes this service's leeway value. We
-     * deliberately do NOT wrap the decode in a mutex: any such lock would
-     * serialise every decode in the worker process. Consumers in
-     * persistent-worker runtimes should rely on the runtime's request-isolation
-     * model.
+     * `firebase/php-jwt` exposes leeway only via the public static
+     * `JWT::$leeway`. The previous value is captured and restored around the
+     * decode so a consumer-configured leeway survives. Persistent-worker
+     * runtimes (Octane, Swoole, ReactPHP) must rely on their own
+     * request-isolation model; this code does not lock.
      *
      * @param  string  $token
-     * @return \stdClass|null
+     * @return ?\stdClass
      */
     private function decodeToken(#[\SensitiveParameter] string $token): ?\stdClass
     {

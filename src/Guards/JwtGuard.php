@@ -82,12 +82,11 @@ final class JwtGuard extends AbstractGuard
      * Return the authenticated identity, resolving it from the request's bearer
      * token if necessary.
      *
-     * Fail-closed semantics: a token that claims a specific `pid` or `did` but
-     * does not resolve to that exact principal/device is rejected rather than
-     * silently downgraded - a silent downgrade is a privilege-confusion
-     * vulnerability.
+     * Fail-closed: a token that claims a specific `pid` or `did` but does not
+     * resolve to that exact principal/device is rejected rather than silently
+     * downgraded.
      *
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     #[\Override]
     public function user(): ?Identity
@@ -113,7 +112,7 @@ final class JwtGuard extends AbstractGuard
      * the exchange has already dispatched `RefreshFailed` with a reason code.
      *
      * @param  string  $refreshToken
-     * @return \SineMacula\Laravel\Authentication\Jwt\RefreshResult|null
+     * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
      */
     public function refresh(#[\SensitiveParameter] string $refreshToken): ?RefreshResult
     {
@@ -127,11 +126,9 @@ final class JwtGuard extends AbstractGuard
             return null;
         }
 
-        // Route through login() so refresh fires the same Laravel event
-        // sequence as attempt(): Validated -> Login -> Authenticated ->
-        // PrincipalAssigned -> DeviceAuthenticated. The package-specific
-        // Refreshed event fires afterwards so refresh-aware consumers can
-        // distinguish a rotation.
+        // Route through login() so refresh fires the same event sequence as
+        // attempt(). Refreshed fires afterwards so consumers can distinguish a
+        // rotation.
         $this->login($result->identity, $result->principal, $result->device);
 
         $this->events->dispatch(
@@ -153,7 +150,7 @@ final class JwtGuard extends AbstractGuard
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
-     * @return \SineMacula\Laravel\Authentication\Contracts\Device|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
      */
     protected function resolveDeviceFromHint(Identity $identity, mixed $hint): ?Device
     {
@@ -172,7 +169,7 @@ final class JwtGuard extends AbstractGuard
      * firing `Failed`.
      *
      * @param  string  $token
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     private function resolveBearerToken(#[\SensitiveParameter] string $token): ?Identity
     {
@@ -185,8 +182,7 @@ final class JwtGuard extends AbstractGuard
 
         if ($context === null) {
             // lastRetrievedUser carries the identity loaded from the sub claim
-            // whenever loadIdentityFromClaims() got that far, so Failed
-            // attributes to the resolved account on the
+            // so Failed attributes to the resolved account on the
             // inactive/unresolved/device-missing branches.
             $this->fireFailedEvent($this->lastRetrievedUser, []);
 
@@ -204,8 +200,12 @@ final class JwtGuard extends AbstractGuard
      *
      * @formatter:off
      *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  string  $token
-     * @return array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, device: \SineMacula\Laravel\Authentication\Contracts\Device|null}|null
+     * @return array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, device: ?\SineMacula\Laravel\Authentication\Contracts\Device}|null
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
      */
@@ -223,9 +223,9 @@ final class JwtGuard extends AbstractGuard
         $device     = $this->resolveDeviceFromHint($user, $deviceHint);
         $deviceLost = $deviceHint !== null && $device === null;
 
-        // Fail-closed: if the token carried a did but we could not resolve that
-        // exact device, reject rather than bind null; otherwise audit trails
-        // record "no device" despite the token claiming one.
+        // Fail-closed: a did that does not resolve must reject rather than bind
+        // null, otherwise audit trails record "no device" despite the token
+        // claiming one.
         return $deviceLost
             ? null
             : [
@@ -241,8 +241,8 @@ final class JwtGuard extends AbstractGuard
      * inactive/non-Identity branches so `Failed` attributes to the resolved
      * account rather than a null.
      *
-     * @param  array<string, mixed>|null  $claims
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|null
+     * @param  ?array<string, mixed>  $claims
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     private function loadIdentityFromClaims(?array $claims): ?Identity
     {
@@ -270,7 +270,7 @@ final class JwtGuard extends AbstractGuard
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $user
      * @param  array<string, mixed>  $claims
-     * @return \SineMacula\Laravel\Authentication\Contracts\Principal|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     private function resolveActivePrincipal(Identity $user, array $claims): ?Principal
     {
@@ -285,7 +285,7 @@ final class JwtGuard extends AbstractGuard
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<string, mixed>  $claims
-     * @return \SineMacula\Laravel\Authentication\Contracts\Principal|null
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     private function resolvePrincipalFromClaims(Identity $identity, array $claims): ?Principal
     {
@@ -311,7 +311,7 @@ final class JwtGuard extends AbstractGuard
      * `null` (an unsaved model returned by a misbehaving custom resolver), the
      * match returns `false` so the guard does not bind a transient actor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal|null  $resolved
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
      * @param  mixed  $hint
      * @return bool
      */

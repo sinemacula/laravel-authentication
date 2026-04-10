@@ -93,12 +93,9 @@ final class JwtKeyring
      * Construct a kid-aware keyring with an active signing key and a
      * verification map for graceful rotation.
      *
-     * The `$keys` parameter is `array<array-key, mixed>` rather than
-     * `array<string, string>` because this factory is the fail-closed boundary
-     * at which null secrets, integer-indexed arrays, and non-string values are
-     * rejected with typed exceptions. Narrowing the signature would push
-     * validation into the PHPStan-only realm and let misconfigurations reach
-     * `firebase/php-jwt` as opaque runtime errors.
+     * Typed `array<array-key, mixed>` because this factory is the fail-closed
+     * boundary at which null secrets, integer-indexed arrays, and non-string
+     * values are rejected with typed exceptions.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $activeKid
