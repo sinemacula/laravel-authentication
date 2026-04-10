@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
- * Unit tests for the per-guard config override layering on
+ * Feature tests for the per-guard config override layering on
  * `AuthServiceProvider`'s guard factories.
  *
  * Covers two override surfaces:

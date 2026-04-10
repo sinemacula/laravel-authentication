@@ -19,7 +19,7 @@ use Tests\Unit\Stubs\BareDeviceModel;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Unit tests for the UpdateDeviceTimestamp listener.
+ * Feature tests for the UpdateDeviceTimestamp listener.
  *
  * Uses Orchestra Testbench with an in-memory sqlite connection and a
  * manually-created `stub_devices` table so the assertion against the listener's

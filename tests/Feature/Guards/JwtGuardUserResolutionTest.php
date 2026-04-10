@@ -22,7 +22,7 @@ use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Unit tests for the bearer-token `user()` resolution path on `JwtGuard`.
+ * Feature tests for the bearer-token `user()` resolution path on `JwtGuard`.
  *
  * Split out of the original JwtGuardTest so each class stays focused on a
  * single behavioural slice.

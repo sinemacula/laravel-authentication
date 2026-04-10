@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
- * Unit tests for the credential `attempt()` flow on `AbstractGuard`, including
+ * Feature tests for the credential `attempt()` flow on `AbstractGuard`, including
  * the timing-safe Timebox path and the standard auth event sequence.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

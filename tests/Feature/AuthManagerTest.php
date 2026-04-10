@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 
 /**
- * Unit tests for the package AuthManager subclass.
+ * Feature tests for the package AuthManager subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

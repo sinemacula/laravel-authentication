@@ -5,14 +5,16 @@ declare(strict_types = 1);
 namespace Tests\Feature;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 
 /**
- * Unit tests for the private static helpers on `AuthServiceProvider`
+ * Feature tests for the private static helpers on `AuthServiceProvider`
  * (`registerPublishing`, `resolveJwtInteger`, `resolveOptionalLogger`).
  *
  * Split out of `AuthServiceProviderTest` so each class stays focused on a
@@ -34,10 +36,12 @@ final class AuthServiceProviderHelpersTest extends TestCase
      * `runningInConsole()` returning false must NOT register a publish group.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testRegisterPublishingShortCircuitsWhenNotRunningInConsole(): void
     {
-        $app = \Mockery::mock(\Illuminate\Foundation\Application::class)->makePartial();
+        $app = \Mockery::mock(Application::class)->makePartial();
         $app->shouldReceive('runningInConsole')->andReturnFalse();
 
         $provider = new AuthServiceProvider($app);
@@ -57,6 +61,8 @@ final class AuthServiceProviderHelpersTest extends TestCase
      * `is_int($guardJwtConfig[$key])` arm of the type guard.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testResolveJwtIntegerFallsBackWhenGuardOverrideIsNonInteger(): void
     {
@@ -81,6 +87,8 @@ final class AuthServiceProviderHelpersTest extends TestCase
      * `resolveJwtInteger()` honours an integer per-guard override.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testResolveJwtIntegerHonoursIntegerOverride(): void
     {
@@ -105,13 +113,15 @@ final class AuthServiceProviderHelpersTest extends TestCase
      * default.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testResolveOptionalLoggerReturnsNullWhenNotBound(): void
     {
-        $app = \Mockery::mock(\Illuminate\Foundation\Application::class);
+        $app = \Mockery::mock(Application::class);
         $app->shouldReceive('bound')
             ->once()
-            ->with(\Psr\Log\LoggerInterface::class)
+            ->with(LoggerInterface::class)
             ->andReturnFalse();
         $app->shouldNotReceive('make');
 
@@ -129,19 +139,21 @@ final class AuthServiceProviderHelpersTest extends TestCase
      * above.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testResolveOptionalLoggerReturnsBoundLogger(): void
     {
-        $logger = \Mockery::mock(\Psr\Log\LoggerInterface::class);
+        $logger = \Mockery::mock(LoggerInterface::class);
 
-        $app = \Mockery::mock(\Illuminate\Foundation\Application::class);
+        $app = \Mockery::mock(Application::class);
         $app->shouldReceive('bound')
             ->once()
-            ->with(\Psr\Log\LoggerInterface::class)
+            ->with(LoggerInterface::class)
             ->andReturnTrue();
         $app->shouldReceive('make')
             ->once()
-            ->with(\Psr\Log\LoggerInterface::class)
+            ->with(LoggerInterface::class)
             ->andReturn($logger);
 
         $reflection = new \ReflectionClass(AuthServiceProvider::class);
@@ -232,10 +244,12 @@ final class AuthServiceProviderHelpersTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);

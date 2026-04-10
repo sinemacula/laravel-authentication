@@ -18,7 +18,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Unit tests for the shipped Device Eloquent model.
+ * Feature tests for the shipped Device Eloquent model.
  *
  * Uses Orchestra Testbench with an in-memory sqlite connection and a
  * manually-created `devices` table, so the test does not transitively depend

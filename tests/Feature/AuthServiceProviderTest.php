@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
- * Unit tests for the package AuthServiceProvider.
+ * Feature tests for the package AuthServiceProvider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 
 /**
- * Unit tests for the contextual state surface on `AbstractGuard`
+ * Feature tests for the contextual state surface on `AbstractGuard`
  * (`setPrincipal`, `setDevice`, `tenant`, `type`).
  *
  * Split out of the original AbstractGuardTest so each class stays focused on a

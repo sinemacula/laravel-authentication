@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * Unit tests for the runtime rebind hooks (`setDispatcher`,
+ * Feature tests for the runtime rebind hooks (`setDispatcher`,
  * `setPrincipalResolver`), the `id()` type-narrowing matrix, and the
  * `validate()` failure path on `AbstractGuard`.
  *

@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * Unit tests for the Laravel `Guard` contract surface on `AbstractGuard`
+ * Feature tests for the Laravel `Guard` contract surface on `AbstractGuard`
  * (`check`, `guest`, `user`, `id`, `hasUser`, `setUser`, `logout`).
  *
  * Split out of the original AbstractGuardTest so each class stays focused on a

@@ -26,7 +26,7 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Unit tests for the refresh-token exchange path on `JwtGuard`, including all
+ * Feature tests for the refresh-token exchange path on `JwtGuard`, including all
  * `RefreshFailed` early-return branches.
  *
  * Split out of the original JwtGuardTest so each class stays focused on a
