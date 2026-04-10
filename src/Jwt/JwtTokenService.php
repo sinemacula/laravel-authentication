@@ -115,9 +115,10 @@ final class JwtTokenService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return string
      */
-    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId): string
+    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null): string
     {
         $now = Carbon::now()->getTimestamp();
 
@@ -125,6 +126,10 @@ final class JwtTokenService
 
         $payload[Claims::DEVICE_ID->value] = IdentifierCoercion::stringify($device->getDeviceIdentifier());
         $payload[Claims::JWT_ID->value]    = $rotationId;
+
+        if ($principal !== null) {
+            $payload[Claims::PRINCIPAL_ID->value] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
+        }
 
         return $this->encode($payload);
     }
