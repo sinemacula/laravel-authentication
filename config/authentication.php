@@ -59,11 +59,14 @@ return [
     | JWT
     |---------------------------------------------------------------------------
     |
-    | Stateless JWT defaults consumed by JwtTokenService and JwtGuard.
-    | Configure either `secret` (single-secret mode) or `keys` + `active_kid`
-    | (kid-based rotation). The package refuses to boot with no signing
-    | material. `issuer`/`audience` are optional; when set they are strictly
-    | verified on every parse.
+    | Sessionless JWT defaults consumed by JwtTokenService and JwtGuard.
+    | Access tokens are self-verifying and are not backed by a server-side
+    | access-token store, but JwtGuard still rehydrates identity, principal,
+    | and optional device state on bearer authentication. Configure either
+    | `secret` (single-secret mode) or `keys` + `active_kid` (kid-based
+    | rotation). The package refuses to boot with no signing material.
+    | `issuer`/`audience` are optional; when set they are strictly verified
+    | on every parse.
     |
     */
 
