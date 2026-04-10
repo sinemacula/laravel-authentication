@@ -9,3 +9,4 @@
 clover.xml
 composer.lock
 /docs/prd
+/docs/test-checklist.md
