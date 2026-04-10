@@ -144,6 +144,22 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
+     * Rebind the principal resolver onto both the guard and its refresh
+     * exchange so bearer and refresh flows continue to share the same policy.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
+     * @return static
+     */
+    #[\Override]
+    public function setPrincipalResolver(PrincipalResolver $resolver): static
+    {
+        parent::setPrincipalResolver($resolver);
+        $this->exchange->setPrincipalResolver($resolver);
+
+        return $this;
+    }
+
+    /**
      * Resolve a device for the identity from a hint (typically the `did`
      * claim). Returns null when the identity does not implement `HasDevices` or
      * the device is not found.

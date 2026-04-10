@@ -57,12 +57,25 @@ final class RefreshTokenExchange
         private readonly Dispatcher $events,
 
         /** Resolver that maps the refreshed identity to its acting principal. */
-        private readonly PrincipalResolver $resolver,
+        private PrincipalResolver $resolver,
 
         /** Name of the guard that owns this exchange, carried on every `RefreshFailed` event. */
         private readonly string $guardName,
 
     ) {}
+
+    /**
+     * Rebind the principal resolver used by refresh exchanges.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
+     * @return static
+     */
+    public function setPrincipalResolver(PrincipalResolver $resolver): static
+    {
+        $this->resolver = $resolver;
+
+        return $this;
+    }
 
     /**
      * Exchange a refresh token for a new access + refresh token pair, rotating
