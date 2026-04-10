@@ -12,9 +12,12 @@ use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use Tests\Unit\Stubs\BareDeviceModel;
+use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
@@ -160,6 +163,64 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
         self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
+    }
+
+    /**
+     * JWT guards fail fast when `authentication.device.model` is empty instead
+     * of constructing a guard whose refresh path cannot resolve devices.
+     *
+     * @return void
+     */
+    public function testJwtGuardRejectsEmptyConfiguredDeviceModel(): void
+    {
+        config()->set('authentication.device.model', '');
+
+        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectExceptionMessage('authentication.device.model');
+
+        AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+    }
+
+    /**
+     * JWT guards require the configured device model to satisfy the explicit
+     * Eloquent-backed persistence boundary, not just the generic `Device`
+     * contract.
+     *
+     * @return void
+     */
+    public function testJwtGuardRejectsConfiguredDeviceModelOutsideEloquentBoundary(): void
+    {
+        config()->set('authentication.device.model', BareDeviceModel::class);
+
+        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectExceptionMessage(BareDeviceModel::class);
+
+        AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+    }
+
+    /**
+     * Plain-object device fixtures remain valid event/token payloads, but they
+     * are rejected when misconfigured as the persisted JWT device model.
+     *
+     * @return void
+     */
+    public function testJwtGuardRejectsPlainDeviceFixtureAsConfiguredDeviceModel(): void
+    {
+        config()->set('authentication.device.model', PlainDeviceFixture::class);
+
+        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectExceptionMessage(PlainDeviceFixture::class);
+
+        AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
     }
 
     /**

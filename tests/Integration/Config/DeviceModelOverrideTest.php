@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
@@ -18,7 +23,6 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
-use Tests\Unit\Stubs\InjectableDeviceStub;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
 use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
@@ -100,7 +104,6 @@ final class DeviceModelOverrideTest extends TestCase
     {
         Schema::dropIfExists('custom_devices');
         Schema::dropIfExists('stub_principals');
-        InjectableDeviceStub::$injectedBuilder = null;
 
         parent::tearDown();
     }
@@ -130,6 +133,7 @@ final class DeviceModelOverrideTest extends TestCase
         $model = new $this->customModel;
 
         self::assertSame('custom_devices', $model->getTable());
+        self::assertInstanceOf(EloquentDevice::class, $model);
     }
 
     /**

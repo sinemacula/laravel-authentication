@@ -9,8 +9,10 @@ use Carbon\CarbonInterface;
 /**
  * Device contract.
  *
- * Describes a refreshable device record bound to an authenticated identity.
- * Implementations are typically Eloquent models.
+ * Describes the generic read-only device surface carried through token
+ * issuance, guard state, and package events. Persistence-capable refresh
+ * rotation and last-seen writes require the narrower `EloquentDevice`
+ * boundary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

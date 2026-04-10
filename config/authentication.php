@@ -11,9 +11,11 @@ return [
     | Device tracking
     |---------------------------------------------------------------------------
     |
-    | Configures the shipped Device Eloquent model and its underlying table.
-    | Both are swappable so consumers may bring their own model class or
-    | rename the table to avoid collisions with existing schemas.
+    | Configures the package's default Eloquent device adapter. JWT refresh
+    | rotation and last-seen persistence require `device.model` to be an
+    | Eloquent model implementing the package `EloquentDevice` contract. The
+    | shipped migration and model use the conventional schema below; custom
+    | models may remap columns via their public column-name accessors.
     |
     */
 
