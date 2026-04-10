@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Guards;
+namespace Tests\Feature\Guards;
 
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
@@ -46,6 +46,24 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     public function testUserReturnsNullWhenNoBearerTokenPresent(): void
     {
         $guard = $this->makeGuard($this->makeRequest(null));
+
+        $this->events->shouldNotReceive('dispatch');
+        $this->provider->shouldNotReceive('retrieveById');
+
+        self::assertNull($guard->user());
+    }
+
+    /**
+     * A request whose `Authorization: Bearer` header carries an
+     * empty string token returns null without firing any events.
+     * Mutation guard: pins the `$token === ''` arm at
+     * `JwtGuard.php:100` separately from the `null` arm above.
+     *
+     * @return void
+     */
+    public function testUserReturnsNullWhenBearerTokenIsEmptyString(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(''));
 
         $this->events->shouldNotReceive('dispatch');
         $this->provider->shouldNotReceive('retrieveById');
@@ -259,6 +277,40 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * Fail-closed: when the token carries a `pid` hint but the
+     * resolver returns `null` (the hinted principal cannot be
+     * resolved), `user()` rejects the token rather than falling back
+     * to the default principal.
+     *
+     * @return void
+     */
+    public function testUserRejectsTokenWhenPidHintResolvesToNullPrincipal(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturnNull();
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
+
+        self::assertNull($guard->user());
+    }
+
+    /**
+     * Fail-closed: when the token carries a `pid` hint but the
      * resolver returns a *different* principal (because it fell
      * through to the default), `user()` returns null rather than
      * silently downgrading the active principal.
@@ -276,6 +328,45 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-default');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
+
+        self::assertNull($guard->user());
+    }
+
+    /**
+     * Fail-closed: when the resolver returns a principal whose
+     * identifier stringifies to `null` (e.g. an unsaved Eloquent
+     * model returned from a misbehaving custom resolver), the guard
+     * MUST reject the token rather than bind a transient actor.
+     * Pins the `$resolvedId !== null` arm of `matchesPidHint()`.
+     *
+     * @return void
+     */
+    public function testUserRejectsTokenWhenResolvedPrincipalIdentifierIsNull(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn(null);
 
         $this->provider->shouldReceive('retrieveById')
             ->once()

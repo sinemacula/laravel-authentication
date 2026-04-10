@@ -5,7 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversMethod;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestBackedType;
@@ -14,15 +15,19 @@ use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestUnitType;
 /**
  * Unit tests for the package ProvidesTenantType trait.
  *
- * Marked `#[CoversNothing]` so phpunit does not attribute the
- * trait's runtime behaviour to a single concrete class.
+ * The companion `#[CoversMethod]` attribute satisfies the
+ * `php_unit_test_class_requires_covers` formatter rule (older
+ * php-cs-fixer releases do not yet recognise the `CoversTrait`
+ * attribute on its own). The `#[CoversTrait]` attribute is what
+ * actually drives PHPUnit's coverage attribution for the trait.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversMethod(ProvidesTenantType::class, 'getType')]
+#[CoversTrait(ProvidesTenantType::class)]
 final class ProvidesTenantTypeTest extends TestCase
 {
     /**
@@ -117,5 +122,46 @@ final class ProvidesTenantTypeTest extends TestCase
         $tenant->setAttribute('type', $value);
 
         self::assertSame('stringable-type', $tenant->getType());
+    }
+
+    /**
+     * Asserts a `null` type attribute is cast to the empty string
+     * via the `(string)` fallback - not returned as `null`. Pins the
+     * documented `(string) null === ''` boundary.
+     *
+     * @return void
+     */
+    public function testGetTypeCastsNullToEmptyString(): void
+    {
+        $tenant = new class extends Model {
+            use ProvidesTenantType;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        $tenant->setRawAttributes(['type' => null]);
+
+        self::assertSame('', $tenant->getType());
+    }
+
+    /**
+     * Asserts an integer type attribute is cast to its string form
+     * via the `(string)` fallback (e.g. `1` becomes `'1'`).
+     *
+     * @return void
+     */
+    public function testGetTypeCastsIntegerToString(): void
+    {
+        $tenant = new class extends Model {
+            use ProvidesTenantType;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        $tenant->setRawAttributes(['type' => 1]);
+
+        self::assertSame('1', $tenant->getType());
     }
 }

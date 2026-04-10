@@ -95,6 +95,38 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
+     * When `principals()->find($hint)` returns a value that is NOT
+     * a `Principal` (e.g. a bare Model or `null`), the resolver
+     * falls through to the 2D/3D path instead of returning the
+     * non-Principal. Mutation guard: pins the
+     * `$hinted instanceof Principal` check at
+     * `DefaultPrincipalResolver.php:46` - removing it would cause
+     * the resolver to return a non-Principal object.
+     *
+     * @return void
+     */
+    public function testHintedNonPrincipalFallsThroughToDefaultResolution(): void
+    {
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with('non-principal-id')
+            ->andReturnNull();
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\Principal $identity */
+        $identity = \Mockery::mock(Identity::class, HasPrincipals::class, Principal::class);
+        $identity->shouldReceive('principals')
+            ->once()
+            ->andReturn($builder);
+
+        $resolver = new DefaultPrincipalResolver;
+
+        // The hint didn't resolve to a Principal, so the 2D path
+        // kicks in and returns the identity itself.
+        self::assertSame($identity, $resolver->resolve($identity, 'non-principal-id'));
+    }
+
+    /**
      * Asserts a hint is silently ignored when the identity does not
      * implement HasPrincipals; the 2D path still resolves the identity
      * itself without ever touching a principals relation.

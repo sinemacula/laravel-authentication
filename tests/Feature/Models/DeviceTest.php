@@ -2,13 +2,14 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Models;
+namespace Tests\Feature\Models;
 
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -29,6 +30,8 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversClass(Device::class)]
 final class DeviceTest extends TestCase
 {
+    use MockeryPHPUnitIntegration;
+
     /**
      * Set up the in-memory schema for the Device table after the
      * Testbench application is ready.
@@ -159,6 +162,61 @@ final class DeviceTest extends TestCase
             StubDevice::class,
             config('authentication.device.model'),
         );
+    }
+
+    /**
+     * Asserts the model falls back to the literal `'devices'` table
+     * when the configured table value is the empty string. The
+     * conditional collapses the empty value to the default rather
+     * than letting Eloquent issue queries against the empty table
+     * name.
+     *
+     * @return void
+     */
+    public function testFallsBackToDefaultTableNameWhenConfiguredValueIsEmpty(): void
+    {
+        config()->set('authentication.device.table', '');
+
+        $device = new Device;
+
+        self::assertSame('devices', $device->getTable());
+
+        // Restore the default so other tests in this class are not
+        // contaminated.
+        config()->set('authentication.device.table', 'devices');
+    }
+
+    /**
+     * Asserts the model falls back to `'devices'` when the Config
+     * facade throws while reading `device.table`. We swap the bound
+     * config repository for a Mockery stub whose `string()` method
+     * raises so the constructor's catch branch is exercised. Pins
+     * the catch path in `Device::resolveConfiguredTable()`.
+     *
+     * @return void
+     */
+    public function testFallsBackToDefaultTableNameWhenConfigFacadeThrows(): void
+    {
+        $previous = $this->app?->make(\Illuminate\Config\Repository::class);
+
+        $config = \Mockery::mock(\Illuminate\Config\Repository::class)->makePartial();
+        $config->shouldReceive('string')
+            ->with('authentication.device.table', 'devices')
+            ->andThrow(new \RuntimeException('config repository unavailable'));
+
+        $this->app?->instance('config', $config);
+        \Illuminate\Support\Facades\Config::clearResolvedInstance('config');
+
+        try {
+            $device = new Device;
+
+            self::assertSame('devices', $device->getTable());
+        } finally {
+            if ($previous !== null) {
+                $this->app?->instance('config', $previous);
+            }
+            \Illuminate\Support\Facades\Config::clearResolvedInstance('config');
+        }
     }
 
     /**

@@ -129,6 +129,30 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
+     * Asserts `fromKeyMap()` rejects a `kid -> secret` map containing
+     * an empty-string kid alongside a valid one. The active-kid
+     * presence check at the top of the factory passes (the active
+     * kid is the non-empty entry), so the iteration in `buildKeyMap`
+     * surfaces the empty-kid guard at `JwtKeyring.php:206-212`.
+     *
+     * @return void
+     */
+    public function testFromKeyMapRejectsEmptyKidInsideKeyMap(): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage('JWT key map contains an empty kid');
+
+        JwtKeyring::fromKeyMap(
+            [
+                self::NEW_KID => self::SECRET,
+                ''            => self::SECRET . '!',
+            ],
+            self::NEW_KID,
+            self::ALGORITHM,
+        );
+    }
+
+    /**
      * Asserts `fromKeyMap()` rejects an entry whose secret material
      * is the empty string - every kid must map to real material.
      *

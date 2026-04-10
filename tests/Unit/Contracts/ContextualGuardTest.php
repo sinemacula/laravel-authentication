@@ -6,7 +6,7 @@ namespace Tests\Unit\Contracts;
 
 use Illuminate\Contracts\Auth\Authenticatable as LaravelAuthenticatable;
 use Illuminate\Contracts\Auth\Guard as LaravelGuard;
-use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
@@ -23,12 +23,16 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * the interface is constructed - the assertions run against interface
  * metadata only.
  *
+ * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage
+ * to a bare interface; the interface's structural shape is asserted
+ * via reflection rather than line execution.
+ *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  */
-#[CoversClass(ContextualGuard::class)]
+#[CoversNothing]
 final class ContextualGuardTest extends TestCase
 {
     /**

@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit;
+namespace Tests\Feature;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Config\Repository as ConfigRepository;

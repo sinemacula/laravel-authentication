@@ -6,7 +6,8 @@ namespace Tests\Unit\Traits;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversMethod;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
@@ -15,18 +16,19 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  *
  * Exercises the trait through an anonymous Eloquent model because
  * the trait is defined against Eloquent's `getAttribute` accessor
- * contract. Marked `#[CoversNothing]` so phpunit does not attribute
- * the trait's runtime behaviour to a single concrete class - the
- * trait's real consumers (`Device`, `StubDevice`,
- * `IntegrationIdentity`, etc.) carry their own coverage via the
- * integration suites that exercise the full refresh lifecycle.
+ * contract. The companion `#[CoversMethod]` attribute satisfies the
+ * `php_unit_test_class_requires_covers` formatter rule (older
+ * php-cs-fixer releases do not yet recognise the `CoversTrait`
+ * attribute on its own). The `#[CoversTrait]` attribute is what
+ * actually drives PHPUnit's coverage attribution for the trait.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversMethod(ActsAsDevice::class, 'getDeviceIdentifier')]
+#[CoversTrait(ActsAsDevice::class)]
 final class ActsAsDeviceTest extends TestCase
 {
     /** @var \Carbon\Carbon Frozen clock reference shared across timestamp assertions. */
@@ -153,6 +155,27 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
+     * Asserts the operating system getter coerces a non-string
+     * attribute (e.g. an integer column) into its string form rather
+     * than returning the raw value or `null`.
+     *
+     * @return void
+     */
+    public function testGetOperatingSystemCoercesIntegerToString(): void
+    {
+        $device = new class extends Model {
+            use ActsAsDevice;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        $device->setRawAttributes(['os' => 1]);
+
+        self::assertSame('1', $device->getOperatingSystem());
+    }
+
+    /**
      * Asserts the refresh-key getter casts the underlying attribute
      * to a string before returning it.
      *
@@ -170,6 +193,75 @@ final class ActsAsDeviceTest extends TestCase
         $device->setRawAttributes(['refresh_key' => 'hashed-refresh-key']);
 
         self::assertSame('hashed-refresh-key', $device->getRefreshKey());
+    }
+
+    /**
+     * Asserts the refresh-key getter returns `null` when the
+     * underlying attribute is null - the device row carries no
+     * refresh credential.
+     *
+     * @return void
+     */
+    public function testGetRefreshKeyReturnsNullWhenAttributeNull(): void
+    {
+        $device = new class extends Model {
+            use ActsAsDevice;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        $device->setRawAttributes(['refresh_key' => null]);
+
+        self::assertNull($device->getRefreshKey());
+    }
+
+    /**
+     * Asserts the revoked-at getter returns the Carbon instance when
+     * present and null when the attribute is null.
+     *
+     * @return void
+     */
+    public function testGetRevokedAtReturnsCarbonInstanceOrNull(): void
+    {
+        $device = new class extends Model {
+            use ActsAsDevice;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        $device->setRawAttributes(['revoked_at' => $this->now]);
+        self::assertSame($this->now, $device->getRevokedAt());
+
+        $device->setRawAttributes(['revoked_at' => null]);
+        self::assertNull($device->getRevokedAt());
+    }
+
+    /**
+     * Asserts the public column-name accessors return the documented
+     * defaults so consumer listeners (e.g. `UpdateDeviceTimestamp`) and
+     * the refresh-token exchange resolve the correct columns without
+     * reflection. Pinning the default values defends against accidental
+     * rename mutations of the trait constants.
+     *
+     * @return void
+     */
+    public function testColumnNameAccessorsExposeDocumentedDefaults(): void
+    {
+        $device = new class extends Model {
+            use ActsAsDevice;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        self::assertSame('id', $device->getDeviceIdentifierName());
+        self::assertSame('last_logged_in_at', $device->getLastLoggedInName());
+        self::assertSame('last_mfa_verified_at', $device->getLastMfaVerificationName());
+        self::assertSame('os', $device->getOperatingSystemName());
+        self::assertSame('refresh_key', $device->getRefreshKeyName());
+        self::assertSame('revoked_at', $device->getRevokedAtName());
     }
 
     /**

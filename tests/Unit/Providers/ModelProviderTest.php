@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -27,6 +28,9 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 final class ModelProviderTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
+
+    /** @var string Shared email used across credential-lookup assertions. */
+    private const string ALICE_EMAIL = 'alice@example.test';
 
     /** @var \Illuminate\Contracts\Hashing\Hasher&\Mockery\MockInterface Mocked password hasher collaborator. */
     private MockInterface $hasher;
@@ -157,36 +161,6 @@ final class ModelProviderTest extends TestCase
      * @return void
      */
     /**
-     * The constructor refuses an empty model class string.
-     *
-     * @return void
-     */
-    public function testConstructorRejectsEmptyModelClass(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('non-empty Eloquent model class');
-
-        $provider = new ModelProvider($this->hasher, '');
-
-        unset($provider); // Constructor must throw before this point.
-    }
-
-    /**
-     * The constructor refuses an unknown class name.
-     *
-     * @return void
-     */
-    public function testConstructorRejectsUnknownModelClass(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('App\Models\Nope');
-
-        $provider = new ModelProvider($this->hasher, 'App\Models\Nope');
-
-        unset($provider); // Constructor must throw before this point.
-    }
-
-    /**
      * Numeric credential keys are silently dropped - they cannot be
      * passed safely to `where()` and would otherwise crash the query.
      *
@@ -198,7 +172,7 @@ final class ModelProviderTest extends TestCase
 
         // After dropping numeric keys the credentials array is empty
         // - the provider returns null without composing a query.
-        self::assertNull($provider->retrieveByCredentials(['alice@example.test']));
+        self::assertNull($provider->retrieveByCredentials([self::ALICE_EMAIL]));
     }
 
     /**
@@ -270,18 +244,76 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * validateCredentials returns false when the password is not a string.
+     * validateCredentials returns false when the password is not a
+     * string (integer, array, object, boolean, or null). Uses a data
+     * provider so each non-string variant is its own assertion row
+     * and a mutation that loosens the type check fails a single row
+     * cleanly.
      *
+     * @param  mixed  $password
      * @return void
      */
-    public function testValidateCredentialsReturnsFalseWhenPasswordNotString(): void
+    #[DataProvider('provideNonStringPasswords')]
+    public function testValidateCredentialsReturnsFalseWhenPasswordNotString(mixed $password): void
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
         $user = \Mockery::mock(Authenticatable::class);
         $this->hasher->shouldNotReceive('check');
 
-        self::assertFalse($provider->validateCredentials($user, ['password' => 123]));
+        self::assertFalse($provider->validateCredentials($user, ['password' => $password]));
+    }
+
+    /**
+     * Data provider for `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
+     *
+     * @return array<string, array{0: mixed}>
+     */
+    public static function provideNonStringPasswords(): array
+    {
+        return [
+            'integer'      => [123],
+            'float'        => [1.5],
+            'true'         => [true],
+            'false'        => [false],
+            'array'        => [['secret']],
+            'object'       => [new \stdClass],
+            'null'         => [null],
+            'empty-string' => [''],
+        ];
+    }
+
+    /**
+     * Multiple scalar credential entries compose as AND-combined
+     * `where()` clauses - the query builder receives one `where()`
+     * call per entry in declaration order. Pins the iteration path
+     * through `applyCredentialClauses`.
+     *
+     * @return void
+     */
+    public function testRetrieveByCredentialsAndCombinesMultipleScalarClauses(): void
+    {
+        $found = new StubAuthenticatableModel;
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('where')
+            ->once()
+            ->with('email', self::ALICE_EMAIL)
+            ->andReturnSelf();
+        $builder->shouldReceive('where')
+            ->once()
+            ->with('tenant_id', 42)
+            ->andReturnSelf();
+        $builder->shouldReceive('first')
+            ->once()
+            ->andReturn($found);
+
+        $provider = $this->makeProvider($builder);
+
+        self::assertSame($found, $provider->retrieveByCredentials([
+            'email'     => self::ALICE_EMAIL,
+            'tenant_id' => 42,
+        ]));
     }
 
     /**

@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Guards;
+namespace Tests\Feature\Guards;
 
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
@@ -451,6 +451,126 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
         self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
+    }
+
+    /**
+     * `attempt()` accepts an explicit `Principal` argument and uses
+     * it directly instead of invoking the resolver. Pins the
+     * `$principal ?? $this->safeResolvePrincipal(...)` short-circuit
+     * - a mutation that swaps `??` for `?:` would still pass when the
+     * caller-provided principal is truthy, so we use a fresh mock
+     * the resolver MUST NOT touch.
+     *
+     * @return void
+     */
+    public function testAttemptUsesExplicitPrincipalArgumentWithoutInvokingResolver(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity = $this->mockIdentity();
+        $explicit = $this->mockActivePrincipal();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        // The resolver MUST NOT be called when an explicit principal
+        // is supplied.
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        self::assertTrue($guard->attempt(
+            ['email' => 'x', 'password' => 'y'],
+            $explicit,
+        ));
+
+        self::assertSame($explicit, $guard->principal());
+    }
+
+    /**
+     * `attempt()` fires `DeviceAuthenticated` exactly once when an
+     * explicit `Device` argument is supplied. Pins the
+     * `setDevice` call inside `bindAuthenticationLifecycle` for the
+     * non-null device branch.
+     *
+     * @return void
+     */
+    public function testAttemptBindsDeviceAndFiresDeviceAuthenticatedEvent(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockActivePrincipal();
+        $device    = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Device::class);
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->andReturn($principal);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        self::assertTrue($guard->attempt(
+            ['email' => 'x', 'password' => 'y'],
+            null,
+            $device,
+        ));
+
+        self::assertSame($device, $guard->device());
+        self::assertContains(\SineMacula\Laravel\Authentication\Events\DeviceAuthenticated::class, $dispatched);
+    }
+
+    /**
+     * `attempt()` does NOT fire `DeviceAuthenticated` when no
+     * device is supplied. Pins the `if ($device !== null)` guard
+     * inside `bindAuthenticationLifecycle`.
+     *
+     * @return void
+     */
+    public function testAttemptDoesNotFireDeviceAuthenticatedWhenDeviceOmitted(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockActivePrincipal();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->andReturn($principal);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
+
+        self::assertNull($guard->device());
+        self::assertNotContains(\SineMacula\Laravel\Authentication\Events\DeviceAuthenticated::class, $dispatched);
     }
 
     /**

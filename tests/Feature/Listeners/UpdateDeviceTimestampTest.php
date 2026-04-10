@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Listeners;
+namespace Tests\Feature\Listeners;
 
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
+use Tests\Unit\Stubs\BareDeviceModel;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -55,6 +56,13 @@ final class UpdateDeviceTimestampTest extends TestCase
             $blueprint->timestamp('last_mfa_verified_at')->nullable();
             $blueprint->timestamps();
         });
+
+        Schema::create('bare_devices', static function (Blueprint $blueprint): void {
+
+            $blueprint->string('id')->primary();
+            $blueprint->timestamp('last_logged_in_at')->nullable();
+            $blueprint->timestamps();
+        });
     }
 
     /**
@@ -68,6 +76,7 @@ final class UpdateDeviceTimestampTest extends TestCase
         Carbon::setTestNow();
 
         Schema::dropIfExists('stub_devices');
+        Schema::dropIfExists('bare_devices');
 
         parent::tearDown();
     }
@@ -173,6 +182,38 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
+     * Boundary test: when the elapsed time since the stored
+     * timestamp is exactly the throttle window, the listener writes.
+     * Mutation guard against the `>=` operator drifting to `>`.
+     *
+     * @return void
+     */
+    public function testHandleWritesAtExactThrottleWindowBoundary(): void
+    {
+        config()->set('authentication.device.last_seen_throttle_seconds', 60);
+
+        $initial = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($initial);
+
+        $device = new StubDevice;
+        $device->forceFill(['last_logged_in_at' => $initial])->save();
+
+        $advanced = $initial->copy()->addSeconds(60);
+        Carbon::setTestNow($advanced);
+
+        (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
+
+        $fresh = StubDevice::query()->findOrFail($device->id);
+
+        self::assertSame(
+            $advanced->format(self::DATETIME_FORMAT),
+            $fresh->last_logged_in_at?->format(self::DATETIME_FORMAT),
+            'Listener should write when elapsed === throttle window.',
+        );
+    }
+
+    /**
      * Asserts the listener writes once the stored timestamp is older
      * than the configured throttle window.
      *
@@ -201,6 +242,94 @@ final class UpdateDeviceTimestampTest extends TestCase
             $advanced->format(self::DATETIME_FORMAT),
             $fresh->last_logged_in_at->format(self::DATETIME_FORMAT),
         );
+    }
+
+    /**
+     * A non-positive `device.last_seen_throttle_seconds` config
+     * disables the throttle and the listener writes on every
+     * dispatch, even when the stored timestamp matches `now`.
+     *
+     * @return void
+     */
+    public function testHandleWritesAlwaysWhenThrottleDisabled(): void
+    {
+        config()->set('authentication.device.last_seen_throttle_seconds', 0);
+
+        $initial = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($initial);
+
+        $device = new StubDevice;
+        $device->forceFill(['last_logged_in_at' => $initial])->save();
+
+        // Advance the clock by 1 second so the assertion can detect
+        // a write happened (the column should now be at $advanced,
+        // not $initial).
+        $advanced = $initial->copy()->addSeconds(1);
+        Carbon::setTestNow($advanced);
+
+        (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
+
+        $fresh = StubDevice::query()->findOrFail($device->id);
+
+        self::assertSame(
+            $advanced->format(self::DATETIME_FORMAT),
+            $fresh->last_logged_in_at?->format(self::DATETIME_FORMAT),
+            'Throttle disabled - the listener should always write.',
+        );
+    }
+
+    /**
+     * The listener no-ops when the device is an Eloquent model that
+     * does NOT implement the package `Device` contract: the column
+     * resolver falls back to the default `last_logged_in_at` column,
+     * but the type guard at `resolveColumnName()` line 73 short-
+     * circuits when the model is not a `Device`. The assertion is
+     * indirect - the listener still updates the column, just not via
+     * the trait's accessor.
+     *
+     * @return void
+     */
+    public function testHandleUsesDefaultColumnForNonDeviceEloquentModel(): void
+    {
+        $now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($now);
+
+        // The bare `StubModelDevice` is an Eloquent model that
+        // implements `Device` but does NOT use the `ActsAsDevice`
+        // trait, so `getLastLoggedInName()` does not exist. The
+        // listener falls through to `self::DEFAULT_COLUMN` at
+        // `UpdateDeviceTimestamp.php:74`.
+        $device = new BareDeviceModel;
+        $device->forceFill(['id' => 'bare-device-1'])->save();
+
+        (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
+
+        $fresh = BareDeviceModel::query()->findOrFail('bare-device-1');
+
+        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
+        self::assertSame(
+            $now->format(self::DATETIME_FORMAT),
+            $fresh->last_logged_in_at->format(self::DATETIME_FORMAT),
+        );
+    }
+
+    /**
+     * The listener no-ops on an unpersisted Eloquent device (the
+     * `$exists` flag is false), so the in-memory model is not
+     * touched and the database is not written to. Pins the
+     * `!$device->exists` short-circuit at `UpdateDeviceTimestamp.php:45`.
+     *
+     * @return void
+     */
+    public function testHandleNoOpsForUnpersistedEloquentDevice(): void
+    {
+        $device = new StubDevice;
+
+        (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
+
+        self::assertNull($device->getAttribute('last_logged_in_at'));
     }
 
     /**

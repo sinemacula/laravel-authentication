@@ -395,6 +395,36 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
+     * `user()` short-circuits and returns the already-bound identity
+     * (set via the parent `setUser()`) without invoking the identity
+     * provider, the resolver, or the dispatcher. Pins the
+     * `$this->identity !== null` guard at `BasicGuard.php:84-86`.
+     *
+     * @return void
+     */
+    public function testUserReturnsBoundIdentityWithoutReprocessingCredentials(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(\Illuminate\Auth\Events\Authenticated::class));
+
+        // Pre-bind the identity via setUser. Subsequent user() calls
+        // must NOT touch the provider/resolver - if they did, Mockery
+        // would fail because no expectations are configured.
+        $this->provider->shouldNotReceive('retrieveByCredentials');
+        $this->provider->shouldNotReceive('validateCredentials');
+        $this->resolver->shouldNotReceive('resolve');
+
+        $guard->setUser($identity);
+
+        self::assertSame($identity, $guard->user());
+    }
+
+    /**
      * After a successful `user()` call, `check()` returns true.
      *
      * @return void
@@ -544,6 +574,51 @@ final class BasicGuardTest extends TestCase
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
             ->with(['username' => 'alice', 'password' => 'secret'])
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        self::assertSame($identity, $guard->user());
+    }
+
+    /**
+     * Constructing a BasicGuard with an empty-string identifier
+     * field falls back to `'email'` so a misconfigured guard does
+     * not compose queries against a blank column name. Mutation
+     * guard: pins the `=== '' ? 'email'` ternary at
+     * `BasicGuard.php:73`.
+     *
+     * @return void
+     */
+    public function testConstructorFallsBackToEmailWhenIdentifierFieldIsEmpty(): void
+    {
+        $guard = new BasicGuard(
+            self::GUARD_NAME,
+            $this->provider,
+            $this->resolver,
+            $this->events,
+            $this->makeRequest(self::ALICE_EMAIL, 'secret'),
+            $this->timebox,
+            '',
+        );
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        // The credentials must use `email` (the fallback), not an
+        // empty key.
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->with(['email' => self::ALICE_EMAIL, 'password' => 'secret'])
             ->andReturn($identity);
         $this->provider->shouldReceive('validateCredentials')
             ->once()

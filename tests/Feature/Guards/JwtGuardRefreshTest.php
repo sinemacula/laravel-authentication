@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Guards;
+namespace Tests\Feature\Guards;
 
 use Carbon\Carbon;
 use Illuminate\Auth\Events\Attempting;
@@ -17,7 +17,9 @@ use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -37,6 +39,8 @@ use Tests\Unit\Stubs\StubModel;
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
+#[CoversClass(RefreshTokenExchange::class)]
+#[CoversClass(IdentifierCoercion::class)]
 final class JwtGuardRefreshTest extends JwtGuardTestCase
 {
     /**

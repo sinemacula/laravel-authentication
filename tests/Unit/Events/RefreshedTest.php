@@ -11,6 +11,9 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use Tests\Unit\Stubs\PlainDeviceFixture;
+use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Refreshed event unit tests.
@@ -93,6 +96,57 @@ final class RefreshedTest extends TestCase
         );
 
         self::assertSame($device, $event->device);
+    }
+
+    /**
+     * The `Refreshed` event composes Laravel's `SerializesModels`
+     * trait so it survives a queued-listener round trip. Reflection
+     * guards against accidentally dropping the trait.
+     *
+     * @return void
+     */
+    public function testUsesSerializesModelsTrait(): void
+    {
+        self::assertContains(
+            \Illuminate\Queue\SerializesModels::class,
+            (new \ReflectionClass(Refreshed::class))->getTraitNames(),
+        );
+    }
+
+    /**
+     * The event is `serialize`/`unserialize` round-trippable with
+     * plain-object (non-Eloquent) contract implementations as
+     * payload. Pins the runtime serialisation path - if
+     * `SerializesModels` is dropped or the event gains a
+     * non-serialisable property, the round trip fails.
+     *
+     * Uses plain-object fixtures rather than Eloquent stubs so the
+     * assertion does not require a database connection;
+     * `SerializesModels` only replaces Eloquent models with lazy
+     * identifiers, leaving arbitrary objects intact.
+     *
+     * @return void
+     */
+    public function testSurvivesSerializeUnserializeRoundTrip(): void
+    {
+        $event = new Refreshed(
+            'api',
+            new PlainIdentityFixture(42),
+            new PlainPrincipalFixture(7),
+            new PlainDeviceFixture('01HZZ-device-id'),
+        );
+
+        /** @var \SineMacula\Laravel\Authentication\Events\Refreshed $roundTripped */
+        $roundTripped = unserialize(serialize($event));
+
+        self::assertInstanceOf(Refreshed::class, $roundTripped);
+        self::assertSame('api', $roundTripped->guard);
+        self::assertInstanceOf(PlainIdentityFixture::class, $roundTripped->identity);
+        self::assertInstanceOf(PlainPrincipalFixture::class, $roundTripped->principal);
+        self::assertInstanceOf(PlainDeviceFixture::class, $roundTripped->device);
+        self::assertSame(42, $roundTripped->identity->getAuthIdentifier());
+        self::assertSame(7, $roundTripped->principal->getPrincipalIdentifier());
+        self::assertSame('01HZZ-device-id', $roundTripped->device->getDeviceIdentifier());
     }
 
     /**

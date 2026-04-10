@@ -2,11 +2,14 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Facades;
+namespace Tests\Feature\Facades;
 
+use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -107,5 +110,45 @@ final class AuthFacadeTest extends TestCase
     public function testTypeMacroIsRegistered(): void
     {
         self::assertTrue(IlluminateAuth::hasMacro('type'));
+    }
+
+    /**
+     * `Auth::manager()` returns the package `AuthManager` instance
+     * resolved from the container, type-narrowed to the package
+     * subclass so consumers can call `inheritDriversFrom()` and the
+     * contextual accessors directly.
+     *
+     * @return void
+     */
+    public function testManagerResolvesPackageAuthManagerFromContainer(): void
+    {
+        // Register the package service provider so the `auth` binding
+        // resolves to the package AuthManager subclass.
+        $this->app?->register(AuthServiceProvider::class);
+
+        $manager = Auth::manager();
+
+        self::assertInstanceOf(AuthManager::class, $manager);
+        self::assertSame(app('auth'), $manager);
+    }
+
+    /**
+     * `Auth::manager()` throws `LogicException` when the `auth`
+     * container binding does not resolve to a package `AuthManager`
+     * instance - the safety net for consumers who forgot to register
+     * the package service provider.
+     *
+     * @return void
+     */
+    public function testManagerThrowsWhenAuthBindingIsNotPackageManager(): void
+    {
+        // Replace the `auth` binding with a stock framework manager
+        // so the type assertion fails inside `manager()`.
+        $this->app?->instance('auth', new IlluminateAuthManager($this->app));
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('AuthManager');
+
+        Auth::manager();
     }
 }

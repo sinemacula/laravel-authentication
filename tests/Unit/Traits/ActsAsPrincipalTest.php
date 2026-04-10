@@ -5,9 +5,9 @@ declare(strict_types = 1);
 namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
-use LogicException;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversMethod;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -16,17 +16,19 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 /**
  * Unit tests for the ActsAsPrincipal trait.
  *
- * Marked `#[CoversNothing]` so phpunit does not attribute the
- * trait's runtime behaviour to a single concrete class - the
- * trait's real consumers carry their own coverage via the
- * integration suites.
+ * The companion `#[CoversMethod]` attribute satisfies the
+ * `php_unit_test_class_requires_covers` formatter rule (older
+ * php-cs-fixer releases do not yet recognise the `CoversTrait`
+ * attribute on its own). The `#[CoversTrait]` attribute is what
+ * actually drives PHPUnit's coverage attribution for the trait.
  *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  */
-#[CoversNothing]
+#[CoversMethod(ActsAsPrincipal::class, 'getPrincipalIdentifier')]
+#[CoversTrait(ActsAsPrincipal::class)]
 final class ActsAsPrincipalTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -70,6 +72,26 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
+     * Trait short-circuits to the principal itself when the model
+     * implements `Identity` (2D mode), so the `identity` relation is
+     * never queried.
+     *
+     * @return void
+     */
+    public function testGetIdentityReturnsSelfWhen2dIdentity(): void
+    {
+        $principal = new class extends Model implements Identity {
+            use ActsAsPrincipal;
+            use \SineMacula\Laravel\Authentication\Traits\Authenticatable;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        self::assertSame($principal, $principal->getIdentity());
+    }
+
+    /**
      * Trait throws LogicException when the identity relation is absent.
      *
      * @return void
@@ -88,6 +110,38 @@ final class ActsAsPrincipalTest extends TestCase
         $this->expectExceptionMessage('expected its identity relation `identity` to return an Identity instance');
 
         $principal->getIdentity();
+    }
+
+    /**
+     * Trait honours an `identityRelationName` override declared on the
+     * principal subclass and reads the identity from the renamed
+     * relation slot.
+     *
+     * @return void
+     */
+    public function testGetIdentityHonoursIdentityRelationNameOverride(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = new class extends Model {
+            use ActsAsPrincipal;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+
+            /**
+             * Override the identity relation name.
+             *
+             * @return string
+             */
+            protected function getIdentityRelationName(): string
+            {
+                return 'owner';
+            }
+        };
+        $principal->setRelation('owner', $identity);
+
+        self::assertSame($identity, $principal->getIdentity());
     }
 
     /**

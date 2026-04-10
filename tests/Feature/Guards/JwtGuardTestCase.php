@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Guards;
+namespace Tests\Feature\Guards;
 
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
