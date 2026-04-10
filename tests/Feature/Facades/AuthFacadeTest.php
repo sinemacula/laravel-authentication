@@ -10,13 +10,14 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
 /**
- * Unit tests for the package's Auth facade subclass.
+ * Feature tests for the package Auth facade.
+ *
+ * Boots the package service provider so the `auth` binding resolves
+ * to the package `AuthManager` subclass, then verifies the facade's
+ * structural inheritance and the `manager()` type-narrowing accessor.
  *
  * @internal
  *
@@ -26,36 +27,6 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 #[CoversClass(Auth::class)]
 final class AuthFacadeTest extends TestCase
 {
-    /**
-     * Setup.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // T22's AuthServiceProvider will replace the inline registration
-        // below once committed. Until then, register the four contextual
-        // macros here so the facade assertions run in isolation.
-        IlluminateAuth::macro('principal', static fn (): ?Principal => null);
-        IlluminateAuth::macro('device', static fn (): ?Device => null);
-        IlluminateAuth::macro('tenant', static fn (): ?Tenant => null);
-        IlluminateAuth::macro('type', static fn (): ?string => null);
-    }
-
-    /**
-     * Teardown.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        IlluminateAuth::flushMacros();
-
-        parent::tearDown();
-    }
-
     /**
      * The package facade subclass extends Laravel's framework
      * `Auth` facade so IDE autocompletion picks up both surfaces.
@@ -73,43 +44,26 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * The `principal` macro is registered against the framework facade.
+     * The contextual accessors (`principal`, `device`, `tenant`,
+     * `type`) are real instance methods on the package `AuthManager`
+     * - not macros. Verify they exist on the resolved manager so a
+     * rename or removal fails the suite.
      *
      * @return void
      */
-    public function testPrincipalMacroIsRegistered(): void
+    public function testContextualAccessorsAreInstanceMethodsNotMacros(): void
     {
-        self::assertTrue(IlluminateAuth::hasMacro('principal'));
-    }
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
 
-    /**
-     * The `device` macro is registered against the framework facade.
-     *
-     * @return void
-     */
-    public function testDeviceMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('device'));
-    }
+        self::assertInstanceOf(AuthManager::class, $manager);
 
-    /**
-     * The `tenant` macro is registered against the framework facade.
-     *
-     * @return void
-     */
-    public function testTenantMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('tenant'));
-    }
+        $reflection = new \ReflectionClass($manager);
 
-    /**
-     * The `type` macro is registered against the framework facade.
-     *
-     * @return void
-     */
-    public function testTypeMacroIsRegistered(): void
-    {
-        self::assertTrue(IlluminateAuth::hasMacro('type'));
+        self::assertTrue($reflection->hasMethod('principal'));
+        self::assertTrue($reflection->hasMethod('device'));
+        self::assertTrue($reflection->hasMethod('tenant'));
+        self::assertTrue($reflection->hasMethod('type'));
     }
 
     /**
@@ -122,10 +76,6 @@ final class AuthFacadeTest extends TestCase
      */
     public function testManagerResolvesPackageAuthManagerFromContainer(): void
     {
-        // Register the package service provider so the `auth` binding
-        // resolves to the package AuthManager subclass.
-        $this->app?->register(AuthServiceProvider::class);
-
         $manager = Auth::manager();
 
         self::assertInstanceOf(AuthManager::class, $manager);
@@ -142,13 +92,23 @@ final class AuthFacadeTest extends TestCase
      */
     public function testManagerThrowsWhenAuthBindingIsNotPackageManager(): void
     {
-        // Replace the `auth` binding with a stock framework manager
-        // so the type assertion fails inside `manager()`.
         $this->app?->instance('auth', new IlluminateAuthManager($this->app));
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('AuthManager');
 
         Auth::manager();
+    }
+
+    /**
+     * Register the package service provider so the `auth` binding
+     * resolves to the package `AuthManager` subclass.
+     *
+     * @param  mixed  $app
+     * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
+     */
+    protected function getPackageProviders(mixed $app): array
+    {
+        return [AuthServiceProvider::class];
     }
 }
