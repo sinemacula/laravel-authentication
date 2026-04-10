@@ -6,6 +6,7 @@ namespace Tests\Integration\Facade;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Auth\Factory as IlluminateAuthFactoryContract;
+use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
@@ -152,12 +153,14 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);
 
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);

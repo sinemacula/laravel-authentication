@@ -75,7 +75,6 @@ final class DeviceModelOverrideTest extends TestCase
         // cache priming is needed - the config swap in `defineEnvironment()` is
         // picked up on the next instantiation.
         Schema::create('custom_devices', static function (Blueprint $blueprint): void {
-
             $blueprint->uuid('id')->primary();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
@@ -88,7 +87,6 @@ final class DeviceModelOverrideTest extends TestCase
         });
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-
             $blueprint->id();
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();

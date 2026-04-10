@@ -32,8 +32,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  */
 final class Coexist2dIdentity extends Model implements Identity, Principal
 {
-    use ActsAsPrincipal;
-    use Authenticatable;
+    use ActsAsPrincipal, Authenticatable;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'coexist_2d_identities';

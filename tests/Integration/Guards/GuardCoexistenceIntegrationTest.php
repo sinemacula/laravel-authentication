@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -275,13 +276,15 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);
 
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
@@ -313,7 +316,11 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      * Insert one 2D identity row, one 3D identity row, and one matching active
      * principal row, returning the three hydrated models.
      *
+     * @formatter:off
+     *
      * @return array{0: \Tests\Integration\Fixtures\Coexist2dIdentity, 1: \Tests\Integration\Fixtures\Coexist3dIdentity, 2: \Tests\Integration\Fixtures\Coexist3dPrincipal}
+     *
+     * @formatter:on
      */
     private function seedFixtures(): array
     {
@@ -344,6 +351,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      * (which would miss the service provider's keyring and TTL wiring).
      *
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function tokenService(): JwtTokenService
     {
@@ -384,6 +393,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *
      * @param  string  $name
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function switchDefaultGuard(string $name): void
     {

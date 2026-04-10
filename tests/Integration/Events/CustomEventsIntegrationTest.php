@@ -78,6 +78,8 @@ final class CustomEventsIntegrationTest extends TestCase
      * the jwt guard can bind and refresh against.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function setUp(): void
     {
@@ -309,6 +311,8 @@ final class CustomEventsIntegrationTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
@@ -350,9 +354,9 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Encode a JWT access token payload (with `iat`, `exp`, and `typ =
-     * access`) using the shared test secret so the `JwtTokenService::parse()`
-     * path accepts it as a valid, unexpired access token.
+     * Encode a JWT access token payload (with `iat`, `exp`, and `typ = access`)
+     * using the shared test secret so the `JwtTokenService::parse()` path
+     * accepts it as a valid, unexpired access token.
      *
      * @param  array<string, mixed>  $claims
      * @return string

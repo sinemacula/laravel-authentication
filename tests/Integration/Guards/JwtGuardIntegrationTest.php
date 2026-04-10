@@ -46,6 +46,8 @@ final class JwtGuardIntegrationTest extends TestCase
     private Carbon $now;
 
     /**
+     * Freeze the clock and create the in-memory identity table.
+     *
      * @return void
      */
     protected function setUp(): void
@@ -68,6 +70,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * Release the frozen clock and drop the in-memory schema.
+     *
      * @return void
      */
     protected function tearDown(): void
@@ -82,6 +86,9 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * A valid JWT passes the `auth:api` middleware and exposes the
+     * identity via `Auth::check()`, `Auth::id()`, and `Auth::user()`.
+     *
      * @return void
      */
     public function testValidBearerTokenPassesAuthMiddlewareAndResolvesIdentity(): void
@@ -112,6 +119,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * A request with no Authorization header is rejected with 401.
+     *
      * @return void
      */
     public function testRequestWithoutBearerTokenIsRejectedByAuthMiddleware(): void
@@ -126,6 +135,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * An expired JWT is rejected with 401.
+     *
      * @return void
      */
     public function testExpiredBearerTokenIsRejectedByAuthMiddleware(): void
@@ -147,6 +158,9 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * An authenticated request exposes the resolved principal and
+     * device through the `AuthManager` contextual accessors.
+     *
      * @return void
      */
     public function testContextualAccessorsReturnResolvedValuesForAuthenticatedRequest(): void
@@ -192,6 +206,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * Configure the JWT guard, provider, and in-memory sqlite.
+     *
      * @param  mixed  $app
      * @return void
      */
@@ -220,6 +236,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * Persist and return a hashed-password identity row.
+     *
      * @return \Tests\Unit\Stubs\StubPrincipal
      */
     private function seedUser(): StubPrincipal
@@ -235,6 +253,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * Encode a signed access-token JWT from the supplied claims.
+     *
      * @param  array<string, mixed>  $claims
      * @return string
      */

@@ -13,6 +13,7 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
@@ -28,11 +29,10 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * Boots a Testbench application, registers a `cli` guard driven by the
  * package's `basic` driver against a `StubPrincipal` identity table seeded
- * with a single user, and exercises the successful `attempt`, failed
- * `attempt`, and `logout` paths to assert the dispatched standard events
- * (`Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`)
- * match Laravel's first-party contract with the expected constructor payload
- * shapes.
+ * with a single user, and exercises the successful `attempt`, failed `attempt`,
+ * and `logout` paths to assert the dispatched standard events (`Attempting`,
+ * `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`)  match Laravel's
+ * first-party contract with the expected constructor payload shapes.
  *
  * The `cli` guard uses the package's `basic` driver so credentials can be
  * passed directly via `attempt()` without needing an HTTP Authorization
@@ -60,6 +60,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      * successful-attempt tests authenticate against.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function setUp(): void
     {
@@ -273,12 +275,14 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);
 
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);

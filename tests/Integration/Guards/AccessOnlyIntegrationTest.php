@@ -135,6 +135,8 @@ final class AccessOnlyIntegrationTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
@@ -172,6 +174,8 @@ final class AccessOnlyIntegrationTest extends TestCase
      * subject and the acting principal in 2D mode.
      *
      * @return \Tests\Integration\Fixtures\AccessOnlyIdentity
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedUser(): AccessOnlyIdentity
     {
