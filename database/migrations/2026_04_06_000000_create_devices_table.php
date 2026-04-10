@@ -37,9 +37,10 @@ return new class extends Migration {
 
             $blueprint->string('os');
 
-            // SHA-256 hex digest of the refresh token's `jti` claim.
-            // Nullable so a device can exist pre-issuance or post-revocation.
-            // Indexed but not unique: revocation sets a family to one sentinel.
+            // SHA-256 hex digest of the refresh token's `jti` claim for the
+            // package's default Eloquent device adapter. Nullable so a device
+            // can exist pre-issuance or post-revocation. Indexed but not
+            // unique: revocation sets a family to one sentinel.
             $blueprint->string($refreshKeyColumn, 64)->nullable()->index();
 
             // Revocation marker. Set by the reuse-detection CAS path and

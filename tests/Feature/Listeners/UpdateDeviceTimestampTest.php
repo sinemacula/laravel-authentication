@@ -15,7 +15,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
-use Tests\Unit\Stubs\BareDeviceModel;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -56,13 +55,6 @@ final class UpdateDeviceTimestampTest extends TestCase
             $blueprint->timestamp('last_mfa_verified_at')->nullable();
             $blueprint->timestamps();
         });
-
-        Schema::create('bare_devices', static function (Blueprint $blueprint): void {
-
-            $blueprint->string('id')->primary();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamps();
-        });
     }
 
     /**
@@ -76,7 +68,6 @@ final class UpdateDeviceTimestampTest extends TestCase
         Carbon::setTestNow();
 
         Schema::dropIfExists('stub_devices');
-        Schema::dropIfExists('bare_devices');
 
         parent::tearDown();
     }
@@ -105,8 +96,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener silently returns without invoking any model-side
-     * methods when the device is not an Eloquent model.
+     * Asserts the listener silently returns for a generic `Device` payload that
+     * does not satisfy the explicit Eloquent-backed persistence boundary.
      *
      * @return void
      */
@@ -274,40 +265,6 @@ final class UpdateDeviceTimestampTest extends TestCase
             $advanced->format(self::DATETIME_FORMAT),
             $fresh->last_logged_in_at?->format(self::DATETIME_FORMAT),
             'Throttle disabled - the listener should always write.',
-        );
-    }
-
-    /**
-     * The listener no-ops when the device is an Eloquent model that does NOT
-     * implement the package `Device` contract: the column resolver falls back
-     * to the default `last_logged_in_at` column, but the type guard at
-     * `resolveColumnName()` line 73 short- circuits when the model is not a
-     * `Device`. The assertion is indirect - the listener still updates the
-     * column, just not via the trait's accessor.
-     *
-     * @return void
-     */
-    public function testHandleUsesDefaultColumnForNonDeviceEloquentModel(): void
-    {
-        $now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($now);
-
-        // The bare `StubModelDevice` is an Eloquent model that implements
-        // `Device` but does NOT use the `ActsAsDevice` trait, so
-        // `getLastLoggedInName()` does not exist. The listener falls through
-        // to `self::DEFAULT_COLUMN` in `resolveColumnName()`.
-        $device = new BareDeviceModel;
-        $device->forceFill(['id' => 'bare-device-1'])->save();
-
-        (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
-
-        $fresh = BareDeviceModel::query()->findOrFail('bare-device-1');
-
-        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
-        self::assertSame(
-            $now->format(self::DATETIME_FORMAT),
-            $fresh->last_logged_in_at->format(self::DATETIME_FORMAT),
         );
     }
 

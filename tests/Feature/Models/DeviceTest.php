@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Unit\Stubs\StubDevice;
 
@@ -146,6 +147,17 @@ final class DeviceTest extends TestCase
         $device = new Device;
 
         self::assertInstanceOf(MorphTo::class, $device->authenticatable());
+    }
+
+    /**
+     * Asserts the shipped model satisfies the explicit Eloquent-backed device
+     * persistence boundary used by refresh rotation and last-seen writes.
+     *
+     * @return void
+     */
+    public function testImplementsEloquentDeviceContract(): void
+    {
+        self::assertInstanceOf(EloquentDevice::class, new Device);
     }
 
     /**

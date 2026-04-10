@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Contracts\Device as DeviceContract;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
 /**
@@ -16,9 +16,10 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  *
  * Polymorphic device record bound to an authenticatable identity via
  * the `authenticatable()` morphTo relation. UUID v7 primary key. Swappable via
- * `config('authentication.device.model')` / `device.table`. Non-`final` so
- * consumers may subclass; subclasses MUST preserve the `authenticatable()`
- * morphTo and `getRefreshKey()` accessor for refresh-token rotation to work.
+ * `config('authentication.device.model')` / `device.table` as the package's
+ * default Eloquent adapter. Non-`final` so consumers may subclass; subclasses
+ * that remain refreshable MUST continue satisfying the `EloquentDevice`
+ * persistence boundary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -32,7 +33,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * @property ?\Carbon\CarbonInterface $last_logged_in_at
  * @property ?\Carbon\CarbonInterface $last_mfa_verified_at
  */
-class Device extends Model implements DeviceContract
+class Device extends Model implements EloquentDevice
 {
     use ActsAsDevice, HasUuids;
 
