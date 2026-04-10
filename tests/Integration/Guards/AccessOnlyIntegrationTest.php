@@ -13,10 +13,10 @@ use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 
 /**
@@ -81,10 +81,9 @@ final class AccessOnlyIntegrationTest extends TestCase
     {
         $user = $this->seedUser();
 
-        $tokens = app(JwtTokenService::class);
-        $token  = $tokens->issueAccessToken($user, $user, null);
+        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($user, $user, null);
 
-        $claims = $tokens->parse($token, TokenType::ACCESS);
+        $claims = PackageAuth::jwt(self::GUARD)->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertNull($claims[Claims::DEVICE_ID->value] ?? null);

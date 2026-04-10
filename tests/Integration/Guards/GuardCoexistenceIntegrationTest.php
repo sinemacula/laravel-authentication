@@ -17,7 +17,6 @@ use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
@@ -31,9 +30,9 @@ use Tests\TestCase;
  * cross-contamination.
  *
  * Both guards run through the real `JwtGuard::user()` bearer-token resolution
- * path using tokens issued by the real `JwtTokenService` resolved from the
- * container, so the test exercises the full identity → provider → resolver →
- * principal wiring end-to-end.
+ * path using tokens issued through the guard-scoped `Auth::jwt(...)` surface,
+ * so the test exercises the full identity → provider → resolver → principal
+ * wiring end-to-end.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -122,9 +121,9 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      * End-to-end coexistence assertion.
      *
      * Seeds a 2D identity and a 3D identity + principal, issues a real JWT
-     * access token for each via the container's `JwtTokenService`, hands each
-     * token to the respective guard through a real Illuminate Request's
-     * `Bearer` header, and asserts:
+     * access token for each via the guard-scoped `Auth::jwt(...)` surface,
+     * hands each token to the respective guard through a real Illuminate
+     * Request's `Bearer` header, and asserts:
      *
      * 1. the 2D guard's `identity()` and `principal()` return the
      *    exact same model instance (2D adoption mode),
@@ -141,10 +140,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     {
         [$twoD, $threeDIdentity, $threeDPrincipal] = $this->seedFixtures();
 
-        $tokens = $this->tokenService();
-
-        $twoDToken   = $tokens->issueAccessToken($twoD, $twoD, null);
-        $threeDToken = $tokens->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+        $twoDToken = PackageAuth::jwt(self::GUARD_2D)->issueAccessToken($twoD, $twoD, null);
+        $threeDToken = PackageAuth::jwt(self::GUARD_3D)->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
 
         // Resolve the 2D guard first under a request carrying the 2D bearer
         // token. Assertions: the identity and principal are the exact same
@@ -223,10 +220,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     {
         [$twoD, $threeDIdentity, $threeDPrincipal] = $this->seedFixtures();
 
-        $tokens = $this->tokenService();
-
-        $twoDToken   = $tokens->issueAccessToken($twoD, $twoD, null);
-        $threeDToken = $tokens->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+        $twoDToken = PackageAuth::jwt(self::GUARD_2D)->issueAccessToken($twoD, $twoD, null);
+        $threeDToken = PackageAuth::jwt(self::GUARD_3D)->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
 
         // Default guard → api_2d: a call to Auth::principal() via the package
         // manager must return the 2D identity itself.
@@ -343,24 +338,6 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         $threeDPrincipal->save();
 
         return [$twoD, $threeDIdentity, $threeDPrincipal];
-    }
-
-    /**
-     * Resolve the container's JwtTokenService. Centralised so each test reads
-     * the container-built instance rather than constructing a parallel service
-     * (which would miss the service provider's keyring and TTL wiring).
-     *
-     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function tokenService(): JwtTokenService
-    {
-        $app = $this->app;
-
-        assert($app !== null);
-
-        return $app->make(JwtTokenService::class);
     }
 
     /**

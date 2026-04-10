@@ -10,15 +10,18 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 
 /**
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `device`, `tenant`, `type`) directly on the
- * manager. Each accessor forwards to the active guard when it implements
- * `ContextualGuard`, otherwise returns `null`. Bound to the `auth` container
- * key by `AuthServiceProvider`. Not `final` so consumers may subclass.
+ * (`identity`, `principal`, `device`, `tenant`, `type`) and guard-scoped
+ * `jwt()` issuance directly on the manager. Each contextual accessor forwards
+ * to the active guard when it implements `ContextualGuard`, otherwise returns
+ * `null`. Bound to the `auth` container key by `AuthServiceProvider`. Not
+ * `final` so consumers may subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -43,6 +46,31 @@ class AuthManager extends IlluminateAuthManager
         if ($existing->customProviderCreators !== []) {
             $this->customProviderCreators = $existing->customProviderCreators;
         }
+    }
+
+    /**
+     * Build a guard-scoped `JwtTokenService` for the named guard, or for the
+     * current default guard when the name is omitted.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @throws \InvalidArgumentException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    public function jwt(?string $guard = null): JwtTokenService
+    {
+        $guardName = $guard ?? $this->getDefaultDriver();
+
+        if ($guardName === '') {
+            throw new \InvalidArgumentException('No default auth guard is configured.');
+        }
+
+        /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $factory */
+        $factory = $this->app->make(JwtTokenServiceFactory::class);
+
+        return $factory->forGuard($guardName);
     }
 
     /**

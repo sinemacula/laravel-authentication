@@ -81,8 +81,8 @@ entirely:
 1. Publish only the config: `php artisan vendor:publish --tag=authentication-config`. Skip the
    `authentication-migrations` tag.
 2. Do not implement the `HasDevices` capability contract on your identity model.
-3. Issue access tokens with a `null` device: `$tokens->issueAccessToken($identity, $principal, null)`. The
-   `did` claim is omitted.
+3. Issue access tokens through the guard-scoped issuer: `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
+   The `did` claim is omitted.
 4. Do not call `$guard->refresh($refreshToken)`. Clients re-authenticate when their access token expires.
 
 In this mode the package never touches a `devices` table, `Auth::device()` returns `null`, and the full
@@ -150,6 +150,12 @@ on every issued token matches the guard that issued it - tokens minted for one a
 against the other. Any field from the package `jwt` block is overridable (`secret`, `keys`, `active_kid`,
 `algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`), so each
 guard can also carry its own kid-rotation set if you want fully independent signing-key lifecycles.
+
+Issue tokens through that same guard context:
+
+```php
+$staffAccessToken = Auth::jwt('staff')->issueAccessToken($identity, $principal, $device);
+```
 
 ### Per-guard basic-auth identifier field
 

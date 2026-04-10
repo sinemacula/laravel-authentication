@@ -11,6 +11,7 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
  * Feature tests for the package AuthManager subclass.
@@ -48,6 +49,24 @@ final class AuthManagerTest extends TestCase
             $reflection->isSubclassOf(IlluminateAuthManager::class),
             'Package AuthManager must extend Illuminate\Auth\AuthManager.',
         );
+    }
+
+    /**
+     * The package `AuthManager` exposes a concrete `jwt()` instance method so
+     * the facade can route guard-scoped token issuance through a real method,
+     * not a macro.
+     *
+     * @return void
+     */
+    public function testAuthManagerExposesJwtMethod(): void
+    {
+        $reflection = new \ReflectionClass(AuthManager::class);
+
+        self::assertTrue($reflection->hasMethod('jwt'));
+
+        $method = $reflection->getMethod('jwt');
+
+        self::assertSame(JwtTokenService::class, (string) $method->getReturnType());
     }
 
     /**

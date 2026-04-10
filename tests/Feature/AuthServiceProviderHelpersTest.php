@@ -7,18 +7,13 @@ namespace Tests\Feature;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
-use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
-use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 
 /**
- * Feature tests for the private static helpers on `AuthServiceProvider`
- * (`registerPublishing`, `resolveJwtInteger`, `resolveOptionalLogger`).
- *
- * Split out of `AuthServiceProviderTest` so each class stays focused on a
- * single behavioural slice.
+ * Feature tests for the small provider-only behaviours on
+ * `AuthServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -28,8 +23,6 @@ use SineMacula\Laravel\Authentication\AuthServiceProvider;
 #[CoversClass(AuthServiceProvider::class)]
 final class AuthServiceProviderHelpersTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
-
     /**
      * `registerPublishing()` short-circuits when the application is not
      * running in the console: invoking the protected method directly with
@@ -52,116 +45,6 @@ final class AuthServiceProviderHelpersTest extends TestCase
         $reflection->getMethod('registerPublishing')->invoke($provider);
 
         self::assertSame($previousGroups, ServiceProvider::publishableGroups());
-    }
-
-    /**
-     * `resolveJwtInteger()` falls back to the package config when the
-     * per-guard override is supplied as a non-int (e.g. a string from an env
-     * var that the operator forgot to cast). Pins the
-     * `is_int($guardJwtConfig[$key])` arm of the type guard.
-     *
-     * @return void
-     *
-     * @throws \ReflectionException
-     */
-    public function testResolveJwtIntegerFallsBackWhenGuardOverrideIsNonInteger(): void
-    {
-        config()->set('authentication.jwt.access_ttl_minutes', 25);
-
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-        $method     = $reflection->getMethod('resolveJwtInteger');
-
-        /** @var int $resolved */
-        $resolved = $method->invoke(
-            null,
-            app(ConfigRepository::class),
-            ['access_ttl_minutes' => 'not-an-integer'],
-            'access_ttl_minutes',
-            5,
-        );
-
-        self::assertSame(25, $resolved);
-    }
-
-    /**
-     * `resolveJwtInteger()` honours an integer per-guard override.
-     *
-     * @return void
-     *
-     * @throws \ReflectionException
-     */
-    public function testResolveJwtIntegerHonoursIntegerOverride(): void
-    {
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-        $method     = $reflection->getMethod('resolveJwtInteger');
-
-        /** @var int $resolved */
-        $resolved = $method->invoke(
-            null,
-            app(ConfigRepository::class),
-            ['access_ttl_minutes' => 99],
-            'access_ttl_minutes',
-            5,
-        );
-
-        self::assertSame(99, $resolved);
-    }
-
-    /**
-     * `resolveOptionalLogger()` returns `null` when the container has no PSR-3
-     * logger bound, so the JwtTokenService falls back to its `NullLogger`
-     * default.
-     *
-     * @return void
-     *
-     * @throws \ReflectionException
-     */
-    public function testResolveOptionalLoggerReturnsNullWhenNotBound(): void
-    {
-        $app = \Mockery::mock(Application::class);
-        $app->shouldReceive('bound')
-            ->once()
-            ->with(LoggerInterface::class)
-            ->andReturnFalse();
-        $app->shouldNotReceive('make');
-
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-
-        /** @var ?\Psr\Log\LoggerInterface $logger */
-        $logger = $reflection->getMethod('resolveOptionalLogger')->invoke(null, $app);
-
-        self::assertNull($logger);
-    }
-
-    /**
-     * `resolveOptionalLogger()` returns the bound logger when the container
-     * has one. Mirrors the success branch alongside the `null` short-circuit
-     * above.
-     *
-     * @return void
-     *
-     * @throws \ReflectionException
-     */
-    public function testResolveOptionalLoggerReturnsBoundLogger(): void
-    {
-        $logger = \Mockery::mock(LoggerInterface::class);
-
-        $app = \Mockery::mock(Application::class);
-        $app->shouldReceive('bound')
-            ->once()
-            ->with(LoggerInterface::class)
-            ->andReturnTrue();
-        $app->shouldReceive('make')
-            ->once()
-            ->with(LoggerInterface::class)
-            ->andReturn($logger);
-
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-
-        /** @var ?\Psr\Log\LoggerInterface $resolved */
-        $resolved = $reflection->getMethod('resolveOptionalLogger')->invoke(null, $app);
-
-        self::assertSame($logger, $resolved);
     }
 
     /**

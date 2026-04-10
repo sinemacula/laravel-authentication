@@ -16,8 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -174,10 +174,7 @@ final class DeviceModelOverrideTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService $tokens */
-        $tokens = app(JwtTokenService::class);
-
-        $refreshToken = $tokens->issueRefreshToken($device, $plainRotationId);
+        $refreshToken = PackageAuth::jwt('custom-jwt')->issueRefreshToken($device, $plainRotationId);
 
         $guard = $this->makeJwtGuard();
 
@@ -203,6 +200,30 @@ final class DeviceModelOverrideTest extends TestCase
     protected function defineDatabaseMigrations(): void
     {
         // intentionally empty - the test creates the custom table in setUp().
+    }
+
+    /**
+     * Register the manual `custom-jwt` guard config used by the guard-scoped
+     * `Auth::jwt('custom-jwt')` issuance surface in this test.
+     *
+     * @param  mixed  $app
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        config()->set('auth.guards.custom-jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'principals',
+        ]);
+
+        config()->set('auth.providers.principals', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
     }
 
     /**
@@ -293,7 +314,7 @@ final class DeviceModelOverrideTest extends TestCase
             }
         };
 
-        $tokens   = app(JwtTokenService::class);
+        $tokens   = PackageAuth::jwt('custom-jwt');
         $events   = app(Dispatcher::class);
         $exchange = new RefreshTokenExchange(
             $tokens,

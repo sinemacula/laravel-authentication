@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * @method static ?\SineMacula\Laravel\Authentication\Contracts\Device device()
  * @method static ?\SineMacula\Laravel\Authentication\Contracts\Tenant tenant()
  * @method static ?string type()
+ * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService jwt(?string $guard = null)
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
