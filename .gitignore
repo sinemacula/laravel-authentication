@@ -8,3 +8,4 @@
 .DS_Store
 clover.xml
 composer.lock
+/docs/prd
