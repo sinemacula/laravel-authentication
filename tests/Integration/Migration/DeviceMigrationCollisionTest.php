@@ -95,7 +95,6 @@ final class DeviceMigrationCollisionTest extends TestCase
     public function testMigrationDoesNotMutateSchemaWhenCollisionDetected(): void
     {
         Schema::create('devices', static function (Blueprint $blueprint): void {
-
             $blueprint->id();
             $blueprint->string('sentinel_column');
         });
@@ -105,7 +104,6 @@ final class DeviceMigrationCollisionTest extends TestCase
         try {
             $this->runMigrationUp($migration);
         } catch (\RuntimeException) {
-
             // Expected - fall through to assertions below.
         }
 
@@ -124,7 +122,6 @@ final class DeviceMigrationCollisionTest extends TestCase
     public function testMigrationSucceedsAfterRenamingConflictingTable(): void
     {
         Schema::create('devices', static function (Blueprint $blueprint): void {
-
             $blueprint->id();
         });
 

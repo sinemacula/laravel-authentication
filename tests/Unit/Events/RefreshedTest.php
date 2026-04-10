@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Events;
 
+use Illuminate\Queue\SerializesModels;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -108,7 +109,7 @@ final class RefreshedTest extends TestCase
     public function testUsesSerializesModelsTrait(): void
     {
         self::assertContains(
-            \Illuminate\Queue\SerializesModels::class,
+            SerializesModels::class,
             (new \ReflectionClass(Refreshed::class))->getTraitNames(),
         );
     }

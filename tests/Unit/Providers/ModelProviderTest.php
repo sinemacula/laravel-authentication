@@ -48,6 +48,26 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
+     * Data provider for
+     * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
+     *
+     * @return array<string, array{0: mixed}>
+     */
+    public static function provideNonStringPasswords(): array
+    {
+        return [
+            'integer'      => [123],
+            'float'        => [1.5],
+            'true'         => [true],
+            'false'        => [false],
+            'array'        => [['secret']],
+            'object'       => [new \stdClass],
+            'null'         => [null],
+            'empty-string' => [''],
+        ];
+    }
+
+    /**
      * retrieveById returns the resolved model when the query finds one.
      *
      * @return void
@@ -156,11 +176,6 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * Array credentials are passed through to where() for IN expansion.
-     *
-     * @return void
-     */
-    /**
      * Numeric credential keys are silently dropped - they cannot be passed
      * safely to `where()` and would otherwise crash the query.
      *
@@ -261,26 +276,6 @@ final class ModelProviderTest extends TestCase
         $this->hasher->shouldNotReceive('check');
 
         self::assertFalse($provider->validateCredentials($user, ['password' => $password]));
-    }
-
-    /**
-     * Data provider for
-     * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
-     *
-     * @return array<string, array{0: mixed}>
-     */
-    public static function provideNonStringPasswords(): array
-    {
-        return [
-            'integer'      => [123],
-            'float'        => [1.5],
-            'true'         => [true],
-            'false'        => [false],
-            'array'        => [['secret']],
-            'object'       => [new \stdClass],
-            'null'         => [null],
-            'empty-string' => [''],
-        ];
     }
 
     /**
@@ -472,7 +467,7 @@ final class ModelProviderTest extends TestCase
             }
 
             /**
-             * Createmodel.
+             * Create model.
              *
              * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
              */

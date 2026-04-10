@@ -56,6 +56,8 @@ final class ContextualGuardTest extends TestCase
      * nullable return type.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testContextualGuardDeclaresContextualAccessors(): void
     {
@@ -86,6 +88,8 @@ final class ContextualGuardTest extends TestCase
      * return type.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testContextualGuardDeclaresContextualSetters(): void
     {
@@ -120,6 +124,8 @@ final class ContextualGuardTest extends TestCase
      * documented parameter and return types.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testContextualGuardDeclaresContextualAttemptAndLogin(): void
     {

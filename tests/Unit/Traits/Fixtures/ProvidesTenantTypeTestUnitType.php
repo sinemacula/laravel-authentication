@@ -15,6 +15,6 @@ namespace Tests\Unit\Traits\Fixtures;
  */
 enum ProvidesTenantTypeTestUnitType
 {
-    case Staff;
-    case Customer;
+    case STAFF;
+    case CUSTOMER;
 }

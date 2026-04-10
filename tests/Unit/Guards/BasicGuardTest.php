@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
+use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
  * Unit tests for the BasicGuard contextual guard.
@@ -244,9 +245,11 @@ final class BasicGuardTest extends TestCase
         $this->resolver->shouldReceive('resolve')
             ->once()
             ->with($identity)
-            ->andThrow(new \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException(
-                'identity implements neither Principal nor HasPrincipals',
-            ));
+            ->andThrow(
+                new UnresolvableIdentityException(
+                    'identity implements neither Principal nor HasPrincipals',
+                ),
+            );
 
         $dispatched = [];
 
@@ -405,7 +408,7 @@ final class BasicGuardTest extends TestCase
 
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::type(\Illuminate\Auth\Events\Authenticated::class));
+            ->with(\Mockery::type(Authenticated::class));
 
         // Pre-bind the identity via setUser. Subsequent user() calls must NOT
         // touch the provider/resolver - if they did, Mockery would fail because

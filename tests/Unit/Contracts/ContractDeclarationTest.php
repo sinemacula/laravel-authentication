@@ -7,6 +7,7 @@ namespace Tests\Unit\Contracts;
 use Illuminate\Contracts\Auth\Authenticatable as LaravelAuthenticatable;
 use Illuminate\Contracts\Auth\Guard as LaravelGuard;
 use Illuminate\Contracts\Auth\UserProvider as LaravelUserProvider;
+use Illuminate\Contracts\Database\Eloquent\Builder;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -37,6 +38,56 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 #[CoversNothing]
 final class ContractDeclarationTest extends TestCase
 {
+    /**
+     * Data provider listing the methods `Device` must declare.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function provideDeviceContractMethods(): array
+    {
+        return [
+            'getDeviceIdentifier'    => ['getDeviceIdentifier'],
+            'getLastLoggedIn'        => ['getLastLoggedIn'],
+            'getLastMfaVerification' => ['getLastMfaVerification'],
+            'getOperatingSystem'     => ['getOperatingSystem'],
+            'getRefreshKey'          => ['getRefreshKey'],
+            'getRevokedAt'           => ['getRevokedAt'],
+        ];
+    }
+
+    /**
+     * Data provider listing the methods `Principal` must declare.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function providePrincipalContractMethods(): array
+    {
+        return [
+            'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
+            'getIdentity'            => ['getIdentity'],
+            'getTenant'              => ['getTenant'],
+            'isActive'               => ['isActive'],
+        ];
+    }
+
+    /**
+     * Data provider listing every method on Laravel's `Guard` contract.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function provideLaravelGuardMethods(): array
+    {
+        return [
+            'check'    => ['check'],
+            'guest'    => ['guest'],
+            'user'     => ['user'],
+            'id'       => ['id'],
+            'validate' => ['validate'],
+            'hasUser'  => ['hasUser'],
+            'setUser'  => ['setUser'],
+        ];
+    }
+
     /**
      * `IdentityProvider` extends Laravel's framework `UserProvider` contract
      * so the package provider drops into Laravel's
@@ -84,23 +135,6 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Data provider listing the methods `Device` must declare.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function provideDeviceContractMethods(): array
-    {
-        return [
-            'getDeviceIdentifier'    => ['getDeviceIdentifier'],
-            'getLastLoggedIn'        => ['getLastLoggedIn'],
-            'getLastMfaVerification' => ['getLastMfaVerification'],
-            'getOperatingSystem'     => ['getOperatingSystem'],
-            'getRefreshKey'          => ['getRefreshKey'],
-            'getRevokedAt'           => ['getRevokedAt'],
-        ];
-    }
-
-    /**
      * `Principal` declares every method the contextual guards and default
      * resolver depend on.
      *
@@ -114,21 +148,6 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(Principal::class))->hasMethod($method),
             "Principal contract must declare {$method}().",
         );
-    }
-
-    /**
-     * Data provider listing the methods `Principal` must declare.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function providePrincipalContractMethods(): array
-    {
-        return [
-            'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
-            'getIdentity'            => ['getIdentity'],
-            'getTenant'              => ['getTenant'],
-            'isActive'               => ['isActive'],
-        ];
     }
 
     /**
@@ -161,7 +180,7 @@ final class ContractDeclarationTest extends TestCase
 
         self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
         self::assertSame(
-            \Illuminate\Contracts\Database\Eloquent\Builder::class,
+            Builder::class,
             $returnType->getName(),
         );
     }
@@ -178,7 +197,7 @@ final class ContractDeclarationTest extends TestCase
         $principalsReturn = (new \ReflectionMethod(HasPrincipals::class, 'principals'))->getReturnType();
         self::assertInstanceOf(\ReflectionNamedType::class, $principalsReturn);
         self::assertSame(
-            \Illuminate\Contracts\Database\Eloquent\Builder::class,
+            Builder::class,
             $principalsReturn->getName(),
         );
 
@@ -262,23 +281,5 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(BasicGuard::class))->hasMethod($method),
             "BasicGuard must declare {$method}().",
         );
-    }
-
-    /**
-     * Data provider listing every method on Laravel's `Guard` contract.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function provideLaravelGuardMethods(): array
-    {
-        return [
-            'check'    => ['check'],
-            'guest'    => ['guest'],
-            'user'     => ['user'],
-            'id'       => ['id'],
-            'validate' => ['validate'],
-            'hasUser'  => ['hasUser'],
-            'setUser'  => ['setUser'],
-        ];
     }
 }

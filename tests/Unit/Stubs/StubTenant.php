@@ -21,8 +21,7 @@ use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
  */
 class StubTenant extends Model implements HasType, Tenant
 {
-    use ActsAsTenant;
-    use ProvidesTenantType;
+    use ActsAsTenant, ProvidesTenantType;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'stub_tenants';

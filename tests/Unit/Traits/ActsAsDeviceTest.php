@@ -275,7 +275,7 @@ final class ActsAsDeviceTest extends TestCase
             protected $guarded = [];
 
             /**
-             * Getdeviceidentifiername.
+             * Get device identifier name.
              *
              * @return string
              */

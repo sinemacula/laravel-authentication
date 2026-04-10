@@ -29,8 +29,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  */
 class StubDevice extends Model implements Device
 {
-    use ActsAsDevice;
-    use HasUuids;
+    use ActsAsDevice, HasUuids;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'stub_devices';

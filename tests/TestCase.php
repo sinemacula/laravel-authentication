@@ -27,6 +27,8 @@ use SineMacula\Laravel\Authentication\Models\Device;
 abstract class TestCase extends OrchestraTestCase
 {
     /**
+     * Register the package service provider.
+     *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
@@ -38,6 +40,8 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
+     * Seed the in-memory sqlite connection and package config defaults.
+     *
      * @param  mixed  $app
      * @return void
      */

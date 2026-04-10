@@ -26,11 +26,13 @@ final class PlainDeviceFixture implements Device
      * @param  string  $os
      */
     public function __construct(
+
         /** Stable identifier used as the `did` claim. */
         public readonly string $id,
 
         /** Operating-system string embedded in the device row. */
         public readonly string $os = 'plain-os',
+
     ) {}
 
     /**

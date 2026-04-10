@@ -29,6 +29,7 @@ final class PlainPrincipalFixture implements Principal
      * @param  bool  $active
      */
     public function __construct(
+
         /** Stable identifier used as the `pid` claim. */
         public readonly int|string $id,
 
@@ -40,6 +41,7 @@ final class PlainPrincipalFixture implements Principal
 
         /** Active flag. */
         public readonly bool $active = true,
+
     ) {}
 
     /**

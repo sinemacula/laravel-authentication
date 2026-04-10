@@ -7,13 +7,16 @@ namespace Tests\Unit\Providers;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubModel;
 
 /**
  * Unit tests for the `ModelProvider` constructor validation, `createModel()`
@@ -111,7 +114,7 @@ final class ModelProviderConstructorTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(self::MODEL_AUTH_MESSAGE);
 
-        $provider = new ModelProvider($this->hasher, \Tests\Unit\Stubs\StubModel::class);
+        $provider = new ModelProvider($this->hasher, StubModel::class);
 
         unset($provider);
     }
@@ -129,7 +132,7 @@ final class ModelProviderConstructorTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(self::MODEL_AUTH_MESSAGE);
 
-        $provider = new ModelProvider($this->hasher, \Tests\Unit\Stubs\PlainIdentityFixture::class);
+        $provider = new ModelProvider($this->hasher, PlainIdentityFixture::class);
 
         unset($provider);
     }
@@ -141,6 +144,8 @@ final class ModelProviderConstructorTest extends TestCase
      * production path.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testCreateModelReturnsFreshConfiguredClassInstance(): void
     {
@@ -176,26 +181,6 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `filterCredentialKeys()` drops every key whose lowercased name contains
-     * the substring `'password'` - not just the literal `'password'` key. Pins
-     * the substring filter against a data-provider of common password-column
-     * variants.
-     *
-     * @param  string  $key
-     * @return void
-     */
-    #[DataProvider('providePasswordKeyVariants')]
-    public function testRetrieveByCredentialsDropsPasswordKeyVariant(string $key): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        // The password-family key is the only entry, so after filtering the
-        // credentials array is empty and the provider returns null without
-        // composing a query.
-        self::assertNull($provider->retrieveByCredentials([$key => 'secret']));
-    }
-
-    /**
      * Data provider for `testRetrieveByCredentialsDropsPasswordKeyVariant`.
      * Each row is one password-family column name the filter must reject so
      * that the hasher stays the single source of truth for password
@@ -213,6 +198,26 @@ final class ModelProviderConstructorTest extends TestCase
             'PASSWORD-uppercase'    => ['PASSWORD'],
             'Password-title-case'   => ['Password'],
         ];
+    }
+
+    /**
+     * `filterCredentialKeys()` drops every key whose lowercased name contains
+     * the substring `'password'` - not just the literal `'password'` key. Pins
+     * the substring filter against a data-provider of common password-column
+     * variants.
+     *
+     * @param  string  $key
+     * @return void
+     */
+    #[DataProvider('providePasswordKeyVariants')]
+    public function testRetrieveByCredentialsDropsPasswordKeyVariant(string $key): void
+    {
+        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
+
+        // The password-family key is the only entry, so after filtering the
+        // credentials array is empty and the provider returns null without
+        // composing a query.
+        self::assertNull($provider->retrieveByCredentials([$key => 'secret']));
     }
 
     /**
@@ -394,7 +399,7 @@ final class ModelProviderConstructorTest extends TestCase
                 Hasher $hasher,
                 string $modelClass,
                 /** Pre-built model instance returned from createModel(). */
-                private readonly \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model $instance,
+                private readonly Authenticatable&Model $instance,
             ) {
                 parent::__construct($hasher, $modelClass);
             }
@@ -405,7 +410,7 @@ final class ModelProviderConstructorTest extends TestCase
              * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
              */
             #[\Override]
-            protected function createModel(): \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
+            protected function createModel(): Authenticatable&Model
             {
                 return $this->instance;
             }
@@ -440,10 +445,10 @@ final class ModelProviderConstructorTest extends TestCase
              * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $instance
              */
             public function __construct(
-                \Illuminate\Contracts\Hashing\Hasher $hasher,
+                Hasher $hasher,
                 string $modelClass,
                 /** Pre-built model instance returned from createModel(). */
-                private readonly \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model $instance,
+                private readonly Authenticatable&Model $instance,
             ) {
                 parent::__construct($hasher, $modelClass);
             }
@@ -454,7 +459,7 @@ final class ModelProviderConstructorTest extends TestCase
              * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
              */
             #[\Override]
-            protected function createModel(): \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
+            protected function createModel(): Authenticatable&Model
             {
                 return $this->instance;
             }

@@ -32,8 +32,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  */
 class StubPrincipal extends Model implements HasDevices, Identity, Principal
 {
-    use ActsAsPrincipal;
-    use Authenticatable;
+    use ActsAsPrincipal, Authenticatable;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'stub_principals';

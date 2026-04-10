@@ -23,6 +23,8 @@ final class RefreshTokenHasherTest extends TestCase
      * `generate()` returns a non-empty URL-safe string.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testGenerateReturnsNonEmptyString(): void
     {
@@ -52,6 +54,8 @@ final class RefreshTokenHasherTest extends TestCase
      * `verify()` returns true for the matching plaintext / digest pair.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testVerifyAcceptsMatchingPlaintext(): void
     {
@@ -95,6 +99,8 @@ final class RefreshTokenHasherTest extends TestCase
      * @return void
      *
      * @SuppressWarnings("php:S3011")
+     *
+     * @throws \ReflectionException
      */
     public function testConstructorIsPrivate(): void
     {

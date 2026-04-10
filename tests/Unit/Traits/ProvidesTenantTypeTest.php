@@ -43,7 +43,7 @@ final class ProvidesTenantTypeTest extends TestCase
         };
 
         $tenant->setRawAttributes([]);
-        $tenant->setAttribute('type', ProvidesTenantTypeTestBackedType::Staff);
+        $tenant->setAttribute('type', ProvidesTenantTypeTestBackedType::STAFF);
 
         self::assertSame('staff', $tenant->getType());
     }
@@ -64,9 +64,9 @@ final class ProvidesTenantTypeTest extends TestCase
         };
 
         $tenant->setRawAttributes([]);
-        $tenant->setAttribute('type', ProvidesTenantTypeTestUnitType::Customer);
+        $tenant->setAttribute('type', ProvidesTenantTypeTestUnitType::CUSTOMER);
 
-        self::assertSame('Customer', $tenant->getType());
+        self::assertSame('CUSTOMER', $tenant->getType());
     }
 
     /**
@@ -105,7 +105,7 @@ final class ProvidesTenantTypeTest extends TestCase
 
         $value = new class implements \Stringable {
             /**
-             * __Tostring.
+             * To string magic method.
              *
              * @return string
              */

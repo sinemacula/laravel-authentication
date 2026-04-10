@@ -26,11 +26,13 @@ final class PlainIdentityFixture implements Identity
      * @param  string  $password
      */
     public function __construct(
+
         /** Stable identifier used as the `sub` claim. */
         public readonly int|string $id,
 
         /** Pre-hashed password used for the `getAuthPassword()` accessor. */
         public readonly string $password = 'hashed-password',
+
     ) {}
 
     /**

@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Unit tests for the ActsAsPrincipal trait.
@@ -77,8 +78,7 @@ final class ActsAsPrincipalTest extends TestCase
     public function testGetIdentityReturnsSelfWhen2dIdentity(): void
     {
         $principal = new class extends Model implements Identity {
-            use ActsAsPrincipal;
-            use \SineMacula\Laravel\Authentication\Traits\Authenticatable;
+            use ActsAsPrincipal, Authenticatable;
 
             /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
@@ -191,6 +191,7 @@ final class ActsAsPrincipalTest extends TestCase
             /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
+
         $active->setAttribute('is_active', 1);
 
         $inactive = new class extends Model {
@@ -199,6 +200,7 @@ final class ActsAsPrincipalTest extends TestCase
             /** @var array<string> Mass-assignment guard list. */
             protected $guarded = [];
         };
+
         $inactive->setAttribute('is_active', 0);
 
         self::assertTrue($active->isActive());

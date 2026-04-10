@@ -4,12 +4,11 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Database;
 
+use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Builder;
-use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 
 /**
@@ -39,7 +38,7 @@ final class MigrationCollisionGuardTest extends TestCase
             ->with('devices')
             ->andReturn(true);
 
-        $connection = \Mockery::mock(\Illuminate\Database\Connection::class);
+        $connection = \Mockery::mock(Connection::class);
         $connection->shouldReceive('getName')
             ->once()
             ->andReturn('testing');
@@ -94,7 +93,7 @@ final class MigrationCollisionGuardTest extends TestCase
             ->with('custom_devices')
             ->andReturn(true);
 
-        $connection = \Mockery::mock(\Illuminate\Database\Connection::class);
+        $connection = \Mockery::mock(Connection::class);
         $connection->shouldReceive('getName')
             ->andReturn('testing');
 
