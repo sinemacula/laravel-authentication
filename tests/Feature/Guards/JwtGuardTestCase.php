@@ -143,6 +143,8 @@ abstract class JwtGuardTestCase extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[\Override]
     protected function defineEnvironment(mixed $app): void
@@ -169,6 +171,8 @@ abstract class JwtGuardTestCase extends TestCase
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function makeGuard(Request $request): JwtGuard
     {

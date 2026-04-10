@@ -86,7 +86,7 @@ final class AuthManagerTest extends TestCase
     /**
      * `inheritDriversFrom()` does not throw and leaves the receiver
      * driver-less when the donor has no custom creators registered. Pins the
-     * empty-array short-circuit at `AuthManager.php:39-44`: a freshly bound
+     * empty-array short-circuit in `inheritDriversFrom()`: a freshly bound
      * provider that points at an unregistered custom driver still raises
      * `InvalidArgumentException`, proving the empty donor did not silently
      * leak driver registrations.

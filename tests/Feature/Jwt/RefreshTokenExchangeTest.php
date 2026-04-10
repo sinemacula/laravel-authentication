@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Schema;
@@ -34,14 +35,12 @@ use Tests\Unit\Stubs\StubIdentity;
  * Direct unit tests for the `RefreshTokenExchange` service that fill in the
  * few branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
  *
- * - empty `device.model` config -> `findDeviceById` returns null
- *   and the exchange surfaces `device_unknown`.
- * - resolver throws `UnresolvableIdentityException` -> the exchange
- *   catches it inside `safeResolvePrincipal` and dispatches
- *   `principal_unresolved`.
- * - device that does NOT use `ActsAsDevice` -> `refreshKeyColumn`
- *   and `revokedAtColumn` fall back to the package config + literal
- *   defaults.
+ * - empty `device.model` config -> `findDeviceById` returns null and the
+ *   exchange surfaces `device_unknown`.
+ * - resolver throws `UnresolvableIdentityException` -> the exchange catches it
+ *   inside `safeResolvePrincipal` and dispatches `principal_unresolved`.
+ * - device that does NOT use `ActsAsDevice` -> `refreshKeyColumn` and
+ *   `revokedAtColumn` fall back to the package config + literal defaults.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -136,7 +135,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * `findDeviceById` returns `null` when the package config
      * `authentication.device.model` is the empty string, so the exchange
      * dispatches `device_unknown` and returns `null`. Pins the empty-class
-     * short-circuit at `RefreshTokenExchange.php:243`.
+     * short-circuit in `findDeviceById()`.
      *
      * @return void
      */
@@ -153,8 +152,10 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN),
+            );
 
         self::assertNull($exchange->exchange($token));
     }
@@ -162,8 +163,8 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * `safeResolvePrincipal` catches an `UnresolvableIdentityException` thrown
      * by the resolver and surfaces `principal_unresolved` rather than letting
-     * the exception propagate up to the caller. Pins the catch arm at
-     * `RefreshTokenExchange.php:362-363`.
+     * the exception propagate up to the caller. Pins the catch arm in
+     * `safeResolvePrincipal()`.
      *
      * @return void
      */
@@ -198,8 +199,10 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED));
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+            );
 
         self::assertNull($exchange->exchange($token));
     }
@@ -207,8 +210,8 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * `revokeDevice` writes through to the package config column fallbacks
      * (`refresh_key_column` and the literal `revoked_at`) when the supplied
-     * device does NOT use `ActsAsDevice`. Pins `RefreshTokenExchange.php:466`
-     * and `:488` simultaneously.
+     * device does NOT use `ActsAsDevice`. Pins `refreshKeyColumn()` and
+     * `revokedAtColumn()` simultaneously.
      *
      * @return void
      */
@@ -249,6 +252,8 @@ final class RefreshTokenExchangeTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[\Override]
     protected function defineEnvironment(mixed $app): void
@@ -317,7 +322,7 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     private function swapDeviceModelToInMemoryInstance(StubDevice $device): void
     {
-        $builder = \Mockery::mock(\Illuminate\Database\Eloquent\Builder::class);
+        $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('find')
             ->with($device->id)
             ->andReturn($device);

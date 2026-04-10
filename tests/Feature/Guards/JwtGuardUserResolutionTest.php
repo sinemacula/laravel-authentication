@@ -40,6 +40,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * without firing Attempting or Failed (there is nothing to attempt).
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenNoBearerTokenPresent(): void
     {
@@ -54,10 +56,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     /**
      * A request whose `Authorization: Bearer` header carries an empty string
      * token returns null without firing any events. Mutation guard: pins the
-     * `$token === ''` arm at `JwtGuard.php:100` separately from the `null` arm
-     * above.
+     * `$token === ''` arm in `user()` separately from the `null` arm above.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenBearerTokenIsEmptyString(): void
     {
@@ -74,6 +77,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * expired), `user()` fires `Attempting` and `Failed` then returns null.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenTokenServiceCannotParseToken(): void
     {
@@ -97,6 +102,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * returns null.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenSubClaimMissing(): void
     {
@@ -121,6 +128,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * When `retrieveById()` returns null, `user()` returns null.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenIdentityNotFound(): void
     {
@@ -148,6 +157,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * Identity, `user()` returns null.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenResolvedUserIsNotIdentity(): void
     {
@@ -176,6 +187,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * When `resolver->resolve()` returns null, `user()` returns null.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenResolverProducesNoPrincipal(): void
     {
@@ -208,6 +221,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * returns null.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenResolvedPrincipalIsInactive(): void
     {
@@ -247,6 +262,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * `retrieveById()` returns it.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserReturnsNullWhenIdentityIsInactive(): void
     {
@@ -278,6 +295,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * rejects the token rather than falling back to the default principal.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserRejectsTokenWhenPidHintResolvesToNullPrincipal(): void
     {
@@ -312,6 +331,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * active principal.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserRejectsTokenWhenPidHintDoesNotMatchResolvedPrincipal(): void
     {
@@ -351,6 +372,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * `matchesPidHint()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserRejectsTokenWhenResolvedPrincipalIdentifierIsNull(): void
     {
@@ -388,6 +411,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * with no device.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserRejectsTokenWhenDidHintCannotBeResolved(): void
     {
@@ -439,6 +464,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * `DeviceAuthenticated`, and `Login`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserBindsIdentityPrincipalAndDeviceFromValidToken(): void
     {
@@ -493,8 +520,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         // routes through `login()` which fires `Validated`, then
         // `bindAuthenticationLifecycle()` which fires `Login` before
         // `Authenticated` (Laravel's ordering), followed by the contextual
-        // `PrincipalAssigned` and `DeviceAuthenticated` events as the
-        // state is bound.
+        // `PrincipalAssigned` and `DeviceAuthenticated` events as the state is
+        // bound.
         self::assertSame(
             [
                 Attempting::class,
@@ -513,6 +540,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * NOT fire `DeviceAuthenticated`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testUserSkipsDeviceWhenNoDidClaimPresent(): void
     {

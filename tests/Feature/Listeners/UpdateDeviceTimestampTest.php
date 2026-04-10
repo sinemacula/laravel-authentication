@@ -295,8 +295,8 @@ final class UpdateDeviceTimestampTest extends TestCase
 
         // The bare `StubModelDevice` is an Eloquent model that implements
         // `Device` but does NOT use the `ActsAsDevice` trait, so
-        // `getLastLoggedInName()` does not exist. The listener falls through to
-        // `self::DEFAULT_COLUMN` at `UpdateDeviceTimestamp.php:74`.
+        // `getLastLoggedInName()` does not exist. The listener falls through
+        // to `self::DEFAULT_COLUMN` in `resolveColumnName()`.
         $device = new BareDeviceModel;
         $device->forceFill(['id' => 'bare-device-1'])->save();
 
@@ -314,8 +314,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     /**
      * The listener no-ops on an unpersisted Eloquent device (the `$exists`
      * flag is false), so the in-memory model is not touched and the database
-     * is not written to. Pins the `!$device->exists` short-circuit at
-     * `UpdateDeviceTimestamp.php:45`.
+     * is not written to. Pins the `!$device->exists` short-circuit in
+     * `__invoke()`.
      *
      * @return void
      */

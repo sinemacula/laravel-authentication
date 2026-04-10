@@ -393,7 +393,7 @@ final class BasicGuardTest extends TestCase
      * `user()` short-circuits and returns the already-bound identity (set via
      * the parent `setUser()`) without invoking the identity provider, the
      * resolver, or the dispatcher. Pins the `$this->identity !== null` guard
-     * at `BasicGuard.php:84-86`.
+     * in `user()`.
      *
      * @return void
      */
@@ -586,7 +586,7 @@ final class BasicGuardTest extends TestCase
      * Constructing a BasicGuard with an empty-string identifier field falls
      * back to `'email'` so a misconfigured guard does not compose queries
      * against a blank column name. Mutation guard: pins the `=== '' ? 'email'`
-     * ternary at `BasicGuard.php:73`.
+     * ternary in `__construct()`.
      *
      * @return void
      */

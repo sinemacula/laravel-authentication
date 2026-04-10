@@ -83,7 +83,7 @@ final class ModelProviderConstructorTest extends TestCase
     /**
      * The constructor refuses a class that exists but does NOT extend
      * Eloquent's `Model` or implement the framework `Authenticatable`
-     * contract. Pins the type-shape guard at `ModelProvider.php:56-57`.
+     * contract. Pins the type-shape guard in `__construct()`.
      *
      * @return void
      */
@@ -100,8 +100,8 @@ final class ModelProviderConstructorTest extends TestCase
     /**
      * The constructor refuses a class that extends `Model` but does NOT
      * implement `Authenticatable`. Pins the `!is_subclass_of($model,
-     * Authenticatable::class)` arm at `ModelProvider.php:56` independently of
-     * the Model check - a mutation that removes this arm would let the class
+     * Authenticatable::class)` arm in `__construct()` independently of the
+     * Model check - a mutation that removes this arm would let the class
      * through.
      *
      * @return void
@@ -160,7 +160,7 @@ final class ModelProviderConstructorTest extends TestCase
     /**
      * `retrieveByCredentials()` silently drops keys whose name is not a valid
      * SQL identifier so attacker-controlled column fragments cannot reach
-     * `where()`. Pins the regex guard at `ModelProvider.php:232-233`.
+     * `where()`. Pins the regex guard in `filterCredentialKeys()`.
      *
      * @return void
      */
@@ -298,8 +298,8 @@ final class ModelProviderConstructorTest extends TestCase
 
     /**
      * A boolean credential value is applied as a scalar `where()` clause.
-     * Mutation guard: pins the `is_bool($value)` match arm at
-     * `ModelProvider.php:278` independently of `is_string`.
+     * Mutation guard: pins the `is_bool($value)` match arm in
+     * `applyCredentialClause()` independently of `is_string`.
      *
      * @return void
      */
@@ -359,8 +359,8 @@ final class ModelProviderConstructorTest extends TestCase
      * credential values is an unsupported type (e.g. an `\stdClass` object
      * that is neither scalar, array, closure, nor Stringable). The provider
      * refuses to compose the query rather than letting an unsafe value reach
-     * `where()`. Pins the failure branch at `ModelProvider.php:127-128` and
-     * the early-return inside `applyCredentialClauses` at line 255.
+     * `where()`. Pins the failure branch in `retrieveByCredentials()` and
+     * the `default => false` arm in `applyCredentialClause()`.
      *
      * @return void
      */
