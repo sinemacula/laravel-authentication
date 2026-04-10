@@ -196,8 +196,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 class AppUser extends User implements Identity, Principal
 {
-    use Authenticatable;
-    use ActsAsPrincipal;
+    use Authenticatable, ActsAsPrincipal;
 }
 ```
 
@@ -264,8 +263,7 @@ class AppMembership extends \Illuminate\Database\Eloquent\Model implements Princ
 // capability is optional - drop it if your app doesn't need it.
 class AppTenant extends \Illuminate\Database\Eloquent\Model implements HasType, TenantContract
 {
-    use ActsAsTenant;
-    use ProvidesTenantType;
+    use ActsAsTenant, ProvidesTenantType;
 }
 ```
 
