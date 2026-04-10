@@ -4,12 +4,15 @@ declare(strict_types = 1);
 
 namespace Tests\Feature;
 
+use Illuminate\Config\Repository;
+use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
  * Unit tests for the per-guard config override layering on
@@ -17,12 +20,12 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  *
  * Covers two override surfaces:
  *
- * - `auth.guards.<name>.jwt.*` for the jwt driver - secret, keys,
- *   audience, issuer, TTLs, etc. layered over the package-wide
- *   `authentication.jwt.*` defaults.
- * - `auth.guards.<name>.identifier_field` for the basic driver -
- *   lookup column layered over the package-wide
- *   `authentication.credentials.identifier_field` default.
+ * - `auth.guards.<name>.jwt.*` for the jwt driver - secret, keys, audience,
+ *   issuer, TTLs, etc. layered over the package-wide `authentication.jwt.*`
+ *   defaults.
+ * - `auth.guards.<name>.identifier_field` for the basic driver - lookup column
+ *   layered over the package-wide `authentication.credentials.identifier_field`
+ *   default.
  *
  * Together these let consumers register multiple guards with distinct trust
  * boundaries in a single `config/auth.php`.
@@ -67,8 +70,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
 
     /**
      * A per-guard `jwt.secret` override wins over the package default - the
-     * resulting keyring's active key holds the guard-specific signing
-     * material, not the package secret.
+     * resulting keyring's active key holds the guard-specific signing material,
+     * not the package secret.
      *
      * @return void
      */
@@ -118,9 +121,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * With no per-guard `jwt` block, the builder falls back to the
-     * package-wide `authentication.jwt.*` defaults unchanged -
-     * backwards-compatible with single-guard consumers.
+     * With no per-guard `jwt` block, the builder falls back to the package-wide
+     * `authentication.jwt.*` defaults unchanged - backwards-compatible with
+     * single-guard consumers.
      *
      * @return void
      */
@@ -143,10 +146,12 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     /**
      * A per-guard `identifier_field` override on the basic guard's config
      * block wins over the package-wide default, so consumers can register
-     * multiple basic guards that look up credentials by different columns
-     * (e.g. `email` for web users and `key_id` for tenant API keys).
+     * multiple basic guards that look up credentials by different columns (e.g.
+     * `email` for web users and `key_id` for tenant API keys).
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testBasicGuardAppliesPerGuardIdentifierFieldOverride(): void
     {
@@ -167,6 +172,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * default - backwards-compatible with single-guard consumers.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testBasicGuardFallsBackToPackageIdentifierField(): void
     {
@@ -199,17 +206,19 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(\Illuminate\Config\Repository::class);
+        $config = $app->make(Repository::class);
 
         $config->set('auth.providers.identities', [
             'driver' => 'model',
-            'model'  => \Tests\Unit\Stubs\StubAuthenticatableModel::class,
+            'model'  => StubAuthenticatableModel::class,
         ]);
     }
 
@@ -219,12 +228,14 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @param  array<string, mixed>  $guardJwtConfig
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @throws \ReflectionException
      */
     private function invokeBuildJwtTokenService(array $guardJwtConfig): JwtTokenService
     {
         $service = (new \ReflectionClass(AuthServiceProvider::class))
             ->getMethod('buildJwtTokenService')
-            ->invoke(null, $this->app, $guardJwtConfig);    // NOSONAR
+            ->invoke(null, $this->app, $guardJwtConfig);
 
         assert($service instanceof JwtTokenService);
 
@@ -239,12 +250,16 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @param  string  $property
      * @return mixed
+     *
+     * @throws \ReflectionException
+     *
+     * @SuppressWarnings("php:S3011")
      */
     private function readServiceProperty(JwtTokenService $service, string $property): mixed
     {
         $reflectionProperty = (new \ReflectionClass($service))->getProperty($property);
 
-        return $reflectionProperty->getValue($service);    // NOSONAR
+        return $reflectionProperty->getValue($service);
     }
 
     /**
@@ -255,11 +270,15 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Guards\BasicGuard  $guard
      * @param  string  $property
      * @return mixed
+     *
+     * @throws \ReflectionException
+     *
+     * @SuppressWarnings("php:S3011")
      */
     private function readGuardProperty(BasicGuard $guard, string $property): mixed
     {
         $reflectionProperty = (new \ReflectionClass($guard))->getProperty($property);
 
-        return $reflectionProperty->getValue($guard);    // NOSONAR
+        return $reflectionProperty->getValue($guard);
     }
 }

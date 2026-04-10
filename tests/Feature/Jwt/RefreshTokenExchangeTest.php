@@ -138,6 +138,8 @@ final class RefreshTokenExchangeTest extends TestCase
      * short-circuit in `findDeviceById()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testExchangeReturnsNullWhenDeviceModelClassIsEmpty(): void
     {
@@ -167,6 +169,8 @@ final class RefreshTokenExchangeTest extends TestCase
      * `safeResolvePrincipal()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testExchangeConvertsUnresolvableIdentityExceptionToFailure(): void
     {
@@ -214,6 +218,8 @@ final class RefreshTokenExchangeTest extends TestCase
      * `revokedAtColumn()` simultaneously.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRevokeDeviceFallsBackToConfigColumnsForBareDeviceModel(): void
     {
@@ -278,6 +284,8 @@ final class RefreshTokenExchangeTest extends TestCase
      * Build a `RefreshTokenExchange` wired to the test collaborators.
      *
      * @return \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function makeExchange(): RefreshTokenExchange
     {

@@ -164,10 +164,13 @@ final class DeviceMigrationCollisionTest extends TestCase
      * because `up()` is not declared on the parent `Migration` class.
      *
      * @return \Illuminate\Database\Migrations\Migration
+     *
+     * @SuppressWarnings("php:S4833")
+     * @SuppressWarnings("php:S2003")
      */
     private function loadMigration(): Migration
     {
-        $migration = include self::MIGRATION_PATH;  // NOSONAR
+        $migration = include self::MIGRATION_PATH;
 
         if (!$migration instanceof Migration) {
             self::fail('Devices migration file did not return a Migration instance.');

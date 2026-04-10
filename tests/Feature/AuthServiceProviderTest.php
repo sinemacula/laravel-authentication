@@ -176,6 +176,8 @@ final class AuthServiceProviderTest extends TestCase
      * algorithm, and TTL via reflection on its private/promoted properties.
      *
      * @return void
+     *
+     * @SuppressWarnings("php:S3011")
      */
     public function testJwtTokenServiceIsBoundFromConfig(): void
     {
@@ -189,12 +191,12 @@ final class AuthServiceProviderTest extends TestCase
         $algorithm   = $reflection->getProperty('algorithm');
         $ttl         = $reflection->getProperty('accessTtlMinutes');
 
-        $keyring = $keyringProp->getValue($service);    // NOSONAR
+        $keyring = $keyringProp->getValue($service);
 
         self::assertInstanceOf(\SineMacula\Laravel\Authentication\Jwt\JwtKeyring::class, $keyring);
-        self::assertSame(self::JWT_SECRET, $keyring->activeKey()->getKeyMaterial());    // NOSONAR
-        self::assertSame(self::JWT_ALGORITHM, $algorithm->getValue($service));  // NOSONAR
-        self::assertSame(self::JWT_TTL_MINUTES, $ttl->getValue($service));  // NOSONAR
+        self::assertSame(self::JWT_SECRET, $keyring->activeKey()->getKeyMaterial());
+        self::assertSame(self::JWT_ALGORITHM, $algorithm->getValue($service));
+        self::assertSame(self::JWT_TTL_MINUTES, $ttl->getValue($service));
     }
 
     /**

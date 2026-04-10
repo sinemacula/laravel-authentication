@@ -5,6 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Feature;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Contracts\Auth\Guard;
+use Illuminate\Contracts\Auth\UserProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -62,11 +64,11 @@ final class AuthManagerTest extends TestCase
     {
         $donor = new IlluminateAuthManager(app());
 
-        $guardInstance    = \Mockery::mock(\Illuminate\Contracts\Auth\Guard::class);
-        $providerInstance = \Mockery::mock(\Illuminate\Contracts\Auth\UserProvider::class);
+        $guardInstance    = \Mockery::mock(Guard::class);
+        $providerInstance = \Mockery::mock(UserProvider::class);
 
-        $donor->extend('inherited-guard', fn (): \Illuminate\Contracts\Auth\Guard => $guardInstance);
-        $donor->provider('inherited-provider', fn (): \Illuminate\Contracts\Auth\UserProvider => $providerInstance);
+        $donor->extend('inherited-guard', fn (): Guard => $guardInstance);
+        $donor->provider('inherited-provider', fn (): UserProvider => $providerInstance);
 
         $receiver = new AuthManager(app());
         $receiver->inheritDriversFrom($donor);

@@ -8,6 +8,8 @@ use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
@@ -147,9 +149,9 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the `device.model` config key can be read back via
-     * `config(...)`. The actual runtime swap is exercised by the
-     * `DeviceModelOverrideTest` integration test.
+     * Asserts the `device.model` config key can be read back via `config(...)`.
+     * The actual runtime swap is exercised by the `DeviceModelOverrideTest`
+     * integration test.
      *
      * @return void
      */
@@ -192,18 +194,20 @@ final class DeviceTest extends TestCase
      * `Device::resolveConfiguredTable()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testFallsBackToDefaultTableNameWhenConfigFacadeThrows(): void
     {
-        $previous = $this->app?->make(\Illuminate\Config\Repository::class);
+        $previous = $this->app?->make(ConfigRepository::class);
 
-        $config = \Mockery::mock(\Illuminate\Config\Repository::class)->makePartial();
+        $config = \Mockery::mock(ConfigRepository::class)->makePartial();
         $config->shouldReceive('string')
             ->with('authentication.device.table', 'devices')
             ->andThrow(new \RuntimeException('config repository unavailable'));
 
         $this->app?->instance('config', $config);
-        \Illuminate\Support\Facades\Config::clearResolvedInstance('config');
+        Config::clearResolvedInstance('config');
 
         try {
             $device = new Device;
@@ -213,7 +217,7 @@ final class DeviceTest extends TestCase
             if ($previous !== null) {
                 $this->app?->instance('config', $previous);
             }
-            \Illuminate\Support\Facades\Config::clearResolvedInstance('config');
+            Config::clearResolvedInstance('config');
         }
     }
 
@@ -223,10 +227,12 @@ final class DeviceTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);

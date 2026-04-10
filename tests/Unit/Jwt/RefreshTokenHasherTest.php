@@ -93,6 +93,8 @@ final class RefreshTokenHasherTest extends TestCase
      * the line is covered while still documenting the access modifier.
      *
      * @return void
+     *
+     * @SuppressWarnings("php:S3011")
      */
     public function testConstructorIsPrivate(): void
     {
@@ -102,8 +104,8 @@ final class RefreshTokenHasherTest extends TestCase
         self::assertNotNull($constructor);
         self::assertTrue($constructor->isPrivate());
 
-        $instance = $reflection->newInstanceWithoutConstructor();    // NOSONAR
-        $constructor->invoke($instance);    // NOSONAR
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
 
         self::assertInstanceOf(RefreshTokenHasher::class, $instance);
     }

@@ -7,6 +7,7 @@ namespace Tests\Feature\Listeners;
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
@@ -21,9 +22,8 @@ use Tests\Unit\Stubs\StubDevice;
  * Unit tests for the UpdateDeviceTimestamp listener.
  *
  * Uses Orchestra Testbench with an in-memory sqlite connection and a
- * manually-created `stub_devices` table so the assertion against the
- * listener's persistence behaviour is exercised end-to-end without the package
- * migration.
+ * manually-created `stub_devices` table so the assertion against the listener's
+ * persistence behaviour is exercised end-to-end without the package migration.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -357,10 +357,12 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
