@@ -87,11 +87,10 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
-     * The class is intentionally not instantiable - construction is
-     * forbidden via the private constructor so consumers cannot
-     * accidentally hold a stateful hasher instance. Reflection
-     * invokes the private constructor so the line is covered while
-     * still documenting the access modifier.
+     * The class is intentionally not instantiable - construction is forbidden
+     * via the private constructor so consumers cannot accidentally hold a
+     * stateful hasher instance. Reflection invokes the private constructor so
+     * the line is covered while still documenting the access modifier.
      *
      * @return void
      */

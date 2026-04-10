@@ -9,18 +9,18 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * Unit tests for the Laravel `Guard` contract surface on
- * `AbstractGuard` (`check`, `guest`, `user`, `id`, `hasUser`,
- * `setUser`, `logout`).
+ * Unit tests for the Laravel `Guard` contract surface on `AbstractGuard`
+ * (`check`, `guest`, `user`, `id`, `hasUser`, `setUser`, `logout`).
  *
- * Split out of the original AbstractGuardTest so each derived class
- * stays well below the project's 20-method-per-class threshold
- * (radarlint S1448).
+ * Split out of the original AbstractGuardTest so each class stays focused on a
+ * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -175,9 +175,11 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof Authenticated
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof Authenticated
                     && $event->guard === self::GUARD_NAME
-                    && $event->user  === $identity));
+                    && $event->user  === $identity),
+            );
 
         $guard->setUser($identity);
 
@@ -214,7 +216,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
 
         $identity  = $this->mockIdentity();
         $principal = \Mockery::mock(Principal::class);
-        $device    = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Device::class);
+        $device    = \Mockery::mock(Device::class);
 
         $dispatched = [];
 
@@ -230,10 +232,12 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         self::assertNull($guard->principal());
         self::assertNull($guard->device());
 
-        $logoutEvents = array_values(array_filter(
-            $dispatched,
-            static fn (object $event): bool => $event instanceof Logout,
-        ));
+        $logoutEvents = array_values(
+            array_filter(
+                $dispatched,
+                static fn (object $event): bool => $event instanceof Logout,
+            ),
+        );
 
         self::assertCount(1, $logoutEvents);
         self::assertInstanceOf(Logout::class, $logoutEvents[0]);
@@ -258,12 +262,11 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * Calling `login()` directly (e.g. from a refresh exchange or
-     * an OAuth callback) fires the standard `Validated` event before
-     * the bind, even though no `hasValidCredentials()` call happened.
-     * This is the M14 design call: `login()` is the public entry
-     * point that asserts "this identity has been validated", and the
-     * standard event sequence reflects that.
+     * Calling `login()` directly (e.g. from a refresh exchange or an OAuth
+     * callback) fires the standard `Validated` event before the bind, even
+     * though no `hasValidCredentials()` call happened. This is the M14 design
+     * call: `login()` is the public entry point that asserts "this identity
+     * has been validated", and the standard event sequence reflects that.
      *
      * @return void
      */
@@ -304,9 +307,8 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * The shared `setRequest()` mutator returns the guard for chaining
-     * and persists the supplied request on the protected slot used by
-     * subclasses.
+     * The shared `setRequest()` mutator returns the guard for chaining and
+     * persists the supplied request on the protected slot used by subclasses.
      *
      * @return void
      */
@@ -314,7 +316,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $request = \Illuminate\Http\Request::create('/swap', 'GET');
+        $request = Request::create('/swap', 'GET');
 
         self::assertSame($guard, $guard->setRequest($request));
     }

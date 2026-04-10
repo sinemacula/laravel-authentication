@@ -161,8 +161,8 @@ final class ModelProviderTest extends TestCase
      * @return void
      */
     /**
-     * Numeric credential keys are silently dropped - they cannot be
-     * passed safely to `where()` and would otherwise crash the query.
+     * Numeric credential keys are silently dropped - they cannot be passed
+     * safely to `where()` and would otherwise crash the query.
      *
      * @return void
      */
@@ -170,8 +170,8 @@ final class ModelProviderTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        // After dropping numeric keys the credentials array is empty
-        // - the provider returns null without composing a query.
+        // After dropping numeric keys the credentials array is empty - the
+        // provider returns null without composing a query.
         self::assertNull($provider->retrieveByCredentials([self::ALICE_EMAIL]));
     }
 
@@ -244,11 +244,10 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * validateCredentials returns false when the password is not a
-     * string (integer, array, object, boolean, or null). Uses a data
-     * provider so each non-string variant is its own assertion row
-     * and a mutation that loosens the type check fails a single row
-     * cleanly.
+     * validateCredentials returns false when the password is not a string
+     * (integer, array, object, boolean, or null). Uses a data provider so each
+     * non-string variant is its own assertion row and a mutation that loosens
+     * the type check fails a single row cleanly.
      *
      * @param  mixed  $password
      * @return void
@@ -265,7 +264,8 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * Data provider for `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
+     * Data provider for
+     * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
      *
      * @return array<string, array{0: mixed}>
      */
@@ -284,10 +284,10 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * Multiple scalar credential entries compose as AND-combined
-     * `where()` clauses - the query builder receives one `where()`
-     * call per entry in declaration order. Pins the iteration path
-     * through `applyCredentialClauses`.
+     * Multiple scalar credential entries compose as AND-combined `where()`
+     * clauses - the query builder receives one `where()` call per entry in
+     * declaration order. Pins the iteration path through
+     * `applyCredentialClauses`.
      *
      * @return void
      */
@@ -317,8 +317,8 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * validateCredentials delegates to Hasher::check when a plain
-     * password is provided.
+     * validateCredentials delegates to Hasher::check when a plain password is
+     * provided.
      *
      * @return void
      */
@@ -358,8 +358,8 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * rehashPasswordIfRequired is a no-op when the user is not an
-     * Eloquent model.
+     * rehashPasswordIfRequired is a no-op when the user is not an Eloquent
+     * model.
      *
      * @return void
      */
@@ -377,8 +377,8 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * rehashPasswordIfRequired skips rehash when Hasher::needsRehash
-     * returns false.
+     * rehashPasswordIfRequired skips rehash when Hasher::needsRehash returns
+     * false.
      *
      * @return void
      */
@@ -433,8 +433,8 @@ final class ModelProviderTest extends TestCase
 
     /**
      * Build a ModelProvider whose createModel() returns an Eloquent model
-     * whose newQuery() yields the supplied builder mock, so collaborators
-     * can be asserted without a real database connection.
+     * whose newQuery() yields the supplied builder mock, so collaborators can
+     * be asserted without a real database connection.
      *
      * @param  \Mockery\MockInterface  $builder
      * @return \SineMacula\Laravel\Authentication\Providers\ModelProvider

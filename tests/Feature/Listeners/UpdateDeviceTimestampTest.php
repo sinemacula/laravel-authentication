@@ -22,8 +22,8 @@ use Tests\Unit\Stubs\StubDevice;
  *
  * Uses Orchestra Testbench with an in-memory sqlite connection and a
  * manually-created `stub_devices` table so the assertion against the
- * listener's persistence behaviour is exercised end-to-end without the
- * package migration.
+ * listener's persistence behaviour is exercised end-to-end without the package
+ * migration.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -66,8 +66,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Release the frozen clock and drop the in-memory schema once
-     * each test has completed.
+     * Release the frozen clock and drop the in-memory schema once each test
+     * has completed.
      *
      * @return void
      */
@@ -82,9 +82,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener updates the `last_logged_in_at` timestamp
-     * on a persisted Eloquent Device and saves the change to the
-     * underlying store.
+     * Asserts the listener updates the `last_logged_in_at` timestamp on a
+     * persisted Eloquent Device and saves the change to the underlying store.
      *
      * @return void
      */
@@ -106,8 +105,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener silently returns without invoking any
-     * model-side methods when the device is not an Eloquent model.
+     * Asserts the listener silently returns without invoking any model-side
+     * methods when the device is not an Eloquent model.
      *
      * @return void
      */
@@ -123,8 +122,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener uses a frozen `Carbon::now()` when
-     * `setTestNow()` is active.
+     * Asserts the listener uses a frozen `Carbon::now()` when `setTestNow()`
+     * is active.
      *
      * @return void
      */
@@ -149,9 +148,9 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener skips the DB write when the stored
-     * timestamp is still within the configured throttle window - the
-     * debounce prevents a per-request hot-spot on the device row.
+     * Asserts the listener skips the DB write when the stored timestamp is
+     * still within the configured throttle window - the debounce prevents a
+     * per-request hot-spot on the device row.
      *
      * @return void
      */
@@ -182,9 +181,9 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Boundary test: when the elapsed time since the stored
-     * timestamp is exactly the throttle window, the listener writes.
-     * Mutation guard against the `>=` operator drifting to `>`.
+     * Boundary test: when the elapsed time since the stored timestamp is
+     * exactly the throttle window, the listener writes. Mutation guard against
+     * the `>=` operator drifting to `>`.
      *
      * @return void
      */
@@ -214,8 +213,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener writes once the stored timestamp is older
-     * than the configured throttle window.
+     * Asserts the listener writes once the stored timestamp is older than the
+     * configured throttle window.
      *
      * @return void
      */
@@ -245,9 +244,9 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * A non-positive `device.last_seen_throttle_seconds` config
-     * disables the throttle and the listener writes on every
-     * dispatch, even when the stored timestamp matches `now`.
+     * A non-positive `device.last_seen_throttle_seconds` config disables the
+     * throttle and the listener writes on every dispatch, even when the stored
+     * timestamp matches `now`.
      *
      * @return void
      */
@@ -262,9 +261,8 @@ final class UpdateDeviceTimestampTest extends TestCase
         $device = new StubDevice;
         $device->forceFill(['last_logged_in_at' => $initial])->save();
 
-        // Advance the clock by 1 second so the assertion can detect
-        // a write happened (the column should now be at $advanced,
-        // not $initial).
+        // Advance the clock by 1 second so the assertion can detect a write
+        // happened (the column should now be at $advanced, not $initial).
         $advanced = $initial->copy()->addSeconds(1);
         Carbon::setTestNow($advanced);
 
@@ -280,13 +278,12 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * The listener no-ops when the device is an Eloquent model that
-     * does NOT implement the package `Device` contract: the column
-     * resolver falls back to the default `last_logged_in_at` column,
-     * but the type guard at `resolveColumnName()` line 73 short-
-     * circuits when the model is not a `Device`. The assertion is
-     * indirect - the listener still updates the column, just not via
-     * the trait's accessor.
+     * The listener no-ops when the device is an Eloquent model that does NOT
+     * implement the package `Device` contract: the column resolver falls back
+     * to the default `last_logged_in_at` column, but the type guard at
+     * `resolveColumnName()` line 73 short- circuits when the model is not a
+     * `Device`. The assertion is indirect - the listener still updates the
+     * column, just not via the trait's accessor.
      *
      * @return void
      */
@@ -296,11 +293,10 @@ final class UpdateDeviceTimestampTest extends TestCase
 
         Carbon::setTestNow($now);
 
-        // The bare `StubModelDevice` is an Eloquent model that
-        // implements `Device` but does NOT use the `ActsAsDevice`
-        // trait, so `getLastLoggedInName()` does not exist. The
-        // listener falls through to `self::DEFAULT_COLUMN` at
-        // `UpdateDeviceTimestamp.php:74`.
+        // The bare `StubModelDevice` is an Eloquent model that implements
+        // `Device` but does NOT use the `ActsAsDevice` trait, so
+        // `getLastLoggedInName()` does not exist. The listener falls through to
+        // `self::DEFAULT_COLUMN` at `UpdateDeviceTimestamp.php:74`.
         $device = new BareDeviceModel;
         $device->forceFill(['id' => 'bare-device-1'])->save();
 
@@ -316,10 +312,10 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * The listener no-ops on an unpersisted Eloquent device (the
-     * `$exists` flag is false), so the in-memory model is not
-     * touched and the database is not written to. Pins the
-     * `!$device->exists` short-circuit at `UpdateDeviceTimestamp.php:45`.
+     * The listener no-ops on an unpersisted Eloquent device (the `$exists`
+     * flag is false), so the in-memory model is not touched and the database
+     * is not written to. Pins the `!$device->exists` short-circuit at
+     * `UpdateDeviceTimestamp.php:45`.
      *
      * @return void
      */
@@ -333,8 +329,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener is invokable - registering it as a plain
-     * class name via `Event::listen` continues to work.
+     * Asserts the listener is invokable - registering it as a plain class name
+     * via `Event::listen` continues to work.
      *
      * @return void
      */

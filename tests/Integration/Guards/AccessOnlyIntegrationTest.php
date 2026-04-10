@@ -20,11 +20,10 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 
 /**
- * Verifies the "access-only" usage pattern: the package works
- * end-to-end with no devices migration, no Device contract
- * implementation, and no refresh-token flow. Consumers who only need
- * stateless access tokens (M2M APIs, simple backends) can skip the
- * devices table entirely.
+ * Verifies the "access-only" usage pattern: the package works end-to-end with
+ * no devices migration, no Device contract implementation, and no
+ * refresh-token flow. Consumers who only need stateless access tokens (M2M
+ * APIs, simple backends) can skip the devices table entirely.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -42,8 +41,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     private const string GUARD = 'api';
 
     /**
-     * Provision only the identity table; deliberately do not create
-     * the devices table or any other package-owned schema.
+     * Provision only the identity table; deliberately do not create the
+     * devices table or any other package-owned schema.
      *
      * @return void
      */
@@ -61,8 +60,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * The in-memory schema has no `devices` table; the access-only
-     * path must not depend on one.
+     * The in-memory schema has no `devices` table; the access-only path must
+     * not depend on one.
      *
      * @return void
      */
@@ -72,10 +71,9 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Issuing an access token with `null` device produces a JWT
-     * whose `did` claim is null, and verifying it through the bearer
-     * path resolves identity + principal without ever touching a
-     * devices table.
+     * Issuing an access token with `null` device produces a JWT whose `did`
+     * claim is null, and verifying it through the bearer path resolves
+     * identity + principal without ever touching a devices table.
      *
      * @return void
      */
@@ -109,8 +107,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Register the package service provider so the auth factory picks
-     * up the `jwt` and `model` drivers.
+     * Register the package service provider so the auth factory picks up the
+     * `jwt` and `model` drivers.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -121,8 +119,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Do not run the package's shipped devices migration; the test
-     * asserts the package works without it.
+     * Do not run the package's shipped devices migration; the test asserts the
+     * package works without it.
      *
      * @return void
      */
@@ -132,8 +130,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Minimal Testbench environment: in-memory sqlite, a single
-     * `identities` auth provider, and the `api` jwt guard.
+     * Minimal Testbench environment: in-memory sqlite, a single `identities`
+     * auth provider, and the `api` jwt guard.
      *
      * @param  mixed  $app
      * @return void
@@ -170,8 +168,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * Seed a persisted access-only identity used as both the
-     * authenticated subject and the acting principal in 2D mode.
+     * Seed a persisted access-only identity used as both the authenticated
+     * subject and the acting principal in 2D mode.
      *
      * @return \Tests\Integration\Fixtures\AccessOnlyIdentity
      */

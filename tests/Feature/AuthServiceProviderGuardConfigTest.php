@@ -24,11 +24,11 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  *   lookup column layered over the package-wide
  *   `authentication.credentials.identifier_field` default.
  *
- * Together these let consumers register multiple guards with
- * distinct trust boundaries in a single `config/auth.php`.
+ * Together these let consumers register multiple guards with distinct trust
+ * boundaries in a single `config/auth.php`.
  *
- * Split out of `AuthServiceProviderTest` so each class stays below
- * the 20-method-per-class threshold (radarlint S1448).
+ * Split out of `AuthServiceProviderTest` so each class stays focused on a
+ * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -48,10 +48,10 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     private const string KID_OLD = '2026-03';
 
     /**
-     * A per-guard `jwt` override block with a distinct `audience`
-     * produces a `JwtTokenService` whose audience differs from the
-     * package default, so two guards can verify different audiences
-     * without sharing a global configuration.
+     * A per-guard `jwt` override block with a distinct `audience` produces a
+     * `JwtTokenService` whose audience differs from the package default, so
+     * two guards can verify different audiences without sharing a global
+     * configuration.
      *
      * @return void
      */
@@ -66,9 +66,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * A per-guard `jwt.secret` override wins over the package default
-     * - the resulting keyring's active key holds the guard-specific
-     * signing material, not the package secret.
+     * A per-guard `jwt.secret` override wins over the package default - the
+     * resulting keyring's active key holds the guard-specific signing
+     * material, not the package secret.
      *
      * @return void
      */
@@ -87,10 +87,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * A per-guard `jwt.keys` + `active_kid` override activates kid
-     * mode for that guard even when the package default is
-     * single-secret mode, so one guard can rotate keys independently
-     * of the package-wide configuration.
+     * A per-guard `jwt.keys` + `active_kid` override activates kid mode for
+     * that guard even when the package default is single-secret mode, so one
+     * guard can rotate keys independently of the package-wide configuration.
      *
      * @return void
      */
@@ -142,11 +141,10 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * A per-guard `identifier_field` override on the basic guard's
-     * config block wins over the package-wide default, so consumers
-     * can register multiple basic guards that look up credentials by
-     * different columns (e.g. `email` for web users and `key_id` for
-     * tenant API keys).
+     * A per-guard `identifier_field` override on the basic guard's config
+     * block wins over the package-wide default, so consumers can register
+     * multiple basic guards that look up credentials by different columns
+     * (e.g. `email` for web users and `key_id` for tenant API keys).
      *
      * @return void
      */
@@ -164,10 +162,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * With no per-guard `identifier_field` override, `createBasicGuard`
-     * falls back to the package-wide
-     * `authentication.credentials.identifier_field` default -
-     * backwards-compatible with single-guard consumers.
+     * With no per-guard `identifier_field` override, `createBasicGuard` falls
+     * back to the package-wide `authentication.credentials.identifier_field`
+     * default - backwards-compatible with single-guard consumers.
      *
      * @return void
      */
@@ -184,8 +181,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench
-     * application so the container has the package config bindings.
+     * Register the package service provider against the Testbench application
+     * so the container has the package config bindings.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -196,9 +193,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Register a stub auth provider the basic-guard factory can
-     * resolve via `IlluminateAuth::createUserProvider()` during the
-     * identifier-field override tests.
+     * Register a stub auth provider the basic-guard factory can resolve via
+     * `IlluminateAuth::createUserProvider()` during the identifier-field
+     * override tests.
      *
      * @param  mixed  $app
      * @return void
@@ -217,8 +214,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Invoke the private `buildJwtTokenService` factory via reflection
-     * with the supplied per-guard override block.
+     * Invoke the private `buildJwtTokenService` factory via reflection with
+     * the supplied per-guard override block.
      *
      * @param  array<string, mixed>  $guardJwtConfig
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
@@ -235,9 +232,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Read a private property off a `JwtTokenService` instance via
-     * reflection so the override tests can inspect the merged field
-     * values directly without leaking getters to production.
+     * Read a private property off a `JwtTokenService` instance via reflection
+     * so the override tests can inspect the merged field values directly
+     * without leaking getters to production.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @param  string  $property
@@ -251,9 +248,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Read a private / readonly property off a `BasicGuard` instance
-     * via reflection. Used by the identifier-field override tests to
-     * inspect the resolved lookup column directly.
+     * Read a private / readonly property off a `BasicGuard` instance via
+     * reflection. Used by the identifier-field override tests to inspect the
+     * resolved lookup column directly.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\BasicGuard  $guard
      * @param  string  $property

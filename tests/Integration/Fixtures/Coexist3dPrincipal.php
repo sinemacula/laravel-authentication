@@ -12,18 +12,17 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 /**
  * Eloquent fixture for the 3D guard coexistence test.
  *
- * Implements `Principal` only - distinct from its owning identity -
- * so the default principal resolver's 3D branch resolves a separate
- * acting principal via `HasPrincipals::resolveDefaultPrincipal()`.
- * Rows on the backing `coexist_3d_principals` table carry an
- * `identity_id` foreign key to `coexist_3d_identities` plus the
- * `is_active` flag consulted by the guard's active-principal check.
+ * Implements `Principal` only - distinct from its owning identity - so the
+ * default principal resolver's 3D branch resolves a separate acting principal
+ * via `HasPrincipals::resolveDefaultPrincipal()`. Rows on the backing
+ * `coexist_3d_principals` table carry an `identity_id` foreign key to
+ * `coexist_3d_identities` plus the `is_active` flag consulted by the guard's
+ * active-principal check.
  *
- * The model intentionally does NOT implement `Identity`: the
- * integration test asserts that `Auth::identity()` and
- * `Auth::principal()` expose distinct model classes on the 3D guard,
- * which is only true when the principal is a first-class model in
- * its own right.
+ * The model intentionally does NOT implement `Identity`: the integration test
+ * asserts that `Auth::identity()` and `Auth::principal()` expose distinct
+ * model classes on the 3D guard, which is only true when the principal is a
+ * first-class model in its own right.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -54,9 +53,9 @@ final class Coexist3dPrincipal extends Model implements Principal
     /**
      * Return the owning identity for this principal.
      *
-     * Eager-loads from the `coexist_3d_identities` table via the
-     * `identity_id` foreign key. Called by `ActsAsPrincipal::getIdentity`
-     * when the principal is not itself an Identity (i.e. 3D mode).
+     * Eager-loads from the `coexist_3d_identities` table via the `identity_id`
+     * foreign key. Called by `ActsAsPrincipal::getIdentity` when the principal
+     * is not itself an Identity (i.e. 3D mode).
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      *

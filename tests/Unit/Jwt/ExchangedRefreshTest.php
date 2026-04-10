@@ -16,9 +16,9 @@ use Tests\Unit\Stubs\StubDevice;
 /**
  * Unit tests for the `ExchangedRefresh` immutable result DTO.
  *
- * Asserts the constructor's promoted parameter wiring round-trips
- * unchanged so a mutation that swaps the order or types of the four
- * fields is killed by the suite.
+ * Asserts the constructor's promoted parameter wiring round-trips unchanged so
+ * a mutation that swaps the order or types of the four fields is killed by the
+ * suite.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -31,8 +31,8 @@ final class ExchangedRefreshTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * The constructor exposes the supplied identity, principal,
-     * device, and token result via public readonly fields.
+     * The constructor exposes the supplied identity, principal, device, and
+     * token result via public readonly fields.
      *
      * @return void
      */

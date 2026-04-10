@@ -15,9 +15,9 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 /**
  * Feature tests for the package Auth facade.
  *
- * Boots the package service provider so the `auth` binding resolves
- * to the package `AuthManager` subclass, then verifies the facade's
- * structural inheritance and the `manager()` type-narrowing accessor.
+ * Boots the package service provider so the `auth` binding resolves to the
+ * package `AuthManager` subclass, then verifies the facade's structural
+ * inheritance and the `manager()` type-narrowing accessor.
  *
  * @internal
  *
@@ -28,8 +28,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 final class AuthFacadeTest extends TestCase
 {
     /**
-     * The package facade subclass extends Laravel's framework
-     * `Auth` facade so IDE autocompletion picks up both surfaces.
+     * The package facade subclass extends Laravel's framework `Auth` facade so
+     * IDE autocompletion picks up both surfaces.
      *
      * @return void
      */
@@ -44,10 +44,10 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * The contextual accessors (`principal`, `device`, `tenant`,
-     * `type`) are real instance methods on the package `AuthManager`
-     * - not macros. Verify they exist on the resolved manager so a
-     * rename or removal fails the suite.
+     * The contextual accessors (`principal`, `device`, `tenant`, `type`) are
+     * real instance methods on the package `AuthManager` - not macros. Verify
+     * they exist on the resolved manager so a rename or removal fails the
+     * suite.
      *
      * @return void
      */
@@ -67,12 +67,13 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * `Auth::manager()` returns the package `AuthManager` instance
-     * resolved from the container, type-narrowed to the package
-     * subclass so consumers can call `inheritDriversFrom()` and the
-     * contextual accessors directly.
+     * `Auth::manager()` returns the package `AuthManager` instance resolved
+     * from the container, type-narrowed to the package subclass so consumers
+     * can call `inheritDriversFrom()` and the contextual accessors directly.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testManagerResolvesPackageAuthManagerFromContainer(): void
     {
@@ -83,12 +84,14 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * `Auth::manager()` throws `LogicException` when the `auth`
-     * container binding does not resolve to a package `AuthManager`
-     * instance - the safety net for consumers who forgot to register
-     * the package service provider.
+     * `Auth::manager()` throws `LogicException` when the `auth` container
+     * binding does not resolve to a package `AuthManager` instance - the
+     * safety net for consumers who forgot to register the package service
+     * provider.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testManagerThrowsWhenAuthBindingIsNotPackageManager(): void
     {
@@ -101,8 +104,8 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * Register the package service provider so the `auth` binding
-     * resolves to the package `AuthManager` subclass.
+     * Register the package service provider so the `auth` binding resolves to
+     * the package `AuthManager` subclass.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>

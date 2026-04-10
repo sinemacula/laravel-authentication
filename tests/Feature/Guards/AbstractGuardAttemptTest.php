@@ -13,20 +13,17 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
- * Unit tests for the credential `attempt()` flow on `AbstractGuard`,
- * including the timing-safe Timebox path and the standard auth event
- * sequence.
- *
- * Split out of the original AbstractGuardTest so each derived class
- * stays well below the project's 20-method-per-class threshold
- * (radarlint S1448).
+ * Unit tests for the credential `attempt()` flow on `AbstractGuard`, including
+ * the timing-safe Timebox path and the standard auth event sequence.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -132,10 +129,12 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(\Mockery::type(PrincipalAssigned::class));
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof Login
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof Login
                     && $event->guard    === self::GUARD_NAME
                     && $event->user     === $identity
-                    && $event->remember === false));
+                    && $event->remember === false),
+            );
 
         self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
     }
@@ -164,9 +163,11 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(\Mockery::type(Validated::class));
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof Failed
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof Failed
                     && $event->guard === self::GUARD_NAME
-                    && $event->user  === $identity));
+                    && $event->user  === $identity),
+            );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
     }
@@ -189,33 +190,31 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(\Mockery::type(Attempting::class));
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof Failed
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof Failed
                     && $event->guard === self::GUARD_NAME
-                    && $event->user  === null));
+                    && $event->user  === null),
+            );
 
         self::assertFalse($guard->attempt(['email' => 'x']));
     }
 
     /**
-     * Regression test for the C1 timing-attack fix.
-     *
      * `attempt()` MUST route the entire `retrieveByCredentials` →
      * `hasValidCredentials` → `fireFailedEvent` pipeline through
-     * `Timebox::call()` so the elapsed time is uniform regardless of
-     * whether the supplied identifier resolved to a persisted user.
-     * Before the fix, the short-circuit on a null user bypassed the
-     * timebox entirely, leaking "user exists" vs "user does not
-     * exist" over a timing side-channel. This test asserts
-     * `Timebox::call` is invoked once even on the null-user path.
+     * `Timebox::call()` so the elapsed time is uniform regardless of whether
+     * the supplied identifier resolved to a persisted user. Before the fix, the
+     * short-circuit on a null user bypassed the timebox entirely, leaking "user
+     * exists" vs "user does not exist" over a timing side-channel. This test
+     * asserts `Timebox::call` is invoked once even on the null-user path.
      *
      * @return void
      */
     public function testAttemptAlwaysInvokesTimeboxOnNullUserPath(): void
     {
-        // Replace the default pass-through timebox expectation with a
-        // strict "called exactly once" expectation that still invokes
-        // the closure so the rest of the test observes the failure
-        // event dispatch.
+        // Replace the default pass-through timebox expectation with a strict
+        // "called exactly once" expectation that still invokes the closure so
+        // the rest of the test observes the failure event dispatch.
         $this->timebox->shouldReceive('call')
             ->once()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
@@ -272,9 +271,9 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * A `CanBeActive` identity reporting `false` is rejected after the
-     * hasher check passes - the resolver MUST NOT be invoked and the
-     * `Failed` event fires.
+     * A `CanBeActive` identity reporting `false` is rejected after the hasher
+     * check passes - the resolver MUST NOT be invoked and the `Failed` event
+     * fires.
      *
      * @return void
      */
@@ -306,9 +305,9 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * A resolved principal whose `isActive()` returns `false` is
-     * rejected after the resolver returns; the `Login` event MUST NOT
-     * fire and `Failed` is dispatched.
+     * A resolved principal whose `isActive()` returns `false` is rejected after
+     * the resolver returns; the `Login` event MUST NOT fire and `Failed` is
+     * dispatched.
      *
      * @return void
      */
@@ -349,10 +348,10 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * When the principal resolver throws `UnresolvableIdentityException`
-     * (i.e. the identity model implements neither `Principal` nor
-     * `HasPrincipals`), the guard catches it and converts to a
-     * `Failed` event so the request returns 401, not 500.
+     * When the principal resolver throws `UnresolvableIdentityException` (i.e.
+     * the identity model implements neither `Principal` nor `HasPrincipals`),
+     * the guard catches it and converts to a `Failed` event so the request
+     * returns 401, not 500.
      *
      * @return void
      */
@@ -388,16 +387,16 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * hasValidCredentials() runs inside Timebox::call with the
-     * default 400,000us budget when the package config has not set
-     * a specific microsecond window.
+     * hasValidCredentials() runs inside Timebox::call with then default
+     * 400,000us budget when the package config has not set a specific
+     * microsecond window.
      *
      * @return void
      */
     public function testHasValidCredentialsRunsInsideTimebox(): void
     {
-        // Replace the default Timebox mock with one that asserts the
-        // 400_000 microsecond budget and still invokes the callback.
+        // Replace the default Timebox mock with one that asserts the 400,000
+        // microsecond budget and still invokes the callback
         $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')
             ->once()
@@ -421,9 +420,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * The configured `timebox.credentials_microseconds` value is
-     * passed to `Timebox::call()` when the project overrides the
-     * default.
+     * The configured `timebox.credentials_microseconds` value is passed to
+     * `Timebox::call()` when the project overrides the default.
      *
      * @return void
      */
@@ -454,12 +452,11 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` accepts an explicit `Principal` argument and uses
-     * it directly instead of invoking the resolver. Pins the
-     * `$principal ?? $this->safeResolvePrincipal(...)` short-circuit
-     * - a mutation that swaps `??` for `?:` would still pass when the
-     * caller-provided principal is truthy, so we use a fresh mock
-     * the resolver MUST NOT touch.
+     * `attempt()` accepts an explicit `Principal` argument and uses it directly
+     * instead of invoking the resolver. Pins the `$principal ??
+     * $this->safeResolvePrincipal(...)` short-circuit - a mutation that swaps
+     * `??` for `?:` would still pass when the caller-provided principal is
+     * truthy, so we use a fresh mock the resolver MUST NOT touch.
      *
      * @return void
      */
@@ -477,25 +474,26 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->andReturnTrue();
 
-        // The resolver MUST NOT be called when an explicit principal
-        // is supplied.
+        // The resolver MUST NOT be called when an explicit principal is
+        // supplied.
         $this->resolver->shouldNotReceive('resolve');
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        self::assertTrue($guard->attempt(
-            ['email' => 'x', 'password' => 'y'],
-            $explicit,
-        ));
+        self::assertTrue(
+            $guard->attempt(
+                ['email' => 'x', 'password' => 'y'],
+                $explicit,
+            ),
+        );
 
         self::assertSame($explicit, $guard->principal());
     }
 
     /**
-     * `attempt()` fires `DeviceAuthenticated` exactly once when an
-     * explicit `Device` argument is supplied. Pins the
-     * `setDevice` call inside `bindAuthenticationLifecycle` for the
-     * non-null device branch.
+     * `attempt()` fires `DeviceAuthenticated` exactly once when an explicit
+     * `Device` argument is supplied. Pins the `setDevice` call inside
+     * `bindAuthenticationLifecycle` for the non-null device branch.
      *
      * @return void
      */
@@ -505,7 +503,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         $identity  = $this->mockIdentity();
         $principal = $this->mockActivePrincipal();
-        $device    = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Device::class);
+        $device    = \Mockery::mock(Device::class);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -525,20 +523,22 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
                 $dispatched[] = $event::class;
             });
 
-        self::assertTrue($guard->attempt(
-            ['email' => 'x', 'password' => 'y'],
-            null,
-            $device,
-        ));
+        self::assertTrue(
+            $guard->attempt(
+                ['email' => 'x', 'password' => 'y'],
+                null,
+                $device,
+            ),
+        );
 
         self::assertSame($device, $guard->device());
-        self::assertContains(\SineMacula\Laravel\Authentication\Events\DeviceAuthenticated::class, $dispatched);
+        self::assertContains(DeviceAuthenticated::class, $dispatched);
     }
 
     /**
-     * `attempt()` does NOT fire `DeviceAuthenticated` when no
-     * device is supplied. Pins the `if ($device !== null)` guard
-     * inside `bindAuthenticationLifecycle`.
+     * `attempt()` does NOT fire `DeviceAuthenticated` when no device is
+     * supplied. Pins the `if ($device !== null)` guard  inside
+     * `bindAuthenticationLifecycle`.
      *
      * @return void
      */
@@ -570,12 +570,12 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
 
         self::assertNull($guard->device());
-        self::assertNotContains(\SineMacula\Laravel\Authentication\Events\DeviceAuthenticated::class, $dispatched);
+        self::assertNotContains(DeviceAuthenticated::class, $dispatched);
     }
 
     /**
-     * A non-positive `timebox.credentials_microseconds` config value
-     * falls back to the trait default budget.
+     * A non-positive `timebox.credentials_microseconds` config value falls back
+     * to the trait default budget.
      *
      * @return void
      */

@@ -26,12 +26,11 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Unit tests for the refresh-token exchange path on `JwtGuard`,
- * including all `RefreshFailed` early-return branches.
+ * Unit tests for the refresh-token exchange path on `JwtGuard`, including all
+ * `RefreshFailed` early-return branches.
  *
- * Split out of the original JwtGuardTest so each derived class stays
- * well below the project's 20-method-per-class threshold (radarlint
- * S1448).
+ * Split out of the original JwtGuardTest so each class stays focused on a
+ * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -44,8 +43,8 @@ use Tests\Unit\Stubs\StubModel;
 final class JwtGuardRefreshTest extends JwtGuardTestCase
 {
     /**
-     * When the refresh token cannot be parsed, `refresh()` returns
-     * null and fires `RefreshFailed` with reason `token_invalid`.
+     * When the refresh token cannot be parsed, `refresh()` returns null and
+     * fires `RefreshFailed` with reason `token_invalid`.
      *
      * @return void
      */
@@ -88,8 +87,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When the device lookup returns null, `refresh()` returns null
-     * and fires `RefreshFailed` with reason `device_unknown`.
+     * When the device lookup returns null, `refresh()` returns null and fires
+     * `RefreshFailed` with reason `device_unknown`.
      *
      * @return void
      */
@@ -114,9 +113,9 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When the device's stored refresh-key digest does not match the
-     * hash of the token's `jti` claim, `refresh()` returns null and
-     * fires `RefreshFailed` with reason `rotation_mismatch`.
+     * When the device's stored refresh-key digest does not match the hash of
+     * the token's `jti` claim, `refresh()` returns null and fires
+     * `RefreshFailed` with reason `rotation_mismatch`.
      *
      * @return void
      */
@@ -144,9 +143,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When `device->authenticatable` is not an Identity, `refresh()`
-     * returns null and fires `RefreshFailed` with reason
-     * `authenticatable_missing`.
+     * When `device->authenticatable` is not an Identity, `refresh()` returns
+     * null and fires `RefreshFailed` with reason `authenticatable_missing`.
      *
      * @return void
      */
@@ -183,8 +181,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When the bound identity reports `isActive() === false`, refresh
-     * fails with `identity_inactive` and dispatches `RefreshFailed`.
+     * When the bound identity reports `isActive() === false`, refresh fails
+     * with `identity_inactive` and dispatches `RefreshFailed`.
      *
      * @return void
      */
@@ -268,9 +266,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When the resolved principal reports `isActive() === false`,
-     * refresh fails with `principal_inactive` and dispatches
-     * `RefreshFailed`.
+     * When the resolved principal reports `isActive() === false`, refresh fails
+     * with `principal_inactive` and dispatches `RefreshFailed`.
      *
      * @return void
      */
@@ -318,10 +315,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh attempt against a device whose `revoked_at` column
-     * is set returns null and fires `RefreshFailed` with reason
-     * `device_revoked`, regardless of whether the rotation id
-     * verifies against the stored digest.
+     * A refresh attempt against a device whose `revoked_at` column is set
+     * returns null and fires `RefreshFailed` with reason `device_revoked`,
+     * regardless of whether the rotation id verifies against the stored
+     * digest.
      *
      * @return void
      */
@@ -360,14 +357,13 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     /**
      * Reuse-detection regression test.
      *
-     * When the refresh token verifies against the device's
-     * in-memory digest but the atomic CAS affects zero rows -
-     * meaning the database row's digest has been changed since the
-     * read, typically by a concurrent refresh or a stolen-token
-     * replay - the exchange service revokes the entire device and
-     * dispatches `RefreshFailed` with reason `rotation_reuse`. We
-     * simulate the race by mutating the sqlite row directly between
-     * the setRelation() setup and the refresh() call.
+     * When the refresh token verifies against the device's in-memory digest
+     * but the atomic CAS affects zero rows - meaning the database row's digest
+     * has been changed since the read, typically by a concurrent refresh or a
+     * stolen-token replay - the exchange service revokes the entire device and
+     * dispatches `RefreshFailed` with reason `rotation_reuse`. We simulate the
+     * race by mutating the sqlite row directly between the setRelation() setup
+     * and the refresh() call.
      *
      * @return void
      */
@@ -390,11 +386,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
-        // Simulate a concurrent rotation: mutate the sqlite row's
-        // refresh_key directly so the in-memory digest (which
-        // `loadDeviceForRefresh` still verifies against) is stale
-        // from the CAS's point of view. The CAS will then affect
-        // zero rows and the exchange must detect the reuse.
+        // Simulate a concurrent rotation: mutate the sqlite row's refresh_key
+        // directly so the in-memory digest (which `loadDeviceForRefresh` still
+        // verifies against) is stale from the CAS's point of view. The CAS will
+        // then affect zero rows and the exchange must detect the reuse.
         StubDevice::query()
             ->whereKey($device->id)
             ->update(['refresh_key' => RefreshTokenHasher::hash('concurrent-rotation')]);
@@ -426,18 +421,18 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         self::assertNull($guard->refresh($token));
 
         // The device row has been revoked: revoked_at is set and the
-        // refresh-key column is cleared, so subsequent refresh
-        // attempts produce REASON_DEVICE_REVOKED.
+        // refresh-key column is cleared, so subsequent refresh attempts produce
+        // REASON_DEVICE_REVOKED.
         $fresh = StubDevice::query()->findOrFail($device->id);
         self::assertNotNull($fresh->revoked_at);
         self::assertNull($fresh->refresh_key);
     }
 
     /**
-     * A successful refresh returns a `RefreshResult` carrying a new
-     * access token and a new rotated refresh token, rotates the
-     * device's stored digest, and dispatches the `Refreshed` event
-     * carrying identity + principal + device.
+     * A successful refresh returns a `RefreshResult` carrying a new access
+     * token and a new rotated refresh token, rotates the device's stored
+     * digest, and dispatches the `Refreshed` event carrying identity +
+     * principal + device.
      *
      * @return void
      */
@@ -502,8 +497,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         self::assertIsString($refreshClaims[Claims::JWT_ID->value]);
         self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID->value]);
 
-        // The device's stored digest has been rotated and the old
-        // digest is no longer valid.
+        // The device's stored digest has been rotated and the old digest is no
+        // longer valid.
         $fresh = StubDevice::query()->findOrFail($device->id);
         self::assertNotSame($oldDigest, $fresh->refresh_key);
         self::assertTrue(RefreshTokenHasher::verify($refreshClaims[Claims::JWT_ID->value], $fresh->refresh_key));
@@ -524,8 +519,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * After a successful refresh the guard has the identity,
-     * principal, and device bound for the rest of the request.
+     * After a successful refresh the guard has the identity, principal, and
+     * device bound for the rest of the request.
      *
      * @return void
      */
@@ -575,11 +570,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * Allow the standard `Attempting` + `Failed` events that every
-     * failed `JwtGuard::refresh()` call now dispatches (alongside
-     * the package-specific `RefreshFailed` event). Tests that assert
-     * a specific `RefreshFailed` reason call this helper first to
-     * permit the standard events without constraining them.
+     * Allow the standard `Attempting` + `Failed` events that every failed
+     * `JwtGuard::refresh()` call now dispatches (alongside the
+     * package-specific `RefreshFailed` event). Tests that assert a specific
+     * `RefreshFailed` reason call this helper first to permit the standard
+     * events without constraining them.
      *
      * @return void
      */

@@ -18,10 +18,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  *
  * Owns the frozen Carbon + JWT clocks, the test secret/algorithm/TTL
  * constants, and the helper factories used by every concrete
- * `JwtTokenServiceTest` variant. Subclasses focus on a single
- * behavioural slice (issuance, parse) so each derived class stays
- * well below the project's 20-method-per-class threshold (radarlint
- * S1448).
+ * `JwtTokenServiceTest` variant. Subclasses focus on a single behavioural
+ * slice (issuance, parse) so each class stays focused on a single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -48,8 +46,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
     protected Carbon $now;
 
     /**
-     * Freeze both Carbon and the JWT library clock so expiry assertions
-     * are deterministic and independent of wall time.
+     * Freeze both Carbon and the JWT library clock so expiry assertions are
+     * deterministic and independent of wall time.
      *
      * @return void
      */
@@ -81,8 +79,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Advance both the Carbon clock and the JWT library clock by the
-     * supplied number of minutes so expiry assertions remain in sync.
+     * Advance both the Carbon clock and the JWT library clock by the supplied
+     * number of minutes so expiry assertions remain in sync.
      *
      * @param  int  $minutes
      * @return void
@@ -97,8 +95,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a JwtTokenService instance configured with the test
-     * defaults.
+     * Build a JwtTokenService instance configured with the test defaults.
      *
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
@@ -113,8 +110,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build an Identity mock whose getAuthIdentifier() returns the
-     * supplied value.
+     * Build an Identity mock whose getAuthIdentifier() returns the supplied
+     * value.
      *
      * @param  string  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
@@ -130,8 +127,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a Principal mock whose getPrincipalIdentifier() returns
-     * the supplied value.
+     * Build a Principal mock whose getPrincipalIdentifier() returns the
+     * supplied value.
      *
      * @param  string  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Principal
@@ -147,8 +144,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
     }
 
     /**
-     * Build a Device mock whose getDeviceIdentifier() returns the
-     * supplied value.
+     * Build a Device mock whose getDeviceIdentifier() returns the supplied
+     * value.
      *
      * @param  string  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Device

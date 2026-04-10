@@ -26,8 +26,8 @@ final class MigrationCollisionGuardTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Asserts the guard throws a RuntimeException when the configured
-     * devices table already exists in the schema.
+     * Asserts the guard throws a RuntimeException when the configured devices
+     * table already exists in the schema.
      *
      * @return void
      */
@@ -59,8 +59,8 @@ final class MigrationCollisionGuardTest extends TestCase
     }
 
     /**
-     * Asserts the guard returns silently when the configured devices
-     * table is not present in the schema.
+     * Asserts the guard returns silently when the configured devices table is
+     * not present in the schema.
      *
      * @return void
      */
@@ -74,15 +74,15 @@ final class MigrationCollisionGuardTest extends TestCase
 
         $guard = new MigrationCollisionGuard($schema);
 
-        // ensureNotExists is `void` and the assertion lives in the
-        // Mockery `->once()` expectation: if hasTable was not called
-        // exactly once, Mockery will fail the test in tearDown.
+        // ensureNotExists is `void` and the assertion lives in the Mockery
+        // `->once()` expectation: if hasTable was not called exactly once,
+        // Mockery will fail the test in tearDown.
         $guard->ensureNotExists('devices');
     }
 
     /**
-     * Asserts the exception message echoes a custom configurable table
-     * name supplied at runtime.
+     * Asserts the exception message echoes a custom configurable table name
+     * supplied at runtime.
      *
      * @return void
      */

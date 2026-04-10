@@ -15,9 +15,8 @@ use SineMacula\Laravel\Authentication\AuthServiceProvider;
  * Unit tests for the private static helpers on `AuthServiceProvider`
  * (`registerPublishing`, `resolveJwtInteger`, `resolveOptionalLogger`).
  *
- * Split out of `AuthServiceProviderTest` so each derived class stays
- * well below the project's 20-method-per-class threshold (radarlint
- * S1448).
+ * Split out of `AuthServiceProviderTest` so each class stays focused on a
+ * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -30,10 +29,9 @@ final class AuthServiceProviderHelpersTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * `registerPublishing()` short-circuits when the application is
-     * not running in the console: invoking the protected method
-     * directly with `runningInConsole()` returning false must NOT
-     * register a publish group.
+     * `registerPublishing()` short-circuits when the application is not
+     * running in the console: invoking the protected method directly with
+     * `runningInConsole()` returning false must NOT register a publish group.
      *
      * @return void
      */
@@ -54,8 +52,8 @@ final class AuthServiceProviderHelpersTest extends TestCase
 
     /**
      * `resolveJwtInteger()` falls back to the package config when the
-     * per-guard override is supplied as a non-int (e.g. a string from
-     * an env var that the operator forgot to cast). Pins the
+     * per-guard override is supplied as a non-int (e.g. a string from an env
+     * var that the operator forgot to cast). Pins the
      * `is_int($guardJwtConfig[$key])` arm of the type guard.
      *
      * @return void
@@ -102,9 +100,9 @@ final class AuthServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * `resolveOptionalLogger()` returns `null` when the container has
-     * no PSR-3 logger bound, so the JwtTokenService falls back to
-     * its `NullLogger` default.
+     * `resolveOptionalLogger()` returns `null` when the container has no PSR-3
+     * logger bound, so the JwtTokenService falls back to its `NullLogger`
+     * default.
      *
      * @return void
      */
@@ -126,9 +124,9 @@ final class AuthServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * `resolveOptionalLogger()` returns the bound logger when the
-     * container has one. Mirrors the success branch alongside the
-     * `null` short-circuit above.
+     * `resolveOptionalLogger()` returns the bound logger when the container
+     * has one. Mirrors the success branch alongside the `null` short-circuit
+     * above.
      *
      * @return void
      */
@@ -155,9 +153,8 @@ final class AuthServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * The `auth` binding is a singleton: resolving it twice returns
-     * the same object instance so guards are not reconstructed
-     * mid-request.
+     * The `auth` binding is a singleton: resolving it twice returns the same
+     * object instance so guards are not reconstructed mid-request.
      *
      * @return void
      */
@@ -170,11 +167,10 @@ final class AuthServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * `mergeConfigFrom()` seeds the package defaults without
-     * clobbering values the consumer has already set. The test
-     * confirms the consumer's secret from `defineEnvironment`
-     * survives the provider's `mergeConfigFrom` call, while a key
-     * the consumer did NOT set (`device.table`) takes the package
+     * `mergeConfigFrom()` seeds the package defaults without clobbering values
+     * the consumer has already set. The test confirms the consumer's secret
+     * from `defineEnvironment` survives the provider's `mergeConfigFrom` call,
+     * while a key the consumer did NOT set (`device.table`) takes the package
      * default.
      *
      * @return void
@@ -190,9 +186,8 @@ final class AuthServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * `composer.json` `require` block contains zero
-     * `sinemacula/laravel-*` IAM sibling packages. Standalone
-     * installability guard.
+     * `composer.json` `require` block contains zero `sinemacula/laravel-*` IAM
+     * sibling packages. Standalone installability guard.
      *
      * @return void
      */
@@ -221,8 +216,7 @@ final class AuthServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench
-     * application.
+     * Register the package service provider against the Testbench application.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -233,8 +227,8 @@ final class AuthServiceProviderHelpersTest extends TestCase
     }
 
     /**
-     * Define the Testbench environment with package config so the
-     * merge-config test can verify consumer values survive.
+     * Define the Testbench environment with package config so the merge-config
+     * test can verify consumer values survive.
      *
      * @param  mixed  $app
      * @return void

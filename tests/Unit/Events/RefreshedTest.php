@@ -99,9 +99,9 @@ final class RefreshedTest extends TestCase
     }
 
     /**
-     * The `Refreshed` event composes Laravel's `SerializesModels`
-     * trait so it survives a queued-listener round trip. Reflection
-     * guards against accidentally dropping the trait.
+     * The `Refreshed` event composes Laravel's `SerializesModels` trait so it
+     * survives a queued-listener round trip. Reflection guards against
+     * accidentally dropping the trait.
      *
      * @return void
      */
@@ -114,16 +114,14 @@ final class RefreshedTest extends TestCase
     }
 
     /**
-     * The event is `serialize`/`unserialize` round-trippable with
-     * plain-object (non-Eloquent) contract implementations as
-     * payload. Pins the runtime serialisation path - if
-     * `SerializesModels` is dropped or the event gains a
-     * non-serialisable property, the round trip fails.
+     * The event is `serialize`/`unserialize` round-trippable with plain-object
+     * (non-Eloquent) contract implementations as payload. Pins the runtime
+     * serialisation path - if `SerializesModels` is dropped or the event gains
+     * a non-serialisable property, the round trip fails.
      *
-     * Uses plain-object fixtures rather than Eloquent stubs so the
-     * assertion does not require a database connection;
-     * `SerializesModels` only replaces Eloquent models with lazy
-     * identifiers, leaving arbitrary objects intact.
+     * Uses plain-object fixtures rather than Eloquent stubs so the assertion
+     * does not require a database connection; `SerializesModels` only replaces
+     * Eloquent models with lazy identifiers, leaving arbitrary objects intact.
      *
      * @return void
      */
@@ -150,8 +148,8 @@ final class RefreshedTest extends TestCase
     }
 
     /**
-     * Build a Refreshed event with the supplied guard name and fresh
-     * mock collaborators.
+     * Build a Refreshed event with the supplied guard name and fresh mock
+     * collaborators.
      *
      * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Events\Refreshed

@@ -13,11 +13,11 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 /**
  * Unit tests for the `JwtKeyring` value object.
  *
- * Asserts the fail-closed validation surface (empty secrets, empty
- * key maps, unknown active kids, malformed entries) and the two
- * shape contracts the token service relies on: legacy mode returns a
- * single `Key` from `verificationKeys()` and emits no kid header,
- * kid mode returns a `kid → Key` map and emits the active kid.
+ * Asserts the fail-closed validation surface (empty secrets, empty key maps,
+ * unknown active kids, malformed entries) and the two shape contracts the
+ * token service relies on: legacy mode returns a single `Key` from
+ * `verificationKeys()` and emits no kid header, kid mode returns a `kid → Key`
+ * map and emits the active kid.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -54,8 +54,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts a single-secret keyring reports `null` from
-     * `activeKid()` so newly issued tokens carry no `kid` header.
+     * Asserts a single-secret keyring reports `null` from `activeKid()` so
+     * newly issued tokens carry no `kid` header.
      *
      * @return void
      */
@@ -67,8 +67,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `verificationKeys()` returns a bare `Key` (not a map)
-     * in legacy mode so php-jwt accepts headerless tokens.
+     * Asserts `verificationKeys()` returns a bare `Key` (not a map) in legacy
+     * mode so php-jwt accepts headerless tokens.
      *
      * @return void
      */
@@ -80,8 +80,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an empty map with the typed
-     * configuration exception.
+     * Asserts `fromKeyMap()` rejects an empty map with the typed configuration
+     * exception.
      *
      * @return void
      */
@@ -94,8 +94,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an active kid that does not
-     * appear in the supplied key map.
+     * Asserts `fromKeyMap()` rejects an active kid that does not appear in the
+     * supplied key map.
      *
      * @return void
      */
@@ -112,8 +112,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an empty active-kid string even
-     * when the supplied map is non-empty.
+     * Asserts `fromKeyMap()` rejects an empty active-kid string even when the
+     * supplied map is non-empty.
      *
      * @return void
      */
@@ -129,11 +129,11 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects a `kid -> secret` map containing
-     * an empty-string kid alongside a valid one. The active-kid
-     * presence check at the top of the factory passes (the active
-     * kid is the non-empty entry), so the iteration in `buildKeyMap`
-     * surfaces the empty-kid guard at `JwtKeyring.php:206-212`.
+     * Asserts `fromKeyMap()` rejects a `kid -> secret` map containing an
+     * empty-string kid alongside a valid one. The active-kid presence check at
+     * the top of the factory passes (the active kid is the non-empty entry),
+     * so the iteration in `buildKeyMap` surfaces the empty-kid guard at
+     * `JwtKeyring.php:206-212`.
      *
      * @return void
      */
@@ -153,8 +153,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an entry whose secret material
-     * is the empty string - every kid must map to real material.
+     * Asserts `fromKeyMap()` rejects an entry whose secret material is the
+     * empty string - every kid must map to real material.
      *
      * @return void
      */
@@ -171,10 +171,10 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromKeyMap()` rejects an entry whose secret material
-     * is `null` - `env()` returns `null` for unset variables, so the
-     * runtime guard must catch this case as well as the empty string
-     * to fail closed with a friendly message naming the offending kid.
+     * Asserts `fromKeyMap()` rejects an entry whose secret material is `null`
+     * - `env()` returns `null` for unset variables, so the runtime guard must
+     * catch this case as well as the empty string to fail closed with a
+     * friendly message naming the offending kid.
      *
      * @return void
      */
@@ -183,9 +183,9 @@ final class JwtKeyringTest extends TestCase
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage(sprintf('JWT key \'%s\' has empty material', self::NEW_KID));
 
-        // `fromKeyMap` is declared `array<array-key, mixed>`
-        // precisely so the fail-closed guard can reject the null
-        // payload at runtime rather than via a static-analysis hint.
+        // `fromKeyMap` is declared `array<array-key, mixed>` precisely so the
+        // fail-closed guard can reject the null payload at runtime rather than
+        // via a static-analysis hint.
         JwtKeyring::fromKeyMap(
             [self::NEW_KID => null],
             self::NEW_KID,
@@ -194,9 +194,9 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromSecret()` rejects a signing algorithm that is not
-     * on the supported allow-list - typos and weak settings must fail
-     * at boot rather than at the first encode/decode call.
+     * Asserts `fromSecret()` rejects a signing algorithm that is not on the
+     * supported allow-list - typos and weak settings must fail at boot rather
+     * than at the first encode/decode call.
      *
      * @return void
      */
@@ -209,8 +209,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts a multi-kid keyring reports the configured active kid
-     * so the token service can embed it in the JWT header.
+     * Asserts a multi-kid keyring reports the configured active kid so the
+     * token service can embed it in the JWT header.
      *
      * @return void
      */
@@ -229,9 +229,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `verificationKeys()` returns a `kid → Key` map in kid
-     * mode so php-jwt picks the correct key from each token's `kid`
-     * header.
+     * Asserts `verificationKeys()` returns a `kid → Key` map in kid mode so
+     * php-jwt picks the correct key from each token's `kid` header.
      *
      * @return void
      */
@@ -257,8 +256,8 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `activeKey()` returns the `Key` keyed by the configured
-     * active kid (not some other entry in the map).
+     * Asserts `activeKey()` returns the `Key` keyed by the configured active
+     * kid (not some other entry in the map).
      *
      * @return void
      */

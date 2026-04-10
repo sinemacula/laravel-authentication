@@ -24,11 +24,10 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 /**
  * Reflection-based structural tests for the package contracts.
  *
- * Pins the documented method surface of every contract and the
- * inheritance chains that let framework typehints resolve against
- * package implementations. Marked `#[CoversNothing]` because PHPUnit
- * cannot attribute coverage to a bare interface; the assertions run
- * against interface metadata only.
+ * Pins the documented method surface of every contract and the inheritance
+ * chains that let framework typehints resolve against package implementations.
+ * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a
+ * bare interface; the assertions run against interface metadata only.
  *
  * @internal
  *
@@ -39,8 +38,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 final class ContractDeclarationTest extends TestCase
 {
     /**
-     * `IdentityProvider` extends Laravel's framework `UserProvider`
-     * contract so the package provider drops into Laravel's
+     * `IdentityProvider` extends Laravel's framework `UserProvider` contract
+     * so the package provider drops into Laravel's
      * `Auth::createUserProvider()` factory unchanged.
      *
      * @return void
@@ -54,8 +53,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `Identity` extends `Illuminate\Contracts\Auth\Authenticatable`
-     * so every identity satisfies Laravel's framework typehints.
+     * `Identity` extends `Illuminate\Contracts\Auth\Authenticatable` so every
+     * identity satisfies Laravel's framework typehints.
      *
      * @return void
      */
@@ -69,8 +68,8 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `Device` declares every method the refresh-token exchange and
-     * `ActsAsDevice` trait depend on. A reflection check kills a
-     * mutation that removes or renames a contract method silently.
+     * `ActsAsDevice` trait depend on. A reflection check kills a mutation that
+     * removes or renames a contract method silently.
      *
      * @param  string  $method
      * @return void
@@ -102,8 +101,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `Principal` declares every method the contextual guards and
-     * default resolver depend on.
+     * `Principal` declares every method the contextual guards and default
+     * resolver depend on.
      *
      * @param  string  $method
      * @return void
@@ -133,9 +132,9 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `Tenant` declares the identifier accessor used by the
-     * contextual accessors. Tenant scoping is otherwise opt-in via
-     * the `HasType` capability interface.
+     * `Tenant` declares the identifier accessor used by the contextual
+     * accessors. Tenant scoping is otherwise opt-in via the `HasType`
+     * capability interface.
      *
      * @return void
      */
@@ -149,9 +148,8 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `HasDevices::devices()` must return an
-     * `Illuminate\Contracts\Database\Eloquent\Builder` so the JWT
-     * guard's `resolveDeviceFromHint()` path can query through a
-     * uniform surface.
+     * `Illuminate\Contracts\Database\Eloquent\Builder` so the JWT guard's
+     * `resolveDeviceFromHint()` path can query through a uniform surface.
      *
      * @return void
      */
@@ -191,9 +189,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `JwtGuard` implements the package `ContextualGuard` interface
-     * so typehints on the package facade and service locator resolve
-     * correctly.
+     * `JwtGuard` implements the package `ContextualGuard` interface so
+     * typehints on the package facade and service locator resolve correctly.
      *
      * @return void
      */
@@ -207,8 +204,8 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `JwtGuard` implements Laravel's framework `Guard` contract so
-     * first-party `Auth::guard()->user()` calls return a framework-
-     * compatible guard.
+     * first-party `Auth::guard()->user()` calls return a framework- compatible
+     * guard.
      *
      * @return void
      */
@@ -247,10 +244,9 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Both shipped guards declare every method on Laravel's `Guard`
-     * contract. Pins the full conformance surface in one reflection
-     * scan per guard class so a renamed contract method fails the
-     * suite cleanly.
+     * Both shipped guards declare every method on Laravel's `Guard` contract.
+     * Pins the full conformance surface in one reflection scan per guard class
+     * so a renamed contract method fails the suite cleanly.
      *
      * @param  string  $method
      * @return void
@@ -269,8 +265,7 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Data provider listing every method on Laravel's `Guard`
-     * contract.
+     * Data provider listing every method on Laravel's `Guard` contract.
      *
      * @return array<string, array{0: string}>
      */

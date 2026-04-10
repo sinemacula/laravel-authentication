@@ -10,11 +10,11 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 
 /**
  * Eloquent Device fixture that intentionally does NOT compose the
- * `ActsAsDevice` trait, so it implements every contract method by
- * hand and lacks the trait's `getLastLoggedInName` /
- * `getRefreshKeyName` / `getRevokedAtName` accessors. Used by the
- * `UpdateDeviceTimestamp` listener and the `RefreshTokenExchange`
- * service to exercise their column-name fallback paths.
+ * `ActsAsDevice` trait, so it implements every contract method by hand and
+ * lacks the trait's `getLastLoggedInName` / `getRefreshKeyName` /
+ * `getRevokedAtName` accessors. Used by the `UpdateDeviceTimestamp` listener
+ * and the `RefreshTokenExchange` service to exercise their column-name
+ * fallback paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

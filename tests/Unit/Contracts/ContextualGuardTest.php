@@ -17,15 +17,14 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 /**
  * Reflection-based structural tests for the ContextualGuard contract.
  *
- * Verifies that the published interface exposes the documented
- * contextual surface (accessors, setters, contextual `attempt`/`login`)
- * and that it inherits from Laravel's `Guard` contract. No instance of
- * the interface is constructed - the assertions run against interface
- * metadata only.
+ * Verifies that the published interface exposes the documented contextual
+ * surface (accessors, setters, contextual `attempt`/`login`) and that it
+ * inherits from Laravel's `Guard` contract. No instance of the interface is
+ * constructed - the assertions run against interface metadata only.
  *
- * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage
- * to a bare interface; the interface's structural shape is asserted
- * via reflection rather than line execution.
+ * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a
+ * bare interface; the interface's structural shape is asserted via reflection
+ * rather than line execution.
  *
  * @internal
  *
@@ -53,8 +52,8 @@ final class ContextualGuardTest extends TestCase
     }
 
     /**
-     * The contract declares every contextual accessor with the
-     * documented nullable return type.
+     * The contract declares every contextual accessor with the documented
+     * nullable return type.
      *
      * @return void
      */
@@ -83,8 +82,8 @@ final class ContextualGuardTest extends TestCase
     }
 
     /**
-     * The contract declares `setPrincipal` and `setDevice` with a
-     * `static` return type.
+     * The contract declares `setPrincipal` and `setDevice` with a `static`
+     * return type.
      *
      * @return void
      */
@@ -117,8 +116,8 @@ final class ContextualGuardTest extends TestCase
     }
 
     /**
-     * The contract declares contextual `attempt` and `login` methods
-     * with the documented parameter and return types.
+     * The contract declares contextual `attempt` and `login` methods with the
+     * documented parameter and return types.
      *
      * @return void
      */
@@ -191,8 +190,7 @@ final class ContextualGuardTest extends TestCase
     }
 
     /**
-     * The Identity contract inherits from Laravel's Authenticatable
-     * contract (structural verification of T10's output).
+     * The Identity contract inherits from Laravel's Authenticatable contract.
      *
      * @return void
      */

@@ -13,12 +13,11 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Parse-side unit tests for `JwtTokenService` - `parse()` and the
- * issuer / audience / `typ` / leeway / logger surface.
+ * Parse-side unit tests for `JwtTokenService` - `parse()` and the issuer /
+ * audience / `typ` / leeway / logger surface.
  *
- * Split out of the original `JwtTokenServiceTest` so each derived
- * class stays well below the project's 20-method-per-class
- * threshold (radarlint S1448).
+ * Split out of the original `JwtTokenServiceTest` so each class stays focused
+ * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -35,8 +34,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     private const string ISSUER_B = 'https://issuer-b.example.test';
 
     /**
-     * Asserts parsing a token signed with a different secret returns
-     * null rather than raising an exception.
+     * Asserts parsing a token signed with a different secret returns null
+     * rather than raising an exception.
      *
      * @return void
      */
@@ -72,9 +71,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A refresh token presented to `parse()` with `expectedType =
-     * access` is rejected - the `typ` check prevents token-type
-     * confusion.
+     * A refresh token presented to `parse()` with `expectedType = access` is
+     * rejected - the `typ` check prevents token-type confusion.
      *
      * @return void
      */
@@ -89,9 +87,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An access token presented to `parse()` with `expectedType =
-     * refresh` is rejected - the `typ` check prevents token-type
-     * confusion.
+     * An access token presented to `parse()` with `expectedType = refresh` is
+     * rejected - the `typ` check prevents token-type confusion.
      *
      * @return void
      */
@@ -107,8 +104,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * When the service is configured with an issuer and audience, a
-     * token issued by that service parses cleanly on that service.
+     * When the service is configured with an issuer and audience, a token
+     * issued by that service parses cleanly on that service.
      *
      * @return void
      */
@@ -136,8 +133,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * A token whose issuer claim does not match the verifier's
-     * configured issuer is rejected.
+     * A token whose issuer claim does not match the verifier's configured
+     * issuer is rejected.
      *
      * @return void
      */
@@ -170,8 +167,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Clock-skew leeway lets a token that is at most
-     * `leewaySeconds` past its `exp` still decode cleanly.
+     * Clock-skew leeway lets a token that is at most `leewaySeconds` past its
+     * `exp` still decode cleanly.
      *
      * @return void
      */
@@ -201,11 +198,10 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * After `parse()` returns, `JWT::$leeway` is restored to whatever
-     * value the consumer had set before the call - not hard-reset to
-     * `0`. This regression guards against the package clobbering
-     * consumer-configured clock-skew tolerance across our decode
-     * window.
+     * After `parse()` returns, `JWT::$leeway` is restored to whatever value
+     * the consumer had set before the call - not hard-reset to `0`. This
+     * regression guards against the package clobbering consumer-configured
+     * clock-skew tolerance across our decode window.
      *
      * @return void
      */
@@ -236,9 +232,9 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * When a PSR-3 logger is supplied to the constructor, parse
-     * failures are debug-logged with the underlying exception class
-     * so consumer error reporters can attribute the failure mode.
+     * When a PSR-3 logger is supplied to the constructor, parse failures are
+     * debug-logged with the underlying exception class so consumer error
+     * reporters can attribute the failure mode.
      *
      * @return void
      */
@@ -264,8 +260,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Issuer-mismatch failures are also debug-logged with the
-     * expected vs received issuer.
+     * Issuer-mismatch failures are also debug-logged with the expected vs
+     * received issuer.
      *
      * @return void
      */

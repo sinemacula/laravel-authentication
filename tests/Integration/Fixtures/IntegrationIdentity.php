@@ -16,11 +16,11 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 /**
  * Minimal Eloquent fixture used by the integration tests.
  *
- * Implements `Identity` and `Principal` so the package guards can
- * operate in 2D mode, and `HasDevices` so the JwtGuard's device-hint
- * resolution path has a real relation to query against the shipped
- * Device model. Tests create rows in the backing `integration_identities`
- * table (seeded in `Tests\TestCase::defineDatabaseMigrations()`).
+ * Implements `Identity` and `Principal` so the package guards can operate in
+ * 2D mode, and `HasDevices` so the JwtGuard's device-hint resolution path has
+ * a real relation to query against the shipped Device model. Tests create rows
+ * in the backing `integration_identities` table (seeded in
+ * `Tests\TestCase::defineDatabaseMigrations()`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -51,9 +51,9 @@ final class IntegrationIdentity extends Model implements HasDevices, Identity, P
     /**
      * Eloquent relation builder for the identity's devices.
      *
-     * Filters the shipped Device model by the polymorphic
-     * authenticatable columns so `JwtGuard::resolveDeviceFromHint()`
-     * can resolve a device by its id through a real query.
+     * Filters the shipped Device model by the polymorphic authenticatable
+     * columns so `JwtGuard::resolveDeviceFromHint()` can resolve a device by
+     * its id through a real query.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */

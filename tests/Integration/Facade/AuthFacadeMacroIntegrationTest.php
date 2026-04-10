@@ -18,12 +18,11 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Integration test for the Auth facade contextual macros.
  *
- * Boots the package service provider through Testbench and asserts
- * that the four contextual `Auth::...()` macros (`principal`, `device`,
- * `tenant`, `type`) return resolved values when the active guard
- * implements `ContextualGuard` and a user is bound, and return `null`
- * when the guard is unauthenticated or does not implement
- * `ContextualGuard`.
+ * Boots the package service provider through Testbench and asserts that the
+ * four contextual `Auth::...()` macros (`principal`, `device`, `tenant`,
+ * `type`) return resolved values when the active guard implements
+ * `ContextualGuard` and a user is bound, and return `null` when the guard is
+ * unauthenticated or does not implement `ContextualGuard`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -36,8 +35,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 final class AuthFacadeMacroIntegrationTest extends TestCase
 {
     /**
-     * `Auth::principal()` returns null for an unauthenticated request
-     * when the default guard is the package's `api` jwt guard.
+     * `Auth::principal()` returns null for an unauthenticated request when the
+     * default guard is the package's `api` jwt guard.
      *
      * @return void
      */
@@ -79,9 +78,9 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * After binding an identity + principal via the contextual
-     * guard's `login()`, `Auth::principal()` forwards to the guard
-     * and returns the resolved principal.
+     * After binding an identity + principal via the contextual guard's
+     * `login()`, `Auth::principal()` forwards to the guard and returns the
+     * resolved principal.
      *
      * @return void
      */
@@ -96,8 +95,8 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * After `login()` with a bound device, `Auth::device()` forwards
-     * to the contextual guard and returns the bound device.
+     * After `login()` with a bound device, `Auth::device()` forwards to the
+     * contextual guard and returns the bound device.
      *
      * @return void
      */
@@ -119,9 +118,9 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * When the default guard is swapped to a stock framework guard
-     * (the session `web` guard) the macro returns the safe fallback
-     * because the resolved guard does not implement `ContextualGuard`.
+     * When the default guard is swapped to a stock framework guard (the
+     * session `web` guard) the macro returns the safe fallback because the
+     * resolved guard does not implement `ContextualGuard`.
      *
      * @return void
      */
@@ -129,8 +128,8 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     {
         config()->set('auth.defaults.guard', 'web');
 
-        // Force the auth factory to forget any cached guard so the
-        // next resolve returns the newly-defaulted web guard.
+        // Force the auth factory to forget any cached guard so the next resolve
+        // returns the newly-defaulted web guard.
         /** @var \Illuminate\Auth\AuthManager $auth */
         $auth = app(IlluminateAuthFactoryContract::class);
         $auth->forgetGuards();
@@ -146,10 +145,10 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * Configure two guards: the package `api` guard (jwt driver) and
-     * a stock framework `web` guard (session driver). Individual
-     * tests flip the default guard between them to exercise both
-     * branches of the macro's `ContextualGuard` check.
+     * Configure two guards: the package `api` guard (jwt driver) and a stock
+     * framework `web` guard (session driver). Individual tests flip the
+     * default guard between them to exercise both branches of the macro's
+     * `ContextualGuard` check.
      *
      * @param  mixed  $app
      * @return void
@@ -183,9 +182,9 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * Bind a `StubPrincipal` (and optional `StubDevice`) to the
-     * active contextual guard via the package's `login()` surface so
-     * the macro assertions observe a fully-resolved context.
+     * Bind a `StubPrincipal` (and optional `StubDevice`) to the active
+     * contextual guard via the package's `login()` surface so the macro
+     * assertions observe a fully-resolved context.
      *
      * @param  \Tests\Unit\Stubs\StubDevice|null  $device
      * @return \Tests\Unit\Stubs\StubPrincipal

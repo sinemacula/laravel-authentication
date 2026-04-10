@@ -14,11 +14,11 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
- * Eloquent stub implementing Principal (and Identity for 2D mode)
- * via the package's ActsAsPrincipal trait.
+ * Eloquent stub implementing Principal (and Identity for 2D mode) via the
+ * package's ActsAsPrincipal trait.
  *
- * Also implements `HasDevices` so JWT integration tests can resolve
- * a device from a token hint via the polymorphic devices table.
+ * Also implements `HasDevices` so JWT integration tests can resolve a device
+ * from a token hint via the polymorphic devices table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -42,9 +42,8 @@ class StubPrincipal extends Model implements HasDevices, Identity, Principal
     protected $guarded = [];
 
     /**
-     * Eloquent relation builder for the identity's devices, filtered
-     * by the polymorphic `authenticatable_*` columns on the shipped
-     * Device model.
+     * Eloquent relation builder for the identity's devices, filtered by the
+     * polymorphic `authenticatable_*` columns on the shipped Device model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */

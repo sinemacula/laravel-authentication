@@ -12,14 +12,12 @@ use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 use Tests\TestCase;
 
 /**
- * Integration test for the shipped devices migration's collision
- * safety guard.
+ * Integration test for the shipped devices migration's collision safety guard.
  *
- * Verifies that the migration aborts with a `\RuntimeException`
- * carrying an actionable message when the configured devices table
- * already exists on the target connection, and that the abort occurs
- * before any schema mutation. Also verifies the happy path when no
- * collision is present.
+ * Verifies that the migration aborts with a `\RuntimeException` carrying an
+ * actionable message when the configured devices table already exists on the
+ * target connection, and that the abort occurs before any schema mutation.
+ * Also verifies the happy path when no collision is present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -33,9 +31,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_devices_table.php';
 
     /**
-     * Ensure every test starts with the default device config and a
-     * clean in-memory schema. Individual tests mutate state as
-     * required.
+     * Ensure every test starts with the default device config and a clean
+     * in-memory schema. Individual tests mutate state as required.
      *
      * @return void
      */
@@ -65,9 +62,9 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Running the migration when a `devices` table already exists
-     * throws a `\RuntimeException` whose message contains the
-     * documented actionable substring and the conflicting table name.
+     * Running the migration when a `devices` table already exists throws a
+     * `\RuntimeException` whose message contains the documented actionable
+     * substring and the conflicting table name.
      *
      * @return void
      */
@@ -88,10 +85,10 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * When the collision guard throws, the pre-existing `devices`
-     * table remains untouched - specifically, the sentinel column
-     * seeded before the throw is still present, proving the abort
-     * happened before `Schema::create(...)` could mutate the schema.
+     * When the collision guard throws, the pre-existing `devices` table
+     * remains untouched - specifically, the sentinel column seeded before the
+     * throw is still present, proving the abort happened before
+     * `Schema::create(...)` could mutate the schema.
      *
      * @return void
      */
@@ -119,8 +116,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * After dropping the conflicting table, re-running the migration
-     * succeeds and creates the shipped `devices` schema.
+     * After dropping the conflicting table, re-running the migration succeeds
+     * and creates the shipped `devices` schema.
      *
      * @return void
      */
@@ -142,9 +139,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Overriding `device.table` with a custom name routes the
-     * migration to that table and leaves the default `devices` table
-     * uncreated.
+     * Overriding `device.table` with a custom name routes the migration to
+     * that table and leaves the default `devices` table uncreated.
      *
      * @return void
      */
@@ -162,11 +158,10 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Require the shipped anonymous-class migration file and return
-     * the resulting `Migration` instance. The shipped anonymous class
-     * defines `up()` and `down()` directly; callers invoke via
-     * `runMigrationUp()` because `up()` is not declared on the parent
-     * `Migration` class.
+     * Require the shipped anonymous-class migration file and return the
+     * resulting `Migration` instance. The shipped anonymous class defines
+     * `up()` and `down()` directly; callers invoke via `runMigrationUp()`
+     * because `up()` is not declared on the parent `Migration` class.
      *
      * @return \Illuminate\Database\Migrations\Migration
      */
@@ -182,8 +177,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Invoke the migration's `up()` method without statically calling
-     * it on the parent `Migration` class (which does not declare `up`).
+     * Invoke the migration's `up()` method without statically calling it on
+     * the parent `Migration` class (which does not declare `up`).
      *
      * @param  \Illuminate\Database\Migrations\Migration  $migration
      * @return void

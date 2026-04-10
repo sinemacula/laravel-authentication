@@ -27,13 +27,11 @@ use SineMacula\Laravel\Authentication\Guards\BasicGuard;
  * Unit tests for the BasicGuard contextual guard.
  *
  * Exercises HTTP Basic credential extraction, timing-safe credential
- * validation via the inherited Timebox path, identity-as-principal
- * resolution, and the login/logout state cycle. Uses a plain PHPUnit
- * TestCase because the BasicGuard takes its identifier field via the
- * constructor (no facade dependency). The Request collaborator is a
- * real Symfony/Illuminate `Request` instance built via
- * `Request::create(...)` (per php-tst-034 fakes preference for
- * Symfony value objects).
+ * validation via the inherited Timebox path, identity-as-principal resolution,
+ * and the login/logout state cycle. Uses a plain PHPUnit TestCase because the
+ * BasicGuard takes its identifier field via the constructor (no facade
+ * dependency). The Request collaborator is a real Symfony/Illuminate `Request`
+ * instance built via `Request::create(...)`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -77,8 +75,8 @@ final class BasicGuardTest extends TestCase
         $this->events   = \Mockery::mock(Dispatcher::class);
         $this->timebox  = \Mockery::mock(Timebox::class);
 
-        // Default: Timebox::call() invokes the callback directly so
-        // credential validation paths run deterministically.
+        // Default: Timebox::call() invokes the callback directly so credential
+        // validation paths run deterministically.
         $this->timebox->shouldReceive('call')
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
@@ -115,8 +113,8 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * When `retrieveByCredentials()` returns null, `user()` fires
-     * `Attempting` and `Failed` and returns null.
+     * When `retrieveByCredentials()` returns null, `user()` fires `Attempting`
+     * and `Failed` and returns null.
      *
      * @return void
      */
@@ -149,9 +147,9 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * When `validateCredentials()` returns false, `user()` fires
-     * `Attempting` and `Failed` and returns null. The `Validated`
-     * event is NOT emitted because the hasher check failed.
+     * When `validateCredentials()` returns false, `user()` fires `Attempting`
+     * and `Failed` and returns null. The `Validated` event is NOT emitted
+     * because the hasher check failed.
      *
      * @return void
      */
@@ -221,15 +219,12 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * H1 regression test.
-     *
-     * When the principal resolver throws
-     * `UnresolvableIdentityException` (the typed signal a
-     * misconfigured identity model implements neither `Principal`
-     * nor `HasPrincipals`) `BasicGuard::user()` MUST convert it to
-     * a `Failed` event and return null - NOT let it propagate as
-     * an uncaught 500. The conversion mirrors `JwtGuard::user()`
-     * and `AbstractGuard::attempt()`.
+     * When the principal resolver throws `UnresolvableIdentityException` (the
+     * typed signal a misconfigured identity model implements neither
+     * `Principal` nor `HasPrincipals`) `BasicGuard::user()` MUST convert it to
+     * a `Failed` event and return null - NOT let it propagate as an uncaught
+     * 500. The conversion mirrors `JwtGuard::user()` and
+     * `AbstractGuard::attempt()`.
      *
      * @return void
      */
@@ -267,8 +262,8 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * When the resolved principal's `isActive()` is false, `user()`
-     * returns null and fires `Failed`.
+     * When the resolved principal's `isActive()` is false, `user()` returns
+     * null and fires `Failed`.
      *
      * @return void
      */
@@ -307,9 +302,9 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * A valid request binds the identity and principal and dispatches
-     * the full success-path event sequence: `Attempting`, `Validated`,
-     * `Authenticated`, `PrincipalAssigned`, and `Login`.
+     * A valid request binds the identity and principal and dispatches the full
+     * success-path event sequence: `Attempting`, `Validated`, `Authenticated`,
+     * `PrincipalAssigned`, and `Login`.
      *
      * @return void
      */
@@ -354,15 +349,15 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * Credential validation runs inside `Timebox::call()` with the
-     * default 400,000 microsecond budget.
+     * Credential validation runs inside `Timebox::call()` with the default
+     * 400,000 microsecond budget.
      *
      * @return void
      */
     public function testUserRunsCredentialValidationThroughTimebox(): void
     {
-        // Replace the default Timebox mock with one that asserts the
-        // 400_000 microsecond budget and still invokes the callback.
+        // Replace the default Timebox mock with one that asserts the 400_000
+        // microsecond budget and still invokes the callback.
         $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')
             ->once()
@@ -395,10 +390,10 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * `user()` short-circuits and returns the already-bound identity
-     * (set via the parent `setUser()`) without invoking the identity
-     * provider, the resolver, or the dispatcher. Pins the
-     * `$this->identity !== null` guard at `BasicGuard.php:84-86`.
+     * `user()` short-circuits and returns the already-bound identity (set via
+     * the parent `setUser()`) without invoking the identity provider, the
+     * resolver, or the dispatcher. Pins the `$this->identity !== null` guard
+     * at `BasicGuard.php:84-86`.
      *
      * @return void
      */
@@ -412,9 +407,9 @@ final class BasicGuardTest extends TestCase
             ->once()
             ->with(\Mockery::type(\Illuminate\Auth\Events\Authenticated::class));
 
-        // Pre-bind the identity via setUser. Subsequent user() calls
-        // must NOT touch the provider/resolver - if they did, Mockery
-        // would fail because no expectations are configured.
+        // Pre-bind the identity via setUser. Subsequent user() calls must NOT
+        // touch the provider/resolver - if they did, Mockery would fail because
+        // no expectations are configured.
         $this->provider->shouldNotReceive('retrieveByCredentials');
         $this->provider->shouldNotReceive('validateCredentials');
         $this->resolver->shouldNotReceive('resolve');
@@ -489,9 +484,9 @@ final class BasicGuardTest extends TestCase
 
         $guard->logout();
 
-        // After logout the stateless guard will re-read the request on
-        // the next `user()` call - swap in a credential-less request so
-        // the re-read cannot resurrect the bound identity.
+        // After logout the stateless guard will re-read the request on the next
+        // `user()` call - swap in a credential-less request so the re-read
+        // cannot resurrect the bound identity.
         $guard->setRequest($this->makeRequest(null, null));
 
         self::assertFalse($guard->check());
@@ -499,9 +494,8 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * The inherited `attempt()` flow dispatches `Attempting`,
-     * `Validated`, `Authenticated`, `PrincipalAssigned`, and `Login`
-     * for valid credentials.
+     * The inherited `attempt()` flow dispatches `Attempting`, `Validated`,
+     * `Authenticated`, `PrincipalAssigned`, and `Login` for valid credentials.
      *
      * @return void
      */
@@ -548,9 +542,9 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * When the guard is constructed with a non-default identifier
-     * field, the credentials array passed to the identity provider
-     * uses that field as the key.
+     * When the guard is constructed with a non-default identifier field, the
+     * credentials array passed to the identity provider uses that field as the
+     * key.
      *
      * @return void
      */
@@ -589,11 +583,10 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * Constructing a BasicGuard with an empty-string identifier
-     * field falls back to `'email'` so a misconfigured guard does
-     * not compose queries against a blank column name. Mutation
-     * guard: pins the `=== '' ? 'email'` ternary at
-     * `BasicGuard.php:73`.
+     * Constructing a BasicGuard with an empty-string identifier field falls
+     * back to `'email'` so a misconfigured guard does not compose queries
+     * against a blank column name. Mutation guard: pins the `=== '' ? 'email'`
+     * ternary at `BasicGuard.php:73`.
      *
      * @return void
      */
@@ -614,8 +607,7 @@ final class BasicGuardTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('isActive')->andReturnTrue();
 
-        // The credentials must use `email` (the fallback), not an
-        // empty key.
+        // The credentials must use `email` (the fallback), not an empty key.
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
             ->with(['email' => self::ALICE_EMAIL, 'password' => 'secret'])
@@ -634,9 +626,8 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * Instantiate BasicGuard with the current set of collaborator mocks
-     * and the supplied request. Uses the default `email` identifier
-     * field.
+     * Instantiate BasicGuard with the current set of collaborator mocks and
+     * the supplied request. Uses the default `email` identifier field.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
@@ -654,9 +645,8 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * Build a real Illuminate Request with optional HTTP Basic
-     * credentials populated via the standard PHP_AUTH_USER /
-     * PHP_AUTH_PW server variables.
+     * Build a real Illuminate Request with optional HTTP Basic credentials
+     * populated via the standard PHP_AUTH_USER / PHP_AUTH_PW server variables.
      *
      * @param  string|null  $user
      * @param  string|null  $password

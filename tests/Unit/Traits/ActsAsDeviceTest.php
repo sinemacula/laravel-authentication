@@ -14,13 +14,10 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 /**
  * Unit tests for the package ActsAsDevice trait.
  *
- * Exercises the trait through an anonymous Eloquent model because
- * the trait is defined against Eloquent's `getAttribute` accessor
- * contract. The companion `#[CoversMethod]` attribute satisfies the
- * `php_unit_test_class_requires_covers` formatter rule (older
- * php-cs-fixer releases do not yet recognise the `CoversTrait`
- * attribute on its own). The `#[CoversTrait]` attribute is what
- * actually drives PHPUnit's coverage attribution for the trait.
+ * Exercises the trait through an anonymous Eloquent model because the trait is
+ * defined against Eloquent's `getAttribute` accessor contract. Both
+ * `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit attributes the
+ * trait's coverage correctly.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -61,8 +58,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the device identifier getter reads the model's `id`
-     * attribute when no attribute-name override is supplied.
+     * Asserts the device identifier getter reads the model's `id` attribute
+     * when no attribute-name override is supplied.
      *
      * @return void
      */
@@ -87,8 +84,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the last-logged-in getter returns the Carbon instance
-     * stored in the attribute, and null when the attribute is null.
+     * Asserts the last-logged-in getter returns the Carbon instance stored in
+     * the attribute, and null when the attribute is null.
      *
      * @return void
      */
@@ -111,8 +108,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the MFA verification getter returns the Carbon instance
-     * stored in the attribute, and null when the attribute is null.
+     * Asserts the MFA verification getter returns the Carbon instance stored
+     * in the attribute, and null when the attribute is null.
      *
      * @return void
      */
@@ -135,8 +132,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the operating system getter casts the underlying
-     * attribute to a string before returning it.
+     * Asserts the operating system getter casts the underlying attribute to a
+     * string before returning it.
      *
      * @return void
      */
@@ -155,9 +152,9 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the operating system getter coerces a non-string
-     * attribute (e.g. an integer column) into its string form rather
-     * than returning the raw value or `null`.
+     * Asserts the operating system getter coerces a non-string attribute (e.g.
+     * an integer column) into its string form rather than returning the raw
+     * value or `null`.
      *
      * @return void
      */
@@ -176,8 +173,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the refresh-key getter casts the underlying attribute
-     * to a string before returning it.
+     * Asserts the refresh-key getter casts the underlying attribute to a
+     * string before returning it.
      *
      * @return void
      */
@@ -196,9 +193,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the refresh-key getter returns `null` when the
-     * underlying attribute is null - the device row carries no
-     * refresh credential.
+     * Asserts the refresh-key getter returns `null` when the underlying
+     * attribute is null - the device row carries no refresh credential.
      *
      * @return void
      */
@@ -217,8 +213,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the revoked-at getter returns the Carbon instance when
-     * present and null when the attribute is null.
+     * Asserts the revoked-at getter returns the Carbon instance when present
+     * and null when the attribute is null.
      *
      * @return void
      */
@@ -239,11 +235,11 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the public column-name accessors return the documented
-     * defaults so consumer listeners (e.g. `UpdateDeviceTimestamp`) and
-     * the refresh-token exchange resolve the correct columns without
-     * reflection. Pinning the default values defends against accidental
-     * rename mutations of the trait constants.
+     * Asserts the public column-name accessors return the documented defaults
+     * so consumer listeners (e.g. `UpdateDeviceTimestamp`) and the
+     * refresh-token exchange resolve the correct columns without reflection.
+     * Pinning the default values defends against accidental rename mutations
+     * of the trait constants.
      *
      * @return void
      */
@@ -265,8 +261,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts a subclass can override the protected attribute-name
-     * hooks to source values from non-default columns.
+     * Asserts a subclass can override the protected attribute-name hooks to
+     * source values from non-default columns.
      *
      * @return void
      */

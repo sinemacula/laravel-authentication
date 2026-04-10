@@ -16,11 +16,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 /**
  * Unit tests for the ActsAsPrincipal trait.
  *
- * The companion `#[CoversMethod]` attribute satisfies the
- * `php_unit_test_class_requires_covers` formatter rule (older
- * php-cs-fixer releases do not yet recognise the `CoversTrait`
- * attribute on its own). The `#[CoversTrait]` attribute is what
- * actually drives PHPUnit's coverage attribution for the trait.
+ * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
+ * attributes the trait's coverage correctly.
  *
  * @internal
  *
@@ -72,9 +69,8 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * Trait short-circuits to the principal itself when the model
-     * implements `Identity` (2D mode), so the `identity` relation is
-     * never queried.
+     * Trait short-circuits to the principal itself when the model implements
+     * `Identity` (2D mode), so the `identity` relation is never queried.
      *
      * @return void
      */
@@ -114,8 +110,8 @@ final class ActsAsPrincipalTest extends TestCase
 
     /**
      * Trait honours an `identityRelationName` override declared on the
-     * principal subclass and reads the identity from the renamed
-     * relation slot.
+     * principal subclass and reads the identity from the renamed relation
+     * slot.
      *
      * @return void
      */

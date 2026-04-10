@@ -12,9 +12,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 /**
  * Eloquent stub implementing the package's Device contract.
  *
- * Configurable table for in-memory sqlite tests; defaults to
- * `stub_devices` so it never collides with the package's own
- * `devices` table.
+ * Configurable table for in-memory sqlite tests; defaults to `stub_devices` so
+ * it never collides with the package's own `devices` table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

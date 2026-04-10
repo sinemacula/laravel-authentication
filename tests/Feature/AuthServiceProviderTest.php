@@ -51,8 +51,8 @@ final class AuthServiceProviderTest extends TestCase
     private const string KID_OLD = '2026-03';
 
     /**
-     * The `auth` container binding resolves to the package
-     * `AuthManager` subclass after the service provider boots.
+     * The `auth` container binding resolves to the package `AuthManager`
+     * subclass after the service provider boots.
      *
      * @return void
      */
@@ -62,9 +62,9 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `model` user provider driver is registered against
-     * Laravel's `Auth` factory and resolves the package
-     * `ModelProvider` for a config that uses `driver = model`.
+     * The `model` user provider driver is registered against Laravel's `Auth`
+     * factory and resolves the package `ModelProvider` for a config that uses
+     * `driver = model`.
      *
      * @return void
      */
@@ -76,9 +76,9 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `jwt` guard driver creator is registered against Laravel's
-     * `Auth` factory so resolving an `auth.guards.*.driver = jwt`
-     * guard yields the package `JwtGuard`.
+     * The `jwt` guard driver creator is registered against Laravel's `Auth`
+     * factory so resolving an `auth.guards.*.driver = jwt` guard yields the
+     * package `JwtGuard`.
      *
      * @return void
      */
@@ -88,10 +88,9 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `basic` guard driver creator is registered against
-     * Laravel's `Auth` factory so resolving an
-     * `auth.guards.*.driver = basic` guard yields the package
-     * `BasicGuard`.
+     * The `basic` guard driver creator is registered against Laravel's `Auth`
+     * factory so resolving an `auth.guards.*.driver = basic` guard yields the
+     * package `BasicGuard`.
      *
      * @return void
      */
@@ -101,9 +100,9 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `DeviceAuthenticated` event listener is registered with
-     * the dispatcher and resolves to the package
-     * `UpdateDeviceTimestamp` invokable listener class.
+     * The `DeviceAuthenticated` event listener is registered with the
+     * dispatcher and resolves to the package `UpdateDeviceTimestamp` invokable
+     * listener class.
      *
      * @return void
      */
@@ -122,9 +121,9 @@ final class AuthServiceProviderTest extends TestCase
 
     /**
      * The package `AuthManager` exposes the four contextual accessors
-     * (`principal`, `device`, `tenant`, `type`) directly as instance
-     * methods so the framework `Auth::principal()` etc. calls work
-     * without macro registration.
+     * (`principal`, `device`, `tenant`, `type`) directly as instance methods
+     * so the framework `Auth::principal()` etc. calls work without macro
+     * registration.
      *
      * @return void
      */
@@ -139,8 +138,8 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The contextual accessors return `null` when the active guard is
-     * not contextual.
+     * The contextual accessors return `null` when the active guard is not
+     * contextual.
      *
      * @return void
      */
@@ -158,8 +157,8 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `PrincipalResolver` contract resolves to the package
-     * default implementation when no custom resolver is bound.
+     * The `PrincipalResolver` contract resolves to the package default
+     * implementation when no custom resolver is bound.
      *
      * @return void
      */
@@ -172,10 +171,9 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `JwtTokenService` is bound from package config - the
-     * resolved instance reflects the configured secret (via the
-     * keyring's active key), algorithm, and TTL via reflection on
-     * its private/promoted properties.
+     * The `JwtTokenService` is bound from package config - the resolved
+     * instance reflects the configured secret (via the keyring's active key),
+     * algorithm, and TTL via reflection on its private/promoted properties.
      *
      * @return void
      */
@@ -200,9 +198,8 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * `mergeConfigFrom` exposes the package config defaults at
-     * runtime - the `device.table` default of `'devices'` is the
-     * canonical assertion.
+     * `mergeConfigFrom` exposes the package config defaults at runtime - the
+     * `device.table` default of `'devices'` is the canonical assertion.
      *
      * @return void
      */
@@ -212,11 +209,11 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * `buildKeyring` selects kid mode when `jwt.keys` is populated:
-     * the resulting keyring exposes the configured `active_kid`
-     * (rather than `null`, which is the legacy single-secret signal),
-     * and `verificationKeys()` returns a `kid → Key` map covering
-     * every entry in the supplied keys array.
+     * `buildKeyring` selects kid mode when `jwt.keys` is populated: the
+     * resulting keyring exposes the configured `active_kid` (rather than
+     * `null`, which is the legacy single-secret signal), and
+     * `verificationKeys()` returns a `kid → Key` map covering every entry in
+     * the supplied keys array.
      *
      * @return void
      */
@@ -257,11 +254,10 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * `buildKeyring` rejects an integer-indexed `jwt.keys` config (a
-     * common operator mistake when writing `['secret_a', 'secret_b']`
-     * instead of a `kid → secret` map). Without this guard the kids
-     * would silently become `"0"` and `"1"`, producing meaningless
-     * `kid` headers in issued tokens.
+     * `buildKeyring` rejects an integer-indexed `jwt.keys` config (a common
+     * operator mistake when writing `['secret_a', 'secret_b']` instead of a
+     * `kid → secret` map). Without this guard the kids would silently become
+     * `"0"` and `"1"`, producing meaningless `kid` headers in issued tokens.
      *
      * @return void
      */
@@ -289,10 +285,10 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * `buildKeyring` rejects a `jwt.keys` entry whose secret value is
-     * `null` (typically because the env var backing it is unset). The
-     * runtime guard must reject this before forwarding to the keyring
-     * factory and the message must name the offending kid.
+     * `buildKeyring` rejects a `jwt.keys` entry whose secret value is `null`
+     * (typically because the env var backing it is unset). The runtime guard
+     * must reject this before forwarding to the keyring factory and the
+     * message must name the offending kid.
      *
      * @return void
      */
@@ -320,10 +316,10 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * `buildKeyring` falls back to legacy single-secret mode when
-     * `jwt.keys` is absent or empty: the resulting keyring reports
-     * `null` from `activeKid()` (no header on issued tokens) and
-     * `verificationKeys()` returns a single bare `Key`.
+     * `buildKeyring` falls back to legacy single-secret mode when `jwt.keys`
+     * is absent or empty: the resulting keyring reports `null` from
+     * `activeKid()` (no header on issued tokens) and `verificationKeys()`
+     * returns a single bare `Key`.
      *
      * @return void
      */
@@ -352,8 +348,8 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `authentication-config` publish group is
-     * registered with the framework's publish registry.
+     * The `authentication-config` publish group is registered with the
+     * framework's publish registry.
      *
      * @return void
      */
@@ -366,8 +362,8 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `authentication-migrations` publish group is
-     * registered with the framework's publish registry.
+     * The `authentication-migrations` publish group is registered with the
+     * framework's publish registry.
      *
      * @return void
      */
@@ -381,9 +377,9 @@ final class AuthServiceProviderTest extends TestCase
 
     /**
      * The package `AuthManager` is a subclass of Laravel's framework
-     * `AuthManager`. This is a sanity guard alongside the
-     * `AuthManagerTest` assertion to ensure the service-provider
-     * override does not regress to a sibling class.
+     * `AuthManager`. This is a sanity guard alongside the `AuthManagerTest`
+     * assertion to ensure the service-provider override does not regress to a
+     * sibling class.
      *
      * @return void
      */
@@ -393,8 +389,7 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench
-     * application.
+     * Register the package service provider against the Testbench application.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -406,9 +401,8 @@ final class AuthServiceProviderTest extends TestCase
 
     /**
      * Define the Testbench environment with package config and an
-     * `auth.guards`/`auth.providers` setup that exercises both the
-     * `model` user provider driver and the `jwt`/`basic` guard
-     * driver creators.
+     * `auth.guards`/`auth.providers` setup that exercises both the `model`
+     * user provider driver and the `jwt`/`basic` guard driver creators.
      *
      * @param  mixed  $app
      * @return void

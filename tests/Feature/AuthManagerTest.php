@@ -22,8 +22,8 @@ use SineMacula\Laravel\Authentication\AuthServiceProvider;
 final class AuthManagerTest extends TestCase
 {
     /**
-     * The `auth` container binding resolves to the package
-     * `AuthManager` subclass after the service provider boots.
+     * The `auth` container binding resolves to the package `AuthManager`
+     * subclass after the service provider boots.
      *
      * @return void
      */
@@ -49,12 +49,12 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `inheritDriversFrom()` copies the donor's custom guard and
-     * provider driver maps onto the receiver so guards and providers
-     * registered before the package boot survive the container swap.
-     * Verified observably: after inheritance, the receiver resolves
-     * the donor's `inherited-guard` and `inherited-provider` driver
-     * names to the donor-supplied factory closures.
+     * `inheritDriversFrom()` copies the donor's custom guard and provider
+     * driver maps onto the receiver so guards and providers registered before
+     * the package boot survive the container swap. Verified observably: after
+     * inheritance, the receiver resolves the donor's `inherited-guard` and
+     * `inherited-provider` driver names to the donor-supplied factory
+     * closures.
      *
      * @return void
      */
@@ -85,11 +85,11 @@ final class AuthManagerTest extends TestCase
 
     /**
      * `inheritDriversFrom()` does not throw and leaves the receiver
-     * driver-less when the donor has no custom creators registered.
-     * Pins the empty-array short-circuit at `AuthManager.php:39-44`:
-     * a freshly bound provider that points at an unregistered custom
-     * driver still raises `InvalidArgumentException`, proving the
-     * empty donor did not silently leak driver registrations.
+     * driver-less when the donor has no custom creators registered. Pins the
+     * empty-array short-circuit at `AuthManager.php:39-44`: a freshly bound
+     * provider that points at an unregistered custom driver still raises
+     * `InvalidArgumentException`, proving the empty donor did not silently
+     * leak driver registrations.
      *
      * @return void
      */
@@ -111,9 +111,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench
-     * application so the `auth` binding is overridden by the package
-     * subclass during boot.
+     * Register the package service provider against the Testbench application
+     * so the `auth` binding is overridden by the package subclass during boot.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>

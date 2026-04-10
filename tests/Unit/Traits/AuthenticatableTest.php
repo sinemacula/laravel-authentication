@@ -13,11 +13,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 /**
  * Unit tests for the package Authenticatable trait.
  *
- * The companion `#[CoversMethod]` attribute satisfies the
- * `php_unit_test_class_requires_covers` formatter rule (older
- * php-cs-fixer releases do not yet recognise the `CoversTrait`
- * attribute on its own). The `#[CoversTrait]` attribute is what
- * actually drives PHPUnit's coverage attribution for the trait.
+ * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
+ * attributes the trait's coverage correctly.
  *
  * @internal
  *
@@ -71,9 +68,9 @@ final class AuthenticatableTest extends TestCase
     }
 
     /**
-     * The override returns `null` from `getRememberToken()` regardless
-     * of any in-memory `remember_token` attribute, so the stateless
-     * package never exposes a remember token to the framework.
+     * The override returns `null` from `getRememberToken()` regardless of any
+     * in-memory `remember_token` attribute, so the stateless package never
+     * exposes a remember token to the framework.
      *
      * @return void
      */
@@ -92,9 +89,8 @@ final class AuthenticatableTest extends TestCase
     }
 
     /**
-     * `setRememberToken()` is an explicit no-op: passing it a value
-     * does NOT mutate the model's attribute bag (no
-     * `remember_token` key materialises).
+     * `setRememberToken()` is an explicit no-op: passing it a value does NOT
+     * mutate the model's attribute bag (no `remember_token` key materialises).
      *
      * @return void
      */

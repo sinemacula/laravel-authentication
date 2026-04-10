@@ -13,14 +13,12 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
  *
  * Pins the documented branch matrix:
  *
- * - `null`              -> `null`
- * - `string`            -> the same string verbatim
- * - `int`/`float`/`bool`-> `(string)` cast
- * - `Stringable` object -> `__toString()`
- * - any other type      -> `null` (fail-closed; no `sub` claim)
+ * - `null` -> `null` - `string` -> the same string verbatim -
+ * `int`/`float`/`bool`-> `(string)` cast - `Stringable` object ->
+ * `__toString()` - any other type -> `null` (fail-closed; no `sub` claim)
  *
- * Each branch is asserted from a separate row so a mutation that
- * collapses two arms into one is killed independently.
+ * Each branch is asserted from a separate row so a mutation that collapses two
+ * arms into one is killed independently.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -31,8 +29,8 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 final class IdentifierCoercionTest extends TestCase
 {
     /**
-     * Asserts `null` input returns `null` so callers can omit the
-     * claim entirely rather than embedding the literal string `'null'`.
+     * Asserts `null` input returns `null` so callers can omit the claim
+     * entirely rather than embedding the literal string `'null'`.
      *
      * @return void
      */
@@ -43,8 +41,8 @@ final class IdentifierCoercionTest extends TestCase
 
     /**
      * Asserts a string input is returned verbatim - no normalisation,
-     * trimming, or case folding - so the round-trip with the resolver
-     * is byte-identical.
+     * trimming, or case folding - so the round-trip with the resolver is
+     * byte-identical.
      *
      * @return void
      */
@@ -54,9 +52,9 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts an empty string is returned verbatim - the helper does
-     * not normalise empty input to `null`, leaving caller policy in
-     * charge of rejecting empty subjects.
+     * Asserts an empty string is returned verbatim - the helper does not
+     * normalise empty input to `null`, leaving caller policy in charge of
+     * rejecting empty subjects.
      *
      * @return void
      */
@@ -66,8 +64,7 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts an integer auto-increment id is cast to its decimal
-     * string form.
+     * Asserts an integer auto-increment id is cast to its decimal string form.
      *
      * @return void
      */
@@ -77,9 +74,9 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts the literal `0` integer is cast to `'0'` and NOT
-     * collapsed to `null` - protects against a mutation that swaps
-     * the type check for a truthy check.
+     * Asserts the literal `0` integer is cast to `'0'` and NOT collapsed to
+     * `null` - protects against a mutation that swaps the type check for a
+     * truthy check.
      *
      * @return void
      */
@@ -99,8 +96,8 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts a boolean `true` is cast to the string `'1'` (PHP's
-     * native bool->string convention).
+     * Asserts a boolean `true` is cast to the string `'1'` (PHP's native
+     * bool->string convention).
      *
      * @return void
      */
@@ -110,9 +107,9 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts a boolean `false` is cast to the empty string (PHP's
-     * native bool->string convention) - again documenting that the
-     * helper does not collapse `false` to `null`.
+     * Asserts a boolean `false` is cast to the empty string (PHP's native
+     * bool->string convention) - again documenting that the helper does not
+     * collapse `false` to `null`.
      *
      * @return void
      */
@@ -144,8 +141,8 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts an arbitrary array input is rejected with `null` -
-     * arrays do not satisfy the JWT `StringOrURI` claim form.
+     * Asserts an arbitrary array input is rejected with `null` - arrays do not
+     * satisfy the JWT `StringOrURI` claim form.
      *
      * @return void
      */
@@ -155,9 +152,9 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts an arbitrary `\stdClass` (non-Stringable) object is
-     * rejected with `null` so a misbehaving custom resolver cannot
-     * embed an object literal in the `sub` claim.
+     * Asserts an arbitrary `\stdClass` (non-Stringable) object is rejected
+     * with `null` so a misbehaving custom resolver cannot embed an object
+     * literal in the `sub` claim.
      *
      * @return void
      */
@@ -185,11 +182,10 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * The class is intentionally not instantiable - construction is
-     * forbidden via the private constructor so consumers cannot create
-     * a stateful coercion helper. Reflection is used to invoke the
-     * private constructor so the line is covered while still
-     * documenting the access modifier.
+     * The class is intentionally not instantiable - construction is forbidden
+     * via the private constructor so consumers cannot create a stateful
+     * coercion helper. Reflection is used to invoke the private constructor so
+     * the line is covered while still documenting the access modifier.
      *
      * @return void
      */

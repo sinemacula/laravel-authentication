@@ -26,18 +26,17 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Integration test for the six standard Laravel auth events.
  *
- * Boots a Testbench application, registers a `cli` guard driven by
- * the package's `basic` driver against a `StubPrincipal` identity
- * table seeded with a single user, and exercises the successful
- * `attempt`, failed `attempt`, and `logout` paths to assert the
- * dispatched standard events (`Attempting`, `Validated`, `Login`,
- * `Authenticated`, `Failed`, `Logout`) match Laravel's first-party
- * contract with the expected constructor payload shapes.
+ * Boots a Testbench application, registers a `cli` guard driven by the
+ * package's `basic` driver against a `StubPrincipal` identity table seeded
+ * with a single user, and exercises the successful `attempt`, failed
+ * `attempt`, and `logout` paths to assert the dispatched standard events
+ * (`Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`)
+ * match Laravel's first-party contract with the expected constructor payload
+ * shapes.
  *
- * The `cli` guard uses the package's `basic` driver so credentials
- * can be passed directly via `attempt()` without needing an HTTP
- * Authorization header, keeping the assertions focused on the
- * event-emission contract.
+ * The `cli` guard uses the package's `basic` driver so credentials can be
+ * passed directly via `attempt()` without needing an HTTP Authorization
+ * header, keeping the assertions focused on the event-emission contract.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -57,8 +56,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     private const string USER_PASSWORD = 'correct horse battery staple';
 
     /**
-     * Create the identity table, hash a password, and insert one user
-     * that the successful-attempt tests authenticate against.
+     * Create the identity table, hash a password, and insert one user that the
+     * successful-attempt tests authenticate against.
      *
      * @return void
      */
@@ -84,8 +83,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Drop the seeded identity table so each test starts with a clean
-     * schema.
+     * Drop the seeded identity table so each test starts with a clean schema.
      *
      * @return void
      */
@@ -97,9 +95,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful `attempt()` dispatches all four success-path
-     * standard events: `Attempting`, `Validated`, `Login`, and
-     * `Authenticated`.
+     * A successful `attempt()` dispatches all four success-path standard
+     * events: `Attempting`, `Validated`, `Login`, and `Authenticated`.
      *
      * @return void
      */
@@ -129,8 +126,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A failed `attempt()` dispatches `Attempting` and `Failed`, but
-     * NOT `Validated`, `Login`, or `Authenticated`.
+     * A failed `attempt()` dispatches `Attempting` and `Failed`, but NOT
+     * `Validated`, `Login`, or `Authenticated`.
      *
      * @return void
      */
@@ -160,15 +157,15 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Calling `logout()` on a guard with a bound identity dispatches
-     * the standard Laravel `Logout` event.
+     * Calling `logout()` on a guard with a bound identity dispatches the
+     * standard Laravel `Logout` event.
      *
      * @return void
      */
     public function testLogoutDispatchesLogoutEvent(): void
     {
-        // Fake the Logout event BEFORE resolving the guard so the
-        // guard captures the faked dispatcher in its constructor.
+        // Fake the Logout event BEFORE resolving the guard so the guard
+        // captures the faked dispatcher in its constructor.
         Event::fake([Logout::class]);
 
         $guard = Auth::guard(self::GUARD_NAME);
@@ -186,9 +183,9 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * The dispatched `Authenticated` instance carries the guard name
-     * and the resolved identity on its public properties, matching
-     * Laravel's first-party guard payload shape.
+     * The dispatched `Authenticated` instance carries the guard name and the
+     * resolved identity on its public properties, matching Laravel's
+     * first-party guard payload shape.
      *
      * @return void
      */
@@ -213,9 +210,9 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * The dispatched `Login` instance carries the guard name, the
-     * resolved identity, and a `false` remember flag on its public
-     * properties, matching Laravel's first-party guard payload shape.
+     * The dispatched `Login` instance carries the guard name, the resolved
+     * identity, and a `false` remember flag on its public properties, matching
+     * Laravel's first-party guard payload shape.
      *
      * @return void
      */
@@ -241,10 +238,9 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * The dispatched `Failed` instance carries the guard name, the
-     * resolved user (or null), and the supplied credentials on its
-     * public properties, matching Laravel's first-party guard payload
-     * shape.
+     * The dispatched `Failed` instance carries the guard name, the resolved
+     * user (or null), and the supplied credentials on its public properties,
+     * matching Laravel's first-party guard payload shape.
      *
      * @return void
      */
@@ -270,11 +266,10 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Register the `cli` guard against the `basic` driver and the
-     * `cli_users` provider pointing at the `StubPrincipal` identity
-     * model before the Testbench application boots so the package
-     * service provider picks up the driver registration at the
-     * appropriate time.
+     * Register the `cli` guard against the `basic` driver and the `cli_users`
+     * provider pointing at the `StubPrincipal` identity model before the
+     * Testbench application boots so the package service provider picks up the
+     * driver registration at the appropriate time.
      *
      * @param  mixed  $app
      * @return void

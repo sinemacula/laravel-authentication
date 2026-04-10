@@ -48,9 +48,8 @@ final class RefreshFailedTest extends TestCase
 
     /**
      * The reason enum covers every early-return path in the
-     * `JwtGuard::refresh()` flow - this assertion guards against
-     * accidentally introducing a new branch without a matching enum
-     * case.
+     * `JwtGuard::refresh()` flow - this assertion guards against accidentally
+     * introducing a new branch without a matching enum case.
      *
      * @return void
      */

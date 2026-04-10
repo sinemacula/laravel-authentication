@@ -22,12 +22,10 @@ use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Unit tests for the bearer-token `user()` resolution path on
- * `JwtGuard`.
+ * Unit tests for the bearer-token `user()` resolution path on `JwtGuard`.
  *
- * Split out of the original JwtGuardTest so each derived class stays
- * well below the project's 20-method-per-class threshold (radarlint
- * S1448).
+ * Split out of the original JwtGuardTest so each class stays focused on a
+ * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -54,10 +52,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A request whose `Authorization: Bearer` header carries an
-     * empty string token returns null without firing any events.
-     * Mutation guard: pins the `$token === ''` arm at
-     * `JwtGuard.php:100` separately from the `null` arm above.
+     * A request whose `Authorization: Bearer` header carries an empty string
+     * token returns null without firing any events. Mutation guard: pins the
+     * `$token === ''` arm at `JwtGuard.php:100` separately from the `null` arm
+     * above.
      *
      * @return void
      */
@@ -72,9 +70,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When the token service cannot parse a token (malformed / bad
-     * signature / expired), `user()` fires `Attempting` and `Failed`
-     * then returns null.
+     * When the token service cannot parse a token (malformed / bad signature /
+     * expired), `user()` fires `Attempting` and `Failed` then returns null.
      *
      * @return void
      */
@@ -96,8 +93,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A token whose claims array lacks `sub` fires Attempting+Failed
-     * and returns null.
+     * A token whose claims array lacks `sub` fires Attempting+Failed and
+     * returns null.
      *
      * @return void
      */
@@ -246,8 +243,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A `CanBeActive` identity reporting `false` is rejected by
-     * `user()` after `retrieveById()` returns it.
+     * A `CanBeActive` identity reporting `false` is rejected by `user()` after
+     * `retrieveById()` returns it.
      *
      * @return void
      */
@@ -276,10 +273,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the
-     * resolver returns `null` (the hinted principal cannot be
-     * resolved), `user()` rejects the token rather than falling back
-     * to the default principal.
+     * Fail-closed: when the token carries a `pid` hint but the resolver
+     * returns `null` (the hinted principal cannot be resolved), `user()`
+     * rejects the token rather than falling back to the default principal.
      *
      * @return void
      */
@@ -310,10 +306,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the
-     * resolver returns a *different* principal (because it fell
-     * through to the default), `user()` returns null rather than
-     * silently downgrading the active principal.
+     * Fail-closed: when the token carries a `pid` hint but the resolver
+     * returns a *different* principal (because it fell through to the
+     * default), `user()` returns null rather than silently downgrading the
+     * active principal.
      *
      * @return void
      */
@@ -348,11 +344,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the resolver returns a principal whose
-     * identifier stringifies to `null` (e.g. an unsaved Eloquent
-     * model returned from a misbehaving custom resolver), the guard
-     * MUST reject the token rather than bind a transient actor.
-     * Pins the `$resolvedId !== null` arm of `matchesPidHint()`.
+     * Fail-closed: when the resolver returns a principal whose identifier
+     * stringifies to `null` (e.g. an unsaved Eloquent model returned from a
+     * misbehaving custom resolver), the guard MUST reject the token rather
+     * than bind a transient actor. Pins the `$resolvedId !== null` arm of
+     * `matchesPidHint()`.
      *
      * @return void
      */
@@ -387,9 +383,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `did` hint but the
-     * device lookup fails, `user()` returns null rather than
-     * silently binding the identity with no device.
+     * Fail-closed: when the token carries a `did` hint but the device lookup
+     * fails, `user()` returns null rather than silently binding the identity
+     * with no device.
      *
      * @return void
      */
@@ -437,10 +433,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token whose claims include `sub`, `pid`, and `did` results
-     * in the guard binding the identity, principal, and device and
-     * dispatching `Attempting`, `Authenticated`, `Validated`,
-     * `PrincipalAssigned`, `DeviceAuthenticated`, and `Login`.
+     * A valid token whose claims include `sub`, `pid`, and `did` results in
+     * the guard binding the identity, principal, and device and dispatching
+     * `Attempting`, `Authenticated`, `Validated`, `PrincipalAssigned`,
+     * `DeviceAuthenticated`, and `Login`.
      *
      * @return void
      */
@@ -493,12 +489,12 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         self::assertSame($principal, $guard->principal());
         self::assertSame($device, $guard->device());
 
-        // Assert the full, ordered event sequence. The bearer-resolution
-        // path routes through `login()` which fires `Validated`, then
+        // Assert the full, ordered event sequence. The bearer-resolution path
+        // routes through `login()` which fires `Validated`, then
         // `bindAuthenticationLifecycle()` which fires `Login` before
-        // `Authenticated` (Laravel's ordering), followed by the
-        // contextual `PrincipalAssigned` and `DeviceAuthenticated`
-        // events as the state is bound. See C3 in `ISSUES.md`.
+        // `Authenticated` (Laravel's ordering), followed by the contextual
+        // `PrincipalAssigned` and `DeviceAuthenticated` events as the
+        // state is bound.
         self::assertSame(
             [
                 Attempting::class,
@@ -513,8 +509,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token without a `did` claim binds identity + principal
-     * and does NOT fire `DeviceAuthenticated`.
+     * A valid token without a `did` claim binds identity + principal and does
+     * NOT fire `DeviceAuthenticated`.
      *
      * @return void
      */

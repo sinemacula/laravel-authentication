@@ -12,13 +12,11 @@ use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Issuance-side unit tests for `JwtTokenService` -
- * `issueAccessToken()`, `issueRefreshToken()`, and the empty-secret
- * fail-loud constructor guard.
+ * Issuance-side unit tests for `JwtTokenService` - `issueAccessToken()`,
+ * `issueRefreshToken()`, and the empty-secret fail-loud constructor guard.
  *
- * Split out of the original `JwtTokenServiceTest` so each derived
- * class stays well below the project's 20-method-per-class
- * threshold (radarlint S1448).
+ * Split out of the original `JwtTokenServiceTest` so each class stays focused
+ * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -29,9 +27,9 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 {
     /**
-     * The constructor refuses to build with an empty secret so the
-     * package fails loudly on missing env vars instead of silently
-     * signing tokens with a zero-knowledge key.
+     * The constructor refuses to build with an empty secret so the package
+     * fails loudly on missing env vars instead of silently signing tokens with
+     * a zero-knowledge key.
      *
      * @return void
      */
@@ -45,9 +43,9 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts an issued access token decodes back to the supplied
-     * identity, principal, and device claims with an `exp` claim
-     * `access_ttl_minutes` in the future and `typ = access`.
+     * Asserts an issued access token decodes back to the supplied identity,
+     * principal, and device claims with an `exp` claim `access_ttl_minutes` in
+     * the future and `typ = access`.
      *
      * @return void
      */
@@ -72,9 +70,9 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Every issued access token carries a `jti` claim - the unique
-     * token identifier that consumers can layer an external
-     * revocation denylist against.
+     * Every issued access token carries a `jti` claim - the unique token
+     * identifier that consumers can layer an external revocation denylist
+     * against.
      *
      * @return void
      */
@@ -96,8 +94,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An integer identifier returned by `getAuthIdentifier()` is
-     * stringified in the `sub` claim per RFC 7519 §4.1.2.
+     * An integer identifier returned by `getAuthIdentifier()` is stringified
+     * in the `sub` claim per RFC 7519 §4.1.2.
      *
      * @return void
      */
@@ -119,8 +117,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts issuing an access token without a device produces a
-     * token whose `did` claim is null.
+     * Asserts issuing an access token without a device produces a token whose
+     * `did` claim is null.
      *
      * @return void
      */
@@ -139,9 +137,9 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts the refresh-token claims contain the device identifier,
-     * the supplied rotation id (`jti`), and an `exp` claim
-     * `refresh_ttl_minutes` in the future.
+     * Asserts the refresh-token claims contain the device identifier, the
+     * supplied rotation id (`jti`), and an `exp` claim `refresh_ttl_minutes`
+     * in the future.
      *
      * @return void
      */

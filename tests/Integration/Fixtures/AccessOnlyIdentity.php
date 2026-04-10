@@ -13,9 +13,9 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 /**
  * Minimal 2D identity used by the access-only integration test.
  *
- * Deliberately does NOT implement `HasDevices` or touch the shipped
- * `Device` model, verifying the package works end-to-end without the
- * devices migration present.
+ * Deliberately does NOT implement `HasDevices` or touch the shipped `Device`
+ * model, verifying the package works end-to-end without the devices migration
+ * present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

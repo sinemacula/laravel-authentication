@@ -19,9 +19,8 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
  * Unit tests for the contextual state surface on `AbstractGuard`
  * (`setPrincipal`, `setDevice`, `tenant`, `type`).
  *
- * Split out of the original AbstractGuardTest so each derived class
- * stays well below the project's 20-method-per-class threshold
- * (radarlint S1448).
+ * Split out of the original AbstractGuardTest so each class stays focused on a
+ * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -45,9 +44,11 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof PrincipalAssigned
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof PrincipalAssigned
                     && $event->guard     === self::GUARD_NAME
-                    && $event->principal === $principal));
+                    && $event->principal === $principal),
+            );
 
         $guard->setPrincipal($principal);
 
@@ -67,9 +68,11 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof DeviceAuthenticated
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof DeviceAuthenticated
                     && $event->guard  === self::GUARD_NAME
-                    && $event->device === $device));
+                    && $event->device === $device),
+            );
 
         $guard->setDevice($device);
 
@@ -99,8 +102,8 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     }
 
     /**
-     * type() returns the tenant's type when the tenant declares the
-     * `HasType` capability.
+     * type() returns the tenant's type when the tenant declares the `HasType`
+     * capability.
      *
      * @return void
      */
@@ -124,8 +127,8 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     }
 
     /**
-     * type() returns null when the tenant does not declare the
-     * `HasType` capability.
+     * type() returns null when the tenant does not declare the `HasType`
+     * capability.
      *
      * @return void
      */

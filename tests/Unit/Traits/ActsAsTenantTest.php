@@ -13,11 +13,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 /**
  * Unit tests for the package ActsAsTenant trait.
  *
- * The companion `#[CoversMethod]` attribute satisfies the
- * `php_unit_test_class_requires_covers` formatter rule (older
- * php-cs-fixer releases do not yet recognise the `CoversTrait`
- * attribute on its own). The `#[CoversTrait]` attribute is what
- * actually drives PHPUnit's coverage attribution for the trait.
+ * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
+ * attributes the trait's coverage correctly.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -29,8 +26,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 final class ActsAsTenantTest extends TestCase
 {
     /**
-     * Asserts the tenant identifier getter reads the model's `id`
-     * attribute when no attribute-name override is supplied.
+     * Asserts the tenant identifier getter reads the model's `id` attribute
+     * when no attribute-name override is supplied.
      *
      * @return void
      */
@@ -55,9 +52,8 @@ final class ActsAsTenantTest extends TestCase
     }
 
     /**
-     * Asserts a subclass override of the protected
-     * `getTenantIdentifierName()` hook is honoured by the public
-     * `getTenantIdentifier()` getter.
+     * Asserts a subclass override of the protected `getTenantIdentifierName()`
+     * hook is honoured by the public `getTenantIdentifier()` getter.
      *
      * @return void
      */

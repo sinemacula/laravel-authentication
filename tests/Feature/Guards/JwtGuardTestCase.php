@@ -30,12 +30,10 @@ use Tests\Unit\Stubs\StubDevice;
 /**
  * Shared base case for the JwtGuard split tests.
  *
- * Owns collaborator mocks, the in-memory `stub_devices` schema, the
- * frozen Carbon and JWT clocks, and the helper factories used by
- * every concrete `JwtGuardTest` variant. Subclasses focus on a
- * single behavioural slice of JwtGuard so each derived class stays
- * well below the project's 20-method-per-class threshold (radarlint
- * S1448).
+ * Owns collaborator mocks, the in-memory `stub_devices` schema, the frozen
+ * Carbon and JWT clocks, and the helper factories used by every concrete
+ * `JwtGuardTest` variant. Subclasses focus on a single behavioural slice of
+ * JwtGuard so each class stays focused on a single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -102,8 +100,8 @@ abstract class JwtGuardTestCase extends TestCase
         $this->timebox  = \Mockery::mock(Timebox::class);
         $this->tokens   = new JwtTokenService(self::SECRET, self::ALGORITHM, self::ACCESS_TTL, self::REFRESH_TTL);
 
-        // Default: Timebox::call() invokes the callback directly so
-        // credential validation paths run deterministically.
+        // Default: Timebox::call() invokes the callback directly so credential
+        // validation paths run deterministically.
         $this->timebox->shouldReceive('call')
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
@@ -139,9 +137,9 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Define the Testbench environment: an in-memory sqlite connection
-     * (so the refresh path can hit a real Eloquent query) and the
-     * package config keys the guard reads.
+     * Define the Testbench environment: an in-memory sqlite connection (so the
+     * refresh path can hit a real Eloquent query) and the package config keys
+     * the guard reads.
      *
      * @param  mixed  $app
      * @return void
@@ -166,8 +164,8 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Instantiate JwtGuard with the current set of collaborator mocks
-     * and the supplied request.
+     * Instantiate JwtGuard with the current set of collaborator mocks and the
+     * supplied request.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
@@ -217,9 +215,9 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode an access-token-style JWT with `iat`, `exp`, and
-     * `typ = access` claims baked in so the real
-     * `JwtTokenService::parse(..., TYPE_ACCESS)` path accepts it.
+     * Encode an access-token-style JWT with `iat`, `exp`, and `typ = access`
+     * claims baked in so the real `JwtTokenService::parse(..., TYPE_ACCESS)`
+     * path accepts it.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -247,9 +245,9 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode a refresh-token-style JWT with `iat`, `exp`, and
-     * `typ = refresh` claims so the real
-     * `JwtTokenService::parse(..., TYPE_REFRESH)` path accepts it.
+     * Encode a refresh-token-style JWT with `iat`, `exp`, and `typ = refresh`
+     * claims so the real `JwtTokenService::parse(..., TYPE_REFRESH)` path
+     * accepts it.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -267,10 +265,10 @@ abstract class JwtGuardTestCase extends TestCase
 
     /**
      * Swap the configured device model to `InjectableDeviceStub`, whose
-     * `newQuery()` yields a Builder mock that returns the supplied
-     * in-memory device from `find()`. This lets the refresh tests keep
-     * their manually preset `authenticatable` relation intact rather
-     * than re-fetching from the DB (which would clear the relation).
+     * `newQuery()` yields a Builder mock that returns the supplied in-memory
+     * device from `find()`. This lets the refresh tests keep their manually
+     * preset `authenticatable` relation intact rather than re-fetching from
+     * the DB (which would clear the relation).
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
      * @return void

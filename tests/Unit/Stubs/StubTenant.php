@@ -11,8 +11,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
 /**
- * Eloquent stub implementing the `Tenant` contract plus the
- * optional `HasType` capability via the package traits.
+ * Eloquent stub implementing the `Tenant` contract plus the optional `HasType`
+ * capability via the package traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

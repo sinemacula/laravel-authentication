@@ -9,10 +9,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * Plain-object `Principal` fixture used by the event serialisation
- * round-trip tests. Intentionally NOT an Eloquent model so the
- * `SerializesModels` trait leaves the instance untouched during
- * serialize.
+ * Plain-object `Principal` fixture used by the event serialisation round-trip
+ * tests. Intentionally NOT an Eloquent model so the `SerializesModels` trait
+ * leaves the instance untouched during serialize.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.

@@ -31,12 +31,11 @@ use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Direct unit tests for the `RefreshTokenExchange` service that fill
- * in the few branches not covered by the JwtGuardRefreshTest's
- * end-to-end coverage:
+ * Direct unit tests for the `RefreshTokenExchange` service that fill in the
+ * few branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
  *
- * - empty `device.model` config -> `findDeviceById` returns null and
- *   the exchange surfaces `device_unknown`.
+ * - empty `device.model` config -> `findDeviceById` returns null
+ *   and the exchange surfaces `device_unknown`.
  * - resolver throws `UnresolvableIdentityException` -> the exchange
  *   catches it inside `safeResolvePrincipal` and dispatches
  *   `principal_unresolved`.
@@ -83,8 +82,8 @@ final class RefreshTokenExchangeTest extends TestCase
     private Carbon $now;
 
     /**
-     * Build collaborator mocks, freeze the clock, and create the
-     * in-memory `stub_devices` schema.
+     * Build collaborator mocks, freeze the clock, and create the in-memory
+     * `stub_devices` schema.
      *
      * @return void
      */
@@ -135,9 +134,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * `findDeviceById` returns `null` when the package config
-     * `authentication.device.model` is the empty string, so the
-     * exchange dispatches `device_unknown` and returns `null`. Pins
-     * the empty-class short-circuit at `RefreshTokenExchange.php:243`.
+     * `authentication.device.model` is the empty string, so the exchange
+     * dispatches `device_unknown` and returns `null`. Pins the empty-class
+     * short-circuit at `RefreshTokenExchange.php:243`.
      *
      * @return void
      */
@@ -161,10 +160,9 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * `safeResolvePrincipal` catches an
-     * `UnresolvableIdentityException` thrown by the resolver and
-     * surfaces `principal_unresolved` rather than letting the
-     * exception propagate up to the caller. Pins the catch arm at
+     * `safeResolvePrincipal` catches an `UnresolvableIdentityException` thrown
+     * by the resolver and surfaces `principal_unresolved` rather than letting
+     * the exception propagate up to the caller. Pins the catch arm at
      * `RefreshTokenExchange.php:362-363`.
      *
      * @return void
@@ -207,10 +205,10 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * `revokeDevice` writes through to the package config column
-     * fallbacks (`refresh_key_column` and the literal `revoked_at`)
-     * when the supplied device does NOT use `ActsAsDevice`. Pins
-     * `RefreshTokenExchange.php:466` and `:488` simultaneously.
+     * `revokeDevice` writes through to the package config column fallbacks
+     * (`refresh_key_column` and the literal `revoked_at`) when the supplied
+     * device does NOT use `ActsAsDevice`. Pins `RefreshTokenExchange.php:466`
+     * and `:488` simultaneously.
      *
      * @return void
      */
@@ -246,8 +244,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Define the test environment: in-memory sqlite + stub device
-     * model + secret config.
+     * Define the test environment: in-memory sqlite + stub device model +
+     * secret config.
      *
      * @param  mixed  $app
      * @return void
@@ -292,8 +290,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Encode a refresh-token-style JWT with `iat`, `exp`, and
-     * `typ = refresh` claims.
+     * Encode a refresh-token-style JWT with `iat`, `exp`, and `typ = refresh`
+     * claims.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -310,9 +308,9 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Swap the configured device model so the exchange resolves
-     * the supplied in-memory device through `find()` instead of
-     * issuing a real polymorphic query.
+     * Swap the configured device model so the exchange resolves the supplied
+     * in-memory device through `find()` instead of issuing a real polymorphic
+     * query.
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
      * @return void

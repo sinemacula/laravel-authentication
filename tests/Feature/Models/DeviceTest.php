@@ -19,8 +19,8 @@ use Tests\Unit\Stubs\StubDevice;
  * Unit tests for the shipped Device Eloquent model.
  *
  * Uses Orchestra Testbench with an in-memory sqlite connection and a
- * manually-created `devices` table, so the test does not transitively
- * depend on the package migration file.
+ * manually-created `devices` table, so the test does not transitively depend
+ * on the package migration file.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -33,8 +33,8 @@ final class DeviceTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Set up the in-memory schema for the Device table after the
-     * Testbench application is ready.
+     * Set up the in-memory schema for the Device table after the Testbench
+     * application is ready.
      *
      * @return void
      */
@@ -69,11 +69,10 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts that swapping `authentication.device.table` at
-     * runtime is observed by the next Device instantiation. The model
-     * reads the config lazily in its constructor, so no cache priming
-     * is required - tests and runtime tenancy swaps pick up the new
-     * value immediately.
+     * Asserts that swapping `authentication.device.table` at runtime is
+     * observed by the next Device instantiation. The model reads the config
+     * lazily in its constructor, so no cache priming is required - tests and
+     * runtime tenancy swaps pick up the new value immediately.
      *
      * @return void
      */
@@ -91,8 +90,8 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the Device model populates the `id` column with a
-     * 36-character UUID v7 on insert via HasUuids.
+     * Asserts the Device model populates the `id` column with a 36-character
+     * UUID v7 on insert via HasUuids.
      *
      * @return void
      */
@@ -150,7 +149,7 @@ final class DeviceTest extends TestCase
     /**
      * Asserts the `device.model` config key can be read back via
      * `config(...)`. The actual runtime swap is exercised by the
-     * integration test in T25.
+     * `DeviceModelOverrideTest` integration test.
      *
      * @return void
      */
@@ -165,11 +164,10 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the model falls back to the literal `'devices'` table
-     * when the configured table value is the empty string. The
-     * conditional collapses the empty value to the default rather
-     * than letting Eloquent issue queries against the empty table
-     * name.
+     * Asserts the model falls back to the literal `'devices'` table when the
+     * configured table value is the empty string. The conditional collapses
+     * the empty value to the default rather than letting Eloquent issue
+     * queries against the empty table name.
      *
      * @return void
      */
@@ -187,11 +185,11 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the model falls back to `'devices'` when the Config
-     * facade throws while reading `device.table`. We swap the bound
-     * config repository for a Mockery stub whose `string()` method
-     * raises so the constructor's catch branch is exercised. Pins
-     * the catch path in `Device::resolveConfiguredTable()`.
+     * Asserts the model falls back to `'devices'` when the Config facade
+     * throws while reading `device.table`. We swap the bound config repository
+     * for a Mockery stub whose `string()` method raises so the constructor's
+     * catch branch is exercised. Pins the catch path in
+     * `Device::resolveConfiguredTable()`.
      *
      * @return void
      */

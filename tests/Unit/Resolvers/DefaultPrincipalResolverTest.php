@@ -28,8 +28,8 @@ final class DefaultPrincipalResolverTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Asserts the 2D path returns the identity itself when it also
-     * implements the Principal contract.
+     * Asserts the 2D path returns the identity itself when it also implements
+     * the Principal contract.
      *
      * @return void
      */
@@ -95,13 +95,12 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * When `principals()->find($hint)` returns a value that is NOT
-     * a `Principal` (e.g. a bare Model or `null`), the resolver
-     * falls through to the 2D/3D path instead of returning the
-     * non-Principal. Mutation guard: pins the
-     * `$hinted instanceof Principal` check at
-     * `DefaultPrincipalResolver.php:46` - removing it would cause
-     * the resolver to return a non-Principal object.
+     * When `principals()->find($hint)` returns a value that is NOT a
+     * `Principal` (e.g. a bare Model or `null`), the resolver falls through to
+     * the 2D/3D path instead of returning the non-Principal. Mutation guard:
+     * pins the `$hinted instanceof Principal` check at
+     * `DefaultPrincipalResolver.php:46` - removing it would cause the resolver
+     * to return a non-Principal object.
      *
      * @return void
      */
@@ -121,15 +120,15 @@ final class DefaultPrincipalResolverTest extends TestCase
 
         $resolver = new DefaultPrincipalResolver;
 
-        // The hint didn't resolve to a Principal, so the 2D path
-        // kicks in and returns the identity itself.
+        // The hint didn't resolve to a Principal, so the 2D path kicks in and
+        // returns the identity itself.
         self::assertSame($identity, $resolver->resolve($identity, 'non-principal-id'));
     }
 
     /**
-     * Asserts a hint is silently ignored when the identity does not
-     * implement HasPrincipals; the 2D path still resolves the identity
-     * itself without ever touching a principals relation.
+     * Asserts a hint is silently ignored when the identity does not implement
+     * HasPrincipals; the 2D path still resolves the identity itself without
+     * ever touching a principals relation.
      *
      * @return void
      */
@@ -144,13 +143,12 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts a bare Identity mock that implements neither Principal
-     * nor HasPrincipals throws the typed
-     * `UnresolvableIdentityException` (a `\LogicException` subclass)
-     * whose message names the offending class. Guards catch this
-     * specific type and convert it to a `Failed` event so the
-     * request still surfaces as a 401 - but consumer error reporters
-     * can attribute the misconfiguration via the typed class.
+     * Asserts a bare Identity mock that implements neither Principal nor
+     * HasPrincipals throws the typed `UnresolvableIdentityException` (a
+     * `\LogicException` subclass) whose message names the offending class.
+     * Guards catch this specific type and convert it to a `Failed` event so
+     * the request still surfaces as a 401 - but consumer error reporters can
+     * attribute the misconfiguration via the typed class.
      *
      * @return void
      */
@@ -168,11 +166,11 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
-     * Asserts the typed exception inherits from `\LogicException`,
-     * preserving the existing exception-handler contract for
-     * consumers who catch `\LogicException` broadly. Verified via a
-     * runtime instance check rather than `is_subclass_of(...)` so
-     * phpstan can statically narrow the relationship.
+     * Asserts the typed exception inherits from `\LogicException`, preserving
+     * the existing exception-handler contract for consumers who catch
+     * `\LogicException` broadly. Verified via a runtime instance check rather
+     * than `is_subclass_of(...)` so static analysis can narrow the
+     * relationship.
      *
      * @return void
      */

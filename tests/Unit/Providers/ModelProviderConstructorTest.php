@@ -16,12 +16,11 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
- * Unit tests for the `ModelProvider` constructor validation,
- * `createModel()` factory, and credential-key filter regex.
+ * Unit tests for the `ModelProvider` constructor validation, `createModel()`
+ * factory, and credential-key filter regex.
  *
- * Split out of `ModelProviderTest` so each derived class stays well
- * below the project's 20-method-per-class threshold (radarlint
- * S1448).
+ * Split out of `ModelProviderTest` so each class stays focused on a single
+ * behavioural slice.
  *
  * @internal
  *
@@ -82,10 +81,9 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * The constructor refuses a class that exists but does NOT
-     * extend Eloquent's `Model` or implement the framework
-     * `Authenticatable` contract. Pins the type-shape guard at
-     * `ModelProvider.php:56-57`.
+     * The constructor refuses a class that exists but does NOT extend
+     * Eloquent's `Model` or implement the framework `Authenticatable`
+     * contract. Pins the type-shape guard at `ModelProvider.php:56-57`.
      *
      * @return void
      */
@@ -100,11 +98,11 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * The constructor refuses a class that extends `Model` but does
-     * NOT implement `Authenticatable`. Pins the
-     * `!is_subclass_of($model, Authenticatable::class)` arm at
-     * `ModelProvider.php:56` independently of the Model check - a
-     * mutation that removes this arm would let the class through.
+     * The constructor refuses a class that extends `Model` but does NOT
+     * implement `Authenticatable`. Pins the `!is_subclass_of($model,
+     * Authenticatable::class)` arm at `ModelProvider.php:56` independently of
+     * the Model check - a mutation that removes this arm would let the class
+     * through.
      *
      * @return void
      */
@@ -119,10 +117,10 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * The constructor refuses a class that implements
-     * `Authenticatable` but does NOT extend `Model`. Pins the
-     * `!is_subclass_of($model, Model::class)` arm independently -
-     * a mutation that removes this arm would let the class through.
+     * The constructor refuses a class that implements `Authenticatable` but
+     * does NOT extend `Model`. Pins the `!is_subclass_of($model,
+     * Model::class)` arm independently - a mutation that removes this arm
+     * would let the class through.
      *
      * @return void
      */
@@ -137,10 +135,10 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `createModel()` returns a fresh instance of the configured
-     * Eloquent class on every call. Pins the parent
-     * `createModel()` body so a test that overrides the method on a
-     * subclass cannot mask a regression to the production path.
+     * `createModel()` returns a fresh instance of the configured Eloquent
+     * class on every call. Pins the parent `createModel()` body so a test that
+     * overrides the method on a subclass cannot mask a regression to the
+     * production path.
      *
      * @return void
      */
@@ -160,10 +158,9 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `retrieveByCredentials()` silently drops keys whose name is
-     * not a valid SQL identifier so attacker-controlled column
-     * fragments cannot reach `where()`. Pins the regex guard at
-     * `ModelProvider.php:232-233`.
+     * `retrieveByCredentials()` silently drops keys whose name is not a valid
+     * SQL identifier so attacker-controlled column fragments cannot reach
+     * `where()`. Pins the regex guard at `ModelProvider.php:232-233`.
      *
      * @return void
      */
@@ -171,19 +168,18 @@ final class ModelProviderConstructorTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        // After dropping the malformed key the credentials array is
-        // empty - the provider returns null without composing a
-        // query.
+        // After dropping the malformed key the credentials array is empty - the
+        // provider returns null without composing a query.
         self::assertNull($provider->retrieveByCredentials([
             'email; drop table users' => 'malicious',
         ]));
     }
 
     /**
-     * `filterCredentialKeys()` drops every key whose lowercased name
-     * contains the substring `'password'` - not just the literal
-     * `'password'` key. Pins the substring filter against a
-     * data-provider of common password-column variants.
+     * `filterCredentialKeys()` drops every key whose lowercased name contains
+     * the substring `'password'` - not just the literal `'password'` key. Pins
+     * the substring filter against a data-provider of common password-column
+     * variants.
      *
      * @param  string  $key
      * @return void
@@ -193,17 +189,17 @@ final class ModelProviderConstructorTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        // The password-family key is the only entry, so after
-        // filtering the credentials array is empty and the provider
-        // returns null without composing a query.
+        // The password-family key is the only entry, so after filtering the
+        // credentials array is empty and the provider returns null without
+        // composing a query.
         self::assertNull($provider->retrieveByCredentials([$key => 'secret']));
     }
 
     /**
      * Data provider for `testRetrieveByCredentialsDropsPasswordKeyVariant`.
-     * Each row is one password-family column name the filter must
-     * reject so that the hasher stays the single source of truth for
-     * password verification.
+     * Each row is one password-family column name the filter must reject so
+     * that the hasher stays the single source of truth for password
+     * verification.
      *
      * @return array<string, array{0: string}>
      */
@@ -220,12 +216,11 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `filterCredentialKeys()` does NOT drop a key whose name merely
-     * contains the substring `'pass'` (without the `'word'` suffix).
-     * Mutation guard against a rule that over-filters: the hasher
-     * operates on the literal `password` key only, and columns like
-     * `api_pass` or `pass_phrase` must remain routable through the
-     * query builder.
+     * `filterCredentialKeys()` does NOT drop a key whose name merely contains
+     * the substring `'pass'` (without the `'word'` suffix). Mutation guard
+     * against a rule that over-filters: the hasher operates on the literal
+     * `password` key only, and columns like `api_pass` or `pass_phrase` must
+     * remain routable through the query builder.
      *
      * @return void
      */
@@ -246,11 +241,10 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `rehashPasswordIfRequired()` rehashes and saves when the
-     * hasher reports the stored hash is out of date, even when the
-     * caller did NOT pass `force = true`. Pins the natural
-     * auto-rehash path that keeps legacy hashes rolling forward as
-     * the `bcrypt` cost factor is bumped.
+     * `rehashPasswordIfRequired()` rehashes and saves when the hasher reports
+     * the stored hash is out of date, even when the caller did NOT pass `force
+     * = true`. Pins the natural auto-rehash path that keeps legacy hashes
+     * rolling forward as the `bcrypt` cost factor is bumped.
      *
      * @return void
      */
@@ -283,9 +277,9 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `rehashPasswordIfRequired()` is a no-op when the supplied
-     * password value is not a string (e.g. `null`, array). Pins the
-     * early-return on `!is_string($plain)`.
+     * `rehashPasswordIfRequired()` is a no-op when the supplied password value
+     * is not a string (e.g. `null`, array). Pins the early-return on
+     * `!is_string($plain)`.
      *
      * @return void
      */
@@ -303,9 +297,9 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * A boolean credential value is applied as a scalar `where()`
-     * clause. Mutation guard: pins the `is_bool($value)` match arm
-     * at `ModelProvider.php:278` independently of `is_string`.
+     * A boolean credential value is applied as a scalar `where()` clause.
+     * Mutation guard: pins the `is_bool($value)` match arm at
+     * `ModelProvider.php:278` independently of `is_string`.
      *
      * @return void
      */
@@ -326,10 +320,9 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * A `Stringable` credential value is applied as a scalar
-     * `where()` clause. Mutation guard: pins the
-     * `$value instanceof \Stringable` match arm independently of
-     * `is_string`.
+     * A `Stringable` credential value is applied as a scalar `where()` clause.
+     * Mutation guard: pins the `$value instanceof \Stringable` match arm
+     * independently of `is_string`.
      *
      * @return void
      */
@@ -362,22 +355,21 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `retrieveByCredentials()` returns `null` when one of the
-     * supplied credential values is an unsupported type (e.g. an
-     * `\stdClass` object that is neither scalar, array, closure, nor
-     * Stringable). The provider refuses to compose the query rather
-     * than letting an unsafe value reach `where()`. Pins the failure
-     * branch at `ModelProvider.php:127-128` and the early-return
-     * inside `applyCredentialClauses` at line 255.
+     * `retrieveByCredentials()` returns `null` when one of the supplied
+     * credential values is an unsupported type (e.g. an `\stdClass` object
+     * that is neither scalar, array, closure, nor Stringable). The provider
+     * refuses to compose the query rather than letting an unsafe value reach
+     * `where()`. Pins the failure branch at `ModelProvider.php:127-128` and
+     * the early-return inside `applyCredentialClauses` at line 255.
      *
      * @return void
      */
     public function testRetrieveByCredentialsReturnsNullForUnsupportedValueType(): void
     {
         // The mocked builder receives no `where`/`whereIn` calls -
-        // applyCredentialClause's default arm returns false BEFORE
-        // touching the query, so the caller bails out with null and
-        // the query is never executed.
+        // applyCredentialClause's default arm returns false BEFORE touching the
+        // query, so the caller bails out with null and the query is never
+        // executed.
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldNotReceive('where');
         $builder->shouldNotReceive('whereIn');
@@ -425,10 +417,9 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * Build a `ModelProvider` whose `createModel()` returns an
-     * Eloquent model wired to the supplied Builder mock, so tests
-     * can observe the composed `where` clauses without a real
-     * database connection.
+     * Build a `ModelProvider` whose `createModel()` returns an Eloquent model
+     * wired to the supplied Builder mock, so tests can observe the composed
+     * `where` clauses without a real database connection.
      *
      * @param  \Mockery\MockInterface  $builder
      * @return \SineMacula\Laravel\Authentication\Providers\ModelProvider

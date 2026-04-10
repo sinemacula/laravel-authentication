@@ -15,11 +15,8 @@ use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestUnitType;
 /**
  * Unit tests for the package ProvidesTenantType trait.
  *
- * The companion `#[CoversMethod]` attribute satisfies the
- * `php_unit_test_class_requires_covers` formatter rule (older
- * php-cs-fixer releases do not yet recognise the `CoversTrait`
- * attribute on its own). The `#[CoversTrait]` attribute is what
- * actually drives PHPUnit's coverage attribution for the trait.
+ * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
+ * attributes the trait's coverage correctly.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -31,8 +28,8 @@ use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestUnitType;
 final class ProvidesTenantTypeTest extends TestCase
 {
     /**
-     * Asserts a `BackedEnum` type attribute resolves to the enum's
-     * backing value cast to a string.
+     * Asserts a `BackedEnum` type attribute resolves to the enum's backing
+     * value cast to a string.
      *
      * @return void
      */
@@ -52,8 +49,8 @@ final class ProvidesTenantTypeTest extends TestCase
     }
 
     /**
-     * Asserts a non-backed `UnitEnum` type attribute resolves to the
-     * enum case name.
+     * Asserts a non-backed `UnitEnum` type attribute resolves to the enum case
+     * name.
      *
      * @return void
      */
@@ -125,9 +122,9 @@ final class ProvidesTenantTypeTest extends TestCase
     }
 
     /**
-     * Asserts a `null` type attribute is cast to the empty string
-     * via the `(string)` fallback - not returned as `null`. Pins the
-     * documented `(string) null === ''` boundary.
+     * Asserts a `null` type attribute is cast to the empty string via the
+     * `(string)` fallback - not returned as `null`. Pins the documented
+     * `(string) null === ''` boundary.
      *
      * @return void
      */
@@ -146,8 +143,8 @@ final class ProvidesTenantTypeTest extends TestCase
     }
 
     /**
-     * Asserts an integer type attribute is cast to its string form
-     * via the `(string)` fallback (e.g. `1` becomes `'1'`).
+     * Asserts an integer type attribute is cast to its string form via the
+     * `(string)` fallback (e.g. `1` becomes `'1'`).
      *
      * @return void
      */

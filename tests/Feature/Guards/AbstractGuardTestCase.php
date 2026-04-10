@@ -19,12 +19,11 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 /**
  * Shared base case for the AbstractGuard split tests.
  *
- * Owns the collaborator mocks (provider, resolver, dispatcher,
- * request, timebox), the Testbench environment definition, and the
- * `makeGuard()` factory used by every concrete `AbstractGuardTest`
- * variant. Subclasses focus on a single behavioural slice of
- * AbstractGuard so each derived class stays well below the project's
- * 20-method-per-class threshold (radarlint S1448).
+ * Owns the collaborator mocks (provider, resolver, dispatcher, request,
+ * timebox), the Testbench environment definition, and the `makeGuard()` factory
+ * used by every concrete `AbstractGuardTest` variant. Subclasses focus on a
+ * single behavioural slice of AbstractGuard so each class stays focused on a
+ * single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -69,20 +68,19 @@ abstract class AbstractGuardTestCase extends TestCase
         $this->request  = \Mockery::mock(Request::class);
         $this->timebox  = \Mockery::mock(Timebox::class);
 
-        // Default: Timebox::call() invokes the callback directly and
-        // returns its result so tests exercise the real credential
-        // validation path. Tests that need to assert the timebox
-        // budget override this expectation.
+        // Default: Timebox::call() invokes the callback directly and returns
+        // its result so tests exercise the real credential validation path.
+        // Tests that need to assert the timebox budget override this
+        // expectation.
         $this->timebox->shouldReceive('call')
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
     }
 
     /**
-     * Instantiate a concrete AbstractGuard subclass with the current
-     * set of collaborator mocks. The anonymous subclass adds no
-     * behaviour beyond forwarding its constructor arguments to the
-     * parent.
+     * Instantiate a concrete AbstractGuard subclass with the current set of
+     * collaborator mocks. The anonymous subclass adds no behaviour beyond
+     * forwarding its constructor arguments to the parent.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\AbstractGuard
      */
@@ -102,9 +100,9 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of the Principal contract whose
-     * `isActive()` returns `true` - used by any attempt-path test
-     * where the guard calls `isActive()` after the resolver returns.
+     * Build a Mockery mock of the Principal contract whose `isActive()` returns
+     * `true` - used by any attempt-path test where the guard calls `isActive()`
+     * after the resolver returns.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
      */

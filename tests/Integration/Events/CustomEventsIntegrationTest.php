@@ -34,16 +34,15 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Integration test for the package's custom contextual events.
  *
  * Boots a Testbench application with both a `basic` guard (for the
- * principal-assigned paths) and a `jwt` guard (for the device and
- * refresh paths), then exercises the lifecycle points where
- * `PrincipalAssigned`, `DeviceAuthenticated`, and `Refreshed` are
- * expected to fire. Verifies each event carries the expected
- * payload and that they dispatch via Laravel's standard event
- * dispatcher (so consumers can subscribe via `Event::listen`).
+ * principal-assigned paths) and a `jwt` guard (for the device and refresh
+ * paths), then exercises the lifecycle points where `PrincipalAssigned`,
+ * `DeviceAuthenticated`, and `Refreshed` are expected to fire. Verifies each
+ * event carries the expected payload and that they dispatch via Laravel's
+ * standard event dispatcher (so consumers can subscribe via `Event::listen`).
  *
- * The `StubPrincipal` model implements both `Identity` and
- * `Principal` so the 2D-mode resolver returns the identity itself,
- * avoiding the need for a separate principal table.
+ * The `StubPrincipal` model implements both `Identity` and `Principal` so the
+ * 2D-mode resolver returns the identity itself, avoiding the need for a
+ * separate principal table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
@@ -75,8 +74,8 @@ final class CustomEventsIntegrationTest extends TestCase
     private Carbon $now;
 
     /**
-     * Create the identity table, freeze time, seed a user, and seed a
-     * device the jwt guard can bind and refresh against.
+     * Create the identity table, freeze time, seed a user, and seed a device
+     * the jwt guard can bind and refresh against.
      *
      * @return void
      */
@@ -124,9 +123,9 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful attempt through the basic guard binds a principal
-     * and dispatches exactly one `PrincipalAssigned` event carrying
-     * the guard name and the resolved principal.
+     * A successful attempt through the basic guard binds a principal and
+     * dispatches exactly one `PrincipalAssigned` event carrying the guard name
+     * and the resolved principal.
      *
      * @return void
      */
@@ -155,16 +154,16 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful JWT authentication whose token carries a `did`
-     * claim binds a device and dispatches exactly one
-     * `DeviceAuthenticated` event carrying the guard name and device.
+     * A successful JWT authentication whose token carries a `did` claim binds
+     * a device and dispatches exactly one `DeviceAuthenticated` event carrying
+     * the guard name and device.
      *
      * @return void
      */
     public function testDeviceAuthenticatedFiresWhenDeviceIsBound(): void
     {
-        // Fake the event BEFORE any guard resolution so the guard
-        // captures the faked dispatcher in its constructor.
+        // Fake the event BEFORE any guard resolution so the guard captures the
+        // faked dispatcher in its constructor.
         Event::fake([DeviceAuthenticated::class]);
 
         $user = $this->freshSeededUser();
@@ -201,8 +200,8 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A JWT authentication whose token has no `did` claim does not
-     * dispatch `DeviceAuthenticated`.
+     * A JWT authentication whose token has no `did` claim does not dispatch
+     * `DeviceAuthenticated`.
      *
      * @return void
      */
@@ -225,9 +224,8 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful `JwtGuard::refresh()` exchange dispatches exactly
-     * one `Refreshed` event carrying the guard name and the bound
-     * identity.
+     * A successful `JwtGuard::refresh()` exchange dispatches exactly one
+     * `Refreshed` event carrying the guard name and the bound identity.
      *
      * @return void
      */
@@ -280,9 +278,9 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Registering an `Event::listen` callback for `PrincipalAssigned`
-     * proves the custom events are observable via Laravel's standard
-     * event dispatcher (i.e. not a private pub/sub channel).
+     * Registering an `Event::listen` callback for `PrincipalAssigned` proves
+     * the custom events are observable via Laravel's standard event dispatcher
+     * (i.e. not a private pub/sub channel).
      *
      * @return void
      */
@@ -305,9 +303,9 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Register the `cli` (basic) and `api` (jwt) guards plus the
-     * shared `api_users` provider and align the package's JWT secret
-     * with the test secret so hand-rolled tokens decode cleanly.
+     * Register the `cli` (basic) and `api` (jwt) guards plus the shared
+     * `api_users` provider and align the package's JWT secret with the test
+     * secret so hand-rolled tokens decode cleanly.
      *
      * @param  mixed  $app
      * @return void
@@ -352,10 +350,9 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Encode a JWT access token payload (with `iat`, `exp`, and
-     * `typ = access`) using the shared test secret so the
-     * `JwtTokenService::parse()` path accepts it as a valid,
-     * unexpired access token.
+     * Encode a JWT access token payload (with `iat`, `exp`, and `typ =
+     * access`) using the shared test secret so the `JwtTokenService::parse()`
+     * path accepts it as a valid, unexpired access token.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -376,9 +373,9 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Rebind the container's `request` singleton with an HTTP request
-     * carrying the supplied bearer token so the active `JwtGuard`
-     * re-reads it via `$app->refresh('request', ...)`.
+     * Rebind the container's `request` singleton with an HTTP request carrying
+     * the supplied bearer token so the active `JwtGuard` re-reads it via
+     * `$app->refresh('request', ...)`.
      *
      * @param  string  $token
      * @return void
