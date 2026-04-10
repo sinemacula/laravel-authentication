@@ -28,14 +28,16 @@ Most auth packages collapse "who you are" and "who you're acting as" into a sing
 Both **2D** (identity-is-principal) and **3D** (identity → separate principal → tenant) adoption modes are
 supported by the same guards. Start 2D, grow into 3D without re-platforming.
 
-**Stateless for access, stateful for refresh.** Access tokens carry everything the guard needs to authenticate a
-request - no session, no database hit on the bearer-resolution path. Refresh tokens are a different story: the rotation
-digest, device record, and last-login timestamp all live in the `devices` table. Refresh is therefore inherently
-stateful, and the package owns that state so replay attacks and stale credentials can be detected server-side.
+**Stateless for access, stateful for refresh.** Access tokens are self-verifying JWTs: there is no session,
+remember-token, or server-side access-token store. On the bearer path, however, the guard still rehydrates the
+identity from the configured provider, resolves the active principal, and may reload the device record when the token
+carries a `did` claim. Refresh tokens are a different story: the rotation digest, device record, and last-login
+timestamp all live in the `devices` table. Refresh is therefore inherently stateful, and the package owns that state
+so replay attacks and stale credentials can be detected server-side.
 
 ## Features
 
-- **Two guards**, both stateless: `jwt` (Bearer token) and `basic` (HTTP Basic) - register via `auth.guards.*.driver`
+- **Two guards**, both sessionless: `jwt` (Bearer token) and `basic` (HTTP Basic) - register via `auth.guards.*.driver`
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`
 - **Hardened JWT pipeline**: enforces `iss` / `aud` / `typ` / `exp` / leeway on every parse, embeds a per-token `jti`
@@ -74,9 +76,9 @@ The package refuses to boot with an empty secret - silent acceptance of forged t
 
 ### Minimal setup: access-only, no refresh, no devices
 
-The device entity and refresh-token rotation are opt-in. If you only need stateless access tokens (the common
-pattern for M2M APIs, simple backends, and short-lived session flows), you can skip the devices migration
-entirely:
+The device entity and refresh-token rotation are opt-in. If you only need access tokens without device binding or
+refresh (the common pattern for M2M APIs, simple backends, and short-lived session flows), you can skip the devices
+migration entirely:
 
 1. Publish only the config: `php artisan vendor:publish --tag=authentication-config`. Skip the
    `authentication-migrations` tag.
@@ -85,10 +87,15 @@ entirely:
    The `did` claim is omitted.
 4. Do not call `$guard->refresh($refreshToken)`. Clients re-authenticate when their access token expires.
 
-In this mode the package never touches a `devices` table, `Auth::device()` returns `null`, and the full
-identity/principal contextual surface (`Auth::identity()`, `Auth::principal()`, `Auth::tenant()`,
-`Auth::type()`) still works normally. Add the migration and refresh flow later if the use case grows into
-it - it's additive, not a rewrite.
+In this mode the package never touches a `devices` table because the access token omits `did` and refresh is unused.
+Bearer auth still rehydrates the identity and principal through the configured provider and resolver, `Auth::device()`
+returns `null`, and the full identity/principal contextual surface (`Auth::identity()`, `Auth::principal()`,
+`Auth::tenant()`, `Auth::type()`) still works normally. Add the migration and refresh flow later if the use case
+grows into it - it's additive, not a rewrite.
+
+Security note: access-token `jti` values are not consulted on the bearer path. Revoking a device blocks refresh for
+that device, but already-issued access tokens remain valid until expiry unless the underlying identity, principal, or
+device can no longer be rehydrated.
 
 ## Configuration
 
