@@ -64,9 +64,9 @@ final class AccessOnlyIntegrationTest extends TestCase
 
     /**
      * Issuing an access token with `null` device produces a JWT whose `did`
-     * claim is null, and verifying it through the bearer path resolves
-     * identity + principal without needing a devices table. The identity is
-     * still loaded through the configured provider.
+     * claim is explicitly null, so the bearer path sees no usable device
+     * hint and still resolves identity + principal without needing a devices
+     * table. The identity is still loaded through the configured provider.
      *
      * @return void
      */
@@ -79,6 +79,7 @@ final class AccessOnlyIntegrationTest extends TestCase
         $claims = PackageAuth::jwt(self::GUARD)->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
+        self::assertArrayHasKey(Claims::DEVICE_ID->value, $claims);
         self::assertNull($claims[Claims::DEVICE_ID->value] ?? null);
         self::assertFalse(Schema::hasTable('devices'));
 

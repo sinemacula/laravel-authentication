@@ -12,10 +12,12 @@ return [
     |---------------------------------------------------------------------------
     |
     | Configures the package's default Eloquent device adapter. JWT refresh
-    | rotation and last-seen persistence require `device.model` to be an
-    | Eloquent model implementing the package `EloquentDevice` contract. The
-    | shipped migration and model use the conventional schema below; custom
-    | models may remap columns via their public column-name accessors.
+    | lookup and rotation require `device.model` to be an Eloquent model
+    | implementing the package `EloquentDevice` contract. The shipped
+    | migration and model use the conventional schema below; custom models
+    | may remap columns via their public column-name accessors. Bearer-path
+    | last-seen persistence is driven by the bound device instance itself, so
+    | it only runs when that resolved device is a persisted EloquentDevice.
     |
     */
 
@@ -64,11 +66,13 @@ return [
     | Sessionless JWT defaults consumed by JwtTokenService and JwtGuard.
     | Access tokens are self-verifying and are not backed by a server-side
     | access-token store, but JwtGuard still rehydrates identity, principal,
-    | and optional device state on bearer authentication. Configure either
-    | `secret` (single-secret mode) or `keys` + `active_kid` (kid-based
-    | rotation). The package refuses to boot with no signing material.
-    | `issuer`/`audience` are optional; when set they are strictly verified
-    | on every parse.
+    | and optional device state on bearer authentication. A resolved,
+    | persisted device may still trigger normal device-authenticated side
+    | effects such as debounced last-seen writes. Configure either `secret`
+    | (single-secret mode) or `keys` + `active_kid` (kid-based rotation).
+    | Invalid signing material fails closed when a JWT guard or token service
+    | is resolved. `issuer`/`audience` are optional; when set they are
+    | strictly verified on every parse.
     |
     */
 
