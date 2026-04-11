@@ -16,6 +16,9 @@ use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\TenantAware3dIdentity;
+use Tests\Integration\Fixtures\TenantAware3dPrincipal;
+use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
@@ -35,6 +38,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     private const string DEVICE_GUARD = 'device_api';
 
     private const string THREE_D_GUARD = 'api_3d';
+
+    private const string TENANT_AWARE_THREE_D_GUARD = 'tenant_api_3d';
 
     /**
      * Provision the fixture tables used by the three guard variants.
@@ -76,6 +81,30 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
+
+        Schema::create('tenant_aware_3d_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+
+        Schema::create('tenant_aware_3d_tenants', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('name');
+            $blueprint->string('type');
+            $blueprint->timestamps();
+        });
+
+        Schema::create('tenant_aware_3d_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->unsignedInteger('tenant_id');
+            $blueprint->string('name');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
     }
 
     /**
@@ -86,6 +115,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('tenant_aware_3d_principals');
+        Schema::dropIfExists('tenant_aware_3d_tenants');
+        Schema::dropIfExists('tenant_aware_3d_identities');
         Schema::dropIfExists('coexist_3d_principals');
         Schema::dropIfExists('coexist_3d_identities');
         Schema::dropIfExists('integration_identities');
@@ -287,6 +319,69 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A tenant-aware 3D bearer token should keep tenant access in the same
+     * principal-resolution read rather than triggering a third lookup.
+     *
+     * @return void
+     */
+    public function testThreeDimensionalBearerPathWithTenantAccessUsesTwoReadsAndNoWrites(): void
+    {
+        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
+
+        $token = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD)->issueAccessToken($identity, $principal, null);
+
+        $this->bindRequestWithBearer('/perf/3d-tenant-aware', $token);
+
+        $guard = $this->freshJwtGuard(self::TENANT_AWARE_THREE_D_GUARD);
+
+        $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
+            $authenticated = $guard->check();
+            $guard->principal();
+            $guard->tenant();
+            $guard->type();
+            $guard->principal()?->getIdentity();
+
+            return $authenticated;
+        });
+
+        self::assertTrue($result);
+    }
+
+    /**
+     * With a warm identity cache, tenant-aware 3D bearer auth should only pay
+     * the joined principal+tenant read.
+     *
+     * @return void
+     */
+    public function testThreeDimensionalBearerPathWithWarmIdentityCacheAndTenantAccessUsesOneReadAndNoWrites(): void
+    {
+        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures('three-dimensional-warm@example.test');
+
+        $token = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD)->issueAccessToken($identity, $principal, null);
+
+        config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
+
+        $this->bindRequestWithBearer('/perf/3d-tenant-aware-prime', $token);
+        self::assertTrue($this->freshJwtGuard(self::TENANT_AWARE_THREE_D_GUARD)->check());
+
+        $this->bindRequestWithBearer('/perf/3d-tenant-aware-warm', $token);
+
+        $guard = $this->freshJwtGuard(self::TENANT_AWARE_THREE_D_GUARD);
+
+        $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
+            $authenticated = $guard->check();
+            $guard->principal();
+            $guard->tenant();
+            $guard->type();
+            $guard->principal()?->getIdentity();
+
+            return $authenticated;
+        });
+
+        self::assertTrue($result);
+    }
+
+    /**
      * Configure the three JWT guards used by this test.
      *
      * @param  mixed  $app
@@ -321,6 +416,11 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'provider' => 'coexist_3d_identities',
         ]);
 
+        $config->set('auth.guards.' . self::TENANT_AWARE_THREE_D_GUARD, [
+            'driver'   => 'jwt',
+            'provider' => 'tenant_aware_3d_identities',
+        ]);
+
         $config->set('auth.providers.access_only_identities', [
             'driver' => 'model',
             'model'  => PerformanceAccessOnlyIdentity::class,
@@ -334,6 +434,11 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $config->set('auth.providers.coexist_3d_identities', [
             'driver' => 'model',
             'model'  => Coexist3dIdentity::class,
+        ]);
+
+        $config->set('auth.providers.tenant_aware_3d_identities', [
+            'driver' => 'model',
+            'model'  => TenantAware3dIdentity::class,
         ]);
 
         $config->set('cache.default', 'array');
@@ -394,6 +499,38 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $principal = new Coexist3dPrincipal;
         $principal->identity_id = $identity->getKey();
         $principal->name = 'performance-actor';
+        $principal->is_active = true;
+        $principal->save();
+
+        return [$identity, $principal];
+    }
+
+    /**
+     * Persist and return one tenant-aware 3D identity plus its active
+     * principal.
+     *
+     * @param  string  $email
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     */
+    private function seedTenantAwareThreeDimensionalFixtures(string $email = 'tenant-aware-three-dimensional-performance@example.test'): array
+    {
+        $hasher = app(Hasher::class);
+
+        $identity = new TenantAware3dIdentity;
+        $identity->email = $email;
+        $identity->password = $hasher->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        $tenant = new TenantAware3dTenant;
+        $tenant->name = 'Performance Staff';
+        $tenant->type = 'staff';
+        $tenant->save();
+
+        $principal = new TenantAware3dPrincipal;
+        $principal->identity_id = $identity->getKey();
+        $principal->tenant_id = $tenant->getKey();
+        $principal->name = 'performance-staff-actor';
         $principal->is_active = true;
         $principal->save();
 

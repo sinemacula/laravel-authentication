@@ -8,6 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 
 /**
  * Default principal resolver.
@@ -25,10 +26,11 @@ final class DefaultPrincipalResolver implements PrincipalResolver
      * Resolve a principal for the given identity.
      *
      * Resolution order:
-     *  1. Hint + `HasPrincipals`: lookup via `principals()->find()`.
-     *  2. 2D: identity is itself a `Principal`.
-     *  3. 3D: delegate to `resolveDefaultPrincipal()`.
-     *  4. Otherwise throw `UnresolvableIdentityException`.
+     *  1. Hint + `ResolvesHintedPrincipal`: lookup via `resolveHintedPrincipal()`.
+     *  2. Hint + `HasPrincipals`: lookup via `principals()->find()`.
+     *  3. 2D: identity is itself a `Principal`.
+     *  4. 3D: delegate to `resolveDefaultPrincipal()`.
+     *  5. Otherwise throw `UnresolvableIdentityException`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed|null  $hint
@@ -39,6 +41,15 @@ final class DefaultPrincipalResolver implements PrincipalResolver
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {
+        if ($hint !== null && $identity instanceof ResolvesHintedPrincipal) {
+
+            $hinted = $identity->resolveHintedPrincipal($hint);
+
+            if ($hinted instanceof Principal) {
+                return $hinted;
+            }
+        }
+
         if ($hint !== null && $identity instanceof HasPrincipals) {
 
             $hinted = $identity->principals()->find($hint);

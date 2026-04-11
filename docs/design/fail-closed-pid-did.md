@@ -28,6 +28,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - The default resolver may fall through from a hinted miss to the 2D or 3D default principal path. The guard and the
   refresh exchange explicitly prevent that fallback from becoming an auth downgrade by re-checking the resolved
   identifier against the hinted `pid`.
+- Identities may implement `ResolvesHintedPrincipal` to short-circuit the hinted lookup, but a `null` / non-Principal
+  result still falls through to the existing default resolver path and is therefore subject to the same fail-closed
+  `pid` re-check.
 - A resolver that returns an unsaved principal with a `null` identifier is rejected for the same reason.
 - On the bearer path, `did` resolution is identity-scoped through `HasDevices`; a token that claims a device against an
   identity with no device capability fails closed instead of silently binding no device.
@@ -46,7 +49,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `matchesPidHint()`.
 - `src/Jwt/IdentifierCoercion.php`: `stringify()`.
 - `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behavior that the guard hardens with explicit pid
-  matching.
+  matching, including the optional `ResolvesHintedPrincipal` shortcut ahead of the generic `HasPrincipals` lookup.
+- `src/Contracts/ResolvesHintedPrincipal.php`: optional 3D optimization seam for hinted principal hydration.
 - `src/AuthServiceProvider.php` and `src/Guards/JwtGuard.php`: resolver-rebind wiring so bearer and refresh stay on the
   same principal policy.
 
@@ -84,6 +88,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 Update this note when any of the following change:
 
 - how `pid` and `did` are matched or coerced
+- whether hinted principal resolution can short-circuit through `ResolvesHintedPrincipal`
 - whether bearer `did` remains identity-scoped through `HasDevices`
 - whether refresh `did` remains backed by the configured device model
 - how late-path bearer failures are attributed on the `Failed` event

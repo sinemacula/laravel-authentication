@@ -323,6 +323,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
+use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
 use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
@@ -330,7 +331,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
 // The human - implements Identity + HasPrincipals, NOT Principal.
-class AppIdentity extends User implements Identity, HasPrincipals
+class AppIdentity extends User implements Identity, HasPrincipals, ResolvesHintedPrincipal
 {
     use Authenticatable;
 
@@ -348,6 +349,22 @@ class AppIdentity extends User implements Identity, HasPrincipals
     public function resolveDefaultPrincipal(): ?PrincipalContract
     {
         return $this->principals()->where('is_active', true)->first();
+    }
+
+    /**
+     * Optional: when a JWT carries a `pid`, resolve the hinted principal
+     * directly. This is the package's preferred 3D optimization seam when
+     * you want a custom joined lookup and/or manual relation hydration for
+     * the acting principal.
+     */
+    public function resolveHintedPrincipal(mixed $hint): ?PrincipalContract
+    {
+        return AppMembership::query()
+            ->join('app_tenants', 'app_tenants.id', '=', 'app_memberships.tenant_id')
+            ->where('app_memberships.identity_id', $this->getKey())
+            ->where('app_memberships.id', $hint)
+            ->select('app_memberships.*')
+            ->first();
     }
 }
 
@@ -383,6 +400,13 @@ With that shape:
 - `Auth::tenant()` returns the `AppTenant` the membership belongs to
 - `Auth::type()` returns the tenant's type string (e.g. `'staff'`, `'customer'`) when the tenant implements
   `HasType`, and `null` otherwise; compose your own predicates at the call site (`Auth::type() === 'staff'`)
+
+For 3D apps, `resolveDefaultPrincipal()` and the optional
+`ResolvesHintedPrincipal::resolveHintedPrincipal()` method are the package's
+query-shaping seams. If tenant access is hot on your request path, use those
+hooks to return the principal in a request-ready state: perform the joined
+lookup you need, attach the tenant relation you want `Auth::tenant()` to read,
+and set the inverse identity relation when appropriate.
 
 If you need a domain-specific resolution strategy (scoped by subdomain, header, session claim, etc.), implement
 `SineMacula\Laravel\Authentication\Contracts\PrincipalResolver` yourself and bind it in a service provider:

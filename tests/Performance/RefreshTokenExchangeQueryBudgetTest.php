@@ -13,6 +13,9 @@ use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Integration\Fixtures\TenantAware3dIdentity;
+use Tests\Integration\Fixtures\TenantAware3dPrincipal;
+use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
@@ -28,6 +31,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestCase
 {
     private const string GUARD = 'api';
+
+    private const string TENANT_AWARE_GUARD = 'tenant_api';
 
     /**
      * Provision the identity table used by the refresh fixtures.
@@ -46,6 +51,30 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
+
+        Schema::create('tenant_aware_3d_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+
+        Schema::create('tenant_aware_3d_tenants', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('name');
+            $blueprint->string('type');
+            $blueprint->timestamps();
+        });
+
+        Schema::create('tenant_aware_3d_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->unsignedInteger('tenant_id');
+            $blueprint->string('name');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
     }
 
     /**
@@ -56,6 +85,9 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('tenant_aware_3d_principals');
+        Schema::dropIfExists('tenant_aware_3d_tenants');
+        Schema::dropIfExists('tenant_aware_3d_identities');
         Schema::dropIfExists('stub_principals');
 
         parent::tearDown();
@@ -136,6 +168,74 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
+     * Tenant-aware 3D refresh success should pay exactly the device read, the
+     * authenticatable read, the joined principal+tenant read, and one rotation
+     * write.
+     *
+     * @return void
+     */
+    public function testThreeDimensionalRefreshPathWithTenantAccessUsesThreeReadsAndOneWrite(): void
+    {
+        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
+        $rotationId = 'refresh-tenant-aware-success';
+
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => TenantAware3dIdentity::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'tenant-aware-ios',
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_logged_in_at'    => $this->now,
+        ])->save();
+
+        $token = PackageAuth::jwt(self::TENANT_AWARE_GUARD)->issueRefreshToken($device, $rotationId, $principal);
+        $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
+
+        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token) {
+            $tokens = $guard->refresh($token);
+            $guard->principal()?->getIdentity();
+            $guard->tenant();
+            $guard->type();
+
+            return $tokens;
+        });
+
+        self::assertNotNull($result);
+    }
+
+    /**
+     * A failure on the 3D pid path must still stop before the rotation write.
+     *
+     * @return void
+     */
+    public function testThreeDimensionalRefreshPidFailureStopsBeforeRotationWrite(): void
+    {
+        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures('refresh-tenant-aware-failure@example.test', false);
+        $rotationId = 'refresh-tenant-aware-failure';
+
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => TenantAware3dIdentity::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'tenant-aware-ios-failure',
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_logged_in_at'    => $this->now,
+        ])->save();
+
+        $token = PackageAuth::jwt(self::TENANT_AWARE_GUARD)->issueRefreshToken($device, $rotationId, $principal);
+        $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
+
+        $result = $this->assertQueryBudget(3, 0, static function () use ($guard, $token) {
+            $tokens = $guard->refresh($token);
+            $guard->tenant();
+
+            return $tokens;
+        });
+
+        self::assertNull($result);
+    }
+
+    /**
      * Configure the single JWT guard used by this test.
      *
      * @param  mixed  $app
@@ -160,9 +260,19 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'provider' => 'identities',
         ]);
 
+        $config->set('auth.guards.' . self::TENANT_AWARE_GUARD, [
+            'driver'   => 'jwt',
+            'provider' => 'tenant_aware_identities',
+        ]);
+
         $config->set('auth.providers.identities', [
             'driver' => 'model',
             'model'  => StubPrincipal::class,
+        ]);
+
+        $config->set('auth.providers.tenant_aware_identities', [
+            'driver' => 'model',
+            'model'  => TenantAware3dIdentity::class,
         ]);
 
         $config->set('authentication.device.last_seen_throttle_seconds', 60);
@@ -182,5 +292,35 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $identity->save();
 
         return $identity;
+    }
+
+    /**
+     * Persist and return a tenant-aware 3D identity and hinted principal.
+     *
+     * @param  string  $email
+     * @param  bool  $principalActive
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     */
+    private function seedTenantAwareThreeDimensionalFixtures(string $email = 'refresh-tenant-aware@example.test', bool $principalActive = true): array
+    {
+        $identity = new TenantAware3dIdentity;
+        $identity->email = $email;
+        $identity->password = password_hash('correct horse battery staple', PASSWORD_BCRYPT);
+        $identity->is_active = true;
+        $identity->save();
+
+        $tenant = new TenantAware3dTenant;
+        $tenant->name = 'Refresh Staff';
+        $tenant->type = 'staff';
+        $tenant->save();
+
+        $principal = new TenantAware3dPrincipal;
+        $principal->identity_id = $identity->getKey();
+        $principal->tenant_id = $tenant->getKey();
+        $principal->name = 'refresh-staff-actor';
+        $principal->is_active = $principalActive;
+        $principal->save();
+
+        return [$identity, $principal];
     }
 }

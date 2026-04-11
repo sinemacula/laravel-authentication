@@ -35,6 +35,9 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\TenantAware3dIdentity;
+use Tests\Integration\Fixtures\TenantAware3dPrincipal;
+use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
@@ -46,11 +49,12 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
  */
 final class JwtGuardBenchHarness
 {
-    private const string SECRET            = 'benchmark-secret-key-with-at-least-32-bytes!';
-    private const string PASSWORD          = 'correct horse battery staple';
-    private const string ACCESS_ONLY_EMAIL = 'bench-access-only@example.test';
-    private const string DEVICE_EMAIL      = 'bench-device@example.test';
-    private const string THREE_D_EMAIL     = 'bench-3d@example.test';
+    private const string SECRET               = 'benchmark-secret-key-with-at-least-32-bytes!';
+    private const string PASSWORD             = 'correct horse battery staple';
+    private const string ACCESS_ONLY_EMAIL    = 'bench-access-only@example.test';
+    private const string DEVICE_EMAIL         = 'bench-device@example.test';
+    private const string THREE_D_EMAIL        = 'bench-3d@example.test';
+    private const string TENANT_THREE_D_EMAIL = 'bench-tenant-3d@example.test';
 
     /** @var int Number of mutable write-path tokens to pre-seed. */
     private const int TOKEN_POOL_SIZE = 128;
@@ -66,6 +70,9 @@ final class JwtGuardBenchHarness
 
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $threeDProvider;
+
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
+    private readonly ModelProvider $tenantAwareThreeDProvider;
 
     /** @var \SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver */
     private readonly DefaultPrincipalResolver $resolver;
@@ -87,6 +94,7 @@ final class JwtGuardBenchHarness
 
     /** @var string 3D bearer token. */
     private string $threeDToken;
+    private string $tenantAwareThreeDToken;
 
     /** @var list<string> */
     private array $deviceWriteTokens = [];
@@ -168,19 +176,28 @@ final class JwtGuardBenchHarness
             ),
         );
 
-        $this->accessOnlyProvider = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
-        $this->deviceProvider     = new ModelProvider($hasher, IntegrationIdentity::class);
-        $this->threeDProvider     = new ModelProvider($hasher, Coexist3dIdentity::class);
+        $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
+        $this->deviceProvider            = new ModelProvider($hasher, IntegrationIdentity::class);
+        $this->threeDProvider            = new ModelProvider($hasher, Coexist3dIdentity::class);
+        $this->tenantAwareThreeDProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
 
         $this->createSchema();
         $this->seedAccessOnlyFixture($hasher);
         $this->seedDeviceFixtures($hasher);
         $this->seedThreeDimensionalFixtures($hasher);
+        $this->seedTenantAwareThreeDimensionalFixtures($hasher);
 
         $this->makeGuard(
             'access_only',
             $this->accessOnlyProvider,
             $this->makeBearerRequest('/bench/jwt/access-only-cache-prime', $this->accessOnlyToken),
+            $this->warmResolutionCache,
+        )->user();
+
+        $this->makeGuard(
+            'tenant_api_3d',
+            $this->tenantAwareThreeDProvider,
+            $this->makeBearerRequest('/bench/jwt/tenant-3d-cache-prime', $this->tenantAwareThreeDToken),
             $this->warmResolutionCache,
         )->user();
     }
@@ -273,6 +290,45 @@ final class JwtGuardBenchHarness
     }
 
     /**
+     * Benchmark the tenant-aware 3D bearer path including tenant access.
+     *
+     * @return void
+     */
+    public function runThreeDimensionalBearerTenantAccess(): void
+    {
+        $guard = $this->makeGuard(
+            'tenant_api_3d',
+            $this->tenantAwareThreeDProvider,
+            $this->makeBearerRequest('/bench/jwt/tenant-3d', $this->tenantAwareThreeDToken),
+        );
+
+        $guard->user();
+        $guard->principal()?->getIdentity();
+        $guard->tenant();
+        $guard->type();
+    }
+
+    /**
+     * Benchmark the warm tenant-aware 3D bearer path including tenant access.
+     *
+     * @return void
+     */
+    public function runThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
+    {
+        $guard = $this->makeGuard(
+            'tenant_api_3d',
+            $this->tenantAwareThreeDProvider,
+            $this->makeBearerRequest('/bench/jwt/tenant-3d-warm', $this->tenantAwareThreeDToken),
+            $this->warmResolutionCache,
+        );
+
+        $guard->user();
+        $guard->principal()?->getIdentity();
+        $guard->tenant();
+        $guard->type();
+    }
+
+    /**
      * Create the shared tables once.
      *
      * @return void
@@ -314,6 +370,36 @@ final class JwtGuardBenchHarness
             $schema->create('coexist_3d_principals', static function (Blueprint $blueprint): void {
                 $blueprint->increments('id');
                 $blueprint->unsignedInteger('identity_id');
+                $blueprint->string('name');
+                $blueprint->boolean('is_active')->default(true);
+                $blueprint->timestamps();
+            });
+        }
+
+        if (!$schema->hasTable('tenant_aware_3d_identities')) {
+            $schema->create('tenant_aware_3d_identities', static function (Blueprint $blueprint): void {
+                $blueprint->increments('id');
+                $blueprint->string('email')->unique();
+                $blueprint->string('password');
+                $blueprint->boolean('is_active')->default(true);
+                $blueprint->timestamps();
+            });
+        }
+
+        if (!$schema->hasTable('tenant_aware_3d_tenants')) {
+            $schema->create('tenant_aware_3d_tenants', static function (Blueprint $blueprint): void {
+                $blueprint->increments('id');
+                $blueprint->string('name');
+                $blueprint->string('type');
+                $blueprint->timestamps();
+            });
+        }
+
+        if (!$schema->hasTable('tenant_aware_3d_principals')) {
+            $schema->create('tenant_aware_3d_principals', static function (Blueprint $blueprint): void {
+                $blueprint->increments('id');
+                $blueprint->unsignedInteger('identity_id');
+                $blueprint->unsignedInteger('tenant_id');
                 $blueprint->string('name');
                 $blueprint->boolean('is_active')->default(true);
                 $blueprint->timestamps();
@@ -442,6 +528,52 @@ final class JwtGuardBenchHarness
         }
 
         $this->threeDToken = $this->tokens->issueAccessToken($identity, $principal, null);
+    }
+
+    /**
+     * Seed the tenant-aware 3D bearer fixture.
+     *
+     * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
+     * @return void
+     */
+    private function seedTenantAwareThreeDimensionalFixtures(Hasher $hasher): void
+    {
+        $identity = TenantAware3dIdentity::query()->first();
+
+        if (!$identity instanceof TenantAware3dIdentity) {
+            $identity            = new TenantAware3dIdentity;
+            $identity->email     = self::TENANT_THREE_D_EMAIL;
+            $identity->password  = $hasher->make(self::PASSWORD);
+            $identity->is_active = true;
+            $identity->save();
+        }
+
+        $tenant = TenantAware3dTenant::query()->first();
+
+        if (!$tenant instanceof TenantAware3dTenant) {
+            $tenant       = new TenantAware3dTenant;
+            $tenant->name = 'Bench Tenant Staff';
+            $tenant->type = 'staff';
+            $tenant->save();
+        }
+
+        $principal = TenantAware3dPrincipal::query()->where('identity_id', $identity->getKey())->first();
+
+        if (!$principal instanceof TenantAware3dPrincipal) {
+            /** @var int $identityKey */
+            $identityKey = $identity->getKey();
+            /** @var int $tenantKey */
+            $tenantKey = $tenant->getKey();
+
+            $principal              = new TenantAware3dPrincipal;
+            $principal->identity_id = $identityKey;
+            $principal->tenant_id   = $tenantKey;
+            $principal->name        = 'bench-tenant-3d-principal';
+            $principal->is_active   = true;
+            $principal->save();
+        }
+
+        $this->tenantAwareThreeDToken = $this->tokens->issueAccessToken($identity, $principal, null);
     }
 
     /**

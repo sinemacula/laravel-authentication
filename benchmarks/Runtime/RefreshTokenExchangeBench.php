@@ -52,6 +52,16 @@ final class RefreshTokenExchangeBench
     }
 
     /**
+     * @Revs(10)
+     *
+     * @Iterations(5)
+     */
+    public function benchThreeDimensionalRefreshTenantAccess(): void
+    {
+        $this->harness()->runThreeDimensionalRefreshTenantAccess();
+    }
+
+    /**
      * Lazily initialize the shared harness.
      *
      * @return \Benchmarks\Support\RefreshTokenExchangeBenchHarness
