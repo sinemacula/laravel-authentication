@@ -113,7 +113,11 @@ jobs:
                 run: composer update --with="laravel/framework:^13.3" --prefer-dist --no-interaction --no-progress
 
             -   name: Run PHPBench suite
-                run: composer bench:ci
+                run: XDEBUG_MODE=off composer bench:ci
+
+            -   name: Render benchmark summary
+                if: ${{ always() }}
+                run: php scripts/ci/render-phpbench-summary.php build/phpbench.xml >> "$GITHUB_STEP_SUMMARY"
 
             -   name: Upload benchmark artifact
                 if: ${{ always() }}

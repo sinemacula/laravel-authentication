@@ -100,9 +100,29 @@ final class JwtGuardBench
      *
      * @return void
      */
+    public function benchThreeDimensionalBearerSecondaryTenantAccess(): void
+    {
+        $this->harness()->runThreeDimensionalBearerSecondaryTenantAccess();
+    }
+
+    /**
+     * @Revs(25)
+     *
+     * @Iterations(5)
+     */
     public function benchThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
     {
         $this->harness()->runThreeDimensionalBearerTenantAccessWarmIdentityCache();
+    }
+
+    /**
+     * @Revs(10)
+     *
+     * @Iterations(5)
+     */
+    public function benchGuardCoexistenceBearer(): void
+    {
+        $this->harness()->runGuardCoexistenceBearer();
     }
 
     /**

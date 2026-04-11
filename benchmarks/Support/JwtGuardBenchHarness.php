@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -52,6 +53,7 @@ final class JwtGuardBenchHarness
     private const string SECRET               = 'benchmark-secret-key-with-at-least-32-bytes!';
     private const string PASSWORD             = 'correct horse battery staple';
     private const string ACCESS_ONLY_EMAIL    = 'bench-access-only@example.test';
+    private const string COEXIST_TWO_D_EMAIL  = 'bench-coexist-2d@example.test';
     private const string DEVICE_EMAIL         = 'bench-device@example.test';
     private const string THREE_D_EMAIL        = 'bench-3d@example.test';
     private const string TENANT_THREE_D_EMAIL = 'bench-tenant-3d@example.test';
@@ -64,6 +66,9 @@ final class JwtGuardBenchHarness
 
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $accessOnlyProvider;
+
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
+    private readonly ModelProvider $coexistTwoDProvider;
 
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $deviceProvider;
@@ -89,6 +94,9 @@ final class JwtGuardBenchHarness
     /** @var string 2D access-only bearer token. */
     private string $accessOnlyToken;
 
+    /** @var string Coexist 2D bearer token. */
+    private string $coexistTwoDToken;
+
     /** @var string Device bearer with fresh timestamp. */
     private string $deviceFreshToken;
 
@@ -97,12 +105,19 @@ final class JwtGuardBenchHarness
 
     /** @var string Tenant-aware 3D bearer token. */
     private string $tenantAwareThreeDToken;
+    private string $tenantAwareSecondaryToken;
 
     /** @var list<string> */
     private array $deviceWriteTokens = [];
 
     /** @var int Current index into the write-token pool. */
     private int $deviceWriteIndex = 0;
+
+    /** @var bool */
+    private bool $accessOnlyWarmCachePrimed = false;
+
+    /** @var bool */
+    private bool $tenantAwareWarmCachePrimed = false;
 
     /**
      * Seed the bearer-auth benchmark fixtures.
@@ -179,29 +194,17 @@ final class JwtGuardBenchHarness
         );
 
         $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
+        $this->coexistTwoDProvider       = new ModelProvider($hasher, Coexist2dIdentity::class);
         $this->deviceProvider            = new ModelProvider($hasher, IntegrationIdentity::class);
         $this->threeDProvider            = new ModelProvider($hasher, Coexist3dIdentity::class);
         $this->tenantAwareThreeDProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
 
         $this->createSchema();
         $this->seedAccessOnlyFixture($hasher);
+        $this->seedCoexistenceTwoDimensionalFixture($hasher);
         $this->seedDeviceFixtures($hasher);
         $this->seedThreeDimensionalFixtures($hasher);
         $this->seedTenantAwareThreeDimensionalFixtures($hasher);
-
-        $this->makeGuard(
-            'access_only',
-            $this->accessOnlyProvider,
-            $this->makeBearerRequest('/bench/jwt/access-only-cache-prime', $this->accessOnlyToken),
-            $this->warmResolutionCache,
-        )->user();
-
-        $this->makeGuard(
-            'tenant_api_3d',
-            $this->tenantAwareThreeDProvider,
-            $this->makeBearerRequest('/bench/jwt/tenant-3d-cache-prime', $this->tenantAwareThreeDToken),
-            $this->warmResolutionCache,
-        )->user();
     }
 
     /**
@@ -228,6 +231,8 @@ final class JwtGuardBenchHarness
      */
     public function runAccessOnlyBearerWarmIdentityCache(): void
     {
+        $this->primeAccessOnlyWarmCache();
+
         $guard = $this->makeGuard(
             'access_only',
             $this->accessOnlyProvider,
@@ -311,12 +316,33 @@ final class JwtGuardBenchHarness
     }
 
     /**
+     * Benchmark the tenant-aware 3D bearer path for a non-default tenant hint.
+     *
+     * @return void
+     */
+    public function runThreeDimensionalBearerSecondaryTenantAccess(): void
+    {
+        $guard = $this->makeGuard(
+            'tenant_api_3d',
+            $this->tenantAwareThreeDProvider,
+            $this->makeBearerRequest('/bench/jwt/tenant-3d-secondary', $this->tenantAwareSecondaryToken),
+        );
+
+        $guard->user();
+        $guard->principal()?->getIdentity();
+        $guard->tenant();
+        $guard->type();
+    }
+
+    /**
      * Benchmark the warm tenant-aware 3D bearer path including tenant access.
      *
      * @return void
      */
     public function runThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
     {
+        $this->primeTenantAwareWarmCache();
+
         $guard = $this->makeGuard(
             'tenant_api_3d',
             $this->tenantAwareThreeDProvider,
@@ -328,6 +354,32 @@ final class JwtGuardBenchHarness
         $guard->principal()?->getIdentity();
         $guard->tenant();
         $guard->type();
+    }
+
+    /**
+     * Benchmark sequential authentication through distinct 2D and 3D guards.
+     *
+     * @return void
+     */
+    public function runGuardCoexistenceBearer(): void
+    {
+        $twoDimensionalGuard = $this->makeGuard(
+            'api_2d',
+            $this->coexistTwoDProvider,
+            $this->makeBearerRequest('/bench/jwt/coexist-2d', $this->coexistTwoDToken),
+        );
+
+        $twoDimensionalGuard->user();
+        $twoDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
+
+        $threeDimensionalGuard = $this->makeGuard(
+            'api_3d',
+            $this->threeDProvider,
+            $this->makeBearerRequest('/bench/jwt/coexist-3d', $this->threeDToken),
+        );
+
+        $threeDimensionalGuard->user();
+        $threeDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
     }
 
     /**
@@ -350,6 +402,16 @@ final class JwtGuardBenchHarness
 
         if (!$schema->hasTable('integration_identities')) {
             $schema->create('integration_identities', static function (Blueprint $blueprint): void {
+                $blueprint->increments('id');
+                $blueprint->string('email')->unique();
+                $blueprint->string('password');
+                $blueprint->boolean('is_active')->default(true);
+                $blueprint->timestamps();
+            });
+        }
+
+        if (!$schema->hasTable('coexist_2d_identities')) {
+            $schema->create('coexist_2d_identities', static function (Blueprint $blueprint): void {
                 $blueprint->increments('id');
                 $blueprint->string('email')->unique();
                 $blueprint->string('password');
@@ -444,6 +506,29 @@ final class JwtGuardBenchHarness
         }
 
         $this->accessOnlyToken = $this->tokens->issueAccessToken($identity, $identity, null);
+    }
+
+    /**
+     * Seed the 2D coexistence bearer fixture.
+     *
+     * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
+     * @return void
+     */
+    private function seedCoexistenceTwoDimensionalFixture(Hasher $hasher): void
+    {
+        $identity = Coexist2dIdentity::query()->first();
+
+        if (!$identity instanceof Coexist2dIdentity) {
+            $identity = new Coexist2dIdentity;
+            $identity->forceFill([
+                'email'     => self::COEXIST_TWO_D_EMAIL,
+                'password'  => $hasher->make(self::PASSWORD),
+                'is_active' => true,
+            ]);
+            $identity->save();
+        }
+
+        $this->coexistTwoDToken = $this->tokens->issueAccessToken($identity, $identity, null);
     }
 
     /**
@@ -559,7 +644,10 @@ final class JwtGuardBenchHarness
             $tenant->save();
         }
 
-        $principal = TenantAware3dPrincipal::query()->where('identity_id', $identity->getKey())->first();
+        $principal = TenantAware3dPrincipal::query()
+            ->where('identity_id', $identity->getKey())
+            ->where('name', 'bench-tenant-3d-principal')
+            ->first();
 
         if (!$principal instanceof TenantAware3dPrincipal) {
             /** @var int $identityKey */
@@ -575,7 +663,80 @@ final class JwtGuardBenchHarness
             $principal->save();
         }
 
-        $this->tenantAwareThreeDToken = $this->tokens->issueAccessToken($identity, $principal, null);
+        $secondaryTenant = TenantAware3dTenant::query()
+            ->where('name', 'Bench Tenant Customer')
+            ->first();
+
+        if (!$secondaryTenant instanceof TenantAware3dTenant) {
+            $secondaryTenant       = new TenantAware3dTenant;
+            $secondaryTenant->name = 'Bench Tenant Customer';
+            $secondaryTenant->type = 'customer';
+            $secondaryTenant->save();
+        }
+
+        $secondaryPrincipal = TenantAware3dPrincipal::query()
+            ->where('identity_id', $identity->getKey())
+            ->where('name', 'bench-tenant-3d-secondary-principal')
+            ->first();
+
+        if (!$secondaryPrincipal instanceof TenantAware3dPrincipal) {
+            /** @var int $identityKey */
+            $identityKey = $identity->getKey();
+            /** @var int $secondaryTenantKey */
+            $secondaryTenantKey = $secondaryTenant->getKey();
+
+            $secondaryPrincipal              = new TenantAware3dPrincipal;
+            $secondaryPrincipal->identity_id = $identityKey;
+            $secondaryPrincipal->tenant_id   = $secondaryTenantKey;
+            $secondaryPrincipal->name        = 'bench-tenant-3d-secondary-principal';
+            $secondaryPrincipal->is_active   = true;
+            $secondaryPrincipal->save();
+        }
+
+        $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null);
+        $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null);
+    }
+
+    /**
+     * Prime the warm cache used by the access-only bearer benchmark.
+     *
+     * @return void
+     */
+    private function primeAccessOnlyWarmCache(): void
+    {
+        if ($this->accessOnlyWarmCachePrimed) {
+            return;
+        }
+
+        $this->makeGuard(
+            'access_only',
+            $this->accessOnlyProvider,
+            $this->makeBearerRequest('/bench/jwt/access-only-cache-prime', $this->accessOnlyToken),
+            $this->warmResolutionCache,
+        )->user();
+
+        $this->accessOnlyWarmCachePrimed = true;
+    }
+
+    /**
+     * Prime the warm cache used by the tenant-aware bearer benchmark.
+     *
+     * @return void
+     */
+    private function primeTenantAwareWarmCache(): void
+    {
+        if ($this->tenantAwareWarmCachePrimed) {
+            return;
+        }
+
+        $this->makeGuard(
+            'tenant_api_3d',
+            $this->tenantAwareThreeDProvider,
+            $this->makeBearerRequest('/bench/jwt/tenant-3d-cache-prime', $this->tenantAwareThreeDToken),
+            $this->warmResolutionCache,
+        )->user();
+
+        $this->tenantAwareWarmCachePrimed = true;
     }
 
     /**

@@ -348,6 +348,38 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A tenant-aware bearer token for a secondary tenant should keep the
+     * hinted-principal lookup to the same joined read budget as the primary
+     * tenant path.
+     *
+     * @return void
+     */
+    public function testThreeDimensionalBearerPathWithSecondaryTenantHintUsesTwoReadsAndNoWrites(): void
+    {
+        [$identity, , $secondaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant();
+
+        $token = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD)->issueAccessToken($identity, $secondaryPrincipal, null);
+
+        $this->bindRequestWithBearer('/perf/3d-tenant-aware-secondary', $token);
+
+        $guard = $this->freshJwtGuard(self::TENANT_AWARE_THREE_D_GUARD);
+
+        $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
+            $authenticated = $guard->check();
+            $guard->principal();
+            $guard->tenant();
+            $guard->type();
+            $guard->principal()?->getIdentity();
+
+            return $authenticated;
+        });
+
+        self::assertTrue($result);
+        self::assertSame($secondaryPrincipal->getPrincipalIdentifier(), $guard->principal()?->getPrincipalIdentifier());
+        self::assertSame('customer', $guard->type());
+    }
+
+    /**
      * With a warm identity cache, tenant-aware 3D bearer auth should only pay
      * the joined principal+tenant read.
      *
@@ -535,5 +567,32 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $principal->save();
 
         return [$identity, $principal];
+    }
+
+    /**
+     * Persist and return one tenant-aware 3D identity plus active principals
+     * for two distinct tenant types.
+     *
+     * @param  string  $email
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     */
+    private function seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant(
+        string $email = 'tenant-aware-three-dimensional-secondary-performance@example.test',
+    ): array {
+        [$identity, $primaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixtures($email);
+
+        $secondaryTenant = new TenantAware3dTenant;
+        $secondaryTenant->name = 'Performance Customer';
+        $secondaryTenant->type = 'customer';
+        $secondaryTenant->save();
+
+        $secondaryPrincipal = new TenantAware3dPrincipal;
+        $secondaryPrincipal->identity_id = $identity->getKey();
+        $secondaryPrincipal->tenant_id = $secondaryTenant->getKey();
+        $secondaryPrincipal->name = 'performance-customer-actor';
+        $secondaryPrincipal->is_active = true;
+        $secondaryPrincipal->save();
+
+        return [$identity, $primaryPrincipal, $secondaryPrincipal];
     }
 }

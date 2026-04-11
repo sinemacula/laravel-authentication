@@ -204,6 +204,44 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
+     * A tenant-aware refresh for a secondary tenant hint should still pay the
+     * same device + identity + joined principal read budget as the primary
+     * tenant path.
+     *
+     * @return void
+     */
+    public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesThreeReadsAndOneWrite(): void
+    {
+        [$identity, , $secondaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant();
+        $rotationId = 'refresh-tenant-aware-secondary-success';
+
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => TenantAware3dIdentity::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'tenant-aware-ios-secondary',
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_logged_in_at'    => $this->now,
+        ])->save();
+
+        $token = PackageAuth::jwt(self::TENANT_AWARE_GUARD)->issueRefreshToken($device, $rotationId, $secondaryPrincipal);
+        $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
+
+        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token) {
+            $tokens = $guard->refresh($token);
+            $guard->principal()?->getIdentity();
+            $guard->tenant();
+            $guard->type();
+
+            return $tokens;
+        });
+
+        self::assertNotNull($result);
+        self::assertSame($secondaryPrincipal->getPrincipalIdentifier(), $guard->principal()?->getPrincipalIdentifier());
+        self::assertSame('customer', $guard->type());
+    }
+
+    /**
      * A failure on the 3D pid path must still stop before the rotation write.
      *
      * @return void
@@ -322,5 +360,32 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $principal->save();
 
         return [$identity, $principal];
+    }
+
+    /**
+     * Persist and return a tenant-aware 3D identity with active principals for
+     * two separate tenant types.
+     *
+     * @param  string  $email
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     */
+    private function seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant(
+        string $email = 'refresh-tenant-aware-secondary@example.test',
+    ): array {
+        [$identity, $primaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixtures($email);
+
+        $secondaryTenant = new TenantAware3dTenant;
+        $secondaryTenant->name = 'Refresh Customer';
+        $secondaryTenant->type = 'customer';
+        $secondaryTenant->save();
+
+        $secondaryPrincipal = new TenantAware3dPrincipal;
+        $secondaryPrincipal->identity_id = $identity->getKey();
+        $secondaryPrincipal->tenant_id = $secondaryTenant->getKey();
+        $secondaryPrincipal->name = 'refresh-customer-actor';
+        $secondaryPrincipal->is_active = true;
+        $secondaryPrincipal->save();
+
+        return [$identity, $primaryPrincipal, $secondaryPrincipal];
     }
 }
