@@ -14,14 +14,17 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `PrincipalAssigned` is emitted only after the identity is bound.
 - `DeviceAuthenticated` is emitted only when a non-null device is bound.
 - Rebinding clears any previously cached identity, principal, and device state before the new lifecycle begins.
+- Request-local memoization is always on, but shared cross-request caching is opt-in and currently limited to JWT
+  bearer identity rehydration through model providers.
+- Basic auth and refresh stay live-only even when the optional shared bearer cache is enabled.
 
 ## Success Path
 
 - `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
-- Bearer `user()` resolution emits `Attempting`, then routes through `login()`, so a successful bearer request follows
-  the direct `login()` sequence.
+- Bearer `user()` resolution may reuse a shared cached identity, then emits `Attempting` and routes through `login()`,
+  so a successful bearer request still follows the direct `login()` sequence.
 - Successful `refresh()` emits `Attempting`, then routes through `login()`, then emits the package `Refreshed` event.
 - `logout()` emits Laravel's `Logout` event only when an identity was actually bound, then clears contextual state.
 
@@ -35,6 +38,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   a machine-readable reason.
 - `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted
   `EloquentDevice` instances participate in that write path.
+- Shared-cache store failures are fail-open: bearer auth falls back to a live identity lookup rather than denying auth
+  or changing the event sequence.
 
 ## Implementation Anchors
 
@@ -44,6 +49,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `resolveContextForCredentials()`.
 - `src/Guards/Concerns/BindsContextualState.php`: `setPrincipal()`, `setDevice()`, `clearContextualState()`.
 - `src/Guards/JwtGuard.php`: `resolveBearerToken()`, `refresh()`.
+- `src/Cache/StoreBackedResolutionCache.php`: opt-in shared bearer identity cache.
+- `src/Cache/ResolutionCacheInvalidator.php`: explicit invalidation hook for identity writes.
 - `src/AuthServiceProvider.php`: listener registration for `DeviceAuthenticated`.
 - `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
 
@@ -59,10 +66,16 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testUserBindsIdentityPrincipalAndDeviceFromValidToken`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshDispatchesSuccessfulLifecycleEventsBeforeRefreshed`
+- `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
+  `testSetRequestClearsBoundContextualState`
 - `tests/Integration/Events/StandardAuthEventsIntegrationTest.php`
   `testSuccessfulAttemptDispatchesAttemptingThenValidatedThenLoginThenAuthenticated`
+- `tests/Integration/Events/StandardAuthEventsIntegrationTest.php`
+  `testBasicGuardNeverUsesResolutionCache`
 - `tests/Integration/Events/CustomEventsIntegrationTest.php`
   `testRefreshedFiresAfterSuccessfulRefresh`
+- `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
+  `testRefreshPathNeverUsesResolutionCache`
 
 ## Change Triggers
 
@@ -73,3 +86,4 @@ Update this note when any of the following change:
 - the decision to route bearer auth or refresh through `login()`
 - the listener or persistence behavior attached to `DeviceAuthenticated`
 - the rule that prior contextual state is cleared before rebinding
+- the scope or semantics of the optional shared bearer identity cache

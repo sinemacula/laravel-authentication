@@ -181,6 +181,16 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
+     * Return the configured Eloquent model class name.
+     *
+     * @return string
+     */
+    public function modelClass(): string
+    {
+        return $this->model;
+    }
+
+    /**
      * Instantiate a fresh copy of the configured Eloquent model.
      *
      * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model

@@ -18,6 +18,7 @@ use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -174,7 +175,7 @@ abstract class JwtGuardTestCase extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    protected function makeGuard(Request $request): JwtGuard
+    protected function makeGuard(Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard
     {
         $app = $this->app;
 
@@ -197,6 +198,7 @@ abstract class JwtGuardTestCase extends TestCase
             $this->timebox,
             $this->tokens,
             $exchange,
+            $resolutionCache,
         );
     }
 

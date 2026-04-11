@@ -36,6 +36,16 @@ final class JwtGuardBench
      *
      * @Iterations(5)
      */
+    public function benchAccessOnlyBearerWarmIdentityCache(): void
+    {
+        $this->harness()->runAccessOnlyBearerWarmIdentityCache();
+    }
+
+    /**
+     * @Revs(25)
+     *
+     * @Iterations(5)
+     */
     public function benchDeviceHintNoWrite(): void
     {
         $this->harness()->runDeviceBearerNoWrite();

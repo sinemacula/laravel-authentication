@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\ConnectionResolverInterface;
@@ -14,6 +15,10 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
+use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
+use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -52,6 +57,29 @@ final class AuthServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(
             __DIR__ . '/../config/authentication.php',
             'authentication',
+        );
+
+        $this->app->singleton(
+            ResolutionCacheConfig::class,
+            static fn (Application $app): ResolutionCacheConfig => new ResolutionCacheConfig(
+                static fn (): ConfigRepository => $app->make(ConfigRepository::class),
+            ),
+        );
+
+        $this->app->singleton(
+            ResolutionCache::class,
+            static fn (Application $app): ResolutionCache => new StoreBackedResolutionCache(
+                $app->make(CacheFactory::class),
+                $app->make(ResolutionCacheConfig::class),
+            ),
+        );
+
+        $this->app->singleton(
+            ResolutionCacheInvalidator::class,
+            static fn (Application $app): ResolutionCacheInvalidator => new ResolutionCacheInvalidator(
+                $app->make(ResolutionCache::class),
+                static fn (): ConfigRepository => $app->make(ConfigRepository::class),
+            ),
         );
 
         $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
@@ -126,6 +154,7 @@ final class AuthServiceProvider extends ServiceProvider
             $app->make(Timebox::class),
             $tokens,
             $exchange,
+            $app->make(ResolutionCache::class),
         );
 
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);

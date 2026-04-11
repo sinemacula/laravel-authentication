@@ -15,6 +15,8 @@ stateful per-device credentials with server-side replay detection.
   by clearing the digest and setting `revoked_at`.
 - Refresh can preserve principal continuity by carrying `pid` forward into both the rotated refresh token and the new
   access token.
+- Refresh never consults the optional shared bearer resolution cache; device state, revocation, and replay detection
+  remain live.
 
 ## Success Path
 
@@ -36,6 +38,8 @@ stateful per-device credentials with server-side replay detection.
 - Revoked devices produce `device_revoked`.
 - Refresh does not rely on Eloquent observers. The raw update path deliberately bypasses them; consumers should hang
   side effects off `RefreshFailed` and `Refreshed` instead.
+- Cache configuration or cache-store failures must not affect refresh semantics because the refresh path bypasses the
+  shared resolution cache entirely.
 
 ## Implementation Anchors
 
@@ -44,6 +48,8 @@ stateful per-device credentials with server-side replay detection.
 - `src/Jwt/RefreshTokenHasher.php`: digest generation and constant-time verification.
 - `src/Jwt/JwtTokenService.php`: `issueRefreshToken()` and `issueAccessToken()`.
 - `src/Events/Enums/RefreshFailureReason.php`: failure taxonomy.
+- `src/Guards/JwtGuard.php`: `refresh()` delegates straight to the live refresh exchange rather than the shared bearer
+  cache.
 
 ## Authoritative Tests
 
@@ -63,6 +69,10 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshPreservesOriginalPrincipalTenantAndTypeWhenDefaultDiffers`
 - `tests/Integration/Guards/JwtGuardIntegrationTest.php`
   `testRevokingDeviceBlocksRefreshButNotExistingAccessToken`
+- `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
+  `testRefreshPathNeverUsesResolutionCache`
+- `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
+  `testRefreshRejectsTokenWhenDeviceIsDeletedAfterIssuance`
 
 ## Change Triggers
 
@@ -73,3 +83,4 @@ Update this note when any of the following change:
 - the meanings of `rotation_mismatch`, `rotation_reuse`, or `device_revoked`
 - whether replay revokes one device row or a broader credential family
 - whether refresh still preserves `pid` across the rotated pair
+- whether refresh ever starts consulting shared cross-request caches
