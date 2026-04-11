@@ -6,8 +6,6 @@ namespace Tests\Unit\Traits;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
-use PHPUnit\Framework\Attributes\CoversMethod;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
@@ -15,17 +13,14 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * Unit tests for the package ActsAsDevice trait.
  *
  * Exercises the trait through an anonymous Eloquent model because the trait is
- * defined against Eloquent's `getAttribute` accessor contract. Both
- * `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit attributes the
- * trait's coverage correctly.
+ * defined against Eloquent's `getAttribute` accessor contract, without
+ * relying on explicit PHPUnit coverage metadata for traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
-#[CoversMethod(ActsAsDevice::class, 'getDeviceIdentifier')]
-#[CoversTrait(ActsAsDevice::class)]
 final class ActsAsDeviceTest extends TestCase
 {
     /** @var \Carbon\Carbon Frozen clock reference shared across timestamp assertions. */

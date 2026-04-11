@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Unit\Events;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
@@ -18,7 +17,6 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
  *
  * @internal
  */
-#[CoversClass(DeviceAuthenticated::class)]
 final class DeviceAuthenticatedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

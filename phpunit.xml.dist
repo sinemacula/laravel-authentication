@@ -14,6 +14,9 @@
         <testsuite name="Integration">
             <directory suffix="Test.php">./tests/Integration</directory>
         </testsuite>
+        <testsuite name="PerformanceContracts">
+            <directory suffix="Test.php">./tests/Performance</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

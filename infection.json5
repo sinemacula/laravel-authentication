@@ -1,0 +1,43 @@
+{
+    $schema: "./vendor/infection/infection/resources/schema.json",
+    source: {
+        directories: [
+            "src"
+        ],
+        excludes: [
+            "AuthManager.php",
+            "AuthServiceProvider.php",
+            "Config",
+            "Contracts",
+            "Database",
+            "Events",
+            "Exceptions",
+            "Facades",
+            "Guards/Concerns",
+            "Jwt/Enums",
+            "Jwt/ExchangedRefresh.php",
+            "Jwt/IdentifierCoercion.php",
+            "Jwt/InvalidJwtConfigurationException.php",
+            "Jwt/JwtKeyring.php",
+            "Jwt/JwtTokenServiceFactory.php",
+            "Jwt/RefreshResult.php",
+            "Jwt/RefreshTokenHasher.php",
+            "Listeners",
+            "Models",
+            "Resolvers/UnresolvableIdentityException.php",
+            "Traits"
+        ]
+    },
+    logs: {
+        summary: "build/infection-summary.log",
+        text: "build/infection.log"
+    },
+    phpUnit: {
+        configDir: ".",
+        customPath: "vendor/bin/phpunit"
+    },
+    timeout: 15,
+    mutators: {
+        "@default": true
+    }
+}

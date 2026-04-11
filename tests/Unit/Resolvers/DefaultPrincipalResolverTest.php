@@ -125,6 +125,36 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
+     * In 3D mode, a hinted miss falls through to `resolveDefaultPrincipal()`
+     * rather than returning `null`.
+     *
+     * @return void
+     */
+    public function testHintedMissFallsThroughToDefaultPrincipalIn3dMode(): void
+    {
+        $principal = \Mockery::mock(Principal::class);
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with('missing-principal')
+            ->andReturnNull();
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
+        $identity = \Mockery::mock(Identity::class, HasPrincipals::class);
+        $identity->shouldReceive('principals')
+            ->once()
+            ->andReturn($builder);
+        $identity->shouldReceive('resolveDefaultPrincipal')
+            ->once()
+            ->andReturn($principal);
+
+        $resolver = new DefaultPrincipalResolver;
+
+        self::assertSame($principal, $resolver->resolve($identity, 'missing-principal'));
+    }
+
+    /**
      * Asserts a hint is silently ignored when the identity does not implement
      * HasPrincipals; the 2D path still resolves the identity itself without
      * ever touching a principals relation.

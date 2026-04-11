@@ -28,9 +28,11 @@
         "brianium/paratest": "^7.20",
         "doctrine/coding-standard": "^14.0",
         "friendsofphp/php-cs-fixer": "^3.94",
+        "infection/infection": "^0.32.6",
         "larastan/larastan": "^3.9",
         "mockery/mockery": "^1.6",
         "orchestra/testbench": "^10.2|^11.0",
+        "phpbench/phpbench": "^1.6.1",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpdoc-parser": "^2.3",
         "phpstan/phpstan": "^2.1",
@@ -50,6 +52,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "Benchmarks\\": "benchmarks/",
             "Tests\\": "tests/"
         }
     },
@@ -59,6 +62,21 @@
         ],
         "format": [
             "qlty fmt"
+        ],
+        "test:mutation": [
+            "@php vendor/bin/infection --configuration=infection.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases --min-msi=85 --min-covered-msi=90"
+        ],
+        "test:mutation:full": [
+            "@php vendor/bin/infection --configuration=infection.full.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases"
+        ],
+        "test:perf:contracts": [
+            "@php vendor/bin/phpunit --testsuite PerformanceContracts"
+        ],
+        "bench": [
+            "@php vendor/bin/phpbench run benchmarks --config=phpbench.json --progress=plain --report=aggregate"
+        ],
+        "bench:ci": [
+            "@php vendor/bin/phpbench run benchmarks --config=phpbench.json --progress=plain --report=aggregate --dump-file=build/phpbench.xml"
         ],
         "test": [
             "@php vendor/bin/paratest $@"
@@ -70,6 +88,11 @@
     "scripts-descriptions": {
         "check": "Run static analysis and lint checks via qlty.",
         "format": "Format codebase using qlty.",
+        "test:mutation": "Run the scoped Infection mutation-testing gate for the highest-risk auth paths.",
+        "test:mutation:full": "Run the full Infection mutation suite across src/ without MSI thresholds.",
+        "test:perf:contracts": "Run deterministic query/write budget tests for auth hot paths.",
+        "bench": "Run PHPBench benchmarks for runtime and JWT hot paths.",
+        "bench:ci": "Run PHPBench benchmarks and dump CI output for artifact upload.",
         "test": "Run the default PHPUnit test suites in parallel using Paratest.",
         "test-coverage": "Shortcut to run Paratest coverage for default suites."
     },
@@ -86,6 +109,7 @@
         "sort-packages": true,
         "allow-plugins": {
             "dealerdirect/phpcodesniffer-composer-installer": true,
+            "infection/extension-installer": true,
             "phpstan/extension-installer": true
         }
     },

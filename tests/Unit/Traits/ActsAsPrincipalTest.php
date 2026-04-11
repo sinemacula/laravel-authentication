@@ -6,8 +6,6 @@ namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversMethod;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -17,16 +15,14 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 /**
  * Unit tests for the ActsAsPrincipal trait.
  *
- * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
- * attributes the trait's coverage correctly.
+ * Exercises the public trait surface without relying on explicit PHPUnit
+ * coverage metadata for traits.
  *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  */
-#[CoversMethod(ActsAsPrincipal::class, 'getPrincipalIdentifier')]
-#[CoversTrait(ActsAsPrincipal::class)]
 final class ActsAsPrincipalTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
