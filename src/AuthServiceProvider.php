@@ -36,7 +36,7 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  * config + migration publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class AuthServiceProvider extends ServiceProvider
 {

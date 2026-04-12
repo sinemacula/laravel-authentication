@@ -31,7 +31,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class Auth extends IlluminateAuth
 {
