@@ -47,22 +47,50 @@ final class RefreshTokenExchange
      */
     public function __construct(
 
-        /** Token service used to parse the inbound refresh token and issue the rotated pair. */
+        /**
+         * Token service used to parse the inbound refresh
+         * token and issue the rotated pair.
+         */
         private readonly JwtTokenService $tokens,
 
-        /** Connection resolver used for the raw CAS update that rotates the stored digest. */
+        /**
+         * Connection resolver used for the raw CAS update
+         * that rotates the stored digest.
+         */
         private readonly ConnectionResolverInterface $connections,
 
-        /** Event dispatcher for `RefreshFailed` attribution events. */
+        /**
+         * Event dispatcher for RefreshFailed attribution
+         * events.
+         */
         private readonly Dispatcher $events,
 
-        /** Resolver that maps the refreshed identity to its acting principal. */
-        private readonly PrincipalResolver $resolver,
+        /**
+         * Resolver that maps the refreshed identity to
+         * its acting principal.
+         */
+        private PrincipalResolver $resolver,
 
-        /** Name of the guard that owns this exchange, carried on every `RefreshFailed` event. */
+        /**
+         * Name of the guard that owns this exchange,
+         * carried on every RefreshFailed event.
+         */
         private readonly string $guardName,
 
     ) {}
+
+    /**
+     * Rebind the principal resolver used by refresh exchanges.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
+     * @return static
+     */
+    public function setPrincipalResolver(PrincipalResolver $resolver): static
+    {
+        $this->resolver = $resolver;
+
+        return $this;
+    }
 
     /**
      * Exchange a refresh token for a new access + refresh token pair, rotating
@@ -155,6 +183,7 @@ final class RefreshTokenExchange
     private function extractRefreshClaims(#[\SensitiveParameter] ?array $claims): ?array
     {
         if ($claims === null) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::TOKEN_INVALID, null);
 
             return null;
@@ -165,6 +194,7 @@ final class RefreshTokenExchange
         $shapeOk     = $rawDeviceId !== null && is_string($rotationId) && $rotationId !== '';
 
         if (!$shapeOk) {
+
             $this->dispatchRefreshFailure(
                 RefreshFailureReason::TOKEN_INVALID,
                 is_string($rawDeviceId) ? $rawDeviceId : null,
@@ -207,12 +237,14 @@ final class RefreshTokenExchange
         $device   = $this->findDeviceById($rawDeviceId);
 
         if ($device === null || !$device instanceof Model) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_UNKNOWN, $deviceId);
 
             return null;
         }
 
         if ($device->getRevokedAt() !== null) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_REVOKED, $deviceId);
 
             return null;
@@ -221,6 +253,7 @@ final class RefreshTokenExchange
         $storedDigest = $device->getRefreshKey();
 
         if ($storedDigest === null || !RefreshTokenHasher::verify($rotationId, $storedDigest)) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::ROTATION_MISMATCH, $deviceId);
 
             return null;
@@ -290,12 +323,14 @@ final class RefreshTokenExchange
         $identity = $device->getRelationValue('authenticatable');
 
         if (!$identity instanceof Identity) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::AUTHENTICATABLE_MISSING, $deviceId);
 
             return null;
         }
 
         if (!$this->isIdentityActive($identity)) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::IDENTITY_INACTIVE, $deviceId);
 
             return null;
@@ -333,12 +368,14 @@ final class RefreshTokenExchange
         $principal = $this->safeResolvePrincipal($identity);
 
         if (!$principal instanceof Principal) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_UNRESOLVED, $deviceId);
 
             return null;
         }
 
         if (!$principal->isActive()) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_INACTIVE, $deviceId);
 
             return null;
@@ -379,13 +416,18 @@ final class RefreshTokenExchange
      * @param  string  $oldRotationId
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      */
-    private function completeExchange(Device&Model $device, Identity $identity, Principal $principal, #[\SensitiveParameter] string $oldRotationId): ?ExchangedRefresh
-    {
+    private function completeExchange(
+        Device&Model $device,
+        Identity $identity,
+        Principal $principal,
+        #[\SensitiveParameter] string $oldRotationId,
+    ): ?ExchangedRefresh {
         $newRotationId = RefreshTokenHasher::generate();
 
         $rotated = $this->atomicallyRotateRefreshKey($device, $oldRotationId, $newRotationId);
 
         if (!$rotated) {
+
             $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
 
             // CAS lost: concurrent rotation or reuse. Revoke the device
@@ -424,8 +466,11 @@ final class RefreshTokenExchange
      * @param  string  $newRotationId
      * @return bool
      */
-    private function atomicallyRotateRefreshKey(Device&Model $device, #[\SensitiveParameter] string $oldRotationId, #[\SensitiveParameter] string $newRotationId): bool
-    {
+    private function atomicallyRotateRefreshKey(
+        Device&Model $device,
+        #[\SensitiveParameter] string $oldRotationId,
+        #[\SensitiveParameter] string $newRotationId,
+    ): bool {
         $column     = $this->refreshKeyColumn($device);
         $revokedCol = $this->revokedAtColumn($device);
 

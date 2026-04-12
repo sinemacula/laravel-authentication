@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -26,8 +27,9 @@ use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Feature tests for the refresh-token exchange path on `JwtGuard`, including all
- * `RefreshFailed` early-return branches.
+ * Feature tests for the refresh-token exchange path on
+ * JwtGuard, including all RefreshFailed early-return
+ * branches.
  *
  * Split out of the original JwtGuardTest so each class stays focused on a
  * single behavioural slice.
@@ -567,6 +569,62 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         self::assertSame($identity, $guard->identity());
         self::assertSame($principal, $guard->principal());
         self::assertSame($device, $guard->device());
+    }
+
+    /**
+     * Rebinding the guard's principal resolver must also update the refresh
+     * exchange so `refresh()` uses the replacement resolver rather than the
+     * constructor-time one.
+     *
+     * @return void
+     */
+    public function testRefreshUsesReplacementResolverAfterGuardResolverRebind(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 17]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '17',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $replacement = \Mockery::mock(PrincipalResolver::class);
+        $principal   = \Mockery::mock(Principal::class);
+
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-17');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $replacement->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $this->resolver->shouldNotReceive('resolve');
+
+        $guard->setPrincipalResolver($replacement);
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
+        self::assertSame($principal, $guard->principal());
     }
 
     /**
