@@ -17,7 +17,11 @@ use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 
 /**
- * Query-budget contracts for sequential 2D + 3D guard authentication.
+ * Query-budget contracts for sequential 2D + 3D guard
+ * authentication.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */

@@ -13,7 +13,11 @@ use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Query-budget contracts for isolated device timestamp writes.
+ * Query-budget contracts for isolated device timestamp
+ * writes.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */

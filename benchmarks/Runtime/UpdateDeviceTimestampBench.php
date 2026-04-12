@@ -4,21 +4,27 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Runtime;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Benchmarks\Support\UpdateDeviceTimestampBenchHarness;
 
 /**
+ * PHPBench suite for device timestamp writes.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @Warmup(1)
  */
 final class UpdateDeviceTimestampBench
 {
+    /** @var ?\Benchmarks\Support\UpdateDeviceTimestampBenchHarness */
     private static ?UpdateDeviceTimestampBenchHarness $harness = null;
 
     /**
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchWithinThrottleSkip(): void
     {
@@ -29,6 +35,8 @@ final class UpdateDeviceTimestampBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchStaleTimestampWrite(): void
     {

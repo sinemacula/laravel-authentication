@@ -544,7 +544,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * @param  string  $email
      * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      */
-    private function seedTenantAwareThreeDimensionalFixtures(string $email = 'tenant-aware-three-dimensional-performance@example.test'): array
+    private function seedTenantAwareThreeDimensionalFixtures(
+        string $email = 'tenant-aware-three-dimensional-performance@example.test',
+    ): array
     {
         $hasher = app(Hasher::class);
 

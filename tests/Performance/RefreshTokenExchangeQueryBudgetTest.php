@@ -339,7 +339,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      * @param  bool  $principalActive
      * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      */
-    private function seedTenantAwareThreeDimensionalFixtures(string $email = 'refresh-tenant-aware@example.test', bool $principalActive = true): array
+    private function seedTenantAwareThreeDimensionalFixtures(
+        string $email = 'refresh-tenant-aware@example.test',
+        bool $principalActive = true,
+    ): array
     {
         $identity = new TenantAware3dIdentity;
         $identity->email = $email;

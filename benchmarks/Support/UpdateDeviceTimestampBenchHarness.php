@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Support;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
@@ -17,15 +15,25 @@ use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Runtime benchmark fixtures for device timestamp writes.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  */
 final class UpdateDeviceTimestampBenchHarness
 {
+    /** @var int Number of mutable write-path devices to pre-seed. */
     private const int WRITE_DEVICE_POOL_SIZE = 128;
+
+    /** @var \SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp */
     private readonly UpdateDeviceTimestamp $listener;
+
+    /** @var \Tests\Unit\Stubs\StubDevice */
     private readonly StubDevice $freshDevice;
 
     /** @var list<\Tests\Unit\Stubs\StubDevice> */
-    private array $staleDevices   = [];
+    private array $staleDevices = [];
+
+    /** @var int Current index into the stale-device pool. */
     private int $staleDeviceIndex = 0;
 
     /**
@@ -64,6 +72,7 @@ final class UpdateDeviceTimestampBenchHarness
         $this->freshDevice = $freshDevice;
 
         for ($index = 0; $index < self::WRITE_DEVICE_POOL_SIZE; $index++) {
+
             $device = new StubDevice;
             $device->forceFill([
                 'os'                => 'bench-device-stale-' . $index,

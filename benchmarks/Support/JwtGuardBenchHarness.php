@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Support;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Cache\ArrayStore;
@@ -105,6 +103,8 @@ final class JwtGuardBenchHarness
 
     /** @var string Tenant-aware 3D bearer token. */
     private string $tenantAwareThreeDToken;
+
+    /** @var string Tenant-aware secondary bearer token. */
     private string $tenantAwareSecondaryToken;
 
     /** @var list<string> */
@@ -497,6 +497,7 @@ final class JwtGuardBenchHarness
         $identity = PerformanceAccessOnlyIdentity::query()->first();
 
         if (!$identity instanceof PerformanceAccessOnlyIdentity) {
+
             $identity = new PerformanceAccessOnlyIdentity;
             $identity->forceFill([
                 'email'    => self::ACCESS_ONLY_EMAIL,
@@ -519,6 +520,7 @@ final class JwtGuardBenchHarness
         $identity = Coexist2dIdentity::query()->first();
 
         if (!$identity instanceof Coexist2dIdentity) {
+
             $identity = new Coexist2dIdentity;
             $identity->forceFill([
                 'email'     => self::COEXIST_TWO_D_EMAIL,
@@ -542,6 +544,7 @@ final class JwtGuardBenchHarness
         $identity = IntegrationIdentity::query()->first();
 
         if (!$identity instanceof IntegrationIdentity) {
+
             $identity            = new IntegrationIdentity;
             $identity->email     = self::DEVICE_EMAIL;
             $identity->password  = $hasher->make(self::PASSWORD);
@@ -568,6 +571,7 @@ final class JwtGuardBenchHarness
         }
 
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+
             $device = new Device;
             $device->forceFill([
                 'authenticatable_type' => IntegrationIdentity::class,
@@ -591,6 +595,7 @@ final class JwtGuardBenchHarness
         $identity = Coexist3dIdentity::query()->first();
 
         if (!$identity instanceof Coexist3dIdentity) {
+
             $identity            = new Coexist3dIdentity;
             $identity->email     = self::THREE_D_EMAIL;
             $identity->password  = $hasher->make(self::PASSWORD);
@@ -601,6 +606,7 @@ final class JwtGuardBenchHarness
         $principal = Coexist3dPrincipal::query()->where('identity_id', $identity->getKey())->first();
 
         if (!$principal instanceof Coexist3dPrincipal) {
+
             $identityKey = $identity->getKey();
 
             if (!is_int($identityKey)) {
@@ -628,6 +634,7 @@ final class JwtGuardBenchHarness
         $identity = TenantAware3dIdentity::query()->first();
 
         if (!$identity instanceof TenantAware3dIdentity) {
+
             $identity            = new TenantAware3dIdentity;
             $identity->email     = self::TENANT_THREE_D_EMAIL;
             $identity->password  = $hasher->make(self::PASSWORD);
@@ -638,6 +645,7 @@ final class JwtGuardBenchHarness
         $tenant = TenantAware3dTenant::query()->first();
 
         if (!$tenant instanceof TenantAware3dTenant) {
+
             $tenant       = new TenantAware3dTenant;
             $tenant->name = 'Bench Tenant Staff';
             $tenant->type = 'staff';
@@ -650,6 +658,7 @@ final class JwtGuardBenchHarness
             ->first();
 
         if (!$principal instanceof TenantAware3dPrincipal) {
+
             /** @var int $identityKey */
             $identityKey = $identity->getKey();
             /** @var int $tenantKey */
@@ -668,6 +677,7 @@ final class JwtGuardBenchHarness
             ->first();
 
         if (!$secondaryTenant instanceof TenantAware3dTenant) {
+
             $secondaryTenant       = new TenantAware3dTenant;
             $secondaryTenant->name = 'Bench Tenant Customer';
             $secondaryTenant->type = 'customer';
@@ -680,6 +690,7 @@ final class JwtGuardBenchHarness
             ->first();
 
         if (!$secondaryPrincipal instanceof TenantAware3dPrincipal) {
+
             /** @var int $identityKey */
             $identityKey = $identity->getKey();
             /** @var int $secondaryTenantKey */
@@ -748,8 +759,12 @@ final class JwtGuardBenchHarness
      * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function makeGuard(string $name, ModelProvider $provider, Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard
-    {
+    private function makeGuard(
+        string $name,
+        ModelProvider $provider,
+        Request $request,
+        ?ResolutionCache $resolutionCache = null,
+    ): JwtGuard {
         $exchange = new RefreshTokenExchange(
             $this->tokens,
             BenchDatabase::connectionResolver(),

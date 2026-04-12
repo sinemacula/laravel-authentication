@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Runtime;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Benchmarks\Support\RefreshTokenExchangeBenchHarness;
 
 /**
@@ -73,6 +71,8 @@ final class RefreshTokenExchangeBench
      * @Revs(10)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchThreeDimensionalRefreshSecondaryTenantAccess(): void
     {

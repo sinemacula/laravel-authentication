@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Support;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
@@ -85,7 +83,9 @@ final class RefreshTokenExchangeBenchHarness
 
     /** @var list<string> */
     private array $tenantAwareSecondarySuccessTokens = [];
-    private int $tenantAwareSecondarySuccessIndex    = 0;
+
+    /** @var int Current index into the secondary pool. */
+    private int $tenantAwareSecondarySuccessIndex = 0;
 
     /**
      * Seed the refresh benchmark fixtures.
@@ -322,6 +322,7 @@ final class RefreshTokenExchangeBenchHarness
         }
 
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+
             $rotationId = 'bench-refresh-success-' . $index;
 
             $device = new Device;
@@ -352,6 +353,7 @@ final class RefreshTokenExchangeBenchHarness
         $tenantAwareIdentity = TenantAware3dIdentity::query()->first();
 
         if (!$tenantAwareIdentity instanceof TenantAware3dIdentity) {
+
             $tenantAwareIdentity            = new TenantAware3dIdentity;
             $tenantAwareIdentity->email     = 'bench-refresh-tenant-aware@example.test';
             $tenantAwareIdentity->password  = $hasher->make(self::PASSWORD);
@@ -364,6 +366,7 @@ final class RefreshTokenExchangeBenchHarness
             ->first();
 
         if (!$tenant instanceof TenantAware3dTenant) {
+
             $tenant       = new TenantAware3dTenant;
             $tenant->name = 'Bench Refresh Staff';
             $tenant->type = 'staff';
@@ -376,6 +379,7 @@ final class RefreshTokenExchangeBenchHarness
             ->first();
 
         if (!$tenantAwarePrincipal instanceof TenantAware3dPrincipal) {
+
             /** @var int $identityKey */
             $identityKey = $tenantAwareIdentity->getKey();
             /** @var int $tenantKey */
@@ -394,6 +398,7 @@ final class RefreshTokenExchangeBenchHarness
             ->first();
 
         if (!$secondaryTenant instanceof TenantAware3dTenant) {
+
             $secondaryTenant       = new TenantAware3dTenant;
             $secondaryTenant->name = 'Bench Refresh Customer';
             $secondaryTenant->type = 'customer';
@@ -406,6 +411,7 @@ final class RefreshTokenExchangeBenchHarness
             ->first();
 
         if (!$secondaryPrincipal instanceof TenantAware3dPrincipal) {
+
             /** @var int $identityKey */
             $identityKey = $tenantAwareIdentity->getKey();
             /** @var int $secondaryTenantKey */
@@ -436,7 +442,9 @@ final class RefreshTokenExchangeBenchHarness
         TenantAware3dPrincipal $secondaryPrincipal,
     ): void {
         if ($this->tenantAwareSuccessTokens === []) {
+
             for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+
                 $rotationId = 'bench-refresh-tenant-success-' . $index;
 
                 $device = new Device;
@@ -457,6 +465,7 @@ final class RefreshTokenExchangeBenchHarness
         }
 
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+
             $rotationId = 'bench-refresh-tenant-secondary-success-' . $index;
 
             $device = new Device;
@@ -487,6 +496,7 @@ final class RefreshTokenExchangeBenchHarness
         $mismatchDevice = Device::query()->where('os', 'bench-refresh-mismatch')->first();
 
         if (!$mismatchDevice instanceof Device) {
+
             $mismatchDevice = new Device;
             $mismatchDevice->forceFill([
                 'authenticatable_type' => StubPrincipal::class,

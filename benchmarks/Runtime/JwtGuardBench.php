@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Runtime;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Benchmarks\Support\JwtGuardBenchHarness;
 
 /**
@@ -109,6 +107,8 @@ final class JwtGuardBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
     {
@@ -119,6 +119,8 @@ final class JwtGuardBench
      * @Revs(10)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchGuardCoexistenceBearer(): void
     {

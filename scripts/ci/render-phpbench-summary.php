@@ -23,9 +23,11 @@ libxml_clear_errors();
 libxml_use_internal_errors($previous);
 
 if (!$loaded) {
+
     echo '_Unable to parse the PHPBench XML report._' . PHP_EOL;
 
     foreach ($errors as $error) {
+
         $message = trim($error->message);
 
         if ($message === '') {
@@ -56,6 +58,7 @@ $groups = [
 ];
 
 foreach ($benchmarkNodes as $benchmarkNode) {
+
     if (!$benchmarkNode instanceof \DOMElement) {
         continue;
     }
@@ -68,6 +71,7 @@ foreach ($benchmarkNodes as $benchmarkNode) {
     }
 
     foreach ($subjectNodes as $subjectNode) {
+
         if (!$subjectNode instanceof \DOMElement) {
             continue;
         }
@@ -93,6 +97,7 @@ foreach ($benchmarkNodes as $benchmarkNode) {
         }
 
         foreach ($variantNodes as $variantNode) {
+
             if (!$variantNode instanceof \DOMElement) {
                 continue;
             }
@@ -114,6 +119,7 @@ foreach ($benchmarkNodes as $benchmarkNode) {
 }
 
 foreach ($groups as $groupName => $rows) {
+
     if ($rows === []) {
         continue;
     }
@@ -152,6 +158,7 @@ function readAttribute(?\DOMElement $element, array $names): string
     }
 
     foreach ($names as $name) {
+
         $value = trim($element->getAttribute($name));
 
         if ($value !== '') {
@@ -246,6 +253,7 @@ function formatMode(string $value, string $unit): string
     $formatted = $value === '' ? 'n/a' : $value;
 
     if ($value !== '' && is_numeric($value)) {
+
         $numeric = (float) $value;
 
         if ($unit === 'microseconds') {
