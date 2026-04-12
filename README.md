@@ -53,6 +53,16 @@ and the package owns that state so replay attacks and stale credentials can be d
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`
 - **Pluggable everywhere**: identity model, device model, principal resolver, identifier field, table names
 
+## Design Notes
+
+The quick-start sections below focus on adoption. The maintainer-oriented security and lifecycle contracts live in
+`docs/design/` and cite the concrete implementation paths and tests that are meant to be authoritative:
+
+- `docs/design/guard-lifecycle-and-events.md`
+- `docs/design/refresh-rotation-and-replay.md`
+- `docs/design/fail-closed-pid-did.md`
+- `docs/design/access-only-mode.md`
+
 ## Installation
 
 ```bash
