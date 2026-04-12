@@ -28,12 +28,13 @@ Most auth packages collapse "who you are" and "who you're acting as" into a sing
 Both **2D** (identity-is-principal) and **3D** (identity → separate principal → tenant) adoption modes are
 supported by the same guards. Start 2D, grow into 3D without re-platforming.
 
-**Stateless for access, stateful for refresh.** Access tokens are self-verifying JWTs: there is no session,
-remember-token, or server-side access-token store. On the bearer path, however, the guard still rehydrates the
-identity from the configured provider, resolves the active principal, and may reload the device record when the token
-carries a `did` claim. Refresh tokens are a different story: the rotation digest, device record, and last-login
-timestamp all live in the `devices` table. Refresh is therefore inherently stateful, and the package owns that state
-so replay attacks and stale credentials can be detected server-side.
+**Self-verifying for access, stateful for refresh.** Access tokens are validated as standalone JWTs: there is no
+session, remember-token, or server-side access-token store. On the bearer path, however, the guard still rehydrates
+the identity from the configured provider, resolves the active principal, and may reload the device record when the
+token carries a usable `did` hint. When a persisted device is rebound, normal device-authenticated side effects such
+as debounced `last_logged_in_at` updates can still occur. Refresh tokens are a different story: the rotation digest,
+device record, and last-login timestamp all live in the `devices` table. Refresh is therefore inherently stateful,
+and the package owns that state so replay attacks and stale credentials can be detected server-side.
 
 ## Features
 
@@ -72,7 +73,8 @@ Set the JWT secret in your environment:
 AUTHENTICATION_JWT_SECRET="a-strong-random-value-of-at-least-32-bytes"
 ```
 
-The package refuses to boot with an empty secret - silent acceptance of forged tokens is never the default.
+The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with empty or invalid signing
+material - silent acceptance of forged tokens is never the default.
 
 ### Minimal setup: access-only, no refresh, no devices
 
@@ -84,14 +86,14 @@ migration entirely:
    `authentication-migrations` tag.
 2. Do not implement the `HasDevices` capability contract on your identity model.
 3. Issue access tokens through the guard-scoped issuer: `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-   The `did` claim is omitted.
+   The token carries `did = null`, so there is no usable device hint on the bearer path.
 4. Do not call `$guard->refresh($refreshToken)`. Clients re-authenticate when their access token expires.
 
-In this mode the package never touches a `devices` table because the access token omits `did` and refresh is unused.
-Bearer auth still rehydrates the identity and principal through the configured provider and resolver, `Auth::device()`
-returns `null`, and the full identity/principal contextual surface (`Auth::identity()`, `Auth::principal()`,
-`Auth::tenant()`, `Auth::type()`) still works normally. Add the migration and refresh flow later if the use case
-grows into it - it's additive, not a rewrite.
+In this mode the package never touches a `devices` table because the access token carries no usable device hint and
+refresh is unused. Bearer auth still rehydrates the identity and principal through the configured provider and
+resolver, `Auth::device()` returns `null`, and the full identity/principal contextual surface (`Auth::identity()`,
+`Auth::principal()`, `Auth::tenant()`, `Auth::type()`) still works normally. Add the migration and refresh flow later
+if the use case grows into it - it's additive, not a rewrite.
 
 Security note: access-token `jti` values are not consulted on the bearer path. Revoking a device blocks refresh for
 that device, but already-issued access tokens remain valid until expiry unless the underlying identity, principal, or
@@ -363,21 +365,24 @@ Auth::tenant();         // Tenant|null     - the tenant the principal acts withi
 Auth::type();           // string|null     - the tenant's type, when the tenant declares HasType
 ```
 
-Issue and refresh JWTs through the guard:
+Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 
 ```php
+$tokens = Auth::jwt('api');
 $guard = auth()->guard('api');
 
-$tokens = $guard->refresh($refreshToken);   // RefreshResult|null
+$accessToken = $tokens->issueAccessToken($identity, $principal, $device);
 
-if ($tokens === null) {
+$rotated = $guard->refresh($refreshToken);   // RefreshResult|null
+
+if ($rotated === null) {
     // RefreshFailed event already dispatched with a machine-readable reason
     abort(401);
 }
 
 return [
-    'access_token'  => $tokens->accessToken,
-    'refresh_token' => $tokens->refreshToken,
+    'access_token'  => $rotated->accessToken,
+    'refresh_token' => $rotated->refreshToken,
 ];
 ```
 
@@ -402,13 +407,13 @@ map - add a new kid, point `active_kid` at it, retire the old kid once every tok
 
 | Event                                       | Fired when                                                |
 |---------------------------------------------|-----------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`         | Credential / bearer attempt starts                        |
-| `Illuminate\Auth\Events\Validated`          | Credentials match (before contextual binding)             |
+| `Illuminate\Auth\Events\Attempting`         | Bearer, refresh, or credential attempt starts             |
+| `Illuminate\Auth\Events\Validated`          | A successful `login()` path is about to bind context      |
 | `Illuminate\Auth\Events\Authenticated`      | Identity bound to the guard                               |
 | `Illuminate\Auth\Events\Login`              | Full lifecycle complete                                   |
-| `Illuminate\Auth\Events\Failed`             | Any rejection on the auth path                            |
+| `Illuminate\Auth\Events\Failed`             | Any bearer, refresh, or credential rejection              |
 | `SineMacula\...\Events\PrincipalAssigned`   | Principal resolved and bound                              |
-| `SineMacula\...\Events\DeviceAuthenticated` | Device hydrated and bound                                 |
+| `SineMacula\...\Events\DeviceAuthenticated` | Device hydrated and bound; listeners may persist metadata |
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 
