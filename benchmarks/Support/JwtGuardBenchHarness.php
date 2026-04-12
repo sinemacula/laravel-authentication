@@ -94,6 +94,8 @@ final class JwtGuardBenchHarness
 
     /** @var string 3D bearer token. */
     private string $threeDToken;
+
+    /** @var string Tenant-aware 3D bearer token. */
     private string $tenantAwareThreeDToken;
 
     /** @var list<string> */

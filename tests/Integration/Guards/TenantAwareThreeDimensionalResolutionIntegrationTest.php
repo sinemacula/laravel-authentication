@@ -24,6 +24,9 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Integration tests for tenant-aware 3D principal resolution.
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 #[CoversClass(BasicGuard::class)]

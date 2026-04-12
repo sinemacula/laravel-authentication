@@ -18,6 +18,9 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
  * @property string $name
  * @property bool $is_active
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 final class TenantAware3dPrincipal extends Model implements Principal

@@ -25,6 +25,9 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @property string $password
  * @property bool $is_active
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 final class TenantAware3dIdentity extends Model implements HasPrincipals, Identity, ResolvesHintedPrincipal
@@ -47,6 +50,7 @@ final class TenantAware3dIdentity extends Model implements HasPrincipals, Identi
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
+    #[\Override]
     public function principals(): Builder
     {
         return TenantAware3dPrincipal::query()
@@ -58,6 +62,7 @@ final class TenantAware3dIdentity extends Model implements HasPrincipals, Identi
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
+    #[\Override]
     public function resolveDefaultPrincipal(): ?Principal
     {
         return $this->queryTenantAwarePrincipal(
@@ -73,6 +78,7 @@ final class TenantAware3dIdentity extends Model implements HasPrincipals, Identi
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
+    #[\Override]
     public function resolveHintedPrincipal(mixed $hint): ?Principal
     {
         return $this->queryTenantAwarePrincipal(

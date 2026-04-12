@@ -25,6 +25,8 @@ final class RefreshTokenExchangeBench
      * @Revs(10)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchRefreshSuccess(): void
     {
@@ -35,6 +37,8 @@ final class RefreshTokenExchangeBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchUnknownDeviceFailure(): void
     {
@@ -45,6 +49,8 @@ final class RefreshTokenExchangeBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchRotationMismatchFailure(): void
     {
@@ -55,6 +61,8 @@ final class RefreshTokenExchangeBench
      * @Revs(10)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchThreeDimensionalRefreshTenantAccess(): void
     {

@@ -79,7 +79,9 @@ final class RefreshTokenExchangeBenchHarness
 
     /** @var list<string> */
     private array $tenantAwareSuccessTokens = [];
-    private int $tenantAwareSuccessIndex    = 0;
+
+    /** @var int Current index into the tenant pool. */
+    private int $tenantAwareSuccessIndex = 0;
 
     /**
      * Seed the refresh benchmark fixtures.

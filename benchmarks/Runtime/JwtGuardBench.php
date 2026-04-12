@@ -85,6 +85,8 @@ final class JwtGuardBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchThreeDimensionalBearerTenantAccess(): void
     {
@@ -95,6 +97,8 @@ final class JwtGuardBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
     {

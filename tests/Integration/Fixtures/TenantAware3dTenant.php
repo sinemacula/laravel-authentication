@@ -17,6 +17,9 @@ use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
  * @property string $name
  * @property string $type
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 final class TenantAware3dTenant extends Model implements HasType, Tenant
