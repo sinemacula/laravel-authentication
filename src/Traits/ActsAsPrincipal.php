@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * to remap without re-implementing the public surface.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 trait ActsAsPrincipal
 {

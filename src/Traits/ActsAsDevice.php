@@ -11,7 +11,7 @@ use Carbon\CarbonInterface;
  * names. Override the `*Name()` methods to remap columns.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 trait ActsAsDevice
 {

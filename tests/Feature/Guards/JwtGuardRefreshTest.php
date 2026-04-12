@@ -108,7 +108,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN),
+                    && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN
+                    && $event->deviceId === '01HZZZZZZZZZZZZZZZZZZZZZZZ'),
             );
 
         self::assertNull($guard->refresh($token));
@@ -138,7 +139,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_MISMATCH),
+                    && $event->reason === RefreshFailureReason::ROTATION_MISMATCH
+                    && $event->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));
@@ -263,7 +265,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));
@@ -315,7 +318,117 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * A refresh token whose `jti` is present but empty is malformed and
+     * yields `token_invalid` while preserving the parseable device id for
+     * attribution.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenRotationIdClaimIsEmptyString(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => 'device-empty-jti',
+            'jti' => '',
+        ]);
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->deviceId === 'device-empty-jti'),
+            );
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * A refresh token whose `jti` is not a string is malformed and yields
+     * `token_invalid` while preserving the parseable device id for
+     * attribution.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenRotationIdClaimIsNotString(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => 'device-non-string-jti',
+            'jti' => 12345,
+        ]);
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->deviceId === 'device-non-string-jti'),
+            );
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * Fail-closed: a hinted principal whose identifier stringifies to `null`
+     * must be rejected rather than rebound into a transient principal.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenResolvedPrincipalIdentifierIsNull(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 15]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '15',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->once()
+            ->andReturn(null);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'pid' => 'p-hinted',
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));
@@ -473,7 +586,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_REUSE),
+                    && $event->reason === RefreshFailureReason::ROTATION_REUSE
+                    && $event->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));

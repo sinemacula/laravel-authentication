@@ -200,7 +200,37 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($exchange->exchange($token));
+    }
+
+    /**
+     * A malformed refresh payload with an empty `jti` is rejected as
+     * `token_invalid` and preserves the parseable device id on the emitted
+     * failure event.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testExchangeIncludesDeviceIdWhenRotationIdShapeIsInvalid(): void
+    {
+        $exchange = $this->makeExchange();
+
+        $token = $this->encodeRefreshToken([
+            'did' => 'device-empty-jti',
+            'jti' => '',
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->deviceId === 'device-empty-jti'),
             );
 
         self::assertNull($exchange->exchange($token));
@@ -264,6 +294,61 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertIsArray($claims);
         self::assertSame('p-12', $claims[Claims::PRINCIPAL_ID->value]);
+    }
+
+    /**
+     * Fail-closed: a hinted principal whose identifier stringifies to `null`
+     * is treated as unresolved and attributed to the device id carried by the
+     * refresh token.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testExchangeRejectsHintedPrincipalWhoseIdentifierStringifiesToNull(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 14]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '14',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $exchange = $this->makeExchange();
+
+        $principal = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->once()
+            ->andReturn(null);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'pid' => 'p-hinted',
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($exchange->exchange($token));
     }
 
     /**

@@ -85,6 +85,25 @@ Largest offenders:
 - `testRefreshRevokesDeviceOnRotationReuse...` (38)
 - `testRefreshReturnsNullWhenPrincipalIsInactive` (37)
 
+## PR #11 - chore/quality-gates-mutation-benchmarks
+
+### Complexity: Benchmark harness methods (Medium)
+
+4 benchmark harness methods exceed the 30-line threshold:
+
+- `BenchDatabase::createSchema` (50)
+- `JwtGuardBenchHarness::__construct` (37)
+- `JwtGuardBenchHarness::seedFixtures` (36)
+- `RefreshTokenExchangeBenchHarness::seedDeviceFixtures` (32)
+
+### Complexity: Test method lines (Medium)
+
+11 test methods across 4 files exceed the 30-line
+threshold (31-61 lines). These overlap with PR #8 findings
+in `JwtGuardRefreshTest` plus new findings in
+`JwtGuardUserResolutionTest` and
+`RefreshTokenExchangeTest`.
+
 ## PR #9 - refactor/injected-auth-config
 
 ### Rejected: inject runtime auth config

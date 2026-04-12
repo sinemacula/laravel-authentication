@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * persistence boundary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @property string $id
  * @property string $authenticatable_type
