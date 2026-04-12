@@ -14,6 +14,6 @@ use Illuminate\Contracts\Auth\UserProvider;
  * framework user provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 interface IdentityProvider extends UserProvider {}

@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  * Dispatched when a device is bound to a guard during authentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class DeviceAuthenticated
 {

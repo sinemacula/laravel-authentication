@@ -34,7 +34,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * credential-validation primitives via `ValidatesGuardCredentials`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 abstract class AbstractGuard implements ContextualGuard
 {

@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
  * `final` so consumers may subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 class AuthManager extends IlluminateAuthManager
 {
