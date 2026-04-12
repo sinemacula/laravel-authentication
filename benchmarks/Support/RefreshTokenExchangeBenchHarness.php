@@ -27,6 +27,9 @@ use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use Tests\Integration\Fixtures\TenantAware3dIdentity;
+use Tests\Integration\Fixtures\TenantAware3dPrincipal;
+use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
@@ -50,6 +53,9 @@ final class RefreshTokenExchangeBenchHarness
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $provider;
 
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
+    private readonly ModelProvider $tenantAwareProvider;
+
     /** @var \SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver */
     private readonly DefaultPrincipalResolver $resolver;
 
@@ -70,6 +76,12 @@ final class RefreshTokenExchangeBenchHarness
 
     /** @var int Current index into the success-token pool. */
     private int $successIndex = 0;
+
+    /** @var list<string> */
+    private array $tenantAwareSuccessTokens = [];
+
+    /** @var int Current index into the tenant pool. */
+    private int $tenantAwareSuccessIndex = 0;
 
     /**
      * Seed the refresh benchmark fixtures.
@@ -110,9 +122,10 @@ final class RefreshTokenExchangeBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens   = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
-        $this->provider = new ModelProvider($hasher, StubPrincipal::class);
-        $this->timebox  = new Timebox;
+        $this->tokens              = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
+        $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
+        $this->tenantAwareProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
+        $this->timebox             = new Timebox;
 
         $this->createSchema();
         $this->seedFixtures($hasher);
@@ -152,6 +165,24 @@ final class RefreshTokenExchangeBenchHarness
     }
 
     /**
+     * Benchmark tenant-aware 3D refresh success including tenant access.
+     *
+     * @return void
+     */
+    public function runThreeDimensionalRefreshTenantAccess(): void
+    {
+        $token = $this->tenantAwareSuccessTokens[$this->tenantAwareSuccessIndex % count($this->tenantAwareSuccessTokens)];
+        $this->tenantAwareSuccessIndex++;
+
+        $guard = $this->makeGuard($this->tenantAwareProvider);
+
+        $guard->refresh($token);
+        $guard->principal()?->getIdentity();
+        $guard->tenant();
+        $guard->type();
+    }
+
+    /**
      * Create the shared tables once.
      *
      * @return void
@@ -181,6 +212,36 @@ final class RefreshTokenExchangeBenchHarness
                 $blueprint->timestamp('revoked_at')->nullable();
                 $blueprint->timestamp('last_logged_in_at')->nullable();
                 $blueprint->timestamp('last_mfa_verified_at')->nullable();
+                $blueprint->timestamps();
+            });
+        }
+
+        if (!$schema->hasTable('tenant_aware_3d_identities')) {
+            $schema->create('tenant_aware_3d_identities', static function (Blueprint $blueprint): void {
+                $blueprint->increments('id');
+                $blueprint->string('email')->unique();
+                $blueprint->string('password');
+                $blueprint->boolean('is_active')->default(true);
+                $blueprint->timestamps();
+            });
+        }
+
+        if (!$schema->hasTable('tenant_aware_3d_tenants')) {
+            $schema->create('tenant_aware_3d_tenants', static function (Blueprint $blueprint): void {
+                $blueprint->increments('id');
+                $blueprint->string('name');
+                $blueprint->string('type');
+                $blueprint->timestamps();
+            });
+        }
+
+        if (!$schema->hasTable('tenant_aware_3d_principals')) {
+            $schema->create('tenant_aware_3d_principals', static function (Blueprint $blueprint): void {
+                $blueprint->increments('id');
+                $blueprint->unsignedInteger('identity_id');
+                $blueprint->unsignedInteger('tenant_id');
+                $blueprint->string('name');
+                $blueprint->boolean('is_active')->default(true);
                 $blueprint->timestamps();
             });
         }
@@ -221,6 +282,60 @@ final class RefreshTokenExchangeBenchHarness
             }
         }
 
+        $tenantAwareIdentity = TenantAware3dIdentity::query()->first();
+
+        if (!$tenantAwareIdentity instanceof TenantAware3dIdentity) {
+            $tenantAwareIdentity            = new TenantAware3dIdentity;
+            $tenantAwareIdentity->email     = 'bench-refresh-tenant-aware@example.test';
+            $tenantAwareIdentity->password  = $hasher->make(self::PASSWORD);
+            $tenantAwareIdentity->is_active = true;
+            $tenantAwareIdentity->save();
+        }
+
+        $tenant = TenantAware3dTenant::query()->first();
+
+        if (!$tenant instanceof TenantAware3dTenant) {
+            $tenant       = new TenantAware3dTenant;
+            $tenant->name = 'Bench Refresh Staff';
+            $tenant->type = 'staff';
+            $tenant->save();
+        }
+
+        $tenantAwarePrincipal = TenantAware3dPrincipal::query()
+            ->where('identity_id', $tenantAwareIdentity->getKey())
+            ->first();
+
+        if (!$tenantAwarePrincipal instanceof TenantAware3dPrincipal) {
+            /** @var int $identityKey */
+            $identityKey = $tenantAwareIdentity->getKey();
+            /** @var int $tenantKey */
+            $tenantKey = $tenant->getKey();
+
+            $tenantAwarePrincipal              = new TenantAware3dPrincipal;
+            $tenantAwarePrincipal->identity_id = $identityKey;
+            $tenantAwarePrincipal->tenant_id   = $tenantKey;
+            $tenantAwarePrincipal->name        = 'bench-refresh-tenant-actor';
+            $tenantAwarePrincipal->is_active   = true;
+            $tenantAwarePrincipal->save();
+        }
+
+        if ($this->tenantAwareSuccessTokens === []) {
+            for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+                $rotationId = 'bench-refresh-tenant-success-' . $index;
+
+                $device = new Device;
+                $device->forceFill([
+                    'authenticatable_type' => TenantAware3dIdentity::class,
+                    'authenticatable_id'   => (string) $tenantAwareIdentity->getKey(), // @phpstan-ignore cast.string
+                    'os'                   => 'bench-refresh-tenant-success-' . $index,
+                    'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+                    'last_logged_in_at'    => Carbon::now(),
+                ])->save();
+
+                $this->tenantAwareSuccessTokens[] = $this->tokens->issueRefreshToken($device, $rotationId, $tenantAwarePrincipal);
+            }
+        }
+
         $missingDevice = new Device;
         $missingDevice->forceFill(['id' => 'bench-missing-device']);
         $this->unknownDeviceToken = $this->tokens->issueRefreshToken($missingDevice, 'bench-missing-device-rotation');
@@ -243,9 +358,10 @@ final class RefreshTokenExchangeBenchHarness
     /**
      * Instantiate a fresh JwtGuard for refresh benchmarking.
      *
+     * @param  ?\SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function makeGuard(): JwtGuard
+    private function makeGuard(?ModelProvider $provider = null): JwtGuard
     {
         $exchange = new RefreshTokenExchange(
             $this->tokens,
@@ -257,7 +373,7 @@ final class RefreshTokenExchangeBenchHarness
 
         return new JwtGuard(
             'api',
-            $this->provider,
+            $provider ?? $this->provider,
             $this->resolver,
             $this->events,
             Request::create('/bench/refresh', 'POST'),

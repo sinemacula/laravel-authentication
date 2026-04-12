@@ -82,6 +82,30 @@ final class JwtGuardBench
     }
 
     /**
+     * @Revs(25)
+     *
+     * @Iterations(5)
+     *
+     * @return void
+     */
+    public function benchThreeDimensionalBearerTenantAccess(): void
+    {
+        $this->harness()->runThreeDimensionalBearerTenantAccess();
+    }
+
+    /**
+     * @Revs(25)
+     *
+     * @Iterations(5)
+     *
+     * @return void
+     */
+    public function benchThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
+    {
+        $this->harness()->runThreeDimensionalBearerTenantAccessWarmIdentityCache();
+    }
+
+    /**
      * Lazily initialize the shared harness.
      *
      * @return \Benchmarks\Support\JwtGuardBenchHarness

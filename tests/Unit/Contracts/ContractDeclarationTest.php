@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -271,6 +272,21 @@ final class ContractDeclarationTest extends TestCase
         self::assertInstanceOf(\ReflectionNamedType::class, $resolveReturn);
         self::assertTrue($resolveReturn->allowsNull());
         self::assertSame(Principal::class, $resolveReturn->getName());
+    }
+
+    /**
+     * `ResolvesHintedPrincipal::resolveHintedPrincipal()` must return a
+     * nullable `Principal`.
+     *
+     * @return void
+     */
+    public function testResolvesHintedPrincipalDeclaresReturnType(): void
+    {
+        $returnType = (new \ReflectionMethod(ResolvesHintedPrincipal::class, 'resolveHintedPrincipal'))->getReturnType();
+
+        self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
+        self::assertTrue($returnType->allowsNull());
+        self::assertSame(Principal::class, $returnType->getName());
     }
 
     /**
