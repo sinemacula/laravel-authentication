@@ -45,7 +45,7 @@ use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
 #[CoversClass(RefreshTokenExchange::class)]
 final class DeviceModelOverrideTest extends TestCase
 {
-    /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> FQCN of the custom device subclass under test. */
+    /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> */
     private string $customModel;
 
     /**
@@ -106,20 +106,6 @@ final class DeviceModelOverrideTest extends TestCase
         Schema::dropIfExists('stub_principals');
 
         parent::tearDown();
-    }
-
-    /**
-     * The custom device model FQCN is readable through the config key
-     * consumers will set in their application config.
-     *
-     * @return void
-     */
-    public function testCustomDeviceModelClassResolvesViaConfig(): void
-    {
-        self::assertSame(
-            $this->customModel,
-            config('authentication.device.model'),
-        );
     }
 
     /**

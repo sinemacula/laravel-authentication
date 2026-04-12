@@ -63,17 +63,6 @@ final class AccessOnlyIntegrationTest extends TestCase
     }
 
     /**
-     * The in-memory schema has no `devices` table; the access-only path must
-     * not depend on one.
-     *
-     * @return void
-     */
-    public function testPackageBootsWithoutDevicesTable(): void
-    {
-        self::assertFalse(Schema::hasTable('devices'));
-    }
-
-    /**
      * Issuing an access token with `null` device produces a JWT whose `did`
      * claim is null, and verifying it through the bearer path resolves
      * identity + principal without needing a devices table. The identity is

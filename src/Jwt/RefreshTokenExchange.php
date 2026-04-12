@@ -48,34 +48,19 @@ final class RefreshTokenExchange
      */
     public function __construct(
 
-        /**
-         * Token service used to parse the inbound refresh
-         * token and issue the rotated pair.
-         */
+        /** Token service for parsing and issuing tokens. */
         private readonly JwtTokenService $tokens,
 
-        /**
-         * Connection resolver used for the raw CAS update
-         * that rotates the stored digest.
-         */
+        /** Connection resolver for raw CAS digest rotation. */
         private readonly ConnectionResolverInterface $connections,
 
-        /**
-         * Event dispatcher for RefreshFailed attribution
-         * events.
-         */
+        /** Event dispatcher for RefreshFailed events. */
         private readonly Dispatcher $events,
 
-        /**
-         * Resolver that maps the refreshed identity to
-         * its acting principal.
-         */
+        /** Resolver mapping identity to acting principal. */
         private PrincipalResolver $resolver,
 
-        /**
-         * Name of the guard that owns this exchange,
-         * carried on every RefreshFailed event.
-         */
+        /** Guard name carried on every RefreshFailed event. */
         private readonly string $guardName,
 
     ) {}
@@ -522,7 +507,11 @@ final class RefreshTokenExchange
      * Resolve the configured device model class and validate that it satisfies
      * the explicit Eloquent-backed persistence boundary.
      *
+     * @formatter:off
+     *
      * @return class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice>
+     *
+     * @formatter:on
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
      */

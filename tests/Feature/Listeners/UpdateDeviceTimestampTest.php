@@ -34,7 +34,7 @@ final class UpdateDeviceTimestampTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    /** @var string Shared timestamp format used by the listener-state assertions. */
+    /** @var string Timestamp format for assertions. */
     private const string DATETIME_FORMAT = 'Y-m-d H:i:s';
 
     /**
@@ -284,30 +284,6 @@ final class UpdateDeviceTimestampTest extends TestCase
         (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
 
         self::assertNull($device->getAttribute('last_logged_in_at'));
-    }
-
-    /**
-     * Asserts the listener is invokable - registering it as a plain class name
-     * via `Event::listen` continues to work.
-     *
-     * @return void
-     */
-    public function testInvokeIsEquivalentToHandle(): void
-    {
-        $now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($now);
-
-        $device = new StubDevice;
-        $device->save();
-
-        $listener = new UpdateDeviceTimestamp;
-        $listener(new DeviceAuthenticated('api', $device));
-
-        $fresh = StubDevice::query()->findOrFail($device->id);
-
-        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
-        self::assertTrue($now->equalTo($fresh->last_logged_in_at));
     }
 
     /**

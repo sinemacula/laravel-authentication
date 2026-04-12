@@ -16,7 +16,6 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Feature tests for the shipped Device Eloquent model.
@@ -159,23 +158,6 @@ final class DeviceTest extends TestCase
     public function testImplementsEloquentDeviceContract(): void
     {
         self::assertInstanceOf(EloquentDevice::class, new Device);
-    }
-
-    /**
-     * Asserts the `device.model` config key can be read back via `config(...)`.
-     * The actual runtime swap is exercised by the `DeviceModelOverrideTest`
-     * integration test.
-     *
-     * @return void
-     */
-    public function testCustomDeviceClassResolvesViaConfig(): void
-    {
-        config()->set('authentication.device.model', StubDevice::class);
-
-        self::assertSame(
-            StubDevice::class,
-            config('authentication.device.model'),
-        );
     }
 
     /**

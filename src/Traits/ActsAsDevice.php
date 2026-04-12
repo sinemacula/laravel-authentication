@@ -7,11 +7,8 @@ namespace SineMacula\Laravel\Authentication\Traits;
 use Carbon\CarbonInterface;
 
 /**
- * Provides the default Eloquent-backed `Device` accessor and column-name
- * implementations sourced from conventional attribute names. Override the
- * public `*Name()` methods to remap columns while still satisfying the
- * explicit `EloquentDevice` persistence boundary. Timestamp accessors narrow to
- * `CarbonInterface` so `CarbonImmutable` consumers are not broken.
+ * Default Eloquent-backed `Device` accessors using conventional attribute
+ * names. Override the `*Name()` methods to remap columns.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Ltd

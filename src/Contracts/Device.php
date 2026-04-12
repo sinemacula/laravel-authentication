@@ -50,10 +50,11 @@ interface Device
     public function getOperatingSystem(): string;
 
     /**
-     * Return the hashed refresh-key digest stored on the device row. NEVER the
-     * plaintext rotation identifier - the refresh exchange verifies the
-     * plaintext against this digest via `hash_equals()`. Returns `null` when no
-     * refresh credential has been issued or after revocation cleared the column.
+     * Return the hashed refresh-key digest stored on the device
+     * row. NEVER the plaintext rotation identifier - the refresh
+     * exchange verifies the plaintext against this digest via
+     * `hash_equals()`. Returns `null` when no refresh credential
+     * has been issued or after revocation cleared the column.
      *
      * @return ?string
      */

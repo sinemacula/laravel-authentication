@@ -12,23 +12,18 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 
 /**
- * Updates the bound device's `last_logged_in_at` when a device is
- * authenticated. Debounced by a configurable throttle to avoid per-request
- * hot-spot writes. Uses an atomic `update()` so in-memory mutations do not
- * leak into persisted state. The comparison narrows to `CarbonInterface`
- * so `CarbonImmutable` consumers are not broken. Only persisted
- * `EloquentDevice` models participate; generic `Device` payloads carried
- * through events remain valid but are ignored by this persistence path.
+ * Updates the device's `last_logged_in_at` on authentication, debounced by a
+ * configurable throttle. Only persisted `EloquentDevice` models participate.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Ltd
  */
 final class UpdateDeviceTimestamp
 {
-    /** @var int Fallback throttle window (seconds) when the config key is missing or non-positive. */
+    /** @var int Fallback throttle window (seconds). */
     private const int DEFAULT_THROTTLE_SECONDS = 60;
 
-    /** @var string Fallback column name when an `EloquentDevice` accessor returns the empty string. */
+    /** @var string Fallback column name. */
     private const string DEFAULT_COLUMN = 'last_logged_in_at';
 
     /**

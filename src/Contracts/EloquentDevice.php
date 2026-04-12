@@ -21,7 +21,11 @@ interface EloquentDevice extends Device
     /**
      * Polymorphic relation to the owning authenticatable identity.
      *
+     * @formatter:off
+     *
      * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
+     *
+     * @formatter:on
      */
     public function authenticatable(): MorphTo;
 
