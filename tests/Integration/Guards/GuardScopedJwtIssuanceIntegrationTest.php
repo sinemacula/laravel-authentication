@@ -28,7 +28,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * tokens under that same guard-local config.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -55,6 +55,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -79,6 +80,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -150,6 +152,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

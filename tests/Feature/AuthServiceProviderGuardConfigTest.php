@@ -21,7 +21,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * `authentication.credentials.identifier_field` default.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -79,6 +79,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];
@@ -94,6 +95,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);

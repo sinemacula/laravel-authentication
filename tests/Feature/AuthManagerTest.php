@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * Feature tests for the package AuthManager subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -43,30 +43,31 @@ final class AuthManagerTest extends TestCase
      */
     public function testAuthManagerExtendsLaravelAuthManager(): void
     {
-        $reflection = new \ReflectionClass(AuthManager::class);
-
-        self::assertTrue(
-            $reflection->isSubclassOf(IlluminateAuthManager::class),
-            'Package AuthManager must extend Illuminate\Auth\AuthManager.',
-        );
+        self::assertInstanceOf(IlluminateAuthManager::class, app('auth'));
     }
 
     /**
-     * The package `AuthManager` exposes a concrete `jwt()` instance method so
-     * the facade can route guard-scoped token issuance through a real method,
-     * not a macro.
+     * The package `AuthManager` exposes a concrete `jwt()` instance method
+     * that resolves a guard-scoped `JwtTokenService`.
      *
      * @return void
      */
     public function testAuthManagerExposesJwtMethod(): void
     {
-        $reflection = new \ReflectionClass(AuthManager::class);
+        config()->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => \Tests\Unit\Stubs\StubAuthenticatableModel::class,
+        ]);
+        config()->set('auth.guards.test_jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+        config()->set('authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
 
-        self::assertTrue($reflection->hasMethod('jwt'));
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
 
-        $method = $reflection->getMethod('jwt');
-
-        self::assertSame(JwtTokenService::class, (string) $method->getReturnType());
+        self::assertInstanceOf(JwtTokenService::class, $manager->jwt('test_jwt'));
     }
 
     /**
@@ -138,6 +139,7 @@ final class AuthManagerTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];

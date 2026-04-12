@@ -16,7 +16,7 @@ use Psr\Log\LoggerInterface;
  * guard-local signing material and claim policy.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class JwtTokenServiceFactory
 {
@@ -27,8 +27,13 @@ final class JwtTokenServiceFactory
      * @param  \Illuminate\Config\Repository  $config
      */
     public function __construct(
+
+        /** @var \Illuminate\Foundation\Application */
         private readonly Application $app,
+
+        /** @var \Illuminate\Config\Repository */
         private readonly ConfigRepository $config,
+
     ) {}
 
     /**
@@ -148,7 +153,9 @@ final class JwtTokenServiceFactory
         $coerced = [];
 
         foreach ($rawKeys as $kid => $material) {
+
             if (!is_string($kid) || $kid === '') {
+
                 $message = 'JWT key map contains a non-string or empty kid in'
                     . ' `authentication.jwt.keys`. Every entry must be'
                     . ' keyed by a non-empty string kid (integer-indexed lists'
@@ -158,6 +165,7 @@ final class JwtTokenServiceFactory
             }
 
             if (!is_string($material)) {
+
                 $message = "JWT key '{$kid}' in `authentication.jwt.keys`"
                     . ' is not a string. Every kid must map to a non-empty string'
                     . ' secret - check the env var backing this entry is set.';
@@ -201,6 +209,7 @@ final class JwtTokenServiceFactory
     private function resolveJwtNullableString(#[\SensitiveParameter] array $guardJwtConfig, string $key): ?string
     {
         if (array_key_exists($key, $guardJwtConfig)) {
+
             $value = $guardJwtConfig[$key];
 
             return is_string($value) && $value !== '' ? $value : null;

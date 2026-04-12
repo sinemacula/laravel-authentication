@@ -24,7 +24,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * `Auth::jwt()` issuance surface.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -256,6 +256,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];
@@ -270,6 +271,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);
@@ -284,6 +286,18 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'model'  => StubAuthenticatableModel::class,
         ]);
 
+        $this->configureGuards($config);
+        $this->configurePackageDefaults($config);
+    }
+
+    /**
+     * Register the per-guard auth config blocks.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return void
+     */
+    private function configureGuards(ConfigRepository $config): void
+    {
         $config->set('auth.guards.package_default', [
             'driver'   => 'jwt',
             'provider' => 'identities',
@@ -323,7 +337,16 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'driver'   => 'basic',
             'provider' => 'identities',
         ]);
+    }
 
+    /**
+     * Set the package-wide JWT defaults.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return void
+     */
+    private function configurePackageDefaults(ConfigRepository $config): void
+    {
         $config->set('authentication.jwt.secret', self::PACKAGE_SECRET);
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.audience', 'package-default-audience');

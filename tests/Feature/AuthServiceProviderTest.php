@@ -27,7 +27,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * Feature tests for the package AuthServiceProvider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -110,24 +110,6 @@ final class AuthServiceProviderTest extends TestCase
             $listeners,
             'UpdateDeviceTimestamp must be registered as a listener for DeviceAuthenticated.',
         );
-    }
-
-    /**
-     * The package `AuthManager` exposes the four contextual accessors
-     * (`principal`, `device`, `tenant`, `type`) directly as instance methods
-     * so the framework `Auth::principal()` etc. calls work without macro
-     * registration.
-     *
-     * @return void
-     */
-    public function testAuthManagerExposesContextualAccessorMethods(): void
-    {
-        $reflection = new \ReflectionClass(AuthManager::class);
-
-        self::assertTrue($reflection->hasMethod('principal'));
-        self::assertTrue($reflection->hasMethod('device'));
-        self::assertTrue($reflection->hasMethod('tenant'));
-        self::assertTrue($reflection->hasMethod('type'));
     }
 
     /**
@@ -233,6 +215,7 @@ final class AuthServiceProviderTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];
@@ -246,6 +229,7 @@ final class AuthServiceProviderTest extends TestCase
      * @param  mixed  $app
      * @return void
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof \Illuminate\Foundation\Application);

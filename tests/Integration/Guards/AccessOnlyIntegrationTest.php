@@ -26,7 +26,7 @@ use Tests\Integration\Fixtures\AccessOnlyIdentity;
  * APIs, simple backends) can skip the devices table entirely.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -46,6 +46,7 @@ final class AccessOnlyIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -112,6 +113,7 @@ final class AccessOnlyIntegrationTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];
@@ -123,6 +125,7 @@ final class AccessOnlyIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function defineDatabaseMigrations(): void
     {
         // intentionally empty
@@ -137,6 +140,7 @@ final class AccessOnlyIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);
