@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
@@ -321,14 +320,7 @@ final class AuthServiceProvider extends ServiceProvider
      */
     private static function assertValidDeviceModelConfiguration(string $class): void
     {
-        if (
-            $class === ''
-            || !class_exists($class)
-            || !is_subclass_of($class, Model::class)
-            || !is_subclass_of($class, EloquentDevice::class)
-        ) {
-            throw InvalidDeviceModelConfiguration::unsupported($class);
-        }
+        InvalidDeviceModelConfiguration::validate($class);
     }
 
     /**

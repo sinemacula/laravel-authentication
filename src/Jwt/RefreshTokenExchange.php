@@ -519,14 +519,7 @@ final class RefreshTokenExchange
     {
         $class = Config::string('authentication.device.model', '');
 
-        if (
-            $class === ''
-            || !class_exists($class)
-            || !is_subclass_of($class, Model::class)
-            || !is_subclass_of($class, EloquentDevice::class)
-        ) {
-            throw InvalidDeviceModelConfiguration::unsupported($class);
-        }
+        InvalidDeviceModelConfiguration::validate($class);
 
         /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
         return $class;

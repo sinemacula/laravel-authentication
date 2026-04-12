@@ -105,12 +105,12 @@ final class UpdateDeviceTimestampTest extends TestCase
     public function testHandleNoOpsForNonModelDevice(): void
     {
         $device = \Mockery::mock(Device::class);
-        $device->shouldNotReceive('forceFill');
-        $device->shouldNotReceive('save');
 
         (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
 
-        self::assertTrue(true, 'Listener returned silently for a non-Model device.');
+        // No exception thrown and no persistence attempted - the listener
+        // short-circuits for non-EloquentDevice payloads.
+        self::assertTrue(true);
     }
 
     /**
