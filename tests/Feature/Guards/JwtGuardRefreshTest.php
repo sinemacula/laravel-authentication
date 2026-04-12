@@ -35,7 +35,7 @@ use Tests\Unit\Stubs\StubModel;
  * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -222,8 +222,9 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When the principal resolver returns `null`, refresh fails with
-     * `principal_unresolved` and dispatches `RefreshFailed`.
+     * When a refresh token carries a `pid` hint but the resolver returns
+     * `null`, refresh fails with `principal_unresolved` instead of
+     * downgrading to the default principal.
      *
      * @return void
      */
@@ -248,10 +249,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $this->resolver->shouldReceive('resolve')
             ->once()
-            ->with($identity)
+            ->with($identity, 'p-hinted')
             ->andReturnNull();
 
         $token = $this->encodeRefreshToken([
+            'pid' => 'p-hinted',
             'did' => $device->id,
             'jti' => $plainRotationId,
         ]);
@@ -268,7 +270,59 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When the resolved principal reports `isActive() === false`, refresh fails
+     * When a refresh token carries a `pid` hint but the resolver returns a
+     * different principal, refresh fails with `principal_unresolved`.
+     *
+     * @return void
+     */
+    public function testRefreshReturnsNullWhenPidHintDoesNotMatchResolvedPrincipal(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 10]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '10',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->once()
+            ->andReturn('p-default');
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'pid' => 'p-hinted',
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+            );
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * When the hinted principal reports `isActive() === false`, refresh fails
      * with `principal_inactive` and dispatches `RefreshFailed`.
      *
      * @return void
@@ -293,14 +347,16 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->once()->andReturn('p-11');
         $principal->shouldReceive('isActive')->once()->andReturnFalse();
 
         $this->resolver->shouldReceive('resolve')
             ->once()
-            ->with($identity)
+            ->with($identity, 'p-11')
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
+            'pid' => 'p-11',
             'did' => $device->id,
             'jti' => $plainRotationId,
         ]);
@@ -431,10 +487,9 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A successful refresh returns a `RefreshResult` carrying a new access
-     * token and a new rotated refresh token, rotates the device's stored
-     * digest, and dispatches the `Refreshed` event carrying identity +
-     * principal + device.
+     * A successful refresh preserves the original active principal by carrying
+     * the same `pid` through the rotated refresh token and newly issued access
+     * token.
      *
      * @return void
      */
@@ -468,10 +523,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $this->resolver->shouldReceive('resolve')
             ->once()
-            ->with($identity)
+            ->with($identity, 'p-1')
             ->andReturn($principal);
 
         $token = $this->encodeRefreshToken([
+            'pid' => 'p-1',
             'did' => $device->id,
             'jti' => $plainRotationId,
         ]);
@@ -496,6 +552,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $refreshClaims = $this->tokens->parse($result->refreshToken, TokenType::REFRESH);
         self::assertIsArray($refreshClaims);
         self::assertSame($device->id, $refreshClaims[Claims::DEVICE_ID->value]);
+        self::assertSame('p-1', $refreshClaims[Claims::PRINCIPAL_ID->value]);
         self::assertIsString($refreshClaims[Claims::JWT_ID->value]);
         self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID->value]);
 

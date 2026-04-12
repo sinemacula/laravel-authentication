@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -33,7 +34,7 @@ use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Direct unit tests for the `RefreshTokenExchange` service that fill in the
+ * Feature tests for the `RefreshTokenExchange` service that fill in the
  * few branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
  *
  * - invalid `device.model` config -> refresh fails fast with an explicit
@@ -203,6 +204,66 @@ final class RefreshTokenExchangeTest extends TestCase
             );
 
         self::assertNull($exchange->exchange($token));
+    }
+
+    /**
+     * When the refresh token carries a `pid` hint, the exchange must pass that
+     * hint into the resolver and reissue follow-up tokens that preserve it.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testExchangeUsesPidHintWhenRefreshTokenCarriesPrincipalId(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 12]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '12',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $exchange = $this->makeExchange();
+
+        $principal = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->times(3)
+            ->andReturn('p-12');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-12')
+            ->andReturn($principal);
+
+        $this->events->shouldNotReceive('dispatch');
+
+        $token = $this->encodeRefreshToken([
+            'pid' => 'p-12',
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $result = $exchange->exchange($token);
+
+        self::assertNotNull($result);
+        self::assertSame($identity, $result->identity);
+        self::assertSame($principal, $result->principal);
+
+        $claims = $this->tokens->parse($result->tokens->refreshToken, TokenType::REFRESH);
+
+        self::assertIsArray($claims);
+        self::assertSame('p-12', $claims[Claims::PRINCIPAL_ID->value]);
     }
 
     /**

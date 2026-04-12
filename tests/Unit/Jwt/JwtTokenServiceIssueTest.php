@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -139,7 +139,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     /**
      * Asserts the refresh-token claims contain the device identifier, the
      * supplied rotation id (`jti`), and an `exp` claim `refresh_ttl_minutes`
-     * in the future.
+     * in the future. Legacy refresh tokens still omit `pid`.
      *
      * @return void
      */
@@ -155,8 +155,31 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         self::assertIsArray($claims);
         self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
         self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
+        self::assertArrayNotHasKey(Claims::PRINCIPAL_ID->value, $claims);
         self::assertSame(TokenType::REFRESH->value, $claims[Claims::TYPE->value]);
         self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
         self::assertSame($this->now->getTimestamp() + (self::REFRESH_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * Refresh tokens may carry the active principal identifier so refresh can
+     * preserve principal context across rotations.
+     *
+     * @return void
+     */
+    public function testIssueRefreshTokenIncludesPrincipalIdWhenSupplied(): void
+    {
+        $device    = $this->mockDevice('device-42');
+        $principal = $this->mockPrincipal('principal-3');
+
+        $service = $this->makeService();
+
+        $token  = $service->issueRefreshToken($device, 'opaque-rotation-id', $principal);
+        $claims = $service->parse($token, TokenType::REFRESH);
+
+        self::assertIsArray($claims);
+        self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
+        self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
+        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
     }
 }

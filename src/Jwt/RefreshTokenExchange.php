@@ -96,9 +96,9 @@ final class RefreshTokenExchange
             return null;
         }
 
-        [$device, $rotationId] = $decoded;
+        [$device, $rotationId, $principalHint] = $decoded;
 
-        $context = $this->hydrateRefreshContext($device);
+        $context = $this->hydrateRefreshContext($device, $principalHint);
 
         if ($context === null) {
             return null;
@@ -140,7 +140,7 @@ final class RefreshTokenExchange
      * @formatter:off
      *
      * @param  string  $refreshToken
-     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice, 1: string}|null
+     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice, 1: string, 2: mixed}|null
      *
      * @formatter:on
      */
@@ -154,11 +154,11 @@ final class RefreshTokenExchange
             return null;
         }
 
-        [$rawDeviceId, $rotationId] = $extracted;
+        [$rawDeviceId, $rotationId, $principalHint] = $extracted;
 
         $device = $this->loadDeviceForRefresh($rawDeviceId, $rotationId);
 
-        return $device === null ? null : [$device, $rotationId];
+        return $device === null ? null : [$device, $rotationId, $principalHint];
     }
 
     /**
@@ -166,7 +166,7 @@ final class RefreshTokenExchange
      * `token_invalid` and returns `null` for any malformed payload.
      *
      * @param  ?array<string, mixed>  $claims
-     * @return array{0: mixed, 1: string}|null
+     * @return array{0: mixed, 1: string, 2: mixed}|null
      */
     private function extractRefreshClaims(#[\SensitiveParameter] ?array $claims): ?array
     {
@@ -177,9 +177,10 @@ final class RefreshTokenExchange
             return null;
         }
 
-        $rawDeviceId = $claims[Claims::DEVICE_ID->value] ?? null;
-        $rotationId  = $claims[Claims::JWT_ID->value]    ?? null;
-        $shapeOk     = $rawDeviceId !== null && is_string($rotationId) && $rotationId !== '';
+        $rawDeviceId   = $claims[Claims::DEVICE_ID->value]    ?? null;
+        $rotationId    = $claims[Claims::JWT_ID->value]       ?? null;
+        $principalHint = $claims[Claims::PRINCIPAL_ID->value] ?? null;
+        $shapeOk       = $rawDeviceId !== null && is_string($rotationId) && $rotationId !== '';
 
         if (!$shapeOk) {
 
@@ -192,7 +193,7 @@ final class RefreshTokenExchange
         }
 
         /** @var non-empty-string $rotationId */
-        return [$rawDeviceId, $rotationId];
+        return [$rawDeviceId, $rotationId, $principalHint];
     }
 
     /**
@@ -227,6 +228,7 @@ final class RefreshTokenExchange
         $device   = $this->findDeviceById($rawDeviceId);
 
         if ($device === null) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_UNKNOWN, $deviceId);
 
             return null;
@@ -277,11 +279,12 @@ final class RefreshTokenExchange
      * @formatter:off
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  mixed  $principalHint
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
      *
      * @formatter:on
      */
-    private function hydrateRefreshContext(EloquentDevice&Model $device): ?array
+    private function hydrateRefreshContext(EloquentDevice&Model $device, mixed $principalHint): ?array
     {
         $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
 
@@ -291,7 +294,7 @@ final class RefreshTokenExchange
             return null;
         }
 
-        $principal = $this->resolveRefreshPrincipal($identity, $deviceId);
+        $principal = $this->resolveRefreshPrincipal($identity, $deviceId, $principalHint);
 
         return $principal === null ? null : [$identity, $principal];
     }
@@ -348,11 +351,20 @@ final class RefreshTokenExchange
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $deviceId
+     * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
-    private function resolveRefreshPrincipal(Identity $identity, ?string $deviceId): ?Principal
+    private function resolveRefreshPrincipal(Identity $identity, ?string $deviceId, mixed $hint = null): ?Principal
     {
-        $principal = $this->safeResolvePrincipal($identity);
+        $hintProvided = $hint !== null;
+        $principal    = $this->safeResolvePrincipal($identity, $hint);
+
+        if ($hintProvided && !$this->matchesPidHint($principal, $hint)) {
+
+            $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_UNRESOLVED, $deviceId);
+
+            return null;
+        }
 
         if (!$principal instanceof Principal) {
 
@@ -377,15 +389,37 @@ final class RefreshTokenExchange
      * surfaces `RefreshFailed` rather than a 500.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
-    private function safeResolvePrincipal(Identity $identity): ?Principal
+    private function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
     {
         try {
-            return $this->resolver->resolve($identity);
+            return $hint === null
+                ? $this->resolver->resolve($identity)
+                : $this->resolver->resolve($identity, $hint);
         } catch (UnresolvableIdentityException) {
             return null;
         }
+    }
+
+    /**
+     * Confirm a resolver-returned principal matches the `pid` hint.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
+     * @param  mixed  $hint
+     * @return bool
+     */
+    private function matchesPidHint(?Principal $resolved, mixed $hint): bool
+    {
+        if ($resolved === null) {
+            return false;
+        }
+
+        $resolvedId = IdentifierCoercion::stringify($resolved->getPrincipalIdentifier());
+        $hintId     = IdentifierCoercion::stringify($hint);
+
+        return $resolvedId !== null && $hintId !== null && hash_equals($resolvedId, $hintId);
     }
 
     /**
@@ -432,7 +466,7 @@ final class RefreshTokenExchange
 
         $tokens = new RefreshResult(
             $this->tokens->issueAccessToken($identity, $principal, $device),
-            $this->tokens->issueRefreshToken($device, $newRotationId),
+            $this->tokens->issueRefreshToken($device, $newRotationId, $principal),
         );
 
         return new ExchangedRefresh($identity, $principal, $device, $tokens);
