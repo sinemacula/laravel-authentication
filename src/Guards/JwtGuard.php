@@ -33,7 +33,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
  * delegated to `RefreshTokenExchange`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class JwtGuard extends AbstractGuard
 {

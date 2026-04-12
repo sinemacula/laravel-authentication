@@ -27,7 +27,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * End-to-end integration test for the package JwtGuard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -51,6 +51,7 @@ final class JwtGuardIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -75,6 +76,7 @@ final class JwtGuardIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -185,9 +187,9 @@ final class JwtGuardIntegrationTest extends TestCase
         ]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/context', static function (): array {
-            $manager = app('auth');
 
-            assert($manager instanceof AuthManager);
+            /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+            $manager = app('auth');
 
             return [
                 'principal_present' => $manager->principal() !== null,
@@ -280,9 +282,9 @@ final class JwtGuardIntegrationTest extends TestCase
             ->update(['revoked_at' => $this->now]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-device', static function (): array {
-            $manager = app('auth');
 
-            assert($manager instanceof AuthManager);
+            /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+            $manager = app('auth');
 
             return [
                 'check'      => Auth::check(),
@@ -311,6 +313,7 @@ final class JwtGuardIntegrationTest extends TestCase
      * @param  mixed  $app
      * @return void
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

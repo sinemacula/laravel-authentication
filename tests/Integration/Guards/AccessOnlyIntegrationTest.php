@@ -97,9 +97,8 @@ final class AccessOnlyIntegrationTest extends TestCase
         $request->headers->set('Authorization', 'Bearer ' . $token);
         app()->instance('request', $request);
 
+        /** @var \SineMacula\Laravel\Authentication\Guards\JwtGuard $guard */
         $guard = app('auth')->guard(self::GUARD);
-
-        assert($guard instanceof JwtGuard);
 
         self::assertTrue($guard->check(), 'Bearer verification must succeed without a device.');
         self::assertSame($user->getAuthIdentifier(), $guard->id());
