@@ -101,7 +101,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      */
     public function testIssueAccessTokenStringifiesIntegerSubjectClaim(): void
     {
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
+        /** @var \Mockery\MockInterface&Identity $identity */
         $identity = \Mockery::mock(Identity::class);
         $identity->shouldReceive('getAuthIdentifier')->andReturn(42);
 
