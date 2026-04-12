@@ -25,6 +25,8 @@ final class JwtGuardBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchAccessOnlyBearer(): void
     {
@@ -35,6 +37,8 @@ final class JwtGuardBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchAccessOnlyBearerWarmIdentityCache(): void
     {
@@ -45,6 +49,8 @@ final class JwtGuardBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchDeviceHintNoWrite(): void
     {
@@ -55,6 +61,8 @@ final class JwtGuardBench
      * @Revs(10)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchDeviceHintWrite(): void
     {
@@ -65,6 +73,8 @@ final class JwtGuardBench
      * @Revs(25)
      *
      * @Iterations(5)
+     *
+     * @return void
      */
     public function benchThreeDimensionalBearer(): void
     {

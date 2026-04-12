@@ -33,6 +33,9 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Integration tests for cross-request freshness on the JWT bearer/refresh
  * paths when bearer identity caching is enabled.
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
@@ -420,6 +423,14 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 }
 
+/**
+ * Mutable principal resolver for freshness integration tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class MutableJwtGuardFreshnessResolver implements PrincipalResolver
 {
     /** @var ?\SineMacula\Laravel\Authentication\Contracts\Principal */
@@ -471,4 +482,12 @@ final class MutableJwtGuardFreshnessResolver implements PrincipalResolver
     }
 }
 
+/**
+ * Stub principal that implements the CanBeActive contract.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class ActiveAwareStubPrincipal extends StubPrincipal implements CanBeActive {}

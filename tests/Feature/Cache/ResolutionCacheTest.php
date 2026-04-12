@@ -18,6 +18,9 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Feature tests for the shared bearer-resolution cache services.
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 #[CoversClass(StoreBackedResolutionCache::class)]
