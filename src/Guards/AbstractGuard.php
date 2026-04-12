@@ -281,7 +281,9 @@ abstract class AbstractGuard implements ContextualGuard
      */
     public function setRequest(Request $request): static
     {
-        $this->request = $request;
+        $this->request           = $request;
+        $this->lastRetrievedUser = null;
+        $this->clearContextualState();
 
         return $this;
     }

@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
@@ -156,6 +157,52 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         Event::assertNotDispatched(Validated::class);
         Event::assertNotDispatched(Login::class);
         Event::assertNotDispatched(Authenticated::class);
+    }
+
+    /**
+     * The basic guard's credential path must remain fully live and never touch
+     * the shared bearer identity cache.
+     *
+     * @return void
+     */
+    public function testBasicGuardNeverUsesResolutionCache(): void
+    {
+        $this->app->instance(ResolutionCache::class, new class implements ResolutionCache
+        {
+            /**
+             * @param  string  $guardName
+             * @param  string  $providerModelClass
+             * @param  mixed  $identifier
+             * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
+             * @return ?\Illuminate\Contracts\Auth\Authenticatable
+             */
+            #[\Override]
+            public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?\Illuminate\Contracts\Auth\Authenticatable
+            {
+                unset($guardName, $providerModelClass, $identifier, $resolver);
+
+                throw new \LogicException('Basic guard must not use the shared resolution cache.');
+            }
+
+            /**
+             * @param  string  $guardName
+             * @param  string  $providerModelClass
+             * @param  mixed  $identifier
+             * @return void
+             */
+            #[\Override]
+            public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
+            {
+                unset($guardName, $providerModelClass, $identifier);
+
+                throw new \LogicException('Basic guard must not invalidate the shared resolution cache.');
+            }
+        });
+
+        self::assertTrue(Auth::guard(self::GUARD_NAME)->attempt([
+            'email'    => self::USER_EMAIL,
+            'password' => self::USER_PASSWORD,
+        ]));
     }
 
     /**

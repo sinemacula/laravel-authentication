@@ -8,8 +8,11 @@ namespace Benchmarks\Support;
 
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository as CacheRepository;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
@@ -18,6 +21,9 @@ use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
+use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
+use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -70,6 +76,9 @@ final class JwtGuardBenchHarness
     /** @var \Illuminate\Support\Timebox */
     private readonly Timebox $timebox;
 
+    /** @var \SineMacula\Laravel\Authentication\Cache\ResolutionCache */
+    private readonly ResolutionCache $warmResolutionCache;
+
     /** @var string 2D access-only bearer token. */
     private string $accessOnlyToken;
 
@@ -107,6 +116,11 @@ final class JwtGuardBenchHarness
                 'timebox' => [
                     'credentials_microseconds' => 400000,
                 ],
+                'resolution_cache' => [
+                    'jwt' => [
+                        'identity_ttl_seconds' => 15,
+                    ],
+                ],
             ],
         ]);
 
@@ -124,8 +138,35 @@ final class JwtGuardBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens  = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
-        $this->timebox = new Timebox;
+        $this->tokens              = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
+        $this->timebox             = new Timebox;
+        $this->warmResolutionCache = new StoreBackedResolutionCache(
+            new class (new CacheRepository(new ArrayStore)) implements CacheFactory {
+                /**
+                 * Constructor.
+                 *
+                 * @param  \Illuminate\Cache\Repository  $repository
+                 */
+                public function __construct(
+                    private readonly CacheRepository $repository,
+                ) {}
+
+                /**
+                 * @param  string|null  $name
+                 * @return \Illuminate\Contracts\Cache\Repository
+                 */
+                #[\Override]
+                public function store($name = null): \Illuminate\Contracts\Cache\Repository
+                {
+                    unset($name);
+
+                    return $this->repository;
+                }
+            },
+            new ResolutionCacheConfig(
+                static fn (): ConfigRepository => $config,
+            ),
+        );
 
         $this->accessOnlyProvider = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
         $this->deviceProvider     = new ModelProvider($hasher, IntegrationIdentity::class);
@@ -135,6 +176,13 @@ final class JwtGuardBenchHarness
         $this->seedAccessOnlyFixture($hasher);
         $this->seedDeviceFixtures($hasher);
         $this->seedThreeDimensionalFixtures($hasher);
+
+        $this->makeGuard(
+            'access_only',
+            $this->accessOnlyProvider,
+            $this->makeBearerRequest('/bench/jwt/access-only-cache-prime', $this->accessOnlyToken),
+            $this->warmResolutionCache,
+        )->user();
     }
 
     /**
@@ -148,6 +196,24 @@ final class JwtGuardBenchHarness
             'access_only',
             $this->accessOnlyProvider,
             $this->makeBearerRequest('/bench/jwt/access-only', $this->accessOnlyToken),
+        );
+
+        $guard->user();
+    }
+
+    /**
+     * Benchmark the warm access-only bearer path with the shared identity
+     * cache already primed.
+     *
+     * @return void
+     */
+    public function runAccessOnlyBearerWarmIdentityCache(): void
+    {
+        $guard = $this->makeGuard(
+            'access_only',
+            $this->accessOnlyProvider,
+            $this->makeBearerRequest('/bench/jwt/access-only-warm', $this->accessOnlyToken),
+            $this->warmResolutionCache,
         );
 
         $guard->user();
@@ -384,9 +450,10 @@ final class JwtGuardBenchHarness
      * @param  string  $name
      * @param  \SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
      * @param  \Illuminate\Http\Request  $request
+     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function makeGuard(string $name, ModelProvider $provider, Request $request): JwtGuard
+    private function makeGuard(string $name, ModelProvider $provider, Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard
     {
         $exchange = new RefreshTokenExchange(
             $this->tokens,
@@ -405,6 +472,7 @@ final class JwtGuardBenchHarness
             $this->timebox,
             $this->tokens,
             $exchange,
+            $resolutionCache,
         );
     }
 

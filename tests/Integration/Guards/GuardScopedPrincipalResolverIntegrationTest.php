@@ -82,7 +82,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     /**
      * The same identity can authenticate through two guards that resolve
      * different principals, and a token minted for one guard's resolver is
-     * rejected by the other guard's resolver.
+     * rejected by the other guard's resolver. Rebinding the request clears the
+     * previously memoized principal on the old guard instance.
      *
      * @return void
      */
@@ -122,9 +123,10 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         self::assertSame($customerTenant, $customerGuard->tenant());
         self::assertSame('customer', $customerGuard->type());
 
-        self::assertSame('staff-actor', $staffGuard->principal()?->getPrincipalIdentifier());
-        self::assertSame($staffTenant, $staffGuard->tenant());
-        self::assertSame('staff', $staffGuard->type());
+        self::assertNull($staffGuard->identity());
+        self::assertNull($staffGuard->principal());
+        self::assertNull($staffGuard->tenant());
+        self::assertNull($staffGuard->type());
     }
 
     /**
