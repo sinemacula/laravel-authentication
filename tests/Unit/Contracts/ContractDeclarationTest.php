@@ -35,7 +35,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 #[CoversNothing]
 final class ContractDeclarationTest extends TestCase

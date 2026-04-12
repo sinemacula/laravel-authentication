@@ -33,7 +33,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * codes for SIEM attribution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class RefreshTokenExchange
 {
@@ -234,8 +234,10 @@ final class RefreshTokenExchange
      * @param  string  $rotationId
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      */
-    private function loadDeviceForRefresh(mixed $rawDeviceId, #[\SensitiveParameter] string $rotationId): (EloquentDevice&Model)|null
-    {
+    private function loadDeviceForRefresh(
+        mixed $rawDeviceId,
+        #[\SensitiveParameter] string $rotationId,
+    ): (EloquentDevice&Model)|null {
         $deviceId = IdentifierCoercion::stringify($rawDeviceId);
         $device   = $this->findDeviceById($rawDeviceId);
 

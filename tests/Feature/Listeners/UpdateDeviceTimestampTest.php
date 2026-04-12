@@ -25,7 +25,7 @@ use Tests\Unit\Stubs\StubDevice;
  * persistence behaviour is exercised end-to-end without the package migration.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -42,12 +42,12 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
 
         Schema::create('stub_devices', static function (Blueprint $blueprint): void {
-
             $blueprint->uuid('id')->primary();
             $blueprint->string('os')->default('');
             $blueprint->string('refresh_key')->default('');
@@ -63,6 +63,7 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Carbon::setTestNow();
@@ -317,6 +318,7 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);

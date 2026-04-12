@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * Eloquent-backed persistence boundary required by refresh and last-seen flows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class InvalidDeviceModelConfiguration extends \RuntimeException
 {
