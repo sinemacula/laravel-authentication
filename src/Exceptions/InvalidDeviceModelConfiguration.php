@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Exceptions;
 
+use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 
 /**
@@ -11,12 +12,33 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * Eloquent-backed persistence boundary required by refresh and last-seen flows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class InvalidDeviceModelConfiguration extends \RuntimeException
 {
     /**
-     * Build an exception describing an unsupported configured device model.
+     * Validate that the class satisfies the Eloquent device boundary.
+     *
+     * @param  string  $class
+     * @return void
+     *
+     * @throws static
+     */
+    public static function validate(string $class): void
+    {
+        if (
+            $class === ''
+            || !class_exists($class)
+            || !is_subclass_of($class, Model::class)
+            || !is_subclass_of($class, EloquentDevice::class)
+        ) {
+
+            throw self::unsupported($class);
+        }
+    }
+
+    /**
+     * Build an exception for an unsupported device model.
      *
      * @param  string  $configured
      * @return static

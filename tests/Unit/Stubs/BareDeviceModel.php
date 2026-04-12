@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  * Eloquent device implementations.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @property string $id
  * @property ?string $refresh_key

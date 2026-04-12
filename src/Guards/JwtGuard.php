@@ -51,34 +51,22 @@ final class JwtGuard extends AbstractGuard
      */
     public function __construct(
 
-        // Guard name, as registered under `auth.guards.<name>`.
         string $name,
 
-        // Identity provider used to look up and validate credentials.
         IdentityProvider $provider,
 
-        // Resolver that maps an identity to its acting principal.
         PrincipalResolver $resolver,
 
-        // Event dispatcher for standard and custom auth events.
         Dispatcher $events,
 
-        // Current HTTP request used to extract credentials.
         Request $request,
 
-        // Timebox enforcing uniform elapsed time on the credential path.
         Timebox $timebox,
 
-        /**
-         * JWT token service used to parse, verify, and
-         * issue access and refresh tokens.
-         */
+        /** JWT token service for access and refresh tokens. */
         protected JwtTokenService $tokens,
 
-        /**
-         * Refresh-token exchange that rotates credentials
-         * and fires the Refreshed event.
-         */
+        /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
 
     ) {

@@ -14,14 +14,18 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * require.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 interface EloquentDevice extends Device
 {
     /**
      * Polymorphic relation to the owning authenticatable identity.
      *
+     * @formatter:off
+     *
      * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
+     *
+     * @formatter:on
      */
     public function authenticatable(): MorphTo;
 

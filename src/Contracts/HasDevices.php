@@ -13,7 +13,7 @@ use Illuminate\Contracts\Database\Eloquent\Builder;
  * resolution can look up an Eloquent-backed device record from a hint.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 interface HasDevices
 {

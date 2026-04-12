@@ -33,7 +33,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * codes for SIEM attribution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class RefreshTokenExchange
 {
@@ -48,34 +48,19 @@ final class RefreshTokenExchange
      */
     public function __construct(
 
-        /**
-         * Token service used to parse the inbound refresh
-         * token and issue the rotated pair.
-         */
+        /** Token service for parsing and issuing tokens. */
         private readonly JwtTokenService $tokens,
 
-        /**
-         * Connection resolver used for the raw CAS update
-         * that rotates the stored digest.
-         */
+        /** Connection resolver for raw CAS digest rotation. */
         private readonly ConnectionResolverInterface $connections,
 
-        /**
-         * Event dispatcher for RefreshFailed attribution
-         * events.
-         */
+        /** Event dispatcher for RefreshFailed events. */
         private readonly Dispatcher $events,
 
-        /**
-         * Resolver that maps the refreshed identity to
-         * its acting principal.
-         */
+        /** Resolver mapping identity to acting principal. */
         private PrincipalResolver $resolver,
 
-        /**
-         * Name of the guard that owns this exchange,
-         * carried on every RefreshFailed event.
-         */
+        /** Guard name carried on every RefreshFailed event. */
         private readonly string $guardName,
 
     ) {}
@@ -235,8 +220,10 @@ final class RefreshTokenExchange
      * @param  string  $rotationId
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      */
-    private function loadDeviceForRefresh(mixed $rawDeviceId, #[\SensitiveParameter] string $rotationId): (EloquentDevice&Model)|null
-    {
+    private function loadDeviceForRefresh(
+        mixed $rawDeviceId,
+        #[\SensitiveParameter] string $rotationId,
+    ): (EloquentDevice&Model)|null {
         $deviceId = IdentifierCoercion::stringify($rawDeviceId);
         $device   = $this->findDeviceById($rawDeviceId);
 
@@ -552,7 +539,11 @@ final class RefreshTokenExchange
      * Resolve the configured device model class and validate that it satisfies
      * the explicit Eloquent-backed persistence boundary.
      *
+     * @formatter:off
+     *
      * @return class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice>
+     *
+     * @formatter:on
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
      */
@@ -560,14 +551,7 @@ final class RefreshTokenExchange
     {
         $class = Config::string('authentication.device.model', '');
 
-        if (
-            $class === ''
-            || !class_exists($class)
-            || !is_subclass_of($class, Model::class)
-            || !is_subclass_of($class, EloquentDevice::class)
-        ) {
-            throw InvalidDeviceModelConfiguration::unsupported($class);
-        }
+        InvalidDeviceModelConfiguration::validate($class);
 
         /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
         return $class;

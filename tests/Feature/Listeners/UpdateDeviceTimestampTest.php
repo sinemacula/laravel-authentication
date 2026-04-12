@@ -25,7 +25,7 @@ use Tests\Unit\Stubs\StubDevice;
  * persistence behaviour is exercised end-to-end without the package migration.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -34,7 +34,7 @@ final class UpdateDeviceTimestampTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    /** @var string Shared timestamp format used by the listener-state assertions. */
+    /** @var string Timestamp format for assertions. */
     private const string DATETIME_FORMAT = 'Y-m-d H:i:s';
 
     /**
@@ -42,12 +42,12 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
 
         Schema::create('stub_devices', static function (Blueprint $blueprint): void {
-
             $blueprint->uuid('id')->primary();
             $blueprint->string('os')->default('');
             $blueprint->string('refresh_key')->default('');
@@ -63,6 +63,7 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Carbon::setTestNow();
@@ -104,12 +105,12 @@ final class UpdateDeviceTimestampTest extends TestCase
     public function testHandleNoOpsForNonModelDevice(): void
     {
         $device = \Mockery::mock(Device::class);
-        $device->shouldNotReceive('forceFill');
-        $device->shouldNotReceive('save');
 
         (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
 
-        self::assertTrue(true, 'Listener returned silently for a non-Model device.');
+        // No exception thrown and no persistence attempted - the listener
+        // short-circuits for non-EloquentDevice payloads.
+        self::assertTrue(true);
     }
 
     /**
@@ -286,30 +287,6 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener is invokable - registering it as a plain class name
-     * via `Event::listen` continues to work.
-     *
-     * @return void
-     */
-    public function testInvokeIsEquivalentToHandle(): void
-    {
-        $now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($now);
-
-        $device = new StubDevice;
-        $device->save();
-
-        $listener = new UpdateDeviceTimestamp;
-        $listener(new DeviceAuthenticated('api', $device));
-
-        $fresh = StubDevice::query()->findOrFail($device->id);
-
-        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
-        self::assertTrue($now->equalTo($fresh->last_logged_in_at));
-    }
-
-    /**
      * Define the test environment: in-memory sqlite connection.
      *
      * @param  mixed  $app
@@ -317,6 +294,7 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);

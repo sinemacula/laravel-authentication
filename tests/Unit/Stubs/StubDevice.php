@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * it never collides with the package's own `devices` table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @property string $id
  * @property string $os
@@ -50,6 +50,7 @@ class StubDevice extends Model implements EloquentDevice
      *
      * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, $this>
      */
+    #[\Override]
     public function authenticatable(): MorphTo
     {
         return $this->morphTo();

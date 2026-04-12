@@ -44,7 +44,7 @@ use Tests\Unit\Stubs\StubIdentity;
  * - device model outside the explicit `EloquentDevice` boundary is rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -69,13 +69,13 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var string Guard name forwarded to the exchange constructor. */
     private const string GUARD_NAME = 'jwt-test';
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\PrincipalResolver Resolver mock. */
+    /** @var \Mockery\MockInterface Resolver mock. */
     private MockInterface $resolver;
 
-    /** @var \Illuminate\Contracts\Events\Dispatcher&\Mockery\MockInterface Dispatcher mock. */
+    /** @var \Mockery\MockInterface Dispatcher mock. */
     private MockInterface $events;
 
-    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService Real token service used to encode the refresh tokens under test. */
+    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService */
     private JwtTokenService $tokens;
 
     /** @var \Carbon\Carbon Frozen clock reference. */
