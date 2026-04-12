@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Integration\Guards;
 
+use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
@@ -94,6 +95,46 @@ final class AccessOnlyIntegrationTest extends TestCase
         self::assertSame($user->getAuthIdentifier(), $guard->id());
         self::assertNotNull($guard->identity());
         self::assertNotNull($guard->principal());
+        self::assertNull($guard->device());
+        self::assertFalse(Schema::hasTable('devices'));
+    }
+
+    /**
+     * A token that forges a non-null `did` against an access-only identity must
+     * fail closed even though the deployment has no `devices` table.
+     *
+     * @return void
+     */
+    public function testForgedDeviceHintFailsClosedWithoutDevicesTable(): void
+    {
+        $user = $this->seedUser();
+        $now  = time();
+
+        $token = JWT::encode([
+            'sub' => (string) $user->getAuthIdentifier(),
+            'pid' => (string) $user->getAuthIdentifier(),
+            'did' => 'forged-device-id',
+            'iat' => $now,
+            'exp' => $now + 900,
+            'typ' => TokenType::ACCESS->value,
+        ], self::JWT_SECRET, 'HS256');
+
+        self::assertFalse(Schema::hasTable('devices'));
+
+        $request = Request::create('/me', 'GET');
+        $request->headers->set('Authorization', 'Bearer ' . $token);
+        app()->instance('request', $request);
+
+        $guard = app('auth')->guard(self::GUARD);
+
+        assert($guard instanceof JwtGuard);
+
+        self::assertFalse(
+            $guard->check(),
+            'Bearer verification must fail closed when a token claims a device for an access-only identity.',
+        );
+        self::assertNull($guard->identity());
+        self::assertNull($guard->principal());
         self::assertNull($guard->device());
         self::assertFalse(Schema::hasTable('devices'));
     }
