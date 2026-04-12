@@ -22,8 +22,10 @@ use Tests\Integration\Fixtures\AccessOnlyIdentity;
 /**
  * Verifies the "access-only" usage pattern: the package works end-to-end with
  * no devices migration, no Device contract implementation, and no
- * refresh-token flow. Consumers who only need stateless access tokens (M2M
- * APIs, simple backends) can skip the devices table entirely.
+ * refresh-token flow. Consumers who only need access tokens without device
+ * binding or refresh can skip the devices table entirely, while the bearer
+ * path still rehydrates the persisted identity through the configured
+ * provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Ltd
@@ -74,7 +76,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     /**
      * Issuing an access token with `null` device produces a JWT whose `did`
      * claim is null, and verifying it through the bearer path resolves
-     * identity + principal without ever touching a devices table.
+     * identity + principal without needing a devices table. The identity is
+     * still loaded through the configured provider.
      *
      * @return void
      */
@@ -94,9 +97,8 @@ final class AccessOnlyIntegrationTest extends TestCase
         $request->headers->set('Authorization', 'Bearer ' . $token);
         app()->instance('request', $request);
 
+        /** @var \SineMacula\Laravel\Authentication\Guards\JwtGuard $guard */
         $guard = app('auth')->guard(self::GUARD);
-
-        assert($guard instanceof JwtGuard);
 
         self::assertTrue($guard->check(), 'Bearer verification must succeed without a device.');
         self::assertSame($user->getAuthIdentifier(), $guard->id());
