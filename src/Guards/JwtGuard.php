@@ -22,17 +22,18 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 
 /**
- * Stateless JWT bearer-token guard.
+ * Sessionless JWT bearer-token guard.
  *
  * Reads `Authorization: Bearer <token>` from the active request, decodes via
- * `JwtTokenService`, validates claims, and binds the resolved identity,
- * principal, and optional device.
+ * `JwtTokenService`, then rehydrates the live identity, principal, and
+ * optional device from the configured provider/resolver/model state before
+ * binding them.
  *
  * Exposes `refresh()` for refresh-credential exchange; the round trip is
  * delegated to `RefreshTokenExchange`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class JwtGuard extends AbstractGuard
 {
