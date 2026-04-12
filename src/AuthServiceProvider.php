@@ -268,6 +268,7 @@ final class AuthServiceProvider extends ServiceProvider
     private static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
     {
         if (!array_key_exists('principal_resolver', $config)) {
+
             return [
                 'resolver'      => $app->make(PrincipalResolver::class),
                 'tracks_global' => true,
@@ -283,6 +284,7 @@ final class AuthServiceProvider extends ServiceProvider
         $resolver = $app->make($abstract);
 
         if (!$resolver instanceof PrincipalResolver) {
+
             $resolvedType = is_object($resolver) ? $resolver::class : get_debug_type($resolver);
 
             $message = "Auth guard [{$name}] principal_resolver [{$abstract}]"
@@ -309,8 +311,11 @@ final class AuthServiceProvider extends ServiceProvider
      * @param  bool  $tracksGlobalPrincipalResolver
      * @return void
      */
-    private static function wireGuardRebinds(Application $app, AbstractGuard $guard, bool $tracksGlobalPrincipalResolver = true): void
-    {
+    private static function wireGuardRebinds(
+        Application $app,
+        AbstractGuard $guard,
+        bool $tracksGlobalPrincipalResolver = true,
+    ): void {
         $app->refresh('request', $guard, 'setRequest');
         $app->refresh('events', $guard, 'setDispatcher');
 

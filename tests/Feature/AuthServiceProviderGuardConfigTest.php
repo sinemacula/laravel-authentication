@@ -319,8 +319,21 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 }
 
+/**
+ * Stub basic-guard resolver for config override tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class AuthServiceProviderGuardConfigBasicResolver implements PrincipalResolver
 {
+    /**
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {
@@ -330,8 +343,21 @@ final class AuthServiceProviderGuardConfigBasicResolver implements PrincipalReso
     }
 }
 
+/**
+ * Stub JWT-guard resolver for config override tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class AuthServiceProviderGuardConfigJwtResolver implements PrincipalResolver
 {
+    /**
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {
@@ -341,8 +367,21 @@ final class AuthServiceProviderGuardConfigJwtResolver implements PrincipalResolv
     }
 }
 
+/**
+ * Stub global resolver for config fallback tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class AuthServiceProviderGuardConfigGlobalResolver implements PrincipalResolver
 {
+    /**
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {

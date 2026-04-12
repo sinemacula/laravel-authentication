@@ -37,13 +37,13 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 #[CoversClass(AuthServiceProvider::class)]
 final class AuthServiceProviderTest extends TestCase
 {
-    /** @var string The shared JWT secret used by the guard-scoped factory defaults. */
+    /** @var string Shared JWT secret for guard defaults. */
     private const string JWT_SECRET = 'service-provider-test-secret-32!!';
 
-    /** @var string The signing algorithm used by the guard-scoped factory defaults. */
+    /** @var string Signing algorithm for guard defaults. */
     private const string JWT_ALGORITHM = 'HS256';
 
-    /** @var int The access-token TTL used by the guard-scoped factory defaults. */
+    /** @var int Access-token TTL for guard defaults. */
     private const int JWT_TTL_MINUTES = 25;
 
     /**
@@ -362,8 +362,21 @@ final class AuthServiceProviderTest extends TestCase
     }
 }
 
+/**
+ * Stub guard-scoped resolver for rebind tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class AuthServiceProviderTestGuardScopedResolver implements PrincipalResolver
 {
+    /**
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {
@@ -373,8 +386,21 @@ final class AuthServiceProviderTestGuardScopedResolver implements PrincipalResol
     }
 }
 
+/**
+ * Stub replacement resolver for global rebind tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class AuthServiceProviderTestReplacementResolver implements PrincipalResolver
 {
+    /**
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {

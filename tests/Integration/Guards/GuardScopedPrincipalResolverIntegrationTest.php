@@ -272,6 +272,15 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     }
 }
 
+/**
+ * Fixed-principal resolver for guard-local integration
+ * tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class GuardScopedPrincipalResolverIntegrationResolver implements PrincipalResolver
 {
     /**
@@ -280,7 +289,10 @@ final class GuardScopedPrincipalResolverIntegrationResolver implements Principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      */
     public function __construct(
+
+        /** @var \SineMacula\Laravel\Authentication\Contracts\Principal */
         private readonly Principal $principal,
+
     ) {}
 
     /**

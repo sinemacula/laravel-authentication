@@ -68,10 +68,16 @@ final class JwtGuard extends AbstractGuard
         // Timebox enforcing uniform elapsed time on the credential path.
         Timebox $timebox,
 
-        /** JWT token service used to parse, verify, and issue access and refresh tokens. */
+        /**
+         * JWT token service used to parse, verify, and
+         * issue access and refresh tokens.
+         */
         protected JwtTokenService $tokens,
 
-        /** Refresh-token exchange that rotates credentials and fires the `Refreshed` event. */
+        /**
+         * Refresh-token exchange that rotates credentials
+         * and fires the Refreshed event.
+         */
         protected RefreshTokenExchange $exchange,
 
     ) {
@@ -121,6 +127,7 @@ final class JwtGuard extends AbstractGuard
         $result = $this->exchange->exchange($refreshToken);
 
         if ($result === null) {
+
             $this->fireFailedEvent(null, []);
 
             return null;
@@ -197,6 +204,7 @@ final class JwtGuard extends AbstractGuard
         $context = $this->resolveContextFromToken($token);
 
         if ($context === null) {
+
             // lastRetrievedUser carries the identity loaded from the sub claim
             // so Failed attributes to the resolved account on the
             // inactive/unresolved/device-missing branches.
