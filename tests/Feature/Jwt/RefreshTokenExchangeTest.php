@@ -34,7 +34,7 @@ use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Direct unit tests for the `RefreshTokenExchange` service that fill in the
+ * Feature tests for the `RefreshTokenExchange` service that fill in the
  * few branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
  *
  * - invalid `device.model` config -> refresh fails fast with an explicit

@@ -27,7 +27,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  * - optional strict `iss` / `aud` verification
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class JwtTokenService
 {
@@ -65,13 +65,13 @@ final class JwtTokenService
         /** Refresh-token lifetime in minutes, written into the `exp` claim. */
         private int $refreshTtlMinutes,
 
-        /** Clock-skew tolerance in seconds applied to every `exp` / `iat` check. */
+        /** Clock-skew tolerance applied to every `exp`/`iat` check. */
         private int $leewaySeconds = 30,
 
-        /** Optional `iss` claim; when set, parse() rejects tokens whose issuer differs. */
+        /** Optional `iss` claim; rejects tokens with a different issuer. */
         private ?string $issuer = null,
 
-        /** Optional `aud` claim; when set, parse() rejects tokens whose audience differs. */
+        /** Optional `aud` claim; rejects tokens with a different audience. */
         private ?string $audience = null,
 
         // Optional PSR-3 logger for parse-failure debug traces; defaults to NullLogger.
@@ -118,8 +118,11 @@ final class JwtTokenService
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return string
      */
-    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null): string
-    {
+    public function issueRefreshToken(
+        Device $device,
+        #[\SensitiveParameter] string $rotationId,
+        ?Principal $principal = null,
+    ): string {
         $now = Carbon::now()->getTimestamp();
 
         $payload = $this->baseClaims($now, $now + ($this->refreshTtlMinutes * 60), TokenType::REFRESH);
@@ -221,10 +224,12 @@ final class JwtTokenService
         $previousLeeway = JWT::$leeway;
 
         try {
+
             JWT::$leeway = $this->leewaySeconds;
 
             return JWT::decode($token, $this->keyring->verificationKeys());
         } catch (\Throwable $e) {
+
             $this->logger->debug('JWT decode failed', [
                 'exception' => $e::class,
                 'reason'    => $e->getMessage(),

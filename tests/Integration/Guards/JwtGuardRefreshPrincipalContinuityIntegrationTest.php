@@ -34,7 +34,7 @@ use Tests\Unit\Stubs\StubTenant;
  * same tenant/type, even when the resolver's default principal differs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -50,6 +50,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -68,6 +69,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -143,6 +145,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);
@@ -235,6 +238,14 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
     }
 }
 
+/**
+ * In-memory principal resolver for refresh continuity tests.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
+ * @internal
+ */
 final class JwtGuardRefreshPrincipalContinuityResolver implements PrincipalResolver
 {
     /**
@@ -244,13 +255,18 @@ final class JwtGuardRefreshPrincipalContinuityResolver implements PrincipalResol
      * @param  array<string, \SineMacula\Laravel\Authentication\Contracts\Principal>  $hintedPrincipals
      */
     public function __construct(
+
+        /** The fallback principal when no hint is supplied. */
         private readonly Principal $defaultPrincipal,
+
+        /** Map of principal id to principal instance. */
         private readonly array $hintedPrincipals,
+
     ) {}
 
     /**
-     * Resolve the default principal when no hint is provided, otherwise return
-     * the principal mapped to the hinted id.
+     * Resolve the default principal when no hint is provided,
+     * otherwise return the principal mapped to the hinted id.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint

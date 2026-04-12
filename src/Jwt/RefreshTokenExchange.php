@@ -228,6 +228,7 @@ final class RefreshTokenExchange
         $device   = $this->findDeviceById($rawDeviceId);
 
         if ($device === null) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_UNKNOWN, $deviceId);
 
             return null;
@@ -359,6 +360,7 @@ final class RefreshTokenExchange
         $principal    = $this->safeResolvePrincipal($identity, $hint);
 
         if ($hintProvided && !$this->matchesPidHint($principal, $hint)) {
+
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_UNRESOLVED, $deviceId);
 
             return null;

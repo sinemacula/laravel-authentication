@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
