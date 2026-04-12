@@ -187,9 +187,9 @@ final class JwtGuardIntegrationTest extends TestCase
         ]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/context', static function (): array {
-            $manager = app('auth');
 
-            assert($manager instanceof AuthManager);
+            /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+            $manager = app('auth');
 
             return [
                 'principal_present' => $manager->principal() !== null,
@@ -282,9 +282,9 @@ final class JwtGuardIntegrationTest extends TestCase
             ->update(['revoked_at' => $this->now]);
 
         Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-device', static function (): array {
-            $manager = app('auth');
 
-            assert($manager instanceof AuthManager);
+            /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+            $manager = app('auth');
 
             return [
                 'check'      => Auth::check(),
