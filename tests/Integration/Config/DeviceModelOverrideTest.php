@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
@@ -18,7 +23,6 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
-use Tests\Unit\Stubs\InjectableDeviceStub;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
 use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
@@ -41,7 +45,7 @@ use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
 #[CoversClass(RefreshTokenExchange::class)]
 final class DeviceModelOverrideTest extends TestCase
 {
-    /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> FQCN of the custom device subclass under test. */
+    /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> */
     private string $customModel;
 
     /**
@@ -100,23 +104,8 @@ final class DeviceModelOverrideTest extends TestCase
     {
         Schema::dropIfExists('custom_devices');
         Schema::dropIfExists('stub_principals');
-        InjectableDeviceStub::$injectedBuilder = null;
 
         parent::tearDown();
-    }
-
-    /**
-     * The custom device model FQCN is readable through the config key
-     * consumers will set in their application config.
-     *
-     * @return void
-     */
-    public function testCustomDeviceModelClassResolvesViaConfig(): void
-    {
-        self::assertSame(
-            $this->customModel,
-            config('authentication.device.model'),
-        );
     }
 
     /**
@@ -130,6 +119,7 @@ final class DeviceModelOverrideTest extends TestCase
         $model = new $this->customModel;
 
         self::assertSame('custom_devices', $model->getTable());
+        self::assertInstanceOf(EloquentDevice::class, $model);
     }
 
     /**

@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Feature tests for the shipped Device Eloquent model.
@@ -25,7 +25,7 @@ use Tests\Unit\Stubs\StubDevice;
  * on the package migration file.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -40,12 +40,12 @@ final class DeviceTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
 
         Schema::create('devices', static function (Blueprint $blueprint): void {
-
             $blueprint->uuid('id')->primary();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
@@ -63,6 +63,7 @@ final class DeviceTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('devices');
@@ -149,20 +150,14 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the `device.model` config key can be read back via `config(...)`.
-     * The actual runtime swap is exercised by the `DeviceModelOverrideTest`
-     * integration test.
+     * Asserts the shipped model satisfies the explicit Eloquent-backed device
+     * persistence boundary used by refresh rotation and last-seen writes.
      *
      * @return void
      */
-    public function testCustomDeviceClassResolvesViaConfig(): void
+    public function testImplementsEloquentDeviceContract(): void
     {
-        config()->set('authentication.device.model', StubDevice::class);
-
-        self::assertSame(
-            StubDevice::class,
-            config('authentication.device.model'),
-        );
+        self::assertInstanceOf(EloquentDevice::class, new Device);
     }
 
     /**
@@ -230,6 +225,7 @@ final class DeviceTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);
