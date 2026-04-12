@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
  * tenant-aware logic.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class DefaultPrincipalResolver implements PrincipalResolver
 {

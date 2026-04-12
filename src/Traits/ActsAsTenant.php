@@ -9,7 +9,7 @@ namespace SineMacula\Laravel\Authentication\Traits;
  * configurable Eloquent attribute name.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 trait ActsAsTenant
 {

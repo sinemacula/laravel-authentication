@@ -12,7 +12,7 @@ namespace SineMacula\Laravel\Authentication\Jwt\Enums;
  * `JwtTokenService::parse()` so callers cannot pass a typo'd string.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 enum TokenType: string
 {

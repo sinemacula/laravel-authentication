@@ -290,6 +290,51 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * When `sub` resolves to a real identity but a fail-closed `pid` branch
+     * rejects the token, the emitted `Failed` event is still attributed to the
+     * resolved identity.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserAttributesFailedEventToResolvedIdentityWhenPidHintRejectsToken(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-default');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturn($principal);
+
+        $failedEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
+                if ($event instanceof Failed) {
+                    $failedEvent = $event;
+                }
+            });
+
+        self::assertNull($guard->user());
+        self::assertInstanceOf(Failed::class, $failedEvent);
+        self::assertSame($identity, $failedEvent->user);
+    }
+
+    /**
      * Fail-closed: when the token carries a `pid` hint but the resolver
      * returns `null` (the hinted principal cannot be resolved), `user()`
      * rejects the token rather than falling back to the default principal.
@@ -455,6 +500,64 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with(\Mockery::type(Failed::class));
 
         self::assertNull($guard->user());
+    }
+
+    /**
+     * When the `did` fail-closed branch rejects a token after `sub` already
+     * resolved, the `Failed` event carries that resolved identity for
+     * attribution.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-missing']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with('d-missing')
+            ->andReturnNull();
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $failedEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
+                if ($event instanceof Failed) {
+                    $failedEvent = $event;
+                }
+            });
+
+        self::assertNull($guard->user());
+        self::assertInstanceOf(Failed::class, $failedEvent);
+        self::assertSame($identity, $failedEvent->user);
     }
 
     /**

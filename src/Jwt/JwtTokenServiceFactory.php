@@ -16,7 +16,7 @@ use Psr\Log\LoggerInterface;
  * guard-local signing material and claim policy.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class JwtTokenServiceFactory
 {

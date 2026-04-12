@@ -167,6 +167,42 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * A token whose audience claim does not match the verifier's configured
+     * audience is rejected.
+     *
+     * @return void
+     */
+    public function testParseRejectsTokenWithMismatchedAudience(): void
+    {
+        $identity  = $this->mockIdentity('identity-7');
+        $principal = $this->mockPrincipal('principal-3');
+
+        $issuer = new JwtTokenService(
+            self::SECRET,
+            self::ALGORITHM,
+            self::ACCESS_TTL_MINUTES,
+            self::REFRESH_TTL_MINUTES,
+            30,
+            null,
+            'https://audience-a.example.test',
+        );
+
+        $verifier = new JwtTokenService(
+            self::SECRET,
+            self::ALGORITHM,
+            self::ACCESS_TTL_MINUTES,
+            self::REFRESH_TTL_MINUTES,
+            30,
+            null,
+            'https://audience-b.example.test',
+        );
+
+        $token = $issuer->issueAccessToken($identity, $principal, null);
+
+        self::assertNull($verifier->parse($token, TokenType::ACCESS));
+    }
+
+    /**
      * Clock-skew leeway lets a token that is at most `leewaySeconds` past its
      * `exp` still decode cleanly.
      *

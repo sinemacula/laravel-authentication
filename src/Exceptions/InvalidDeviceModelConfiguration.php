@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * Eloquent-backed persistence boundary required by refresh and last-seen flows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class InvalidDeviceModelConfiguration extends \RuntimeException
 {
@@ -47,10 +47,12 @@ final class InvalidDeviceModelConfiguration extends \RuntimeException
     {
         $display = $configured === '' ? '(empty string)' : $configured;
 
-        return new self(sprintf(
-            'authentication.device.model must be a non-empty class-string of an Eloquent model implementing [%s]; got [%s].',
-            EloquentDevice::class,
-            $display,
-        ));
+        return new self(
+            sprintf(
+                'authentication.device.model must be a non-empty class-string of an Eloquent model implementing [%s]; got [%s].',
+                EloquentDevice::class,
+                $display,
+            ),
+        );
     }
 }

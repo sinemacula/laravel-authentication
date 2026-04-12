@@ -12,7 +12,7 @@ namespace SineMacula\Laravel\Authentication\Jwt\Enums;
  * against the JWT payload (which is `array<string, mixed>`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 enum Claims: string
 {

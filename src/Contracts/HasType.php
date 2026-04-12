@@ -13,7 +13,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * into the concrete model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 interface HasType
 {

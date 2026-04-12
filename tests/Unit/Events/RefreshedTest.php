@@ -6,7 +6,6 @@ namespace Tests\Unit\Events;
 
 use Illuminate\Queue\SerializesModels;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -24,7 +23,6 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  *
  * @internal
  */
-#[CoversClass(Refreshed::class)]
 final class RefreshedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

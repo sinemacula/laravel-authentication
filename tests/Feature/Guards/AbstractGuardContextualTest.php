@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -13,7 +12,6 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
-use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 
 /**
  * Feature tests for the contextual state surface on `AbstractGuard`
@@ -28,7 +26,6 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
  * @internal
  */
 #[CoversClass(AbstractGuard::class)]
-#[CoversTrait(BindsContextualState::class)]
 final class AbstractGuardContextualTest extends AbstractGuardTestCase
 {
     /**

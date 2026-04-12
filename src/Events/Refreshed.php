@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * without a second round-trip through the guard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class Refreshed implements ShouldDispatchAfterCommit
 {

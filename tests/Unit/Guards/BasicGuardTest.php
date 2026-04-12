@@ -16,6 +16,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -302,6 +303,44 @@ final class BasicGuardTest extends TestCase
 
         self::assertNull($guard->user());
         self::assertContains(Failed::class, $dispatched);
+    }
+
+    /**
+     * When the resolved identity opts into activation checking and reports
+     * inactive, the guard fails closed before principal resolution.
+     *
+     * @return void
+     */
+    public function testUserReturnsNullWhenIdentityIsInactive(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
+
+        $identity = \Mockery::mock(Identity::class, CanBeActive::class);
+        $identity->shouldReceive('isActive')
+            ->once()
+            ->andReturnFalse();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->with($identity, ['email' => self::ALICE_EMAIL, 'password' => 'secret'])
+            ->andReturnTrue();
+
+        $this->resolver->shouldNotReceive('resolve');
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        self::assertNull($guard->user());
+        self::assertContains(Validated::class, $dispatched);
+        self::assertContains(Failed::class, $dispatched);
+        self::assertNotContains(Login::class, $dispatched);
     }
 
     /**

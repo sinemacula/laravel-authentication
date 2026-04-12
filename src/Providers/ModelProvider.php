@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
  * tenant scoping, soft-delete exclusion, or other domain-specific lookups.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 class ModelProvider implements IdentityProvider
 {

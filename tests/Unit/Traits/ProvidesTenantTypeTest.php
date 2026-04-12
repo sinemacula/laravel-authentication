@@ -5,8 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
-use PHPUnit\Framework\Attributes\CoversMethod;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestBackedType;
@@ -15,16 +13,14 @@ use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestUnitType;
 /**
  * Unit tests for the package ProvidesTenantType trait.
  *
- * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
- * attributes the trait's coverage correctly.
+ * Exercises the public trait surface without relying on explicit PHPUnit
+ * coverage metadata for traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
-#[CoversMethod(ProvidesTenantType::class, 'getType')]
-#[CoversTrait(ProvidesTenantType::class)]
 final class ProvidesTenantTypeTest extends TestCase
 {
     /**

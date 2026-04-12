@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
  * that, this guard sees no credentials.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class BasicGuard extends AbstractGuard
 {
