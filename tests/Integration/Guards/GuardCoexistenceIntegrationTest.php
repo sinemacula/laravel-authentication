@@ -129,10 +129,10 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *    exact same model instance (2D adoption mode),
      * 2. the 3D guard's `identity()` and `principal()` return
      *    distinct model instances of distinct classes (3D mode),
-     * 3. after binding the 3D guard, the 2D guard still exposes
-     *    its own 2D identity - i.e. no cross-contamination,
-     * 4. and `Auth::id()` on each guard returns that guard's
-     *    identity key, not the other's.
+     * 3. after rebinding the request for the 3D guard, the old 2D guard has
+     *    been cleared rather than leaking request-local auth state,
+     * 4. and `Auth::id()` on the active guard returns that guard's
+     *    identity key.
      *
      * @return void
      */
@@ -148,7 +148,57 @@ final class GuardCoexistenceIntegrationTest extends TestCase
 
         $this->assertNoCrossContamination($guard2d, $guard3d);
 
-        self::assertSame($twoD->getKey(), $guard2d->id());
+        self::assertInstanceOf(ContextualGuard::class, $guard2d);
+
+        // Trigger bearer-token resolution via `user()` - the resolved identity
+        // is asserted via the contextual `identity()` accessor below because
+        // the framework narrows `Guard::user()` to
+        // `Illuminate\Foundation\Auth\User`, which cannot be reconciled with
+        // our package-specific `Identity` implementations.
+        self::assertNotNull($guard2d->user());
+
+        $resolved2d = $guard2d->identity();
+
+        self::assertInstanceOf(Coexist2dIdentity::class, $resolved2d);
+        self::assertSame($twoD->getKey(), $resolved2d->getKey());
+        self::assertSame($resolved2d, $guard2d->principal(), 'In 2D mode the identity and principal must be the same model instance.');
+
+        // Resolve the 3D guard under a request carrying the 3D bearer token.
+        // Assertions: identity and principal are distinct instances of distinct
+        // classes, and the principal's owning identity matches the resolved
+        // identity.
+        $this->bindRequestWithBearer($threeDToken);
+
+        $guard3d = PackageAuth::guard(self::GUARD_3D);
+
+        self::assertInstanceOf(ContextualGuard::class, $guard3d);
+        self::assertNotSame($guard2d, $guard3d, 'The two guards must be distinct instances cached independently by the AuthManager.');
+
+        self::assertNotNull($guard3d->user());
+
+        $resolved3d = $guard3d->identity();
+
+        self::assertInstanceOf(Coexist3dIdentity::class, $resolved3d);
+        self::assertSame($threeDIdentity->getKey(), $resolved3d->getKey());
+
+        $principal3d = $guard3d->principal();
+
+        self::assertInstanceOf(Coexist3dPrincipal::class, $principal3d);
+        self::assertNotSame($guard3d->identity(), $principal3d, 'In 3D mode the identity and principal must be distinct instances.');
+        self::assertNotInstanceOf(Coexist3dIdentity::class, $principal3d, 'The 3D principal must NOT be an instance of the identity model class.');
+        self::assertSame($threeDPrincipal->getKey(), $principal3d->getPrincipalIdentifier());
+
+        // Request rebinding must clear the previously-bound 2D guard so no
+        // request-local auth state leaks across requests.
+        self::assertNull($guard2d->identity());
+        self::assertNull($guard2d->principal());
+
+        self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->identity());
+        self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->principal());
+
+        // The active guard exposes its own identity key; the rebound 2D guard
+        // has been cleared.
+        self::assertNull($guard2d->id());
         self::assertSame($threeDIdentity->getKey(), $guard3d->id());
     }
 

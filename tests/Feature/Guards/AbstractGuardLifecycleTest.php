@@ -320,4 +320,29 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
 
         self::assertSame($guard, $guard->setRequest($request));
     }
+
+    /**
+     * Rebinding the request must clear any previously memoized contextual
+     * state so guard instances cannot leak auth context across requests.
+     *
+     * @return void
+     */
+    public function testSetRequestClearsBoundContextualState(): void
+    {
+        $guard = $this->makeGuard();
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        $guard->login(
+            $this->mockIdentity(),
+            \Mockery::mock(Principal::class),
+            \Mockery::mock(Device::class),
+        );
+
+        $guard->setRequest(Request::create('/swap', 'GET'));
+
+        self::assertNull($guard->user());
+        self::assertNull($guard->principal());
+        self::assertNull($guard->device());
+    }
 }

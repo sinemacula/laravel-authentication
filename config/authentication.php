@@ -60,6 +60,29 @@ return [
 
     /*
     |-------------------------------------------------------------------------------
+    | Resolution cache
+    |-------------------------------------------------------------------------------
+    |
+    | Optional shared cache for live bearer identity rehydration on the JWT
+    | access-token path. Disabled by default. Basic credential lookups,
+    | bearer device resolution, and the entire refresh flow remain live-only.
+    |
+    | Safe enablement requires explicit invalidation wiring in the consumer
+    | app when identity auth identifiers or active-state flags change.
+    |
+    */
+
+    'resolution_cache' => [
+        'store' => env('AUTHENTICATION_RESOLUTION_CACHE_STORE'),
+
+        'jwt' => [
+            'identity_ttl_seconds'  => (int) env('AUTHENTICATION_RESOLUTION_CACHE_JWT_IDENTITY_TTL_SECONDS', 0),
+            'principal_ttl_seconds' => (int) env('AUTHENTICATION_RESOLUTION_CACHE_JWT_PRINCIPAL_TTL_SECONDS', 0),
+        ],
+    ],
+
+    /*
+    |-------------------------------------------------------------------------------
     | JWT
     |-------------------------------------------------------------------------------
     |

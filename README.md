@@ -136,6 +136,59 @@ Register guards and providers in `config/auth.php` exactly as you would with any
 Your identity model implements `Identity` (and optionally `Principal`, `HasPrincipals`, `HasDevices`,
 `CanBeActive`) - most apps just `use Authenticatable` and `use ActsAsPrincipal` from the package traits.
 
+### Optional bearer identity cache
+
+Cross-request resolution caching is off by default. When enabled, it applies only to JWT bearer identity
+rehydration through model providers; basic-auth credential lookups, bearer device lookup, principal resolution,
+and the entire refresh path stay live.
+
+```php
+'resolution_cache' => [
+    'store' => env('AUTHENTICATION_RESOLUTION_CACHE_STORE'),
+    'jwt'   => [
+        'identity_ttl_seconds'  => env('AUTHENTICATION_JWT_IDENTITY_CACHE_TTL_SECONDS', 0),
+        'principal_ttl_seconds' => env('AUTHENTICATION_JWT_PRINCIPAL_CACHE_TTL_SECONDS', 0),
+    ],
+],
+```
+
+- `identity_ttl_seconds = 0` disables the shared cache.
+- `principal_ttl_seconds` is reserved for future use and should stay `0`.
+- Cache hits only short-circuit the bearer identity provider lookup. Active-state checks, `pid` matching, and
+  `did` device validation still run live on every request.
+- Refresh never uses this cache. Revocation and replay detection remain device-backed and immediate.
+
+If you opt in, wire explicit invalidation from your identity model observer or equivalent write path:
+
+```php
+use App\Models\User;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
+
+final class UserObserver
+{
+    public function saved(User $user): void
+    {
+        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
+    }
+
+    public function deleted(User $user): void
+    {
+        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
+    }
+}
+```
+
+If the auth identifier changes, invalidate the previous identifier explicitly as well:
+
+```php
+$previousIdentifier = $user->getOriginal($user->getAuthIdentifierName());
+
+app(ResolutionCacheInvalidator::class)->forgetIdentity($user, $previousIdentifier);
+app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
+```
+
+Do not enable the shared cache unless that invalidation wiring is in place.
+
 ### Per-guard JWT configuration
 
 Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
