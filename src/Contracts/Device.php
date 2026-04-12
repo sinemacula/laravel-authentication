@@ -9,11 +9,13 @@ use Carbon\CarbonInterface;
 /**
  * Device contract.
  *
- * Describes a refreshable device record bound to an authenticated identity.
- * Implementations are typically Eloquent models.
+ * Describes the generic read-only device surface carried through token
+ * issuance, guard state, and package events. Persistence-capable refresh
+ * rotation and last-seen writes require the narrower `EloquentDevice`
+ * boundary.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 interface Device
 {
@@ -48,10 +50,11 @@ interface Device
     public function getOperatingSystem(): string;
 
     /**
-     * Return the hashed refresh-key digest stored on the device row. NEVER the
-     * plaintext rotation identifier - the refresh exchange verifies the
-     * plaintext against this digest via `hash_equals()`. Returns `null` when no
-     * refresh credential has been issued or after revocation cleared the column.
+     * Return the hashed refresh-key digest stored on the device
+     * row. NEVER the plaintext rotation identifier - the refresh
+     * exchange verifies the plaintext against this digest via
+     * `hash_equals()`. Returns `null` when no refresh credential
+     * has been issued or after revocation cleared the column.
      *
      * @return ?string
      */

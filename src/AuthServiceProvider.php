@@ -9,6 +9,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
@@ -18,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -87,6 +89,7 @@ final class AuthServiceProvider extends ServiceProvider
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
      */
     public static function createJwtGuard(Application $app, string $name, array $config): JwtGuard
     {
@@ -98,6 +101,10 @@ final class AuthServiceProvider extends ServiceProvider
         $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
         $resolver  = $selection['resolver'];
         $events    = $app->make(Dispatcher::class);
+
+        self::assertValidDeviceModelConfiguration(
+            $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
+        );
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $tokenFactory */
         $tokenFactory = $app->make(JwtTokenServiceFactory::class);
@@ -299,6 +306,21 @@ final class AuthServiceProvider extends ServiceProvider
             'resolver'      => $resolver,
             'tracks_global' => false,
         ];
+    }
+
+    /**
+     * Validate that the configured device model satisfies the explicit
+     * Eloquent-backed persistence boundary required by JWT refresh and
+     * last-seen flows.
+     *
+     * @param  string  $class
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
+     */
+    private static function assertValidDeviceModelConfiguration(string $class): void
+    {
+        InvalidDeviceModelConfiguration::validate($class);
     }
 
     /**

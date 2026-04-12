@@ -8,11 +8,13 @@ use Illuminate\Contracts\Auth\Authenticatable as LaravelAuthenticatable;
 use Illuminate\Contracts\Auth\Guard as LaravelGuard;
 use Illuminate\Contracts\Auth\UserProvider as LaravelUserProvider;
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -33,7 +35,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 #[CoversNothing]
 final class ContractDeclarationTest extends TestCase
@@ -67,6 +69,21 @@ final class ContractDeclarationTest extends TestCase
             'getIdentity'            => ['getIdentity'],
             'getTenant'              => ['getTenant'],
             'isActive'               => ['isActive'],
+        ];
+    }
+
+    /**
+     * Data provider listing the methods `EloquentDevice` must declare.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function provideEloquentDeviceContractMethods(): array
+    {
+        return [
+            'authenticatable'    => ['authenticatable'],
+            'getLastLoggedInName' => ['getLastLoggedInName'],
+            'getRefreshKeyName'   => ['getRefreshKeyName'],
+            'getRevokedAtName'    => ['getRevokedAtName'],
         ];
     }
 
@@ -132,6 +149,55 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(Device::class))->hasMethod($method),
             "Device contract must declare {$method}().",
         );
+    }
+
+    /**
+     * `EloquentDevice` extends the generic `Device` contract with the relation
+     * and column-name accessors required by refresh persistence paths.
+     *
+     * @return void
+     */
+    public function testEloquentDeviceExtendsDevice(): void
+    {
+        self::assertContains(
+            Device::class,
+            (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
+        );
+    }
+
+    /**
+     * `EloquentDevice` declares every explicit Eloquent persistence hook the
+     * refresh and last-seen paths depend on.
+     *
+     * @param  string  $method
+     * @return void
+     */
+    #[DataProvider('provideEloquentDeviceContractMethods')]
+    public function testEloquentDeviceContractDeclaresMethod(string $method): void
+    {
+        self::assertTrue(
+            (new \ReflectionClass(EloquentDevice::class))->hasMethod($method),
+            "EloquentDevice contract must declare {$method}().",
+        );
+    }
+
+    /**
+     * `EloquentDevice::authenticatable()` must return a MorphTo relation, and
+     * the persistence column-name accessors must return strings.
+     *
+     * @return void
+     */
+    public function testEloquentDeviceDeclaresExpectedReturnTypes(): void
+    {
+        $authenticatableReturn = (new \ReflectionMethod(EloquentDevice::class, 'authenticatable'))->getReturnType();
+        self::assertInstanceOf(\ReflectionNamedType::class, $authenticatableReturn);
+        self::assertSame(MorphTo::class, $authenticatableReturn->getName());
+
+        foreach (['getLastLoggedInName', 'getRefreshKeyName', 'getRevokedAtName'] as $method) {
+            $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
+            self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
+            self::assertSame('string', $returnType->getName());
+        }
     }
 
     /**

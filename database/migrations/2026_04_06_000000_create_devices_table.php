@@ -8,6 +8,13 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 
+/**
+ * Create the devices table.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ */
+
 return new class extends Migration {
     /**
      * Run the migrations.
@@ -37,9 +44,10 @@ return new class extends Migration {
 
             $blueprint->string('os');
 
-            // SHA-256 hex digest of the refresh token's `jti` claim.
-            // Nullable so a device can exist pre-issuance or post-revocation.
-            // Indexed but not unique: revocation sets a family to one sentinel.
+            // SHA-256 hex digest of the refresh token's `jti` claim for the
+            // package's default Eloquent device adapter. Nullable so a device
+            // can exist pre-issuance or post-revocation. Indexed but not
+            // unique: revocation sets a family to one sentinel.
             $blueprint->string($refreshKeyColumn, 64)->nullable()->index();
 
             // Revocation marker. Set by the reuse-detection CAS path and

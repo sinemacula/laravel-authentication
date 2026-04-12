@@ -8,27 +8,22 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 
 /**
- * Updates the bound device's `last_logged_in_at` when a device is
- * authenticated. Debounced by a configurable throttle to avoid per-request
- * hot-spot writes. Uses an atomic `update()` so in-memory mutations do not
- * leak into persisted state. The comparison narrows to `CarbonInterface`
- * so `CarbonImmutable` consumers are not broken. Honours
- * `ActsAsDevice::getLastLoggedInName()` for column remappings and no-ops
- * for non-Eloquent or unpersisted device implementations.
+ * Updates the device's `last_logged_in_at` on authentication, debounced by a
+ * configurable throttle. Only persisted `EloquentDevice` models participate.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class UpdateDeviceTimestamp
 {
-    /** @var int Fallback throttle window (seconds) when the config key is missing or non-positive. */
+    /** @var int Fallback throttle window (seconds). */
     private const int DEFAULT_THROTTLE_SECONDS = 60;
 
-    /** @var string Fallback column name when the device does not use `ActsAsDevice`. */
+    /** @var string Fallback column name. */
     private const string DEFAULT_COLUMN = 'last_logged_in_at';
 
     /**
@@ -41,8 +36,8 @@ final class UpdateDeviceTimestamp
     {
         $device = $event->device;
 
-        // No-op for non-Eloquent doubles and unpersisted instances.
-        if (!$device instanceof Model || !$device->exists) {
+        // No-op for generic device payloads and unpersisted instances.
+        if (!$device instanceof EloquentDevice || !$device instanceof Model || !$device->exists) {
             return;
         }
 
@@ -62,19 +57,14 @@ final class UpdateDeviceTimestamp
 
     /**
      * Resolve the column name holding the last-logged-in timestamp. Honours
-     * `ActsAsDevice::getLastLoggedInName()` when the device exposes it; falls
-     * back to the package default otherwise.
+     * the explicit `EloquentDevice` column-name contract and falls back to the
+     * package default only for defensive empty-string overrides.
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return string
      */
-    private function resolveColumnName(Model $device): string
+    private function resolveColumnName(EloquentDevice $device): string
     {
-        if (!$device instanceof Device || !method_exists($device, 'getLastLoggedInName')) {
-            return self::DEFAULT_COLUMN;
-        }
-
-        /** @var string $column */
         $column = $device->getLastLoggedInName();
 
         return $column === '' ? self::DEFAULT_COLUMN : $column;

@@ -10,12 +10,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
@@ -32,7 +33,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * codes for SIEM attribution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  */
 final class RefreshTokenExchange
 {
@@ -47,34 +48,19 @@ final class RefreshTokenExchange
      */
     public function __construct(
 
-        /**
-         * Token service used to parse the inbound refresh
-         * token and issue the rotated pair.
-         */
+        /** Token service for parsing and issuing tokens. */
         private readonly JwtTokenService $tokens,
 
-        /**
-         * Connection resolver used for the raw CAS update
-         * that rotates the stored digest.
-         */
+        /** Connection resolver for raw CAS digest rotation. */
         private readonly ConnectionResolverInterface $connections,
 
-        /**
-         * Event dispatcher for RefreshFailed attribution
-         * events.
-         */
+        /** Event dispatcher for RefreshFailed events. */
         private readonly Dispatcher $events,
 
-        /**
-         * Resolver that maps the refreshed identity to
-         * its acting principal.
-         */
+        /** Resolver mapping identity to acting principal. */
         private PrincipalResolver $resolver,
 
-        /**
-         * Name of the guard that owns this exchange,
-         * carried on every RefreshFailed event.
-         */
+        /** Guard name carried on every RefreshFailed event. */
         private readonly string $guardName,
 
     ) {}
@@ -99,6 +85,8 @@ final class RefreshTokenExchange
      *
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
      */
     public function exchange(#[\SensitiveParameter] string $refreshToken): ?ExchangedRefresh
     {
@@ -127,10 +115,10 @@ final class RefreshTokenExchange
      * observers do not fire and in-memory attributes do not leak into the
      * persisted write.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return void
      */
-    public function revokeDevice(Device&Model $device): void
+    public function revokeDevice(EloquentDevice&Model $device): void
     {
         $refreshKeyColumn = $this->refreshKeyColumn($device);
         $revokedAtColumn  = $this->revokedAtColumn($device);
@@ -152,7 +140,7 @@ final class RefreshTokenExchange
      * @formatter:off
      *
      * @param  string  $refreshToken
-     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device, 1: string}|null
+     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice, 1: string}|null
      *
      * @formatter:on
      */
@@ -229,15 +217,16 @@ final class RefreshTokenExchange
      *
      * @param  mixed  $rawDeviceId
      * @param  string  $rotationId
-     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device)|null
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      */
-    private function loadDeviceForRefresh(mixed $rawDeviceId, #[\SensitiveParameter] string $rotationId): (Device&Model)|null
-    {
+    private function loadDeviceForRefresh(
+        mixed $rawDeviceId,
+        #[\SensitiveParameter] string $rotationId,
+    ): (EloquentDevice&Model)|null {
         $deviceId = IdentifierCoercion::stringify($rawDeviceId);
         $device   = $this->findDeviceById($rawDeviceId);
 
-        if ($device === null || !$device instanceof Model) {
-
+        if ($device === null) {
             $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_UNKNOWN, $deviceId);
 
             return null;
@@ -266,22 +255,20 @@ final class RefreshTokenExchange
      * Look up a device by id through the configured device model class.
      *
      * @param  mixed  $id
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\EloquentDevice
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
      */
-    private function findDeviceById(mixed $id): ?Device
+    private function findDeviceById(mixed $id): ?EloquentDevice
     {
-        $class = Config::string('authentication.device.model');
+        $class = $this->configuredDeviceModelClass();
 
-        if ($class === '') {
-            return null;
-        }
-
-        /** @var \Illuminate\Database\Eloquent\Model $model */
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $model */
         $model = new $class;
 
         $device = $model->newQuery()->find($id);
 
-        return $device instanceof Device ? $device : null;
+        return $device instanceof EloquentDevice ? $device : null;
     }
 
     /**
@@ -289,12 +276,12 @@ final class RefreshTokenExchange
      *
      * @formatter:off
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
      *
      * @formatter:on
      */
-    private function hydrateRefreshContext(Device&Model $device): ?array
+    private function hydrateRefreshContext(EloquentDevice&Model $device): ?array
     {
         $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
 
@@ -313,11 +300,11 @@ final class RefreshTokenExchange
      * Validate the device's `authenticatable` relation and confirm the resolved
      * identity is currently active.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  ?string  $deviceId
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
-    private function resolveRefreshIdentity(Device&Model $device, ?string $deviceId): ?Identity
+    private function resolveRefreshIdentity(EloquentDevice&Model $device, ?string $deviceId): ?Identity
     {
         /** @var ?\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
         $identity = $device->getRelationValue('authenticatable');
@@ -410,14 +397,14 @@ final class RefreshTokenExchange
      * digest in between. The whole device is revoked and `rotation_reuse` is
      * dispatched.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $oldRotationId
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      */
     private function completeExchange(
-        Device&Model $device,
+        EloquentDevice&Model $device,
         Identity $identity,
         Principal $principal,
         #[\SensitiveParameter] string $oldRotationId,
@@ -461,13 +448,13 @@ final class RefreshTokenExchange
      * Raw query-builder update bypasses Eloquent events; consumer side
      * effects should trigger on the `Refreshed` package event.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $oldRotationId
      * @param  string  $newRotationId
      * @return bool
      */
     private function atomicallyRotateRefreshKey(
-        Device&Model $device,
+        EloquentDevice&Model $device,
         #[\SensitiveParameter] string $oldRotationId,
         #[\SensitiveParameter] string $newRotationId,
     ): bool {
@@ -489,47 +476,52 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve the refresh-key column for the device, honouring the
-     * `ActsAsDevice` trait's accessor when present and falling back to the
-     * package config.
+     * Resolve the refresh-key column for the device via the explicit
+     * `EloquentDevice` column-name contract.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return string
      */
-    private function refreshKeyColumn(Device $device): string
+    private function refreshKeyColumn(EloquentDevice $device): string
     {
-        if (method_exists($device, 'getRefreshKeyName')) {
+        $column = $device->getRefreshKeyName();
 
-            /** @var string $column */
-            $column = $device->getRefreshKeyName();
-
-            if ($column !== '') {
-                return $column;
-            }
-        }
-
-        return Config::string('authentication.device.refresh_key_column', 'refresh_key');
+        return $column === '' ? 'refresh_key' : $column;
     }
 
     /**
-     * Resolve the revoked-at column for the device. Honours the
-     * `ActsAsDevice` trait's accessor and falls back to `revoked_at`.
+     * Resolve the revoked-at column for the device via the explicit
+     * `EloquentDevice` column-name contract.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return string
      */
-    private function revokedAtColumn(Device $device): string
+    private function revokedAtColumn(EloquentDevice $device): string
     {
-        if (method_exists($device, 'getRevokedAtName')) {
+        $column = $device->getRevokedAtName();
 
-            /** @var string $column */
-            $column = $device->getRevokedAtName();
+        return $column === '' ? 'revoked_at' : $column;
+    }
 
-            if ($column !== '') {
-                return $column;
-            }
-        }
+    /**
+     * Resolve the configured device model class and validate that it satisfies
+     * the explicit Eloquent-backed persistence boundary.
+     *
+     * @formatter:off
+     *
+     * @return class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice>
+     *
+     * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
+     */
+    private function configuredDeviceModelClass(): string
+    {
+        $class = Config::string('authentication.device.model', '');
 
-        return 'revoked_at';
+        InvalidDeviceModelConfiguration::validate($class);
+
+        /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
+        return $class;
     }
 }

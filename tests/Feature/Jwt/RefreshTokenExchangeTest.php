@@ -20,6 +20,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -35,15 +36,14 @@ use Tests\Unit\Stubs\StubIdentity;
  * Direct unit tests for the `RefreshTokenExchange` service that fill in the
  * few branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
  *
- * - empty `device.model` config -> `findDeviceById` returns null and the
- *   exchange surfaces `device_unknown`.
+ * - invalid `device.model` config -> refresh fails fast with an explicit
+ *   configuration exception rather than falling through to `device_unknown`.
  * - resolver throws `UnresolvableIdentityException` -> the exchange catches it
  *   inside `safeResolvePrincipal` and dispatches `principal_unresolved`.
- * - device that does NOT use `ActsAsDevice` -> `refreshKeyColumn` and
- *   `revokedAtColumn` fall back to the package config + literal defaults.
+ * - device model outside the explicit `EloquentDevice` boundary is rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
@@ -68,13 +68,13 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var string Guard name forwarded to the exchange constructor. */
     private const string GUARD_NAME = 'jwt-test';
 
-    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\PrincipalResolver Resolver mock. */
+    /** @var \Mockery\MockInterface Resolver mock. */
     private MockInterface $resolver;
 
-    /** @var \Illuminate\Contracts\Events\Dispatcher&\Mockery\MockInterface Dispatcher mock. */
+    /** @var \Mockery\MockInterface Dispatcher mock. */
     private MockInterface $events;
 
-    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService Real token service used to encode the refresh tokens under test. */
+    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService */
     private JwtTokenService $tokens;
 
     /** @var \Carbon\Carbon Frozen clock reference. */
@@ -132,16 +132,15 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * `findDeviceById` returns `null` when the package config
-     * `authentication.device.model` is the empty string, so the exchange
-     * dispatches `device_unknown` and returns `null`. Pins the empty-class
-     * short-circuit in `findDeviceById()`.
+     * An empty `authentication.device.model` config is now an explicit
+     * configuration error rather than a silent `device_unknown` refresh
+     * failure.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testExchangeReturnsNullWhenDeviceModelClassIsEmpty(): void
+    public function testExchangeThrowsWhenConfiguredDeviceModelClassIsEmpty(): void
     {
         config()->set('authentication.device.model', '');
 
@@ -152,14 +151,9 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => 'rotation-id',
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN),
-            );
+        $this->expectException(InvalidDeviceModelConfiguration::class);
 
-        self::assertNull($exchange->exchange($token));
+        $exchange->exchange($token);
     }
 
     /**
@@ -212,44 +206,29 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * `revokeDevice` writes through to the package config column fallbacks
-     * (`refresh_key_column` and the literal `revoked_at`) when the supplied
-     * device does NOT use `ActsAsDevice`. Pins `refreshKeyColumn()` and
-     * `revokedAtColumn()` simultaneously.
+     * The exchange rejects configured device models that implement the generic
+     * `Device` contract but do not satisfy the explicit `EloquentDevice`
+     * persistence boundary.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRevokeDeviceFallsBackToConfigColumnsForBareDeviceModel(): void
+    public function testExchangeThrowsWhenConfiguredDeviceModelDoesNotImplementEloquentDevice(): void
     {
-        Schema::create('bare_devices', static function (Blueprint $blueprint): void {
-            $blueprint->string('id')->primary();
-            $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamps();
-        });
+        config()->set('authentication.device.model', BareDeviceModel::class);
 
-        try {
-            config()->set('authentication.device.refresh_key_column', 'refresh_key');
+        $exchange = $this->makeExchange();
 
-            $device = new BareDeviceModel;
-            $device->forceFill([
-                'id'          => 'bare-device-1',
-                'refresh_key' => 'stored-digest',
-            ])->save();
+        $token = $this->encodeRefreshToken([
+            'did' => 'bare-device-1',
+            'jti' => 'rotation-id',
+        ]);
 
-            $exchange = $this->makeExchange();
+        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectExceptionMessage(BareDeviceModel::class);
 
-            $exchange->revokeDevice($device);
-
-            $fresh = BareDeviceModel::query()->findOrFail('bare-device-1');
-
-            self::assertNull($fresh->refresh_key);
-            self::assertInstanceOf(Carbon::class, $fresh->revoked_at);
-        } finally {
-            Schema::dropIfExists('bare_devices');
-        }
+        $exchange->exchange($token);
     }
 
     /**
