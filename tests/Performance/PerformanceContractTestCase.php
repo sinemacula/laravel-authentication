@@ -16,8 +16,12 @@ use Tests\TestCase;
 /**
  * Shared base for deterministic performance-contract tests.
  *
- * Records SQL emitted by a subject under test so the suite can assert
- * structural read/write budgets without making flaky wall-clock assertions.
+ * Records SQL emitted by a subject under test so the suite
+ * can assert structural read/write budgets without making
+ * flaky wall-clock assertions.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */

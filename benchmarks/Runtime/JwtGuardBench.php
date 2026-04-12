@@ -9,10 +9,16 @@ namespace Benchmarks\Runtime;
 use Benchmarks\Support\JwtGuardBenchHarness;
 
 /**
+ * PHPBench suite for JwtGuard bearer-auth paths.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @Warmup(1)
  */
 final class JwtGuardBench
 {
+    /** @var ?\Benchmarks\Support\JwtGuardBenchHarness */
     private static ?JwtGuardBenchHarness $harness = null;
 
     /**

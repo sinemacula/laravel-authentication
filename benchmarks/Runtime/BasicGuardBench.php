@@ -9,10 +9,16 @@ namespace Benchmarks\Runtime;
 use Benchmarks\Support\BasicGuardBenchHarness;
 
 /**
+ * PHPBench suite for BasicGuard credential flows.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @Warmup(1)
  */
 final class BasicGuardBench
 {
+    /** @var ?\Benchmarks\Support\BasicGuardBenchHarness */
     private static ?BasicGuardBenchHarness $harness = null;
 
     /**

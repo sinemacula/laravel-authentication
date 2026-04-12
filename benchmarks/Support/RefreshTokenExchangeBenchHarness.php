@@ -16,8 +16,8 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
-use Illuminate\Support\Timebox;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -31,6 +31,9 @@ use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Runtime benchmark fixtures for refresh-token exchanges.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  */
 final class RefreshTokenExchangeBenchHarness
 {
@@ -40,17 +43,33 @@ final class RefreshTokenExchangeBenchHarness
 
     /** @var int Number of mutable success-path tokens to pre-seed. */
     private const int TOKEN_POOL_SIZE = 128;
+
+    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService */
     private readonly JwtTokenService $tokens;
+
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $provider;
+
+    /** @var \SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver */
     private readonly DefaultPrincipalResolver $resolver;
+
+    /** @var \Illuminate\Contracts\Events\Dispatcher */
     private readonly DispatcherContract $events;
+
+    /** @var \Illuminate\Support\Timebox */
     private readonly Timebox $timebox;
+
+    /** @var string Token targeting a nonexistent device. */
     private string $unknownDeviceToken;
+
+    /** @var string Token with a mismatched rotation ID. */
     private string $rotationMismatchToken;
 
     /** @var list<string> */
     private array $successTokens = [];
-    private int $successIndex    = 0;
+
+    /** @var int Current index into the success-token pool. */
+    private int $successIndex = 0;
 
     /**
      * Seed the refresh benchmark fixtures.

@@ -32,7 +32,11 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
- * Runtime benchmark fixtures for JwtGuard bearer-auth hot paths.
+ * Runtime benchmark fixtures for JwtGuard bearer-auth hot
+ * paths.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  */
 final class JwtGuardBenchHarness
 {
@@ -44,20 +48,42 @@ final class JwtGuardBenchHarness
 
     /** @var int Number of mutable write-path tokens to pre-seed. */
     private const int TOKEN_POOL_SIZE = 128;
+
+    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService */
     private readonly JwtTokenService $tokens;
+
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $accessOnlyProvider;
+
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $deviceProvider;
+
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $threeDProvider;
+
+    /** @var \SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver */
     private readonly DefaultPrincipalResolver $resolver;
+
+    /** @var \Illuminate\Contracts\Events\Dispatcher */
     private readonly DispatcherContract $events;
+
+    /** @var \Illuminate\Support\Timebox */
     private readonly Timebox $timebox;
+
+    /** @var string 2D access-only bearer token. */
     private string $accessOnlyToken;
+
+    /** @var string Device bearer with fresh timestamp. */
     private string $deviceFreshToken;
+
+    /** @var string 3D bearer token. */
     private string $threeDToken;
 
     /** @var list<string> */
     private array $deviceWriteTokens = [];
-    private int $deviceWriteIndex    = 0;
+
+    /** @var int Current index into the write-token pool. */
+    private int $deviceWriteIndex = 0;
 
     /**
      * Seed the bearer-auth benchmark fixtures.

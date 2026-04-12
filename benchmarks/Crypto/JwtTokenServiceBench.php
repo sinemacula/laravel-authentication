@@ -15,14 +15,28 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
+ * PHPBench suite for JWT token issue/parse paths.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @Warmup(1)
  */
 final class JwtTokenServiceBench
 {
+    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService */
     private readonly JwtTokenService $service;
+
+    /** @var \Tests\Unit\Stubs\PlainIdentityFixture */
     private readonly PlainIdentityFixture $identity;
+
+    /** @var \Tests\Unit\Stubs\PlainPrincipalFixture */
     private readonly PlainPrincipalFixture $principal;
+
+    /** @var \Tests\Unit\Stubs\PlainDeviceFixture */
     private readonly PlainDeviceFixture $device;
+
+    /** @var string Pre-issued access token for parse benchmarks. */
     private readonly string $accessToken;
 
     /**

@@ -22,15 +22,26 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
  * Runtime benchmark fixtures for BasicGuard credential flows.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  */
 final class BasicGuardBenchHarness
 {
     private const string EMAIL         = 'bench-basic@example.test';
     private const string MISSING_EMAIL = 'missing-basic@example.test';
     private const string PASSWORD      = 'correct horse battery staple';
+
+    /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $provider;
+
+    /** @var \SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver */
     private readonly DefaultPrincipalResolver $resolver;
+
+    /** @var \Illuminate\Contracts\Events\Dispatcher */
     private readonly DispatcherContract $events;
+
+    /** @var \Benchmarks\Support\ImmediateTimebox */
     private readonly ImmediateTimebox $timebox;
 
     /**

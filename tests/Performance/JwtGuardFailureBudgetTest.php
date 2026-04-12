@@ -18,6 +18,9 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 /**
  * Query-budget contracts for cheap JwtGuard failure paths.
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 #[CoversClass(JwtGuard::class)]

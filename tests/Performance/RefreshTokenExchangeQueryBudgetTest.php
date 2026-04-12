@@ -16,7 +16,11 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Query-budget contracts for the refresh-token exchange hot paths.
+ * Query-budget contracts for the refresh-token exchange hot
+ * paths.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */

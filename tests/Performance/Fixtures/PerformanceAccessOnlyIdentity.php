@@ -13,6 +13,9 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 /**
  * Minimal active 2D identity for performance-contract testing.
  *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
+ *
  * @internal
  */
 final class PerformanceAccessOnlyIdentity extends Model implements Identity, Principal

@@ -9,7 +9,11 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Schema\Builder as SchemaBuilder;
 
 /**
- * Shared sqlite in-memory database for PHPBench auth-path fixtures.
+ * Shared sqlite in-memory database for PHPBench auth-path
+ * fixtures.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  */
 final class BenchDatabase
 {

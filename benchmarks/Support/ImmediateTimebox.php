@@ -11,8 +11,12 @@ use Illuminate\Support\Timebox;
 /**
  * Timebox variant that executes the callback immediately.
  *
- * Used by PHPBench so BasicGuard timings reflect the inner credential path
- * rather than the configured minimum wall-clock budget.
+ * Used by PHPBench so BasicGuard timings reflect the inner
+ * credential path rather than the configured minimum
+ * wall-clock budget.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  */
 final class ImmediateTimebox extends Timebox
 {

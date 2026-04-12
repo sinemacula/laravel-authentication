@@ -19,7 +19,11 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
- * Query-budget contracts for the main JwtGuard bearer-auth success paths.
+ * Query-budget contracts for the main JwtGuard bearer-auth
+ * success paths.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Ltd
  *
  * @internal
  */
