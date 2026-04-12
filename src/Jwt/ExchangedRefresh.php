@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * token pair.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class ExchangedRefresh
 {

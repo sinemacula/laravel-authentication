@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
  * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @phpstan-require-implements \SineMacula\Laravel\Authentication\Contracts\ContextualGuard
  *

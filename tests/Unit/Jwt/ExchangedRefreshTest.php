@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Unit\Jwt;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -25,7 +24,6 @@ use Tests\Unit\Stubs\StubDevice;
  *
  * @internal
  */
-#[CoversClass(ExchangedRefresh::class)]
 final class ExchangedRefreshTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

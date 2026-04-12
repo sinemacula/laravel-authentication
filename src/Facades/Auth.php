@@ -6,10 +6,6 @@ namespace SineMacula\Laravel\Authentication\Facades;
 
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
  * Package `Auth` facade.
@@ -31,7 +27,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class Auth extends IlluminateAuth
 {

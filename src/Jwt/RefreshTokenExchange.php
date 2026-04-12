@@ -33,7 +33,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * codes for SIEM attribution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class RefreshTokenExchange
 {
@@ -271,6 +271,28 @@ final class RefreshTokenExchange
         $device = $model->newQuery()->find($id);
 
         return $device instanceof EloquentDevice ? $device : null;
+    }
+
+    /**
+     * Resolve the configured device model class and validate that it satisfies
+     * the explicit Eloquent-backed persistence boundary.
+     *
+     * @formatter:off
+     *
+     * @return class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice>
+     *
+     * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
+     */
+    private function configuredDeviceModelClass(): string
+    {
+        $class = Config::string('authentication.device.model', '');
+
+        InvalidDeviceModelConfiguration::validate($class);
+
+        /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
+        return $class;
     }
 
     /**
@@ -535,27 +557,5 @@ final class RefreshTokenExchange
         $column = $device->getRevokedAtName();
 
         return $column === '' ? 'revoked_at' : $column;
-    }
-
-    /**
-     * Resolve the configured device model class and validate that it satisfies
-     * the explicit Eloquent-backed persistence boundary.
-     *
-     * @formatter:off
-     *
-     * @return class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice>
-     *
-     * @formatter:on
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
-     */
-    private function configuredDeviceModelClass(): string
-    {
-        $class = Config::string('authentication.device.model', '');
-
-        InvalidDeviceModelConfiguration::validate($class);
-
-        /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
-        return $class;
     }
 }

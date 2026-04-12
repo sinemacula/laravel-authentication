@@ -14,7 +14,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubModel;
 
 /**
  * Unit tests for the ModelProvider identity provider.
@@ -153,6 +155,44 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
+     * Constructor rejects a class that extends `Model` but does not implement
+     * `Authenticatable`.
+     *
+     * @return void
+     */
+    public function testConstructorRejectsModelWithoutAuthenticatable(): void
+    {
+        try {
+            new ModelProvider($this->hasher, StubModel::class);
+            self::fail('Expected constructor to reject a non-Authenticatable model.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString(
+                'must be both an Eloquent Model and implement Authenticatable',
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    /**
+     * Constructor rejects a class that implements `Authenticatable` but does
+     * not extend `Model`.
+     *
+     * @return void
+     */
+    public function testConstructorRejectsAuthenticatableWithoutModel(): void
+    {
+        try {
+            new ModelProvider($this->hasher, PlainIdentityFixture::class);
+            self::fail('Expected constructor to reject a non-Eloquent authenticatable.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString(
+                'must be both an Eloquent Model and implement Authenticatable',
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    /**
      * Scalar credentials are applied as where() clauses on the query.
      *
      * @return void
@@ -173,6 +213,87 @@ final class ModelProviderTest extends TestCase
         $provider = $this->makeProvider($builder);
 
         self::assertSame($found, $provider->retrieveByCredentials(['email' => 'a@b.com']));
+    }
+
+    /**
+     * Password-like keys are filtered case-insensitively and do not block
+     * later valid credentials from reaching the query.
+     *
+     * @return void
+     */
+    public function testRetrieveByCredentialsSkipsCaseInsensitivePasswordKeysAndContinues(): void
+    {
+        $found = new StubAuthenticatableModel;
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('where')
+            ->once()
+            ->with('email', self::ALICE_EMAIL)
+            ->andReturnSelf();
+        $builder->shouldReceive('first')
+            ->once()
+            ->andReturn($found);
+
+        $provider = $this->makeProvider($builder);
+
+        self::assertSame($found, $provider->retrieveByCredentials([
+            'PASSWORD' => 'secret',
+            'email'    => self::ALICE_EMAIL,
+        ]));
+    }
+
+    /**
+     * Invalid credential keys with a leading non-identifier byte are dropped
+     * without blocking later valid credentials.
+     *
+     * @return void
+     */
+    public function testRetrieveByCredentialsSkipsLeadingJunkKeyAndContinues(): void
+    {
+        $found = new StubAuthenticatableModel;
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('where')
+            ->once()
+            ->with('email', self::ALICE_EMAIL)
+            ->andReturnSelf();
+        $builder->shouldReceive('first')
+            ->once()
+            ->andReturn($found);
+
+        $provider = $this->makeProvider($builder);
+
+        self::assertSame($found, $provider->retrieveByCredentials([
+            '1email' => 'malicious',
+            'email'  => self::ALICE_EMAIL,
+        ]));
+    }
+
+    /**
+     * Invalid credential keys with a trailing dot are dropped without blocking
+     * later valid credentials.
+     *
+     * @return void
+     */
+    public function testRetrieveByCredentialsSkipsTrailingDotKeyAndContinues(): void
+    {
+        $found = new StubAuthenticatableModel;
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('where')
+            ->once()
+            ->with('email', self::ALICE_EMAIL)
+            ->andReturnSelf();
+        $builder->shouldReceive('first')
+            ->once()
+            ->andReturn($found);
+
+        $provider = $this->makeProvider($builder);
+
+        self::assertSame($found, $provider->retrieveByCredentials([
+            'email.' => 'malicious',
+            'email'  => self::ALICE_EMAIL,
+        ]));
     }
 
     /**
@@ -350,6 +471,28 @@ final class ModelProviderTest extends TestCase
         $provider->rehashPasswordIfRequired($user, []);
 
         self::assertTrue(true, 'rehashPasswordIfRequired returned without touching the hasher.');
+    }
+
+    /**
+     * rehashPasswordIfRequired is a no-op when the password is an empty string,
+     * even for an Eloquent model user.
+     *
+     * @return void
+     */
+    public function testRehashPasswordIfRequiredNoOpsWhenPasswordEmptyString(): void
+    {
+        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
+        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
+        $user->shouldNotReceive('save');
+
+        $this->hasher->shouldNotReceive('needsRehash');
+        $this->hasher->shouldNotReceive('make');
+
+        $provider->rehashPasswordIfRequired($user, ['password' => '']);
+
+        self::assertTrue(true, 'rehashPasswordIfRequired short-circuited for an empty string password.');
     }
 
     /**

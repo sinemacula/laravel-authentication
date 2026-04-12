@@ -5,24 +5,20 @@ declare(strict_types = 1);
 namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
-use PHPUnit\Framework\Attributes\CoversMethod;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 
 /**
  * Unit tests for the package ActsAsTenant trait.
  *
- * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
- * attributes the trait's coverage correctly.
+ * Exercises the public trait surface through anonymous Eloquent models without
+ * relying on explicit PHPUnit coverage metadata for traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited.
  *
  * @internal
  */
-#[CoversMethod(ActsAsTenant::class, 'getTenantIdentifier')]
-#[CoversTrait(ActsAsTenant::class)]
 final class ActsAsTenantTest extends TestCase
 {
     /**

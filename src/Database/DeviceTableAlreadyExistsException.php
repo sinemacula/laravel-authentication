@@ -9,6 +9,6 @@ namespace SineMacula\Laravel\Authentication\Database;
  * schema before the shipped migration runs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class DeviceTableAlreadyExistsException extends \RuntimeException {}
