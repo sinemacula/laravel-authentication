@@ -101,7 +101,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      */
     public function testIssueAccessTokenStringifiesIntegerSubjectClaim(): void
     {
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
+        /** @var \Mockery\MockInterface&Identity $identity */
         $identity = \Mockery::mock(Identity::class);
         $identity->shouldReceive('getAuthIdentifier')->andReturn(42);
 
@@ -118,11 +118,12 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
     /**
      * Asserts issuing an access token without a device produces a token whose
-     * `did` claim is null.
+     * `did` claim is explicitly present with a null value, so downstream
+     * consumers see "no device hint" rather than a shape change.
      *
      * @return void
      */
-    public function testIssueAccessTokenWithoutDeviceOmitsDeviceClaim(): void
+    public function testIssueAccessTokenWithoutDeviceSetsNullDeviceClaim(): void
     {
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
@@ -133,6 +134,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
+        self::assertArrayHasKey(Claims::DEVICE_ID->value, $claims);
         self::assertNull($claims[Claims::DEVICE_ID->value]);
     }
 
