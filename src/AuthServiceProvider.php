@@ -95,8 +95,9 @@ final class AuthServiceProvider extends ServiceProvider
         /** @var \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider */
         $provider = IlluminateAuth::createUserProvider(is_string($providerName) ? $providerName : '');
 
-        $resolver = $app->make(PrincipalResolver::class);
-        $events   = $app->make(Dispatcher::class);
+        $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
+        $resolver  = $selection['resolver'];
+        $events    = $app->make(Dispatcher::class);
 
         /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $tokenFactory */
         $tokenFactory = $app->make(JwtTokenServiceFactory::class);
@@ -121,7 +122,7 @@ final class AuthServiceProvider extends ServiceProvider
             $exchange,
         );
 
-        self::wireGuardRebinds($app, $guard);
+        self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
 
         return $guard;
     }
@@ -152,17 +153,19 @@ final class AuthServiceProvider extends ServiceProvider
             : $app->make(ConfigRepository::class)
                 ->string('authentication.credentials.identifier_field', 'email');
 
+        $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
+
         $guard = new BasicGuard(
             $name,
             $provider,
-            $app->make(PrincipalResolver::class),
+            $selection['resolver'],
             $app->make(Dispatcher::class),
             $app->make('request'),
             $app->make(Timebox::class),
             $identifierField,
         );
 
-        self::wireGuardRebinds($app, $guard);
+        self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
 
         return $guard;
     }
@@ -248,17 +251,76 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
+     * Resolve the effective principal resolver for the guard.
+     *
+     * Guards without a `principal_resolver` override track the global
+     * `PrincipalResolver::class` binding and should therefore receive future
+     * container refreshes. Guard-local overrides resolve once at construction
+     * time and are fixed thereafter.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  string  $name
+     * @param  array<string, mixed>  $config
+     * @return array{resolver: \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver, tracks_global: bool}
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
+    {
+        if (!array_key_exists('principal_resolver', $config)) {
+
+            return [
+                'resolver'      => $app->make(PrincipalResolver::class),
+                'tracks_global' => true,
+            ];
+        }
+
+        $abstract = $config['principal_resolver'];
+
+        if (!is_string($abstract) || $abstract === '') {
+            throw new \InvalidArgumentException("Auth guard [{$name}] principal_resolver must be a non-empty string container abstract.");
+        }
+
+        $resolver = $app->make($abstract);
+
+        if (!$resolver instanceof PrincipalResolver) {
+
+            $resolvedType = is_object($resolver) ? $resolver::class : get_debug_type($resolver);
+
+            $message = "Auth guard [{$name}] principal_resolver [{$abstract}]"
+                . " resolved to [{$resolvedType}] instead of ["
+                . PrincipalResolver::class
+                . '].';
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        return [
+            'resolver'      => $resolver,
+            'tracks_global' => false,
+        ];
+    }
+
+    /**
      * Register container `refresh` hooks that propagate runtime rebinds of
-     * `request`, `events`, and the `PrincipalResolver` onto the supplied guard.
+     * `request`, `events`, and optionally the global `PrincipalResolver` onto
+     * the supplied guard.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
+     * @param  bool  $tracksGlobalPrincipalResolver
      * @return void
      */
-    private static function wireGuardRebinds(Application $app, AbstractGuard $guard): void
-    {
+    private static function wireGuardRebinds(
+        Application $app,
+        AbstractGuard $guard,
+        bool $tracksGlobalPrincipalResolver = true,
+    ): void {
         $app->refresh('request', $guard, 'setRequest');
         $app->refresh('events', $guard, 'setDispatcher');
-        $app->refresh(PrincipalResolver::class, $guard, 'setPrincipalResolver');
+
+        if ($tracksGlobalPrincipalResolver) {
+            $app->refresh(PrincipalResolver::class, $guard, 'setPrincipalResolver');
+        }
     }
 }

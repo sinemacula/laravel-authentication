@@ -188,6 +188,36 @@ different providers and looked up by different columns - e.g. an `email`-keyed w
 The `TenantApiKey` model implements `Identity` (and `Principal` in 2D mode), carries whatever tenant foreign
 key your domain uses, and is hashed/verified against the standard Laravel hasher just like a user password.
 
+### Per-guard principal resolvers
+
+Principal resolution layers the same way. By default, every guard uses the app-wide
+`SineMacula\Laravel\Authentication\Contracts\PrincipalResolver` binding. Any individual guard may override that
+with a `principal_resolver` entry in `config/auth.php`:
+
+```php
+'guards' => [
+    'staff' => [
+        'driver'             => 'jwt',
+        'provider'           => 'users',
+        'principal_resolver' => App\Auth\Resolvers\StaffPrincipalResolver::class,
+    ],
+    'customer' => [
+        'driver'             => 'jwt',
+        'provider'           => 'users',
+        'principal_resolver' => App\Auth\Resolvers\CustomerPrincipalResolver::class,
+    ],
+],
+```
+
+Precedence is:
+
+1. `auth.guards.<name>.principal_resolver`
+2. the app-wide `PrincipalResolver::class` container binding
+3. the package default `DefaultPrincipalResolver`
+
+This applies equally to bearer-token resolution and JWT refresh exchange: when a guard declares a local
+resolver, both paths use that same resolver instance.
+
 ### 2D adoption (identity is the principal)
 
 The simplest shape. One model implements both `Identity` and `Principal` - the user who logs in *is* the actor on
@@ -289,7 +319,9 @@ If you need a domain-specific resolution strategy (scoped by subdomain, header, 
 $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 ```
 
-The guards will use your resolver for every bearer-token or refresh exchange. No guard subclassing required.
+All guards without a local `principal_resolver` override will use that binding for bearer-token and refresh
+resolution. Guards that do declare `auth.guards.<name>.principal_resolver` take precedence over the app-wide
+binding. No guard subclassing required.
 
 ### HTTP Basic behind PHP-FPM / nginx
 
