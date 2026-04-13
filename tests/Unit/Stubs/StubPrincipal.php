@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * from a token hint via the polymorphic devices table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @property int $id
  * @property string $email

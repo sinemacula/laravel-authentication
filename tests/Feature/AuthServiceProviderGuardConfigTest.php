@@ -14,7 +14,6 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
-use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use Tests\Unit\Stubs\BareDeviceModel;
 use Tests\Unit\Stubs\PlainDeviceFixture;
@@ -28,7 +27,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * `principal_resolver` selection path used by both shipped guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -386,7 +385,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
  * Stub basic-guard resolver for config override tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -410,7 +409,7 @@ final class AuthServiceProviderGuardConfigBasicResolver implements PrincipalReso
  * Stub JWT-guard resolver for config override tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -434,7 +433,7 @@ final class AuthServiceProviderGuardConfigJwtResolver implements PrincipalResolv
  * Stub global resolver for config fallback tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

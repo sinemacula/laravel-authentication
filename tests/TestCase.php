@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  * tables.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

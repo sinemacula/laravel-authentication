@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
  * capability via the package traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

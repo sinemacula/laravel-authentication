@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -101,7 +101,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      */
     public function testIssueAccessTokenStringifiesIntegerSubjectClaim(): void
     {
-        /** @var \Mockery\MockInterface&Identity $identity */
+        /** @var Identity&\Mockery\MockInterface $identity */
         $identity = \Mockery::mock(Identity::class);
         $identity->shouldReceive('getAuthIdentifier')->andReturn(42);
 

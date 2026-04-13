@@ -4,48 +4,57 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Runtime;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Benchmarks\Support\BasicGuardBenchHarness;
+use PhpBench\Attributes\Iterations;
+use PhpBench\Attributes\Revs;
+use PhpBench\Attributes\Warmup;
 
 /**
  * PHPBench suite for BasicGuard credential flows.
  *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * Exercises HTTP Basic credential validation across valid, wrong-password, and
+ * missing-user paths.
  *
- * @Warmup(1)
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
  */
+#[Warmup(1)]
 final class BasicGuardBench
 {
     /** @var ?\Benchmarks\Support\BasicGuardBenchHarness */
     private static ?BasicGuardBenchHarness $harness = null;
 
     /**
-     * @Revs(1)
+     * Benchmark valid HTTP Basic credentials.
      *
-     * @Iterations(3)
+     * @return void
      */
+    #[Iterations(3)]
+    #[Revs(1)]
     public function benchValidCredentials(): void
     {
         $this->harness()->runValidCredentials();
     }
 
     /**
-     * @Revs(1)
+     * Benchmark wrong-password HTTP Basic credentials.
      *
-     * @Iterations(3)
+     * @return void
      */
+    #[Iterations(3)]
+    #[Revs(1)]
     public function benchWrongPassword(): void
     {
         $this->harness()->runWrongPassword();
     }
 
     /**
-     * @Revs(1)
+     * Benchmark a nonexistent HTTP Basic identifier.
      *
-     * @Iterations(3)
+     * @return void
      */
+    #[Iterations(3)]
+    #[Revs(1)]
     public function benchMissingUser(): void
     {
         $this->harness()->runMissingUser();

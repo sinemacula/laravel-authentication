@@ -4,26 +4,23 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Support;
 
-// phpcs:disable Squiz.Commenting.FunctionComment.SpacingAfterParamName, Squiz.Commenting.FunctionComment.ParamCommentFullStop, Squiz.Commenting.FunctionComment.ParamCommentNotCapital
-
 use Illuminate\Support\Timebox;
 
 /**
  * Timebox variant that executes the callback immediately.
  *
- * Used by PHPBench so BasicGuard timings reflect the inner
- * credential path rather than the configured minimum
- * wall-clock budget.
+ * Used by PHPBench so BasicGuard timings reflect the inner credential path
+ * rather than the configured minimum wall-clock budget.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class ImmediateTimebox extends Timebox
 {
     /**
      * Execute the callback immediately.
      *
-     * @param  callable  $callback  callback executed immediately
+     * @param  callable  $callback
      * @param  int  $microseconds
      *
      * @phpstan-param callable($this): mixed $callback
@@ -44,7 +41,7 @@ final class ImmediateTimebox extends Timebox
      * @return $this
      */
     #[\Override]
-    public function returnEarly()
+    public function returnEarly(): self
     {
         $this->earlyReturn = true;
 

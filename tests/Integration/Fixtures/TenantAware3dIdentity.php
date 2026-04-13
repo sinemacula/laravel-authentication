@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @property bool $is_active
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -111,13 +111,13 @@ final class TenantAware3dIdentity extends Model implements HasPrincipals, Identi
         }
 
         $principal = (new TenantAware3dPrincipal)->newFromBuilder([
-            'id'         => $row->id,
+            'id'          => $row->id,
             'identity_id' => $row->identity_id,
-            'tenant_id'  => $row->tenant_id,
-            'name'       => $row->name,
-            'is_active'  => $row->is_active,
-            'created_at' => $row->created_at,
-            'updated_at' => $row->updated_at,
+            'tenant_id'   => $row->tenant_id,
+            'name'        => $row->name,
+            'is_active'   => $row->is_active,
+            'created_at'  => $row->created_at,
+            'updated_at'  => $row->updated_at,
         ]);
 
         $tenant = (new TenantAware3dTenant)->newFromBuilder([

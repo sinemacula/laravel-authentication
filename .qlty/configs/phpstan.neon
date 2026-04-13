@@ -1,16 +1,17 @@
 parameters:
     level: 8
 
-    # Tells Larastan's `noEnvCallsOutsideOfConfig` rule where the
-    # package's own config directory lives — without this it falls
-    # back to Testbench's vendored config path.
     configDirectories:
         - %currentWorkingDirectory%/config
 
     scanDirectories:
         - %currentWorkingDirectory%/src
+        - %currentWorkingDirectory%/benchmarks
+        - %currentWorkingDirectory%/database
         - %currentWorkingDirectory%/tests
 
     paths:
         - src
+        - benchmarks
+        - database
         - tests

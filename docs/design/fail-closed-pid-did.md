@@ -34,12 +34,12 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - A resolver that returns an unsaved principal with a `null` identifier is rejected for the same reason.
 - On the bearer path, `did` resolution is identity-scoped through `HasDevices`; a token that claims a device against an
   identity with no device capability fails closed instead of silently binding no device.
-- On the refresh path, `did` resolution is global through the configured device model and the device's
-  `authenticatable` relation.
+- On the refresh path, `did` resolution is global through the configured device model and the device's `authenticatable`
+  relation.
 - When bearer auth rejects a token after the identity has already been loaded, the emitted `Failed` event still carries
   that resolved identity for attribution.
-- A warm bearer identity cache entry does not bypass principal re-resolution, principal activity checks, or live
-  device lookup for hinted `did` values.
+- A warm bearer identity cache entry does not bypass principal re-resolution, principal activity checks, or live device
+  lookup for hinted `did` values.
 
 ## Implementation Anchors
 

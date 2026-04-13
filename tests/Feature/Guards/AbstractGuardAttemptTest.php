@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * the timing-safe Timebox path and the standard auth event sequence.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

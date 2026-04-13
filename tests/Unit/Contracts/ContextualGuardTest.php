@@ -29,7 +29,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 #[CoversNothing]
 final class ContextualGuardTest extends TestCase

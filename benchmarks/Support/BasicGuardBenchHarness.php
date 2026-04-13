@@ -4,8 +4,6 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Support;
 
-// phpcs:disable Squiz.Commenting.VariableComment.Missing, Squiz.Commenting.FunctionComment.MissingReturn
-
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
@@ -24,13 +22,18 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
  * Runtime benchmark fixtures for BasicGuard credential flows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class BasicGuardBenchHarness
 {
-    private const string EMAIL         = 'bench-basic@example.test';
+    /** @var string Valid benchmark identity email. */
+    private const string EMAIL = 'bench-basic@example.test';
+
+    /** @var string Nonexistent benchmark identity email. */
     private const string MISSING_EMAIL = 'missing-basic@example.test';
-    private const string PASSWORD      = 'correct horse battery staple';
+
+    /** @var string Shared benchmark password. */
+    private const string PASSWORD = 'correct horse battery staple';
 
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
     private readonly ModelProvider $provider;

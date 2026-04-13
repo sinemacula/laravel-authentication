@@ -28,7 +28,7 @@ use Tests\Unit\Stubs\StubModel;
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 #[CoversClass(ModelProvider::class)]
 final class ModelProviderConstructorTest extends TestCase

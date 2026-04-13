@@ -17,10 +17,11 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * relying on explicit PHPUnit coverage metadata for traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
+#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class ActsAsDeviceTest extends TestCase
 {
     /** @var \Carbon\Carbon Frozen clock reference shared across timestamp assertions. */

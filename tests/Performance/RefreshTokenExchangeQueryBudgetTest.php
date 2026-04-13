@@ -23,15 +23,14 @@ use Tests\Unit\Stubs\StubPrincipal;
  * paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
 final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestCase
 {
-    private const string GUARD = 'api';
-
+    private const string GUARD              = 'api';
     private const string TENANT_AWARE_GUARD = 'tenant_api';
 
     /**
@@ -102,7 +101,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      */
     public function testRefreshSuccessUsesTwoReadsAndOneWrite(): void
     {
-        $identity = $this->seedIdentity();
+        $identity   = $this->seedIdentity();
         $rotationId = 'refresh-success-rotation-id';
 
         $device = new Device;
@@ -177,7 +176,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     public function testThreeDimensionalRefreshPathWithTenantAccessUsesThreeReadsAndOneWrite(): void
     {
         [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
-        $rotationId = 'refresh-tenant-aware-success';
+        $rotationId             = 'refresh-tenant-aware-success';
 
         $device = new Device;
         $device->forceFill([
@@ -213,7 +212,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesThreeReadsAndOneWrite(): void
     {
         [$identity, , $secondaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant();
-        $rotationId = 'refresh-tenant-aware-secondary-success';
+        $rotationId                        = 'refresh-tenant-aware-secondary-success';
 
         $device = new Device;
         $device->forceFill([
@@ -248,7 +247,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      */
     public function testThreeDimensionalRefreshPidFailureStopsBeforeRotationWrite(): void
     {
-        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures('refresh-tenant-aware-failure@example.test', false);
+        [
+            $identity,
+            $principal
+        ]           = $this->seedTenantAwareThreeDimensionalFixtures('refresh-tenant-aware-failure@example.test', false);
         $rotationId = 'refresh-tenant-aware-failure';
 
         $device = new Device;
@@ -323,9 +325,9 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      */
     private function seedIdentity(): StubPrincipal
     {
-        $identity = new StubPrincipal;
-        $identity->email = 'refresh-performance@example.test';
-        $identity->password = password_hash('correct horse battery staple', PASSWORD_BCRYPT);
+        $identity            = new StubPrincipal;
+        $identity->email     = 'refresh-performance@example.test';
+        $identity->password  = password_hash('correct horse battery staple', PASSWORD_BCRYPT);
         $identity->is_active = true;
         $identity->save();
 
@@ -337,29 +339,29 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      *
      * @param  string  $email
      * @param  bool  $principalActive
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1:
+     *     \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      */
     private function seedTenantAwareThreeDimensionalFixtures(
         string $email = 'refresh-tenant-aware@example.test',
         bool $principalActive = true,
-    ): array
-    {
-        $identity = new TenantAware3dIdentity;
-        $identity->email = $email;
-        $identity->password = password_hash('correct horse battery staple', PASSWORD_BCRYPT);
+    ): array {
+        $identity            = new TenantAware3dIdentity;
+        $identity->email     = $email;
+        $identity->password  = password_hash('correct horse battery staple', PASSWORD_BCRYPT);
         $identity->is_active = true;
         $identity->save();
 
-        $tenant = new TenantAware3dTenant;
+        $tenant       = new TenantAware3dTenant;
         $tenant->name = 'Refresh Staff';
         $tenant->type = 'staff';
         $tenant->save();
 
-        $principal = new TenantAware3dPrincipal;
+        $principal              = new TenantAware3dPrincipal;
         $principal->identity_id = $identity->getKey();
-        $principal->tenant_id = $tenant->getKey();
-        $principal->name = 'refresh-staff-actor';
-        $principal->is_active = $principalActive;
+        $principal->tenant_id   = $tenant->getKey();
+        $principal->name        = 'refresh-staff-actor';
+        $principal->is_active   = $principalActive;
         $principal->save();
 
         return [$identity, $principal];
@@ -370,23 +372,24 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      * two separate tenant types.
      *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1:
+     *     \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      */
     private function seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant(
         string $email = 'refresh-tenant-aware-secondary@example.test',
     ): array {
         [$identity, $primaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixtures($email);
 
-        $secondaryTenant = new TenantAware3dTenant;
+        $secondaryTenant       = new TenantAware3dTenant;
         $secondaryTenant->name = 'Refresh Customer';
         $secondaryTenant->type = 'customer';
         $secondaryTenant->save();
 
-        $secondaryPrincipal = new TenantAware3dPrincipal;
+        $secondaryPrincipal              = new TenantAware3dPrincipal;
         $secondaryPrincipal->identity_id = $identity->getKey();
-        $secondaryPrincipal->tenant_id = $secondaryTenant->getKey();
-        $secondaryPrincipal->name = 'refresh-customer-actor';
-        $secondaryPrincipal->is_active = true;
+        $secondaryPrincipal->tenant_id   = $secondaryTenant->getKey();
+        $secondaryPrincipal->name        = 'refresh-customer-actor';
+        $secondaryPrincipal->is_active   = true;
         $secondaryPrincipal->save();
 
         return [$identity, $primaryPrincipal, $secondaryPrincipal];

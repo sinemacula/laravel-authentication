@@ -19,7 +19,7 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
  * Query-budget contracts for cheap JwtGuard failure paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -140,8 +140,8 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
     {
         $hasher = app(Hasher::class);
 
-        $identity = new PerformanceAccessOnlyIdentity;
-        $identity->email = 'expired-bearer-performance@example.test';
+        $identity           = new PerformanceAccessOnlyIdentity;
+        $identity->email    = 'expired-bearer-performance@example.test';
         $identity->password = $hasher->make('correct horse battery staple');
         $identity->save();
 

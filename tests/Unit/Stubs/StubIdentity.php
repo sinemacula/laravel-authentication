@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * subclass or partial-mock a final class).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

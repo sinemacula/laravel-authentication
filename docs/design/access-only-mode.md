@@ -24,8 +24,8 @@ principal auth without device tracking or refresh rotation.
 
 ## Failure / Edge Cases
 
-- A forged non-null `did` does not cause a best-effort downgrade. The bearer path fails closed even in a deployment
-  that has no `devices` table.
+- A forged non-null `did` does not cause a best-effort downgrade. The bearer path fails closed even in a deployment that
+  has no `devices` table.
 - This mode is intentionally bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Device`, and the
   refresh exchange still depends on an `EloquentDevice` model plus persisted device state.
 - Guard construction still validates the configured device model class. The package tolerates a missing table on this

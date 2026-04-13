@@ -9,16 +9,25 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Schema\Builder as SchemaBuilder;
 
 /**
- * Shared sqlite in-memory database for PHPBench auth-path
- * fixtures.
+ * Shared sqlite in-memory database for PHPBench auth-path fixtures.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class BenchDatabase
 {
     /** @var ?\Illuminate\Database\Capsule\Manager Shared database capsule. */
     private static ?Capsule $capsule = null;
+
+    /**
+     * Return the shared schema builder.
+     *
+     * @return \Illuminate\Database\Schema\Builder
+     */
+    public static function schema(): SchemaBuilder
+    {
+        return self::capsule()->getConnection()->getSchemaBuilder();
+    }
 
     /**
      * Bootstrap Eloquent once for the benchmark process.
@@ -41,16 +50,6 @@ final class BenchDatabase
         $capsule->bootEloquent();
 
         self::$capsule = $capsule;
-    }
-
-    /**
-     * Return the shared schema builder.
-     *
-     * @return \Illuminate\Database\Schema\Builder
-     */
-    public static function schema(): SchemaBuilder
-    {
-        return self::capsule()->getConnection()->getSchemaBuilder();
     }
 
     /**

@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
  * @property bool $is_active
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -43,7 +43,8 @@ final class TenantAware3dPrincipal extends Model implements Principal
     /**
      * Owning identity relation.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dIdentity, covariant $this>
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dIdentity, covariant
+     *     $this>
      */
     public function identity(): BelongsTo
     {
@@ -53,7 +54,8 @@ final class TenantAware3dPrincipal extends Model implements Principal
     /**
      * Acting tenant relation.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dTenant, covariant $this>
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dTenant, covariant
+     *     $this>
      */
     public function tenant(): BelongsTo
     {

@@ -25,7 +25,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Integration tests for tenant-aware 3D principal resolution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -34,11 +34,9 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(DefaultPrincipalResolver::class)]
 final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCase
 {
-    private const string JWT_GUARD = 'api_3d';
-
+    private const string JWT_GUARD           = 'api_3d';
     private const string BASIC_THREE_D_GUARD = 'cli_3d';
-
-    private const string BASIC_TWO_D_GUARD = 'cli_2d';
+    private const string BASIC_TWO_D_GUARD   = 'cli_2d';
 
     /**
      * Provision the tenant-aware 3D and 2D identity tables used by the suite.
@@ -111,9 +109,9 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $guard = $this->jwtGuardForBearer($token);
 
         self::assertTrue($guard->check());
-        $resolvedIdentity = $guard->identity();
+        $resolvedIdentity  = $guard->identity();
         $resolvedPrincipal = $guard->principal();
-        $resolvedTenant = $guard->tenant();
+        $resolvedTenant    = $guard->tenant();
 
         self::assertInstanceOf(TenantAware3dIdentity::class, $resolvedIdentity);
         self::assertInstanceOf(TenantAware3dPrincipal::class, $resolvedPrincipal);
@@ -142,9 +140,9 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
 
         self::assertNotNull($guard->user());
 
-        $resolvedIdentity = $guard->identity();
+        $resolvedIdentity  = $guard->identity();
         $resolvedPrincipal = $guard->principal();
-        $resolvedTenant = $guard->tenant();
+        $resolvedTenant    = $guard->tenant();
 
         self::assertInstanceOf(TenantAware3dIdentity::class, $resolvedIdentity);
         self::assertInstanceOf(TenantAware3dPrincipal::class, $resolvedPrincipal);
@@ -231,28 +229,29 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      * principal and tenant.
      *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dTenant}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1:
+     *     \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dTenant}
      */
     private function seedTenantAwareThreeDimensionalFixtures(string $email = 'tenant-aware-3d@example.test'): array
     {
         $hasher = app(Hasher::class);
 
-        $identity = new TenantAware3dIdentity;
-        $identity->email = $email;
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new TenantAware3dIdentity;
+        $identity->email     = $email;
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 
-        $tenant = new TenantAware3dTenant;
+        $tenant       = new TenantAware3dTenant;
         $tenant->name = 'Acme Staff';
         $tenant->type = 'staff';
         $tenant->save();
 
-        $principal = new TenantAware3dPrincipal;
+        $principal              = new TenantAware3dPrincipal;
         $principal->identity_id = $identity->getKey();
-        $principal->tenant_id = $tenant->getKey();
-        $principal->name = 'staff-actor';
-        $principal->is_active = true;
+        $principal->tenant_id   = $tenant->getKey();
+        $principal->name        = 'staff-actor';
+        $principal->is_active   = true;
         $principal->save();
 
         return [$identity, $principal, $tenant];
@@ -267,9 +266,9 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     {
         $hasher = app(Hasher::class);
 
-        $identity = new StubPrincipal;
-        $identity->email = 'basic-2d@example.test';
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new StubPrincipal;
+        $identity->email     = 'basic-2d@example.test';
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 

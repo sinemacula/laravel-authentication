@@ -1,6 +1,5 @@
 /vendor
 /.idea
-/reports
 /build
 /phpunit.xml
 /.phpunit.cache
@@ -9,5 +8,3 @@
 .DS_Store
 clover.xml
 composer.lock
-/docs/prd
-/docs/test-checklist.md

@@ -40,7 +40,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * header, keeping the assertions focused on the event-emission contract.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -167,37 +167,38 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      */
     public function testBasicGuardNeverUsesResolutionCache(): void
     {
-        $this->app->instance(ResolutionCache::class, new class implements ResolutionCache
-        {
-            /**
-             * @param  string  $guardName
-             * @param  string  $providerModelClass
-             * @param  mixed  $identifier
-             * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-             * @return ?\Illuminate\Contracts\Auth\Authenticatable
-             */
-            #[\Override]
-            public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?\Illuminate\Contracts\Auth\Authenticatable
-            {
-                unset($guardName, $providerModelClass, $identifier, $resolver);
+        $this->app->instance(
+            ResolutionCache::class, new class implements ResolutionCache {
+                /**
+                 * @param  string  $guardName
+                 * @param  string  $providerModelClass
+                 * @param  mixed  $identifier
+                 * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
+                 * @return ?\Illuminate\Contracts\Auth\Authenticatable
+                 */
+                #[\Override]
+                public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?\Illuminate\Contracts\Auth\Authenticatable
+                {
+                    unset($guardName, $providerModelClass, $identifier, $resolver);
 
-                throw new \LogicException('Basic guard must not use the shared resolution cache.');
-            }
+                    throw new \LogicException('Basic guard must not use the shared resolution cache.');
+                }
 
-            /**
-             * @param  string  $guardName
-             * @param  string  $providerModelClass
-             * @param  mixed  $identifier
-             * @return void
-             */
-            #[\Override]
-            public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
-            {
-                unset($guardName, $providerModelClass, $identifier);
+                /**
+                 * @param  string  $guardName
+                 * @param  string  $providerModelClass
+                 * @param  mixed  $identifier
+                 * @return void
+                 */
+                #[\Override]
+                public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
+                {
+                    unset($guardName, $providerModelClass, $identifier);
 
-                throw new \LogicException('Basic guard must not invalidate the shared resolution cache.');
-            }
-        });
+                    throw new \LogicException('Basic guard must not invalidate the shared resolution cache.');
+                }
+            },
+        );
 
         self::assertTrue(Auth::guard(self::GUARD_NAME)->attempt([
             'email'    => self::USER_EMAIL,

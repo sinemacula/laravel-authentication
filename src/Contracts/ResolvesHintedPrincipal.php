@@ -12,7 +12,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * with tenant data preloaded and the inverse identity relation already set.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 interface ResolvesHintedPrincipal
 {

@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
  * first-class model in its own right.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @property int $id
  * @property int $identity_id

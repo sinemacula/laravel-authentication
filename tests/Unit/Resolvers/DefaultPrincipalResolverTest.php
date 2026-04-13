@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * Unit tests for the DefaultPrincipalResolver.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -106,7 +106,7 @@ final class DefaultPrincipalResolverTest extends TestCase
     {
         $principal = \Mockery::mock(Principal::class);
 
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals $identity */
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal $identity */
         $identity = \Mockery::mock(Identity::class, ResolvesHintedPrincipal::class, HasPrincipals::class);
         $identity->shouldReceive('resolveHintedPrincipal')
             ->once()
@@ -197,7 +197,7 @@ final class DefaultPrincipalResolverTest extends TestCase
             ->with('missing-principal')
             ->andReturnNull();
 
-        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals $identity */
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal $identity */
         $identity = \Mockery::mock(Identity::class, ResolvesHintedPrincipal::class, HasPrincipals::class);
         $identity->shouldReceive('resolveHintedPrincipal')
             ->once()

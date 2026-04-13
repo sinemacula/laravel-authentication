@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubDevice;
  * JwtGuard so each class stays focused on a single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -171,6 +171,7 @@ abstract class JwtGuardTestCase extends TestCase
      * supplied request.
      *
      * @param  \Illuminate\Http\Request  $request
+     * @param  ?ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException

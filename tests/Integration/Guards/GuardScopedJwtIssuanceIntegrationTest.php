@@ -7,10 +7,10 @@ namespace Tests\Integration\Guards;
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Schema\Blueprint;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -28,7 +28,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * tokens under that same guard-local config.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -102,7 +102,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
     {
         $principal = $this->seedPrincipal();
 
-        $staffToken = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($principal, $principal, null);
+        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($principal, $principal, null);
         $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($principal, $principal, null);
 
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $staffToken)->check());
@@ -136,7 +136,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         $refreshToken = PackageAuth::jwt(self::STAFF_GUARD)->issueRefreshToken($device, $plainRotationId);
 
         $staffGuard = $this->guard(self::STAFF_GUARD);
-        $result = $staffGuard->refresh($refreshToken);
+        $result     = $staffGuard->refresh($refreshToken);
 
         self::assertInstanceOf(RefreshResult::class, $result);
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $result->accessToken)->check());
@@ -195,9 +195,9 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      */
     private function seedPrincipal(): StubPrincipal
     {
-        $principal = new StubPrincipal;
-        $principal->email = 'guard-scoped@example.test';
-        $principal->password = 'hashed-irrelevant';
+        $principal            = new StubPrincipal;
+        $principal->email     = 'guard-scoped@example.test';
+        $principal->password  = 'hashed-irrelevant';
         $principal->is_active = true;
         $principal->save();
 

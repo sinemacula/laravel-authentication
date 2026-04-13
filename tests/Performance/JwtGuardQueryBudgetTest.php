@@ -10,9 +10,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -26,19 +26,16 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
  * success paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 {
-    private const string ACCESS_ONLY_GUARD = 'access_only';
-
-    private const string DEVICE_GUARD = 'device_api';
-
-    private const string THREE_D_GUARD = 'api_3d';
-
+    private const string ACCESS_ONLY_GUARD          = 'access_only';
+    private const string DEVICE_GUARD               = 'device_api';
+    private const string THREE_D_GUARD              = 'api_3d';
     private const string TENANT_AWARE_THREE_D_GUARD = 'tenant_api_3d';
 
     /**
@@ -135,7 +132,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     public function testAccessOnlyBearerPathUsesSingleReadAndNoWrites(): void
     {
         $identity = $this->seedAccessOnlyIdentity();
-        $token = PackageAuth::jwt(self::ACCESS_ONLY_GUARD)->issueAccessToken($identity, $identity, null);
+        $token    = PackageAuth::jwt(self::ACCESS_ONLY_GUARD)->issueAccessToken($identity, $identity, null);
 
         $this->bindRequestWithBearer('/perf/access-only', $token);
 
@@ -161,7 +158,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     public function testAccessOnlyBearerPathWithWarmIdentityCacheUsesZeroReadsAndNoWrites(): void
     {
         $identity = $this->seedAccessOnlyIdentity();
-        $token = PackageAuth::jwt(self::ACCESS_ONLY_GUARD)->issueAccessToken($identity, $identity, null);
+        $token    = PackageAuth::jwt(self::ACCESS_ONLY_GUARD)->issueAccessToken($identity, $identity, null);
 
         config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
 
@@ -486,8 +483,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     {
         $hasher = app(Hasher::class);
 
-        $identity = new PerformanceAccessOnlyIdentity;
-        $identity->email = 'access-only-performance@example.test';
+        $identity           = new PerformanceAccessOnlyIdentity;
+        $identity->email    = 'access-only-performance@example.test';
         $identity->password = $hasher->make('correct horse battery staple');
         $identity->save();
 
@@ -504,9 +501,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     {
         $hasher = app(Hasher::class);
 
-        $identity = new IntegrationIdentity;
-        $identity->email = $email;
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new IntegrationIdentity;
+        $identity->email     = $email;
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 
@@ -516,22 +513,23 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     /**
      * Persist and return one 3D identity plus its active principal.
      *
-     * @return array{0: \Tests\Integration\Fixtures\Coexist3dIdentity, 1: \Tests\Integration\Fixtures\Coexist3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\Coexist3dIdentity, 1:
+     *     \Tests\Integration\Fixtures\Coexist3dPrincipal}
      */
     private function seedThreeDimensionalFixtures(): array
     {
         $hasher = app(Hasher::class);
 
-        $identity = new Coexist3dIdentity;
-        $identity->email = 'three-dimensional-performance@example.test';
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new Coexist3dIdentity;
+        $identity->email     = 'three-dimensional-performance@example.test';
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 
-        $principal = new Coexist3dPrincipal;
+        $principal              = new Coexist3dPrincipal;
         $principal->identity_id = $identity->getKey();
-        $principal->name = 'performance-actor';
-        $principal->is_active = true;
+        $principal->name        = 'performance-actor';
+        $principal->is_active   = true;
         $principal->save();
 
         return [$identity, $principal];
@@ -542,30 +540,30 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * principal.
      *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1:
+     *     \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      */
     private function seedTenantAwareThreeDimensionalFixtures(
         string $email = 'tenant-aware-three-dimensional-performance@example.test',
-    ): array
-    {
+    ): array {
         $hasher = app(Hasher::class);
 
-        $identity = new TenantAware3dIdentity;
-        $identity->email = $email;
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new TenantAware3dIdentity;
+        $identity->email     = $email;
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 
-        $tenant = new TenantAware3dTenant;
+        $tenant       = new TenantAware3dTenant;
         $tenant->name = 'Performance Staff';
         $tenant->type = 'staff';
         $tenant->save();
 
-        $principal = new TenantAware3dPrincipal;
+        $principal              = new TenantAware3dPrincipal;
         $principal->identity_id = $identity->getKey();
-        $principal->tenant_id = $tenant->getKey();
-        $principal->name = 'performance-staff-actor';
-        $principal->is_active = true;
+        $principal->tenant_id   = $tenant->getKey();
+        $principal->name        = 'performance-staff-actor';
+        $principal->is_active   = true;
         $principal->save();
 
         return [$identity, $principal];
@@ -576,23 +574,24 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * for two distinct tenant types.
      *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1:
+     *     \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      */
     private function seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant(
         string $email = 'tenant-aware-three-dimensional-secondary-performance@example.test',
     ): array {
         [$identity, $primaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixtures($email);
 
-        $secondaryTenant = new TenantAware3dTenant;
+        $secondaryTenant       = new TenantAware3dTenant;
         $secondaryTenant->name = 'Performance Customer';
         $secondaryTenant->type = 'customer';
         $secondaryTenant->save();
 
-        $secondaryPrincipal = new TenantAware3dPrincipal;
+        $secondaryPrincipal              = new TenantAware3dPrincipal;
         $secondaryPrincipal->identity_id = $identity->getKey();
-        $secondaryPrincipal->tenant_id = $secondaryTenant->getKey();
-        $secondaryPrincipal->name = 'performance-customer-actor';
-        $secondaryPrincipal->is_active = true;
+        $secondaryPrincipal->tenant_id   = $secondaryTenant->getKey();
+        $secondaryPrincipal->name        = 'performance-customer-actor';
+        $secondaryPrincipal->is_active   = true;
         $secondaryPrincipal->save();
 
         return [$identity, $primaryPrincipal, $secondaryPrincipal];

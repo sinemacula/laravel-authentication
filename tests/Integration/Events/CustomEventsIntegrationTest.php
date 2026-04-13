@@ -45,7 +45,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * separate principal table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -173,9 +173,11 @@ final class CustomEventsIntegrationTest extends TestCase
         $device = new Device;
         $device->forceFill([
             'authenticatable_type' => StubPrincipal::class,
-            'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
-            'refresh_key'          => RefreshTokenHasher::hash('rotation-' . (string) $user->getKey()), // @phpstan-ignore cast.string
+            'authenticatable_id'   => (string) $user->getKey(),
+            // @phpstan-ignore cast.string
+            'os'          => 'ios',
+            'refresh_key' => RefreshTokenHasher::hash('rotation-' . (string) $user->getKey()),
+            // @phpstan-ignore cast.string
         ])->save();
 
         $token = $this->encodeAccessToken([

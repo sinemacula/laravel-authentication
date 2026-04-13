@@ -15,10 +15,11 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
  * relying on explicit PHPUnit coverage metadata for traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
+#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class ActsAsTenantTest extends TestCase
 {
     /**

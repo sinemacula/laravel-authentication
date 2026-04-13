@@ -30,7 +30,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
  * Feature tests for the package AuthServiceProvider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -350,7 +350,7 @@ final class AuthServiceProviderTest extends TestCase
  * Stub guard-scoped resolver for rebind tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -374,7 +374,7 @@ final class AuthServiceProviderTestGuardScopedResolver implements PrincipalResol
  * Stub replacement resolver for global rebind tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

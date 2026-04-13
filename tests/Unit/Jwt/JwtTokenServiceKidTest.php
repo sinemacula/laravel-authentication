@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * signed under a kid that is not in the verifier's map are rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

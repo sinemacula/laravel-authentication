@@ -27,7 +27,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * End-to-end integration test for the package JwtGuard.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -274,7 +274,7 @@ final class JwtGuardIntegrationTest extends TestCase
             'exp' => $this->now->getTimestamp() + 600,
         ]);
 
-        $manager = $this->freshAuthManager();
+        $manager      = $this->freshAuthManager();
         $refreshToken = $manager->jwt('api')->issueRefreshToken($device, 'stored-rotation-id');
 
         Device::query()

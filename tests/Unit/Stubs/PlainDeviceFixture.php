@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  * leaves the instance untouched during serialize.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

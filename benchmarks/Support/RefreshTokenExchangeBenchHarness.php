@@ -34,12 +34,17 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Runtime benchmark fixtures for refresh-token exchanges.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class RefreshTokenExchangeBenchHarness
 {
-    private const string SECRET   = 'benchmark-refresh-secret-key-with-at-least-32-bytes!';
-    private const string EMAIL    = 'bench-refresh@example.test';
+    /** @var string HS256 signing secret for benchmark tokens. */
+    private const string SECRET = 'benchmark-refresh-secret-key-with-at-least-32-bytes!';
+
+    /** @var string Benchmark identity email. */
+    private const string EMAIL = 'bench-refresh@example.test';
+
+    /** @var string Shared benchmark password. */
     private const string PASSWORD = 'correct horse battery staple';
 
     /** @var int Number of mutable success-path tokens to pre-seed. */
@@ -341,12 +346,16 @@ final class RefreshTokenExchangeBenchHarness
     /**
      * Persist the tenant-aware identity plus staff and customer principals.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
-     * @return array{
-     *     0: \Tests\Integration\Fixtures\TenantAware3dIdentity,
-     *     1: \Tests\Integration\Fixtures\TenantAware3dPrincipal,
-     *     2: \Tests\Integration\Fixtures\TenantAware3dPrincipal
-     * }
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal,}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     private function seedTenantAwareFixtures(Hasher $hasher): array
     {
@@ -436,11 +445,8 @@ final class RefreshTokenExchangeBenchHarness
      * @param  \Tests\Integration\Fixtures\TenantAware3dPrincipal  $secondaryPrincipal
      * @return void
      */
-    private function seedTenantAwareSuccessTokens(
-        TenantAware3dIdentity $identity,
-        TenantAware3dPrincipal $tenantAwarePrincipal,
-        TenantAware3dPrincipal $secondaryPrincipal,
-    ): void {
+    private function seedTenantAwareSuccessTokens(TenantAware3dIdentity $identity, TenantAware3dPrincipal $tenantAwarePrincipal, TenantAware3dPrincipal $secondaryPrincipal): void
+    {
         if ($this->tenantAwareSuccessTokens === []) {
 
             for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {

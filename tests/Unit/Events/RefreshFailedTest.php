@@ -12,10 +12,11 @@ use SineMacula\Laravel\Authentication\Events\RefreshFailed;
  * RefreshFailed event unit tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
+#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class RefreshFailedTest extends TestCase
 {
     /**

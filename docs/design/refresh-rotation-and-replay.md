@@ -32,8 +32,8 @@ stateful per-device credentials with server-side replay detection.
 - Missing or malformed claims produce `token_invalid`.
 - Unknown device ids produce `device_unknown`.
 - A digest mismatch on a token that is already stale produces `rotation_mismatch`.
-- `rotation_reuse` is narrower than `rotation_mismatch`: it is reserved for the branch where the token verified
-  against the in-memory digest but lost the CAS race before rotation completed.
+- `rotation_reuse` is narrower than `rotation_mismatch`: it is reserved for the branch where the token verified against
+  the in-memory digest but lost the CAS race before rotation completed.
 - `rotation_reuse` revokes the device family immediately; a plain stale-token `rotation_mismatch` does not.
 - Revoked devices produce `device_revoked`.
 - Refresh does not rely on Eloquent observers. The raw update path deliberately bypasses them; consumers should hang

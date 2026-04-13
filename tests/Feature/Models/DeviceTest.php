@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  * on the package migration file.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

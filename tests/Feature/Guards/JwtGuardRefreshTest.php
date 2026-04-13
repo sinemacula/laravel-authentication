@@ -5,8 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use Carbon\Carbon;
-use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
@@ -41,7 +41,7 @@ use Tests\Unit\Stubs\StubModel;
  * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -114,7 +114,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN
+                    && $event->reason   === RefreshFailureReason::DEVICE_UNKNOWN
                     && $event->deviceId === '01HZZZZZZZZZZZZZZZZZZZZZZZ'),
             );
 
@@ -145,7 +145,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_MISMATCH
+                    && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
                     && $event->deviceId === $device->id),
             );
 
@@ -271,7 +271,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 
@@ -324,7 +324,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 
@@ -352,7 +352,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->reason   === RefreshFailureReason::TOKEN_INVALID
                     && $event->deviceId === 'device-empty-jti'),
             );
 
@@ -380,7 +380,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->reason   === RefreshFailureReason::TOKEN_INVALID
                     && $event->deviceId === 'device-non-string-jti'),
             );
 
@@ -433,7 +433,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 
@@ -592,7 +592,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_REUSE
+                    && $event->reason   === RefreshFailureReason::ROTATION_REUSE
                     && $event->deviceId === $device->id),
             );
 
@@ -821,7 +821,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_MISMATCH
+                    && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
                     && $event->deviceId === $device->id),
             );
 

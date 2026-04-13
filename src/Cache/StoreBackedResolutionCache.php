@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
  * rather than denying auth or weakening refresh semantics.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class StoreBackedResolutionCache implements ResolutionCache
 {

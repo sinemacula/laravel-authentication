@@ -36,7 +36,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * instance built via `Request::create(...)`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

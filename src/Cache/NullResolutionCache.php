@@ -13,7 +13,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
  * fallback when callers do not supply a shared cache implementation.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class NullResolutionCache implements ResolutionCache
 {

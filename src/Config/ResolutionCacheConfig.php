@@ -14,7 +14,7 @@ use Illuminate\Config\Repository as ConfigRepository;
  * without reading globals directly.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 class ResolutionCacheConfig
 {

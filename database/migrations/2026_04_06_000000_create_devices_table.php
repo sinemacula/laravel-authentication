@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
  * Create the devices table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 
 return new class extends Migration {

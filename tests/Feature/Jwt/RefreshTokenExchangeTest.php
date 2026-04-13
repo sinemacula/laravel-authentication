@@ -44,7 +44,7 @@ use Tests\Unit\Stubs\StubIdentity;
  * - device model outside the explicit `EloquentDevice` boundary is rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -200,7 +200,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 
@@ -229,7 +229,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->reason   === RefreshFailureReason::TOKEN_INVALID
                     && $event->deviceId === 'device-empty-jti'),
             );
 
@@ -344,7 +344,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 

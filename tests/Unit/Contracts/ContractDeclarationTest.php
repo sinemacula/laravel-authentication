@@ -36,7 +36,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 #[CoversNothing]
 final class ContractDeclarationTest extends TestCase
@@ -81,7 +81,7 @@ final class ContractDeclarationTest extends TestCase
     public static function provideEloquentDeviceContractMethods(): array
     {
         return [
-            'authenticatable'    => ['authenticatable'],
+            'authenticatable'     => ['authenticatable'],
             'getLastLoggedInName' => ['getLastLoggedInName'],
             'getRefreshKeyName'   => ['getRefreshKeyName'],
             'getRevokedAtName'    => ['getRevokedAtName'],

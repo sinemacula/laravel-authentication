@@ -11,6 +11,7 @@ use Illuminate\Cache\Repository as CacheRepository;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
@@ -40,20 +41,32 @@ use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
- * Runtime benchmark fixtures for JwtGuard bearer-auth hot
- * paths.
+ * Runtime benchmark fixtures for JwtGuard bearer-auth hot paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  */
 final class JwtGuardBenchHarness
 {
-    private const string SECRET               = 'benchmark-secret-key-with-at-least-32-bytes!';
-    private const string PASSWORD             = 'correct horse battery staple';
-    private const string ACCESS_ONLY_EMAIL    = 'bench-access-only@example.test';
-    private const string COEXIST_TWO_D_EMAIL  = 'bench-coexist-2d@example.test';
-    private const string DEVICE_EMAIL         = 'bench-device@example.test';
-    private const string THREE_D_EMAIL        = 'bench-3d@example.test';
+    /** @var string HS256 signing secret for benchmark tokens. */
+    private const string SECRET = 'benchmark-secret-key-with-at-least-32-bytes!';
+
+    /** @var string Shared benchmark password. */
+    private const string PASSWORD = 'correct horse battery staple';
+
+    /** @var string Access-only 2D identity email. */
+    private const string ACCESS_ONLY_EMAIL = 'bench-access-only@example.test';
+
+    /** @var string Coexistence 2D identity email. */
+    private const string COEXIST_TWO_D_EMAIL = 'bench-coexist-2d@example.test';
+
+    /** @var string Device-bearing identity email. */
+    private const string DEVICE_EMAIL = 'bench-device@example.test';
+
+    /** @var string 3D identity email. */
+    private const string THREE_D_EMAIL = 'bench-3d@example.test';
+
+    /** @var string Tenant-aware 3D identity email. */
     private const string TENANT_THREE_D_EMAIL = 'bench-tenant-3d@example.test';
 
     /** @var int Number of mutable write-path tokens to pre-seed. */
@@ -181,7 +194,7 @@ final class JwtGuardBenchHarness
                  * @return \Illuminate\Contracts\Cache\Repository
                  */
                 #[\Override]
-                public function store($name = null): \Illuminate\Contracts\Cache\Repository
+                public function store($name = null): Repository
                 {
                     unset($name);
 
@@ -224,8 +237,8 @@ final class JwtGuardBenchHarness
     }
 
     /**
-     * Benchmark the warm access-only bearer path with the shared identity
-     * cache already primed.
+     * Benchmark the warm access-only bearer path with the shared identity cache
+     * already primed.
      *
      * @return void
      */
@@ -370,7 +383,7 @@ final class JwtGuardBenchHarness
         );
 
         $twoDimensionalGuard->user();
-        $twoDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
+        $twoDimensionalGuard->principal();
 
         $threeDimensionalGuard = $this->makeGuard(
             'api_3d',
@@ -379,7 +392,7 @@ final class JwtGuardBenchHarness
         );
 
         $threeDimensionalGuard->user();
-        $threeDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
+        $threeDimensionalGuard->principal();
     }
 
     /**
@@ -554,11 +567,14 @@ final class JwtGuardBenchHarness
 
         $freshDevice = Device::query()->where('os', 'bench-device-fresh')->first();
 
+        /** @var string $identityId */
+        $identityId = $identity->getKey();
+
         if (!$freshDevice instanceof Device) {
             $freshDevice = new Device;
             $freshDevice->forceFill([
                 'authenticatable_type' => IntegrationIdentity::class,
-                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+                'authenticatable_id'   => $identityId,
                 'os'                   => 'bench-device-fresh',
                 'last_logged_in_at'    => Carbon::now(),
             ])->save();
@@ -575,7 +591,7 @@ final class JwtGuardBenchHarness
             $device = new Device;
             $device->forceFill([
                 'authenticatable_type' => IntegrationIdentity::class,
-                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+                'authenticatable_id'   => $identityId,
                 'os'                   => 'bench-device-write-' . $index,
                 'last_logged_in_at'    => null,
             ])->save();
@@ -709,6 +725,52 @@ final class JwtGuardBenchHarness
     }
 
     /**
+     * Instantiate a fresh JwtGuard for the supplied request.
+     *
+     * @param  string  $name
+     * @param  \SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
+     * @param  \Illuminate\Http\Request  $request
+     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private function makeGuard(string $name, ModelProvider $provider, Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard
+    {
+        $exchange = new RefreshTokenExchange(
+            $this->tokens,
+            BenchDatabase::connectionResolver(),
+            $this->events,
+            $this->resolver,
+            $name,
+        );
+
+        return new JwtGuard(
+            $name,
+            $provider,
+            $this->resolver,
+            $this->events,
+            $request,
+            $this->timebox,
+            $this->tokens,
+            $exchange,
+            $resolutionCache,
+        );
+    }
+
+    /**
+     * Build a real Request carrying a bearer token.
+     *
+     * @param  string  $path
+     * @param  string  $token
+     * @return \Illuminate\Http\Request
+     */
+    private function makeBearerRequest(string $path, #[\SensitiveParameter] string $token): Request
+    {
+        return Request::create($path, 'GET', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
+        ]);
+    }
+
+    /**
      * Prime the warm cache used by the access-only bearer benchmark.
      *
      * @return void
@@ -748,55 +810,5 @@ final class JwtGuardBenchHarness
         )->user();
 
         $this->tenantAwareWarmCachePrimed = true;
-    }
-
-    /**
-     * Instantiate a fresh JwtGuard for the supplied request.
-     *
-     * @param  string  $name
-     * @param  \SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
-     * @param  \Illuminate\Http\Request  $request
-     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     */
-    private function makeGuard(
-        string $name,
-        ModelProvider $provider,
-        Request $request,
-        ?ResolutionCache $resolutionCache = null,
-    ): JwtGuard {
-        $exchange = new RefreshTokenExchange(
-            $this->tokens,
-            BenchDatabase::connectionResolver(),
-            $this->events,
-            $this->resolver,
-            $name,
-        );
-
-        return new JwtGuard(
-            $name,
-            $provider,
-            $this->resolver,
-            $this->events,
-            $request,
-            $this->timebox,
-            $this->tokens,
-            $exchange,
-            $resolutionCache,
-        );
-    }
-
-    /**
-     * Build a real Request carrying a bearer token.
-     *
-     * @param  string  $path
-     * @param  string  $token
-     * @return \Illuminate\Http\Request
-     */
-    private function makeBearerRequest(string $path, #[\SensitiveParameter] string $token): Request
-    {
-        return Request::create($path, 'GET', [], [], [], [
-            'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
-        ]);
     }
 }

@@ -7,8 +7,8 @@ namespace Tests\Performance;
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Database\Events\QueryExecuted;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use Tests\TestCase;
@@ -21,17 +21,17 @@ use Tests\TestCase;
  * flaky wall-clock assertions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
 abstract class PerformanceContractTestCase extends TestCase
 {
-    /** @var list<string> SQL statements captured during the measured section. */
-    private array $capturedSql = [];
-
     /** @var \Carbon\Carbon Frozen clock used by JWT and timestamp-sensitive paths. */
     protected Carbon $now;
+
+    /** @var list<string> SQL statements captured during the measured section. */
+    private array $capturedSql = [];
 
     /**
      * Freeze the clock and attach a query listener.
@@ -114,16 +114,18 @@ abstract class PerformanceContractTestCase extends TestCase
 
         $result = $callback();
 
-        $writes = array_values(array_filter(
-            $this->capturedSql,
-            static fn (string $sql): bool => preg_match('/^\s*(insert|update|delete|replace)\b/i', $sql) === 1,
-        ));
+        $writes = array_values(
+            array_filter(
+                $this->capturedSql,
+                static fn (string $sql): bool => preg_match('/^\s*(insert|update|delete|replace)\b/i', $sql) === 1,
+            ),
+        );
 
-        $reads = count($this->capturedSql) - count($writes);
+        $reads   = count($this->capturedSql) - count($writes);
         $queries = implode(' | ', $this->capturedSql);
 
-        self::assertSame($expectedReads, $reads, "Unexpected read-query budget. Queries: {$queries}");
-        self::assertSame($expectedWrites, count($writes), "Unexpected write-query budget. Queries: {$queries}");
+        static::assertSame($expectedReads, $reads, "Unexpected read-query budget. Queries: {$queries}");
+        static::assertSame($expectedWrites, count($writes), "Unexpected write-query budget. Queries: {$queries}");
 
         return $result;
     }

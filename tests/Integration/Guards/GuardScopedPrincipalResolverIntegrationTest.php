@@ -32,7 +32,7 @@ use Tests\Unit\Stubs\StubTenant;
  * bindings configured in `auth.guards.<name>.principal_resolver`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -41,12 +41,9 @@ use Tests\Unit\Stubs\StubTenant;
 #[CoversClass(AuthServiceProvider::class)]
 final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 {
-    private const string STAFF_GUARD = 'staff';
-
-    private const string CUSTOMER_GUARD = 'customer';
-
-    private const string STAFF_RESOLVER = 'staff-principal-resolver';
-
+    private const string STAFF_GUARD       = 'staff';
+    private const string CUSTOMER_GUARD    = 'customer';
+    private const string STAFF_RESOLVER    = 'staff-principal-resolver';
     private const string CUSTOMER_RESOLVER = 'customer-principal-resolver';
 
     /**
@@ -91,14 +88,14 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $staffTenant     = $this->makeTenant(101, 'staff');
-        $customerTenant  = $this->makeTenant(202, 'customer');
-        $staffPrincipal  = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
+        $staffTenant       = $this->makeTenant(101, 'staff');
+        $customerTenant    = $this->makeTenant(202, 'customer');
+        $staffPrincipal    = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
         $customerPrincipal = new PlainPrincipalFixture('customer-actor', $identity, $customerTenant);
 
         $this->bindResolvers($staffPrincipal, $customerPrincipal);
 
-        $staffToken = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
+        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
         $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($identity, $customerPrincipal, null);
 
         $this->bindRequestWithBearer($staffToken);
@@ -146,7 +143,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 
         $this->bindResolvers($staffPrincipal, $customerPrincipal);
 
-        $staffToken = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
+        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
         $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($identity, $customerPrincipal, null);
 
         config()->set('auth.defaults.guard', self::STAFF_GUARD);
@@ -220,9 +217,9 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     {
         $hasher = app(Hasher::class);
 
-        $identity = new StubPrincipal;
-        $identity->email = 'guard-local-resolver@example.test';
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new StubPrincipal;
+        $identity->email     = 'guard-local-resolver@example.test';
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 
@@ -279,7 +276,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
  * tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

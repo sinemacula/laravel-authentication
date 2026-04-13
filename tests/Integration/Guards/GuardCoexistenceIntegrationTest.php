@@ -35,7 +35,7 @@ use Tests\TestCase;
  * wiring end-to-end.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -140,21 +140,14 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     {
         [$twoD, $threeDIdentity, $threeDPrincipal] = $this->seedFixtures();
 
-        $twoDToken = PackageAuth::jwt(self::GUARD_2D)->issueAccessToken($twoD, $twoD, null);
+        $twoDToken   = PackageAuth::jwt(self::GUARD_2D)->issueAccessToken($twoD, $twoD, null);
         $threeDToken = PackageAuth::jwt(self::GUARD_3D)->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
 
-        $guard2d = $this->resolve2dGuard($twoDToken, $twoD);
-        $guard3d = $this->resolve3dGuard($threeDToken, $threeDIdentity, $threeDPrincipal, $guard2d);
+        $this->bindRequestWithBearer($twoDToken);
 
-        $this->assertNoCrossContamination($guard2d, $guard3d);
+        $guard2d = PackageAuth::guard(self::GUARD_2D);
 
         self::assertInstanceOf(ContextualGuard::class, $guard2d);
-
-        // Trigger bearer-token resolution via `user()` - the resolved identity
-        // is asserted via the contextual `identity()` accessor below because
-        // the framework narrows `Guard::user()` to
-        // `Illuminate\Foundation\Auth\User`, which cannot be reconciled with
-        // our package-specific `Identity` implementations.
         self::assertNotNull($guard2d->user());
 
         $resolved2d = $guard2d->identity();

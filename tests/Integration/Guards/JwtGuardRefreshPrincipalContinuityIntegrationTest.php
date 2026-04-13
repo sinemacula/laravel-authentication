@@ -34,15 +34,14 @@ use Tests\Unit\Stubs\StubTenant;
  * same tenant/type, even when the resolver's default principal differs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 {
-    private const string GUARD = 'api';
-
+    private const string GUARD    = 'api';
     private const string RESOLVER = 'refresh-principal-continuity-resolver';
 
     /**
@@ -178,9 +177,9 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
     {
         $hasher = app(Hasher::class);
 
-        $identity = new StubPrincipal;
-        $identity->email = 'refresh-continuity@example.test';
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new StubPrincipal;
+        $identity->email     = 'refresh-continuity@example.test';
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 
@@ -242,7 +241,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
  * In-memory principal resolver for refresh continuity tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

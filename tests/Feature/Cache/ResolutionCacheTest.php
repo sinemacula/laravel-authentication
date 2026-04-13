@@ -19,7 +19,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Feature tests for the shared bearer-resolution cache services.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -133,7 +133,7 @@ final class ResolutionCacheTest extends TestCase
         self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
         self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
 
-        $staffCalls = 0;
+        $staffCalls    = 0;
         $customerCalls = 0;
 
         $cache->rememberJwtIdentity(
@@ -231,9 +231,9 @@ final class ResolutionCacheTest extends TestCase
     {
         $hasher = app(Hasher::class);
 
-        $identity = new StubPrincipal;
-        $identity->email = $email;
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new StubPrincipal;
+        $identity->email     = $email;
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 

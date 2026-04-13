@@ -5,8 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Integration\Guards;
 
 use Firebase\JWT\JWT;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
@@ -34,17 +34,15 @@ use Tests\Unit\Stubs\StubPrincipal;
  * paths when bearer identity caching is enabled.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 {
-    private const string GUARD = 'api';
-
-    private const string RESOLVER = 'freshness-resolver';
-
+    private const string GUARD      = 'api';
+    private const string RESOLVER   = 'freshness-resolver';
     private const string JWT_SECRET = 'freshness-secret-with-at-least-32-bytes!';
 
     /**
@@ -250,37 +248,38 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity);
 
-        $this->app->instance(ResolutionCache::class, new class implements ResolutionCache
-        {
-            /**
-             * @param  string  $guardName
-             * @param  string  $providerModelClass
-             * @param  mixed  $identifier
-             * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-             * @return ?\Illuminate\Contracts\Auth\Authenticatable
-             */
-            #[\Override]
-            public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
-            {
-                unset($guardName, $providerModelClass, $identifier, $resolver);
+        $this->app->instance(
+            ResolutionCache::class, new class implements ResolutionCache {
+                /**
+                 * @param  string  $guardName
+                 * @param  string  $providerModelClass
+                 * @param  mixed  $identifier
+                 * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
+                 * @return ?\Illuminate\Contracts\Auth\Authenticatable
+                 */
+                #[\Override]
+                public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
+                {
+                    unset($guardName, $providerModelClass, $identifier, $resolver);
 
-                throw new \LogicException('Refresh must not use the shared resolution cache.');
-            }
+                    throw new \LogicException('Refresh must not use the shared resolution cache.');
+                }
 
-            /**
-             * @param  string  $guardName
-             * @param  string  $providerModelClass
-             * @param  mixed  $identifier
-             * @return void
-             */
-            #[\Override]
-            public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
-            {
-                unset($guardName, $providerModelClass, $identifier);
+                /**
+                 * @param  string  $guardName
+                 * @param  string  $providerModelClass
+                 * @param  mixed  $identifier
+                 * @return void
+                 */
+                #[\Override]
+                public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
+                {
+                    unset($guardName, $providerModelClass, $identifier);
 
-                throw new \LogicException('Refresh must not invalidate the shared resolution cache.');
-            }
-        });
+                    throw new \LogicException('Refresh must not invalidate the shared resolution cache.');
+                }
+            },
+        );
 
         $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, 'refresh-cache-bypass', $identity);
 
@@ -333,9 +332,9 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     {
         $hasher = app(Hasher::class);
 
-        $identity = new ActiveAwareStubPrincipal;
-        $identity->email = $email;
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity            = new ActiveAwareStubPrincipal;
+        $identity->email     = $email;
+        $identity->password  = $hasher->make('correct horse battery staple');
         $identity->is_active = true;
         $identity->save();
 
@@ -427,7 +426,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
  * Mutable principal resolver for freshness integration tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -486,7 +485,7 @@ final class MutableJwtGuardFreshnessResolver implements PrincipalResolver
  * Stub principal that implements the CanBeActive contract.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Ltd
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

@@ -14,8 +14,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `PrincipalAssigned` is emitted only after the identity is bound.
 - `DeviceAuthenticated` is emitted only when a non-null device is bound.
 - Rebinding clears any previously cached identity, principal, and device state before the new lifecycle begins.
-- Request-local memoization is always on, but shared cross-request caching is opt-in and currently limited to JWT
-  bearer identity rehydration through model providers.
+- Request-local memoization is always on, but shared cross-request caching is opt-in and currently limited to JWT bearer
+  identity rehydration through model providers.
 - Basic auth and refresh stay live-only even when the optional shared bearer cache is enabled.
 
 ## Success Path
@@ -34,10 +34,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A failed `attempt()` emits `Attempting` and `Failed`, but not `Login` or `Authenticated`.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null`, throws, or
   resolves an inactive principal. That is why `Validated` is not the same thing as "fully bound".
-- Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with
-  a machine-readable reason.
-- `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted
-  `EloquentDevice` instances participate in that write path.
+- Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
+  machine-readable reason.
+- `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`
+  instances participate in that write path.
 - Shared-cache store failures are fail-open: bearer auth falls back to a live identity lookup rather than denying auth
   or changing the event sequence.
 
@@ -81,8 +81,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 Update this note when any of the following change:
 
-- the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`,
-  `PrincipalAssigned`, `DeviceAuthenticated`, `Refreshed`, or `RefreshFailed`
+- the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
+  `DeviceAuthenticated`, `Refreshed`, or `RefreshFailed`
 - the decision to route bearer auth or refresh through `login()`
 - the listener or persistence behavior attached to `DeviceAuthenticated`
 - the rule that prior contextual state is cleared before rebinding

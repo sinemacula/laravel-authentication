@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -318,8 +318,10 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
-            ->with('JWT issuer mismatch', \Mockery::on(static fn (mixed $context): bool => is_array($context)
-                && ($context['expected'] ?? null) === self::ISSUER_B));
+            ->with(
+                'JWT issuer mismatch', \Mockery::on(static fn (mixed $context): bool => is_array($context)
+                && ($context['expected'] ?? null) === self::ISSUER_B),
+            );
 
         $verifier = new JwtTokenService(
             self::SECRET,

@@ -39,9 +39,7 @@ exclude_patterns = [
     "**/templates/**",
     "**/testdata/**",
     "**/vendor/**",
-    ".qlty/configs/**",
-    "CLAUDE.md",
-    "tests/**"
+    ".qlty/configs/**"
 ]
 
 test_patterns = [
