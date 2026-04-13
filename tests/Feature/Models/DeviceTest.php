@@ -217,6 +217,114 @@ final class DeviceTest extends TestCase
     }
 
     /**
+     * Asserts `getLastLoggedIn()` returns the Carbon instance when the
+     * attribute holds a datetime, and null when the attribute is null.
+     * Exercises the `ActsAsDevice::getLastLoggedIn()` accessor through the
+     * shipped Device model.
+     *
+     * @return void
+     */
+    public function testGetLastLoggedInReturnsCarbonOrNull(): void
+    {
+        $device = new Device;
+        $device->forceFill(['last_logged_in_at' => '2026-04-06 12:00:00'])->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertInstanceOf(Carbon::class, $fresh->getLastLoggedIn());
+
+        $nilDevice = new Device;
+        $nilDevice->save();
+
+        $freshNil = Device::query()->findOrFail($nilDevice->id);
+
+        self::assertNull($freshNil->getLastLoggedIn());
+    }
+
+    /**
+     * Asserts `getLastMfaVerification()` returns the Carbon instance when set,
+     * and null when the attribute is null. Exercises the
+     * `ActsAsDevice::getLastMfaVerification()` accessor.
+     *
+     * @return void
+     */
+    public function testGetLastMfaVerificationReturnsCarbonOrNull(): void
+    {
+        $device = new Device;
+        $device->forceFill(['last_mfa_verified_at' => '2026-04-06 12:00:00'])->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertInstanceOf(Carbon::class, $fresh->getLastMfaVerification());
+
+        $nilDevice = new Device;
+        $nilDevice->save();
+
+        $freshNil = Device::query()->findOrFail($nilDevice->id);
+
+        self::assertNull($freshNil->getLastMfaVerification());
+    }
+
+    /**
+     * Asserts `getLastMfaVerificationName()` returns the documented default
+     * column name. Exercises the
+     * `ActsAsDevice::getLastMfaVerificationName()` accessor.
+     *
+     * @return void
+     */
+    public function testGetLastMfaVerificationNameReturnsDefault(): void
+    {
+        $device = new Device;
+
+        self::assertSame('last_mfa_verified_at', $device->getLastMfaVerificationName());
+    }
+
+    /**
+     * Asserts `getOperatingSystem()` casts the underlying attribute to string.
+     * Exercises the `ActsAsDevice::getOperatingSystem()` accessor.
+     *
+     * @return void
+     */
+    public function testGetOperatingSystemCastsToString(): void
+    {
+        $device = new Device;
+        $device->forceFill(['os' => 'macOS 15'])->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertSame('macOS 15', $fresh->getOperatingSystem());
+    }
+
+    /**
+     * Asserts `getOperatingSystemName()` returns the documented default column
+     * name. Exercises the `ActsAsDevice::getOperatingSystemName()` accessor.
+     *
+     * @return void
+     */
+    public function testGetOperatingSystemNameReturnsDefault(): void
+    {
+        $device = new Device;
+
+        self::assertSame('os', $device->getOperatingSystemName());
+    }
+
+    /**
+     * Asserts `getRefreshKey()` returns null when the attribute is null.
+     * Exercises the null branch in `ActsAsDevice::getRefreshKey()`.
+     *
+     * @return void
+     */
+    public function testGetRefreshKeyReturnsNullWhenNotSet(): void
+    {
+        $device = new Device;
+        $device->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertNull($fresh->getRefreshKey());
+    }
+
+    /**
      * Define the test environment: in-memory sqlite and package config defaults
      * that the Device model depends on.
      *

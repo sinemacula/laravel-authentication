@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Jwt;
 
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 
@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(RefreshResult::class)]
 final class RefreshResultTest extends TestCase
 {
     /**

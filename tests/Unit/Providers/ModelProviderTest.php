@@ -570,6 +570,18 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
+     * `modelClass()` returns the configured Eloquent model class name.
+     *
+     * @return void
+     */
+    public function testModelClassReturnsConfiguredClassName(): void
+    {
+        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
+
+        self::assertSame(StubAuthenticatableModel::class, $provider->modelClass());
+    }
+
+    /**
      * Build a ModelProvider whose createModel() returns an Eloquent model whose
      * newQuery() yields the supplied builder mock, so collaborators can be
      * asserted without a real database connection.

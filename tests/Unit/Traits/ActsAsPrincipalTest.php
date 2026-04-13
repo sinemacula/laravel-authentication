@@ -6,7 +6,6 @@ namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -24,7 +23,6 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-#[CoversNothing]
 final class ActsAsPrincipalTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

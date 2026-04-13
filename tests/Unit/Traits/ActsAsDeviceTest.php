@@ -6,7 +6,6 @@ namespace Tests\Unit\Traits;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
-use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
@@ -22,7 +21,6 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  *
  * @internal
  */
-#[CoversNothing]
 final class ActsAsDeviceTest extends TestCase
 {
     /** @var \Carbon\Carbon Frozen clock reference shared across timestamp assertions. */

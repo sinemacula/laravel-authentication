@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
  *
  * @internal
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class ActsAsTenantTest extends TestCase
 {
     /**

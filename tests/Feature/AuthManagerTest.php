@@ -109,6 +109,27 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
+     * `jwt()` throws when the default guard resolves to an empty string. Pins
+     * the `$guardName === ''` early-throw in `AuthManager::jwt()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testJwtThrowsWhenDefaultGuardIsEmpty(): void
+    {
+        config()->set('auth.defaults.guard', '');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('No default auth guard is configured.');
+
+        $manager->jwt();
+    }
+
+    /**
      * `inheritDriversFrom()` does not throw and leaves the receiver driver-less
      * when the donor has no custom creators registered. Pins the empty-array
      * short-circuit in `inheritDriversFrom()`: a freshly bound provider that

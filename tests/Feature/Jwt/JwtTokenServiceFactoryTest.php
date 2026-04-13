@@ -10,6 +10,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
@@ -248,6 +249,81 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $this->expectExceptionMessage(sprintf('JWT key \'%s\'', self::KID_NEW));
 
         PackageAuth::jwt('null_secret');
+    }
+
+    /**
+     * `forGuard()` rejects an empty guard name with an
+     * `InvalidArgumentException`. Pins the `$guard === ''` early-throw.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForGuardRejectsEmptyGuardName(): void
+    {
+        /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory $factory */
+        $factory = app(JwtTokenServiceFactory::class);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('non-empty guard name');
+
+        $factory->forGuard('');
+    }
+
+    /**
+     * Per-guard integer JWT config overrides (e.g. `access_ttl_minutes`) are
+     * honoured over the package defaults. Pins the guard-level int return in
+     * `resolveJwtInteger()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     */
+    public function testForGuardHonoursPerGuardIntegerOverride(): void
+    {
+        config()->set('auth.guards.int_override', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'secret'             => self::STAFF_SECRET,
+                'access_ttl_minutes' => 99,
+            ],
+        ]);
+
+        $service = PackageAuth::jwt('int_override');
+
+        self::assertSame(99, $this->readServiceProperty($service, 'accessTtlMinutes'));
+    }
+
+    /**
+     * When the PSR-3 logger is not bound in the container, the factory returns
+     * null so the JWT service uses its NullLogger fallback. Pins the
+     * `!$this->app->bound(LoggerInterface::class)` return path.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testForGuardReturnsNullLoggerWhenNotBound(): void
+    {
+        // Use a fresh Application container without any logger binding to
+        // exercise the resolveOptionalLogger() null branch.
+        $bareApp = \Mockery::mock(Application::class)->makePartial();
+        $bareApp->shouldReceive('bound')
+            ->with(LoggerInterface::class)
+            ->andReturnFalse();
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $this->app?->make(ConfigRepository::class);
+
+        $factory = new JwtTokenServiceFactory($bareApp, $config);
+
+        $service = $factory->forGuard('staff');
+
+        self::assertInstanceOf(
+            NullLogger::class,
+            $this->readServiceProperty($service, 'logger'),
+        );
     }
 
     /**

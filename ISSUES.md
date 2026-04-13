@@ -22,33 +22,6 @@ repeated issuance calls in a single request pay the
 construction cost each time. Consider adding a keyed cache
 in the factory.
 
-## PR #5 - feature/per-guard-principal-resolvers
-
-### php-nam-030: One class per file (Medium)
-
-Six inline resolver classes should be extracted to their
-own files:
-
-- `AuthServiceProviderGuardConfigBasicResolver`
-- `AuthServiceProviderGuardConfigJwtResolver`
-- `AuthServiceProviderGuardConfigGlobalResolver`
-- `AuthServiceProviderTestGuardScopedResolver`
-- `AuthServiceProviderTestReplacementResolver`
-- `GuardScopedPrincipalResolverIntegrationResolver`
-
-### php-nam-039: Redundant class name prefixes (Low)
-
-Three resolver classes repeat the test-class name as a
-prefix. If extracted to separate files, use shorter names
-like `BasicResolverStub`, `JwtResolverStub`,
-`GlobalResolverStub`.
-
-### php-tst-014: Legacy @SuppressWarnings (Low)
-
-`readObjectProperty` in `AuthServiceProviderGuardConfigTest`
-and `AuthServiceProviderTest` uses `@SuppressWarnings`
-annotation instead of a PHPUnit attribute.
-
 ## PR #7 - Formalize explicit Eloquent device boundary
 
 ### php-ana-004: #[\Override] on trait methods (N/A)
@@ -76,55 +49,7 @@ principal doesn't match, the failure reuses
 `PRINCIPAL_MISMATCH` reason would give better SIEM
 attribution. Not a blocker.
 
-### Complexity: Test method lines (Medium)
-
-8 test methods exceed the 30-line threshold (31-61 lines).
-Largest offenders:
-
-- `testRefreshRotatesAndIssuesNewTokenPairOnSuccess` (61)
-- `testRefreshRevokesDeviceOnRotationReuse...` (38)
-- `testRefreshReturnsNullWhenPrincipalIsInactive` (37)
-
-## PR #11 - chore/quality-gates-mutation-benchmarks
-
-### Complexity: Benchmark harness methods (Medium)
-
-4 benchmark harness methods exceed the 30-line threshold:
-
-- `BenchDatabase::createSchema` (50)
-- `JwtGuardBenchHarness::__construct` (37)
-- `JwtGuardBenchHarness::seedFixtures` (36)
-- `RefreshTokenExchangeBenchHarness::seedDeviceFixtures` (32)
-
-### Complexity: Test method lines (Medium)
-
-11 test methods across 4 files exceed the 30-line
-threshold (31-61 lines). These overlap with PR #8 findings
-in `JwtGuardRefreshTest` plus new findings in
-`JwtGuardUserResolutionTest` and
-`RefreshTokenExchangeTest`.
-
-## PR #9 - refactor/injected-auth-config
-
-### Rejected: inject runtime auth config
-
-PR rejected. The `Config` facade is idiomatic Laravel and
-the right tool for a Laravel package reading Laravel config.
-The static property pattern
-(`AbstractGuard::$sharedTimingConfig`,
-`Device::$runtimeConfig`) introduced worse global state
-than what it replaced. Changes have been stripped from the
-branch and will be skipped during upcoming PR rebases.
-
 ## Cross-PR: Recurring patterns
-
-### Test method complexity
-
-Multiple PRs have test methods exceeding the 30-line
-threshold. Most are integration tests with extensive
-arrange/act/assert blocks. Extracting assertion or setup
-helpers would reduce line counts but may hurt readability
-for complex end-to-end scenarios.
 
 ### Reflection-based test assertions
 
@@ -132,10 +57,3 @@ Several test files use reflection to inspect private
 properties. Converting to behavioural tests requires
 database setup and full authentication flows, which is a
 significant refactor.
-
-### Inline test stub classes
-
-Multiple test files define stub resolver classes inline.
-Extracting to `tests/Unit/Stubs/` would fix
-one-class-per-file and redundant naming violations
-simultaneously.

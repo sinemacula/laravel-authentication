@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Cache;
 
+use Illuminate\Contracts\Cache\Factory;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
@@ -12,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
 use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
+use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -536,6 +539,412 @@ final class ResolutionCacheTest extends TestCase
         );
 
         self::assertSame(2, $staffCalls);
+    }
+
+    /**
+     * `forgetJwtIdentity()` short-circuits when the identifier cannot be
+     * normalized to a string. Pins the `$normalizedIdentifier === null`
+     * early-return in `StoreBackedResolutionCache::forgetJwtIdentity()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetJwtIdentityShortCircuitsForNullIdentifier(): void
+    {
+        $cache = app(ResolutionCache::class);
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+
+        // An array identifier cannot be coerced to string, so the method
+        // returns early. No exception means the short-circuit succeeded.
+        $cache->forgetJwtIdentity('staff', StubPrincipal::class, []);
+
+        self::assertTrue(true, 'forgetJwtIdentity returned without error for null identifier.');
+    }
+
+    /**
+     * `rememberJwtIdentity()` falls back to the resolver when the cache store
+     * throws during a read. Pins the catch branch in `loadCachedIdentity()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRememberJwtIdentityFallsBackWhenCacheStoreThrowsOnRead(): void
+    {
+        $identity = $this->seedIdentity('store-throw-read@example.test');
+
+        // Replace the cache store with one that throws on get().
+        $throwingStore = \Mockery::mock(Repository::class);
+        $throwingStore->shouldReceive('get')
+            ->andThrow(new \RuntimeException('cache read failed'));
+        $throwingStore->shouldReceive('put')
+            ->andReturnTrue();
+
+        $throwingFactory = \Mockery::mock(Factory::class);
+        $throwingFactory->shouldReceive('store')
+            ->andReturn($throwingStore);
+
+        $config = app(ResolutionCacheConfig::class);
+
+        $cache = new StoreBackedResolutionCache($throwingFactory, $config);
+
+        $calls  = 0;
+        $result = $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$calls, $identity): StubPrincipal {
+                $calls++;
+
+                return $identity;
+            },
+        );
+
+        self::assertSame(1, $calls, 'Resolver should be called when cache read throws.');
+        self::assertInstanceOf(StubPrincipal::class, $result);
+    }
+
+    /**
+     * `forgetKey()` swallows exceptions from the cache store. Pins the catch
+     * branch in `StoreBackedResolutionCache::forgetKey()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetKeySwallowsCacheStoreExceptions(): void
+    {
+        $throwingStore = \Mockery::mock(Repository::class);
+        $throwingStore->shouldReceive('forget')
+            ->andThrow(new \RuntimeException('cache forget failed'));
+
+        $throwingFactory = \Mockery::mock(Factory::class);
+        $throwingFactory->shouldReceive('store')
+            ->andReturn($throwingStore);
+
+        $config = app(ResolutionCacheConfig::class);
+
+        $cache = new StoreBackedResolutionCache($throwingFactory, $config);
+
+        // forgetJwtIdentity calls forgetKey internally. No exception means the
+        // catch branch swallowed the error.
+        $cache->forgetJwtIdentity('staff', StubPrincipal::class, 1);
+
+        self::assertTrue(true, 'forgetKey swallowed the cache store exception.');
+    }
+
+    /**
+     * `storeResolvedIdentity()` swallows exceptions from the cache store write.
+     * Pins the catch branch in
+     * `StoreBackedResolutionCache::storeResolvedIdentity()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testStoreResolvedIdentitySwallowsCacheStoreWriteExceptions(): void
+    {
+        $identity = $this->seedIdentity('store-throw-write@example.test');
+
+        $throwingStore = \Mockery::mock(Repository::class);
+        $throwingStore->shouldReceive('get')
+            ->andReturnNull();
+        $throwingStore->shouldReceive('put')
+            ->andThrow(new \RuntimeException('cache write failed'));
+
+        $throwingFactory = \Mockery::mock(Factory::class);
+        $throwingFactory->shouldReceive('store')
+            ->andReturn($throwingStore);
+
+        $config = app(ResolutionCacheConfig::class);
+
+        $cache = new StoreBackedResolutionCache($throwingFactory, $config);
+
+        $result = $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            fn (): StubPrincipal => $identity,
+        );
+
+        self::assertInstanceOf(StubPrincipal::class, $result);
+    }
+
+    /**
+     * `rememberJwtIdentity()` skips the cache lookup when the identity TTL is
+     * zero. Pins the `: null` else branch of the ternary in
+     * `rememberJwtIdentity()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRememberJwtIdentitySkipsCacheWhenTtlIsZero(): void
+    {
+        // Override the TTL to 0, disabling caching.
+        config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 0);
+
+        $cache = app(ResolutionCache::class);
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+
+        $calls  = 0;
+        $result = $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            1,
+            function () use (&$calls): ?StubPrincipal {
+                $calls++;
+
+                return null;
+            },
+        );
+
+        self::assertSame(1, $calls, 'Resolver must run when TTL is zero.');
+        self::assertNull($result);
+
+        // Restore the TTL for subsequent tests.
+        config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
+    }
+
+    /**
+     * `rememberJwtIdentity()` returns a cached hit when available. Pins the
+     * `$cached !== null` return path inside `rememberJwtIdentity()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRememberJwtIdentityReturnsCacheHit(): void
+    {
+        $cache = app(ResolutionCache::class);
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+
+        $identity = $this->seedIdentity('cachehit@example.test');
+
+        // First call: resolver runs and stores.
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            fn (): StubPrincipal => $identity,
+        );
+
+        // Second call: resolver must NOT run, cache hit returned.
+        $resolverCalled = false;
+
+        $result = $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$resolverCalled, $identity): StubPrincipal {
+                $resolverCalled = true;
+
+                return $identity;
+            },
+        );
+
+        self::assertFalse($resolverCalled, 'Resolver should not run for a cache hit.');
+        self::assertInstanceOf(StubPrincipal::class, $result);
+    }
+
+    /**
+     * `forgetIdentityForGuard()` removes the cache entry only for the specified
+     * guard. Pins the single-guard invalidation path in
+     * `ResolutionCacheInvalidator::forgetIdentityForGuard()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentityForGuardRemovesSingleGuardEntry(): void
+    {
+        $cache       = app(ResolutionCache::class);
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('forguard@example.test');
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        $staffCalls    = 0;
+        $customerCalls = 0;
+
+        // Warm both guards.
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$staffCalls, $identity): StubPrincipal {
+                $staffCalls++;
+
+                return $identity;
+            },
+        );
+
+        $cache->rememberJwtIdentity(
+            'customer',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$customerCalls, $identity): StubPrincipal {
+                $customerCalls++;
+
+                return $identity;
+            },
+        );
+
+        // Invalidate only the staff guard.
+        $invalidator->forgetIdentityForGuard($identity, 'staff');
+
+        // Staff should be re-resolved.
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$staffCalls, $identity): StubPrincipal {
+                $staffCalls++;
+
+                return $identity;
+            },
+        );
+
+        // Customer should still be cached.
+        $cache->rememberJwtIdentity(
+            'customer',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$customerCalls, $identity): StubPrincipal {
+                $customerCalls++;
+
+                return $identity;
+            },
+        );
+
+        self::assertSame(2, $staffCalls, 'Staff guard entry should have been forgotten.');
+        self::assertSame(1, $customerCalls, 'Customer guard entry should still be cached.');
+    }
+
+    /**
+     * `forgetIdentityForGuard()` is a no-op when the guard is not a JWT guard.
+     * Pins the `$providerModelClass === null` early-return path.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentityForGuardSkipsNonJwtGuard(): void
+    {
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('nonjwt-forguard@example.test');
+
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        // Should not throw for the basic-driver cli guard.
+        $invalidator->forgetIdentityForGuard($identity, 'cli');
+
+        self::assertTrue(true, 'forgetIdentityForGuard returned without error.');
+    }
+
+    /**
+     * `forgetIdentityForGuard()` honours an explicit identifier parameter.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentityForGuardUsesExplicitIdentifier(): void
+    {
+        $cache       = app(ResolutionCache::class);
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('explicit-forguard@example.test');
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        $explicitId = 88888;
+
+        // Warm the cache under the explicit identifier.
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $explicitId,
+            fn (): StubPrincipal => $identity,
+        );
+
+        // Invalidate the explicit id.
+        $invalidator->forgetIdentityForGuard($identity, 'staff', $explicitId);
+
+        // The entry should be gone.
+        $calls = 0;
+
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $explicitId,
+            function () use (&$calls, $identity): StubPrincipal {
+                $calls++;
+
+                return $identity;
+            },
+        );
+
+        self::assertSame(1, $calls, 'Explicit identifier entry should have been forgotten.');
+    }
+
+    /**
+     * Guards with non-string keys in `auth.guards` are skipped by the
+     * invalidator without error. Pins the `!is_string($guardName) ||
+     * !is_array($guardConfig)` continue branch in
+     * `matchingJwtGuardProviderModels()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentitySkipsNonStringGuardKeys(): void
+    {
+        // Add a guard entry with a numeric key.
+        config()->set('auth.guards.0', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('intkey@example.test');
+
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        // Should not throw with a non-string guard key.
+        $invalidator->forgetIdentity($identity);
+
+        self::assertTrue(true, 'forgetIdentity returned without error.');
+    }
+
+    /**
+     * Guards with non-array config values are skipped by the invalidator
+     * without error. Pins the `!is_array($guardConfig)` continue branch in
+     * `matchingJwtGuardProviderModels()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentitySkipsNonArrayGuardConfig(): void
+    {
+        // Set a guard entry to a non-array value.
+        config()->set('auth.guards.broken', 'not-an-array');
+
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('nonarray@example.test');
+
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        // Should not throw with a non-array guard config.
+        $invalidator->forgetIdentity($identity);
+
+        self::assertTrue(true, 'forgetIdentity returned without error.');
     }
 
     /**
