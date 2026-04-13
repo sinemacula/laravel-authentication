@@ -18,6 +18,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 final class NullResolutionCache implements ResolutionCache
 {
     /**
+     * Resolve and optionally cache a JWT bearer identity.
+     *
      * @param  string  $guardName
      * @param  string  $providerModelClass
      * @param  mixed  $identifier
@@ -35,6 +37,8 @@ final class NullResolutionCache implements ResolutionCache
     }
 
     /**
+     * Forget a JWT bearer identity cache entry.
+     *
      * @param  string  $guardName
      * @param  string  $providerModelClass
      * @param  mixed  $identifier

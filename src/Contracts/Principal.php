@@ -24,8 +24,8 @@ interface Principal
     public function getPrincipalIdentifier(): mixed;
 
     /**
-     * Return the identity that owns this principal (in 2D mode this is
-     * the principal itself).
+     * Return the identity that owns this principal (in 2D mode this is the
+     * principal itself).
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      */

@@ -69,7 +69,7 @@ class ModelProvider implements IdentityProvider
     {
         $model = $this->createModel();
 
-        // @phpstan-ignore return.type
+        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
         return $this->freshQuery($model)
             ->where($model->getAuthIdentifierName(), $identifier)
             ->first();
@@ -106,9 +106,9 @@ class ModelProvider implements IdentityProvider
     /**
      * Retrieve a user by the given credentials.
      *
-     * Password keys are stripped before query composition so the hasher
-     * stays the single source of password verification. An empty filtered
-     * set returns `null` rather than running a where-less query.
+     * Password keys are stripped before query composition so the hasher stays
+     * the single source of password verification. An empty filtered set returns
+     * `null` rather than running a where-less query.
      *
      * @param  array<array-key, mixed>  $credentials
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
@@ -128,7 +128,7 @@ class ModelProvider implements IdentityProvider
             return null;
         }
 
-        // @phpstan-ignore return.type
+        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
         return $query->first();
     }
 
@@ -199,7 +199,7 @@ class ModelProvider implements IdentityProvider
     {
         $class = $this->model;
 
-        // @phpstan-ignore return.type
+        /** @var \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model */
         return new $class;
     }
 
@@ -213,7 +213,6 @@ class ModelProvider implements IdentityProvider
      */
     private function freshQuery(Authenticatable&Model $model): Builder
     {
-        // larastan static-aliases the instance method.
         // @phpstan-ignore staticMethod.dynamicCall
         return $model->newQuery();
     }
@@ -348,8 +347,6 @@ class ModelProvider implements IdentityProvider
      */
     private function persistRehashedPassword(Authenticatable&Model $user, #[\SensitiveParameter] string $plain): void
     {
-        // larastan static-aliases forceFill/save; unavoidable while the model
-        // class is resolved at runtime.
         // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
         $user->forceFill([
             $user->getAuthPasswordName() => $this->hasher->make($plain),

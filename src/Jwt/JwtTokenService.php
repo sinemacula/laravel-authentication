@@ -92,6 +92,8 @@ final class JwtTokenService
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return string
+     *
+     * @throws \Random\RandomException
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device): string
     {
@@ -118,11 +120,8 @@ final class JwtTokenService
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return string
      */
-    public function issueRefreshToken(
-        Device $device,
-        #[\SensitiveParameter] string $rotationId,
-        ?Principal $principal = null,
-    ): string {
+    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null): string
+    {
         $now = Carbon::now()->getTimestamp();
 
         $payload = $this->baseClaims($now, $now + ($this->refreshTtlMinutes * 60), TokenType::REFRESH);
@@ -250,15 +249,7 @@ final class JwtTokenService
      */
     private function normaliseClaims(\stdClass $decoded): array
     {
-        $claims = [];
-
-        foreach ((array) $decoded as $key => $value) {
-            if (is_string($key)) {
-                $claims[$key] = $value;
-            }
-        }
-
-        return $claims;
+        return array_filter((array) $decoded, fn ($key) => is_string($key), ARRAY_FILTER_USE_KEY);
     }
 
     /**

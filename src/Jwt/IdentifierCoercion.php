@@ -31,13 +31,13 @@ final class IdentifierCoercion
     public static function stringify(mixed $identifier): ?string
     {
         return match (true) {
-            $identifier === null   => null,
-            is_string($identifier) => $identifier,
+            $identifier === null                   => null,
+            is_string($identifier)                 => $identifier,
             is_int($identifier),
             is_float($identifier),
             is_bool($identifier),
-            $identifier instanceof \Stringable => (string) $identifier,
-            default                            => null,
+                $identifier instanceof \Stringable => (string) $identifier,
+            default                                => null,
         };
     }
 }

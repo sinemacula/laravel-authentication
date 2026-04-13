@@ -82,7 +82,6 @@ final class UpdateDeviceTimestamp
      */
     private function shouldUpdate(Model $device, string $column, CarbonInterface $now): bool
     {
-        /** @var mixed $current */
         $current = $device->getAttribute($column);
 
         if (!$current instanceof CarbonInterface) {

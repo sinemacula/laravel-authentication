@@ -128,6 +128,8 @@ final class BasicGuard extends AbstractGuard
      *
      * @param  array<string, string>  $credentials
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \Throwable
      */
     private function resolveCredentials(#[\SensitiveParameter] array $credentials): ?Identity
     {

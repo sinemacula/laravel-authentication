@@ -111,9 +111,9 @@ final class RefreshTokenExchange
 
     /**
      * Mark a device revoked by setting its `revoked_at` and clearing its
-     * refresh-key digest. Uses a raw query-builder update so Eloquent
-     * observers do not fire and in-memory attributes do not leak into the
-     * persisted write.
+     * refresh-key digest. Uses a raw query-builder update so Eloquent observers
+     * do not fire and in-memory attributes do not leak into the persisted
+     * write.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return void
@@ -220,10 +220,8 @@ final class RefreshTokenExchange
      * @param  string  $rotationId
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      */
-    private function loadDeviceForRefresh(
-        mixed $rawDeviceId,
-        #[\SensitiveParameter] string $rotationId,
-    ): (EloquentDevice&Model)|null {
+    private function loadDeviceForRefresh(mixed $rawDeviceId, #[\SensitiveParameter] string $rotationId): (EloquentDevice&Model)|null
+    {
         $deviceId = IdentifierCoercion::stringify($rawDeviceId);
         $device   = $this->findDeviceById($rawDeviceId);
 
@@ -458,13 +456,11 @@ final class RefreshTokenExchange
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $oldRotationId
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     *
+     * @throws \Random\RandomException
      */
-    private function completeExchange(
-        EloquentDevice&Model $device,
-        Identity $identity,
-        Principal $principal,
-        #[\SensitiveParameter] string $oldRotationId,
-    ): ?ExchangedRefresh {
+    private function completeExchange(EloquentDevice&Model $device, Identity $identity, Principal $principal, #[\SensitiveParameter] string $oldRotationId): ?ExchangedRefresh
+    {
         $newRotationId = RefreshTokenHasher::generate();
 
         $rotated = $this->atomicallyRotateRefreshKey($device, $oldRotationId, $newRotationId);
@@ -473,8 +469,7 @@ final class RefreshTokenExchange
 
             $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
 
-            // CAS lost: concurrent rotation or reuse. Revoke the device
-            // family.
+            // CAS lost: concurrent rotation or reuse. Revoke the device family.
             $this->revokeDevice($device);
             $this->dispatchRefreshFailure(RefreshFailureReason::ROTATION_REUSE, $deviceId);
 
@@ -495,25 +490,21 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Rotate the device's stored digest via a single compare-and-swap
-     * UPDATE keyed on the device id, the old digest, and a null
-     * `revoked_at`. Returns `true` when exactly one row was affected.
-     * `false` signals a concurrent rotation or revocation and the caller
-     * treats it as refresh reuse.
+     * Rotate the device's stored digest via a single compare-and-swap UPDATE
+     * keyed on the device id, the old digest, and a null `revoked_at`. Returns
+     * `true` when exactly one row was affected. `false` signals a concurrent
+     * rotation or revocation and the caller treats it as refresh reuse.
      *
-     * Raw query-builder update bypasses Eloquent events; consumer side
-     * effects should trigger on the `Refreshed` package event.
+     * Raw query-builder update bypasses Eloquent events; consumer side effects
+     * should trigger on the `Refreshed` package event.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $oldRotationId
      * @param  string  $newRotationId
      * @return bool
      */
-    private function atomicallyRotateRefreshKey(
-        EloquentDevice&Model $device,
-        #[\SensitiveParameter] string $oldRotationId,
-        #[\SensitiveParameter] string $newRotationId,
-    ): bool {
+    private function atomicallyRotateRefreshKey(EloquentDevice&Model $device, #[\SensitiveParameter] string $oldRotationId, #[\SensitiveParameter] string $newRotationId): bool
+    {
         $column     = $this->refreshKeyColumn($device);
         $revokedCol = $this->revokedAtColumn($device);
 

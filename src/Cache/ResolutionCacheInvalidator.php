@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class ResolutionCacheInvalidator
+final readonly class ResolutionCacheInvalidator
 {
     /**
      * Constructor.
@@ -26,8 +26,13 @@ final class ResolutionCacheInvalidator
      * @param  \Closure(): \Illuminate\Config\Repository  $configResolver
      */
     public function __construct(
-        private readonly ResolutionCache $cache,
-        private readonly \Closure $configResolver,
+
+        /** Shared resolution cache to invalidate. */
+        private ResolutionCache $cache,
+
+        /** Deferred config repository resolver. */
+        private \Closure $configResolver,
+
     ) {}
 
     /**
@@ -51,6 +56,71 @@ final class ResolutionCacheInvalidator
     }
 
     /**
+     * Resolve the JWT guards whose model providers can return this identity.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return array<string, string>
+     */
+    private function matchingJwtGuardProviderModels(Identity&Model $identity): array
+    {
+        $matches = [];
+
+        foreach ($this->config()->array('auth.guards', []) as $guardName => $guardConfig) {
+
+            if (!is_string($guardName) || !is_array($guardConfig)) {
+                continue;
+            }
+
+            $providerModelClass = $this->providerModelClassForJwtGuard($guardName, $identity);
+
+            if ($providerModelClass !== null) {
+                $matches[$guardName] = $providerModelClass;
+            }
+        }
+
+        return $matches;
+    }
+
+    /**
+     * Resolve the live config repository.
+     *
+     * @return \Illuminate\Config\Repository
+     */
+    private function config(): ConfigRepository
+    {
+        return ($this->configResolver)();
+    }
+
+    /**
+     * Resolve the configured provider model class for a JWT guard, or null when
+     * the guard is not a JWT/model-provider match for this identity.
+     *
+     * @param  string  $guardName
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return ?string
+     */
+    private function providerModelClassForJwtGuard(string $guardName, Identity&Model $identity): ?string
+    {
+        $guardConfig  = $this->config()->array('auth.guards.' . $guardName, []);
+        $driver       = $guardConfig['driver'] ?? null;
+        $providerName = $guardConfig['provider'] ?? null;
+
+        if ($driver !== 'jwt' || !is_string($providerName) || $providerName === '') {
+            return null;
+        }
+
+        $providerConfig     = $this->config()->array('auth.providers.' . $providerName, []);
+        $providerDriver     = $providerConfig['driver'] ?? null;
+        $providerModelClass = $providerConfig['model'] ?? null;
+
+        if ($providerDriver !== 'model' || !is_string($providerModelClass) || $providerModelClass === '') {
+            return null;
+        }
+
+        return is_a($identity, $providerModelClass) ? $providerModelClass : null;
+    }
+
+    /**
      * Forget a JWT bearer identity cache entry for a single guard.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -71,69 +141,5 @@ final class ResolutionCacheInvalidator
             $providerModelClass,
             $identifier ?? $identity->getAuthIdentifier(),
         );
-    }
-
-    /**
-     * Resolve the JWT guards whose model providers can return this identity.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return array<string, string>
-     */
-    private function matchingJwtGuardProviderModels(Identity&Model $identity): array
-    {
-        $matches = [];
-
-        foreach ($this->config()->array('auth.guards', []) as $guardName => $guardConfig) {
-            if (!is_string($guardName) || !is_array($guardConfig)) {
-                continue;
-            }
-
-            $providerModelClass = $this->providerModelClassForJwtGuard($guardName, $identity);
-
-            if ($providerModelClass !== null) {
-                $matches[$guardName] = $providerModelClass;
-            }
-        }
-
-        return $matches;
-    }
-
-    /**
-     * Resolve the configured provider model class for a JWT guard, or null
-     * when the guard is not a JWT/model-provider match for this identity.
-     *
-     * @param  string  $guardName
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return ?string
-     */
-    private function providerModelClassForJwtGuard(string $guardName, Identity&Model $identity): ?string
-    {
-        $guardConfig  = $this->config()->array('auth.guards.' . $guardName, []);
-        $driver       = $guardConfig['driver']   ?? null;
-        $providerName = $guardConfig['provider'] ?? null;
-
-        if ($driver !== 'jwt' || !is_string($providerName) || $providerName === '') {
-            return null;
-        }
-
-        $providerConfig     = $this->config()->array('auth.providers.' . $providerName, []);
-        $providerDriver     = $providerConfig['driver'] ?? null;
-        $providerModelClass = $providerConfig['model']  ?? null;
-
-        if ($providerDriver !== 'model' || !is_string($providerModelClass) || $providerModelClass === '') {
-            return null;
-        }
-
-        return is_a($identity, $providerModelClass) ? $providerModelClass : null;
-    }
-
-    /**
-     * Resolve the live config repository.
-     *
-     * @return \Illuminate\Config\Repository
-     */
-    private function config(): ConfigRepository
-    {
-        return ($this->configResolver)();
     }
 }

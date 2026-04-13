@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Config;
  * Credential-validation primitive plus the standard Laravel
  * `Attempting` / `Validated` / `Failed` event-firing helpers.
  *
- * Timing safety is the caller's responsibility: the enclosing guard flow
- * wraps the retrieve -> validate -> dispatch pipeline in a single
- * top-level timebox. Do not nest another timebox here.
+ * Timing safety is the caller's responsibility: the enclosing guard flow wraps
+ * the retrieve -> validate -> dispatch pipeline in a single  top-level timebox.
+ * Do not nest another timebox here.
  *
  * Expects the using class to declare:
  * - `protected string $name`

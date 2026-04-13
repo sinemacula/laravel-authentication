@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
@@ -59,15 +60,10 @@ final class JwtGuard extends AbstractGuard
     public function __construct(
 
         string $name,
-
         IdentityProvider $provider,
-
         PrincipalResolver $resolver,
-
         Dispatcher $events,
-
         Request $request,
-
         Timebox $timebox,
 
         /** JWT token service for access and refresh tokens. */
@@ -76,7 +72,6 @@ final class JwtGuard extends AbstractGuard
         /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
 
-        // Shared bearer-identity cache; null falls back to a no-op cache.
         ?ResolutionCache $resolutionCache = null,
 
     ) {
@@ -300,7 +295,7 @@ final class JwtGuard extends AbstractGuard
      * @param  mixed  $subject
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
-    private function loadUserBySubject(mixed $subject): ?\Illuminate\Contracts\Auth\Authenticatable
+    private function loadUserBySubject(mixed $subject): ?Authenticatable
     {
         if (!$this->provider instanceof ModelProvider) {
             return $this->provider->retrieveById($subject);
@@ -310,7 +305,7 @@ final class JwtGuard extends AbstractGuard
             $this->name,
             $this->provider->modelClass(),
             $subject,
-            fn (): ?\Illuminate\Contracts\Auth\Authenticatable => $this->provider->retrieveById($subject),
+            fn (): ?Authenticatable => $this->provider->retrieveById($subject),
         );
     }
 

@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class StoreBackedResolutionCache implements ResolutionCache
+final readonly class StoreBackedResolutionCache implements ResolutionCache
 {
     /**
      * Constructor.
@@ -30,11 +30,18 @@ final class StoreBackedResolutionCache implements ResolutionCache
      * @param  \SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig  $config
      */
     public function __construct(
-        private readonly CacheFactory $cache,
-        private readonly ResolutionCacheConfig $config,
+
+        /** Laravel cache factory for store resolution. */
+        private CacheFactory $cache,
+
+        /** Package resolution cache configuration. */
+        private ResolutionCacheConfig $config,
+
     ) {}
 
     /**
+     * Resolve and optionally cache a JWT bearer identity.
+     *
      * @param  string  $guardName
      * @param  string  $providerModelClass
      * @param  mixed  $identifier
@@ -70,6 +77,8 @@ final class StoreBackedResolutionCache implements ResolutionCache
     }
 
     /**
+     * Forget a JWT bearer identity cache entry.
+     *
      * @param  string  $guardName
      * @param  string  $providerModelClass
      * @param  mixed  $identifier
@@ -86,53 +95,6 @@ final class StoreBackedResolutionCache implements ResolutionCache
 
         $this->forgetKey(
             $this->jwtIdentityKey($guardName, $providerModelClass, $normalizedIdentifier),
-        );
-    }
-
-    /**
-     * Resolve the configured cache repository.
-     *
-     * @return \Illuminate\Contracts\Cache\Repository
-     */
-    private function store(): CacheRepository
-    {
-        $store = $this->config->store();
-
-        return $store === null
-            ? $this->cache->store()
-            : $this->cache->store($store);
-    }
-
-    /**
-     * Execute the live resolver and narrow the return to an Authenticatable.
-     *
-     * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-     * @return ?\Illuminate\Contracts\Auth\Authenticatable
-     */
-    private function resolveLive(callable $resolver): ?Authenticatable
-    {
-        $resolved = $resolver();
-
-        return $resolved instanceof Authenticatable ? $resolved : null;
-    }
-
-    /**
-     * Build the JWT bearer identity cache key.
-     *
-     * @param  string  $guardName
-     * @param  string  $providerModelClass
-     * @param  string  $identifier
-     * @return string
-     */
-    private function jwtIdentityKey(string $guardName, string $providerModelClass, string $identifier): string
-    {
-        $providerSegment = str_replace('\\', '.', ltrim($providerModelClass, '\\'));
-
-        return sprintf(
-            'sm.auth.resolution.v1.jwt.%s.identity.%s.%s',
-            $guardName,
-            $providerSegment,
-            $identifier,
         );
     }
 
@@ -166,35 +128,53 @@ final class StoreBackedResolutionCache implements ResolutionCache
     }
 
     /**
-     * Persist a resolved JWT identity when it is safely cacheable.
+     * Build the JWT bearer identity cache key.
      *
      * @param  string  $guardName
      * @param  string  $providerModelClass
      * @param  string  $identifier
-     * @param  int  $ttlSeconds
-     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $resolved
-     * @return void
+     * @return string
      */
-    private function storeResolvedIdentity(
-        string $guardName,
-        string $providerModelClass,
-        string $identifier,
-        int $ttlSeconds,
-        ?Authenticatable $resolved,
-    ): void {
-        if (!$resolved instanceof Identity || !$resolved instanceof Model) {
-            return;
-        }
+    private function jwtIdentityKey(string $guardName, string $providerModelClass, string $identifier): string
+    {
+        $providerSegment = str_replace('\\', '.', ltrim($providerModelClass, '\\'));
 
-        try {
-            $this->store()->put(
-                $this->jwtIdentityKey($guardName, $providerModelClass, $identifier),
-                $this->cloneIdentity($resolved),
-                $ttlSeconds,
-            );
-        } catch (\Throwable) {
-            // Fail open: auth must not depend on cache writes succeeding.
-        }
+        return sprintf(
+            'sm.auth.resolution.v1.jwt.%s.identity.%s.%s',
+            $guardName,
+            $providerSegment,
+            $identifier,
+        );
+    }
+
+    /**
+     * Resolve the configured cache repository.
+     *
+     * @return \Illuminate\Contracts\Cache\Repository
+     */
+    private function store(): CacheRepository
+    {
+        $store = $this->config->store();
+
+        return $store === null
+            ? $this->cache->store()
+            : $this->cache->store($store);
+    }
+
+    /**
+     * Clone the cached identity so array-store hits do not share mutable model
+     * instances across requests.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    private function cloneIdentity(Identity&Model $identity): Identity&Model
+    {
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity $clone */
+        $clone = clone $identity;
+        $clone->unsetRelations();
+
+        return $clone;
     }
 
     /**
@@ -213,18 +193,42 @@ final class StoreBackedResolutionCache implements ResolutionCache
     }
 
     /**
-     * Clone the cached identity so array-store hits do not share mutable model
-     * instances across requests.
+     * Execute the live resolver and narrow the return to an Authenticatable.
      *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
+     * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
+     * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
-    private function cloneIdentity(Identity&Model $identity): Identity&Model
+    private function resolveLive(callable $resolver): ?Authenticatable
     {
-        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity $clone */
-        $clone = clone $identity;
-        $clone->unsetRelations();
+        $resolved = $resolver();
 
-        return $clone;
+        return $resolved instanceof Authenticatable ? $resolved : null;
+    }
+
+    /**
+     * Persist a resolved JWT identity when it is safely cacheable.
+     *
+     * @param  string  $guardName
+     * @param  string  $providerModelClass
+     * @param  string  $identifier
+     * @param  int  $ttlSeconds
+     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $resolved
+     * @return void
+     */
+    private function storeResolvedIdentity(string $guardName, string $providerModelClass, string $identifier, int $ttlSeconds, ?Authenticatable $resolved): void
+    {
+        if (!$resolved instanceof Identity || !$resolved instanceof Model) {
+            return;
+        }
+
+        try {
+            $this->store()->put(
+                $this->jwtIdentityKey($guardName, $providerModelClass, $identifier),
+                $this->cloneIdentity($resolved),
+                $ttlSeconds,
+            );
+        } catch (\Throwable) {
+            // Fail open: auth must not depend on cache writes succeeding.
+        }
     }
 }

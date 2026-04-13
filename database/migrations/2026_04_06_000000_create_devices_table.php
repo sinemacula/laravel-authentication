@@ -51,8 +51,8 @@ return new class extends Migration {
             $blueprint->string($refreshKeyColumn, 64)->nullable()->index();
 
             // Revocation marker. Set by the reuse-detection CAS path and
-            // consumer-initiated logout-everywhere flows; non-null rejects
-            // any refresh with reason `device_revoked`.
+            // consumer-initiated logout-everywhere flows; non-null rejects any
+            // refresh with reason `device_revoked`.
             $blueprint->timestamp('revoked_at')->nullable();
 
             $blueprint->timestamp('last_logged_in_at')->nullable();

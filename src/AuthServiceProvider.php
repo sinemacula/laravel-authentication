@@ -129,7 +129,7 @@ final class AuthServiceProvider extends ServiceProvider
         $resolver  = $selection['resolver'];
         $events    = $app->make(Dispatcher::class);
 
-        self::assertValidDeviceModelConfiguration(
+        InvalidDeviceModelConfiguration::validate(
             $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
         );
 
@@ -164,8 +164,8 @@ final class AuthServiceProvider extends ServiceProvider
 
     /**
      * Construct a `BasicGuard` from the supplied container, guard name, and
-     * Laravel guard config block. Identifier field resolves guard-first,
-     * then falls back to `authentication.credentials.identifier_field`.
+     * Laravel guard config block. Identifier field resolves guard-first, then
+     * falls back to `authentication.credentials.identifier_field`.
      *
      * @param  \Illuminate\Foundation\Application  $app
      * @param  string  $name
@@ -237,7 +237,6 @@ final class AuthServiceProvider extends ServiceProvider
         IlluminateAuth::provider('model', static function (Application $app, array $config): IdentityProvider {
             $hasher = $app->make(Hasher::class);
             $model  = (string) ($config['model'] ?? '');
-
             return new ModelProvider($hasher, $model);
         });
     }
@@ -251,7 +250,6 @@ final class AuthServiceProvider extends ServiceProvider
     protected function registerGuardDrivers(): void
     {
         IlluminateAuth::extend('jwt', static fn (Application $app, string $name, array $config): ContextualGuard => AuthServiceProvider::createJwtGuard($app, $name, $config));
-
         IlluminateAuth::extend('basic', static fn (Application $app, string $name, array $config): ContextualGuard => AuthServiceProvider::createBasicGuard($app, $name, $config));
     }
 
@@ -303,7 +301,6 @@ final class AuthServiceProvider extends ServiceProvider
     private static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
     {
         if (!array_key_exists('principal_resolver', $config)) {
-
             return [
                 'resolver'      => $app->make(PrincipalResolver::class),
                 'tracks_global' => true,
@@ -337,21 +334,6 @@ final class AuthServiceProvider extends ServiceProvider
     }
 
     /**
-     * Validate that the configured device model satisfies the explicit
-     * Eloquent-backed persistence boundary required by JWT refresh and
-     * last-seen flows.
-     *
-     * @param  string  $class
-     * @return void
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
-     */
-    private static function assertValidDeviceModelConfiguration(string $class): void
-    {
-        InvalidDeviceModelConfiguration::validate($class);
-    }
-
-    /**
      * Register container `refresh` hooks that propagate runtime rebinds of
      * `request`, `events`, and optionally the global `PrincipalResolver` onto
      * the supplied guard.
@@ -361,11 +343,8 @@ final class AuthServiceProvider extends ServiceProvider
      * @param  bool  $tracksGlobalPrincipalResolver
      * @return void
      */
-    private static function wireGuardRebinds(
-        Application $app,
-        AbstractGuard $guard,
-        bool $tracksGlobalPrincipalResolver = true,
-    ): void {
+    private static function wireGuardRebinds(Application $app, AbstractGuard $guard, bool $tracksGlobalPrincipalResolver = true): void
+    {
         $app->refresh('request', $guard, 'setRequest');
         $app->refresh('events', $guard, 'setDispatcher');
 

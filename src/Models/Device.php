@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 /**
  * Default shipped Device Eloquent model.
  *
- * Polymorphic device record bound to an authenticatable identity via
- * the `authenticatable()` morphTo relation. UUID v7 primary key. Swappable via
+ * Polymorphic device record bound to an authenticatable identity via the
+ * `authenticatable()` morphTo relation. UUID v7 primary key. Swappable via
  * `config('authentication.device.model')` / `device.table` as the package's
  * default Eloquent adapter. Non-`final` so consumers may subclass; subclasses
  * that remain refreshable MUST continue satisfying the `EloquentDevice`
@@ -70,6 +70,23 @@ class Device extends Model implements EloquentDevice
     }
 
     /**
+     * Read the configured device table, falling back to `'devices'` when the
+     * key is absent or the Config facade is not yet bootstrapped.
+     *
+     * @return string
+     */
+    private function resolveConfiguredTable(): string
+    {
+        try {
+            $table = Config::string('authentication.device.table', 'devices');
+        } catch (\Throwable) {
+            return 'devices';
+        }
+
+        return $table === '' ? 'devices' : $table;
+    }
+
+    /**
      * Polymorphic relation to the owning authenticatable identity.
      *
      * @formatter:off
@@ -93,22 +110,5 @@ class Device extends Model implements EloquentDevice
     public function uniqueIds(): array
     {
         return ['id'];
-    }
-
-    /**
-     * Read the configured device table, falling back to `'devices'` when the
-     * key is absent or the Config facade is not yet bootstrapped.
-     *
-     * @return string
-     */
-    private function resolveConfiguredTable(): string
-    {
-        try {
-            $table = Config::string('authentication.device.table', 'devices');
-        } catch (\Throwable) {
-            return 'devices';
-        }
-
-        return $table === '' ? 'devices' : $table;
     }
 }

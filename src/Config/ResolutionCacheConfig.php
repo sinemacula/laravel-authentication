@@ -30,7 +30,10 @@ class ResolutionCacheConfig
      * @param  \Closure(): \Illuminate\Config\Repository  $configResolver
      */
     public function __construct(
+
+        /** Deferred config repository resolver. */
         private readonly \Closure $configResolver,
+
     ) {}
 
     /**

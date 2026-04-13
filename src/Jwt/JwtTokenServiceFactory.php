@@ -18,7 +18,7 @@ use Psr\Log\LoggerInterface;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class JwtTokenServiceFactory
+final readonly class JwtTokenServiceFactory
 {
     /**
      * Constructor.
@@ -29,10 +29,10 @@ final class JwtTokenServiceFactory
     public function __construct(
 
         /** @var \Illuminate\Foundation\Application */
-        private readonly Application $app,
+        private Application $app,
 
         /** @var \Illuminate\Config\Repository */
-        private readonly ConfigRepository $config,
+        private ConfigRepository $config,
 
     ) {}
 
@@ -222,8 +222,8 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the container's PSR-3 logger if bound, otherwise return `null`
-     * so the JWT service falls back to its `NullLogger`.
+     * Resolve the container's PSR-3 logger if bound, otherwise return `null` so
+     * the JWT service falls back to its `NullLogger`.
      *
      * @return ?\Psr\Log\LoggerInterface
      *

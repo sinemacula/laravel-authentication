@@ -90,6 +90,28 @@ final class JwtKeyring
     }
 
     /**
+     * Reject any signing algorithm not on the allow-list. Run first in both
+     * factories so weak or typo'd settings fail fast at boot.
+     *
+     * @param  string  $algorithm
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private static function assertAlgorithmSupported(string $algorithm): void
+    {
+        if (in_array($algorithm, self::SUPPORTED_ALGORITHMS, true)) {
+            return;
+        }
+
+        $message = "JWT algorithm '{$algorithm}' is not supported."
+            . ' Set `authentication.jwt.algorithm` to one of: '
+            . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
+
+        throw new InvalidJwtConfigurationException($message);
+    }
+
+    /**
      * Construct a kid-aware keyring with an active signing key and a
      * verification map for graceful rotation.
      *
@@ -134,6 +156,46 @@ final class JwtKeyring
     }
 
     /**
+     * Validate the supplied kid -> secret map and convert it into a kid -> Key
+     * map. Both kid and secret must be non-empty strings; fail-closed
+     * regardless of the caller's static type hint.
+     *
+     * @param  array<string, mixed>  $keys
+     * @param  string  $algorithm
+     * @return array<string, \Firebase\JWT\Key>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private static function buildKeyMap(#[\SensitiveParameter] array $keys, string $algorithm): array
+    {
+        $built = [];
+
+        foreach ($keys as $kid => $material) {
+
+            if ($kid === '') {
+
+                $message = 'JWT key map contains an empty kid. Every entry under'
+                    . ' `authentication.jwt.keys` must be keyed by a'
+                    . ' non-empty string.';
+
+                throw new InvalidJwtConfigurationException($message);
+            }
+
+            if (!is_string($material) || $material === '') {
+
+                $message = "JWT key '{$kid}' has empty material. Every kid in"
+                    . ' `authentication.jwt.keys` must map to a non-empty secret.';
+
+                throw new InvalidJwtConfigurationException($message);
+            }
+
+            $built[$kid] = new Key($material, $algorithm);
+        }
+
+        return $built;
+    }
+
+    /**
      * Return the active signing key.
      *
      * @return \Firebase\JWT\Key
@@ -163,66 +225,5 @@ final class JwtKeyring
     public function verificationKeys(): array|Key
     {
         return $this->kidMode ? $this->keys : $this->keys[self::LEGACY_KID];
-    }
-
-    /**
-     * Reject any signing algorithm not on the allow-list. Run first in both
-     * factories so weak or typo'd settings fail fast at boot.
-     *
-     * @param  string  $algorithm
-     * @return void
-     *
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
-     */
-    private static function assertAlgorithmSupported(string $algorithm): void
-    {
-        if (in_array($algorithm, self::SUPPORTED_ALGORITHMS, true)) {
-            return;
-        }
-
-        $message = "JWT algorithm '{$algorithm}' is not supported."
-            . ' Set `authentication.jwt.algorithm` to one of: '
-            . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
-
-        throw new InvalidJwtConfigurationException($message);
-    }
-
-    /**
-     * Validate the supplied kid -> secret map and convert it into a kid -> Key
-     * map. Both kid and secret must be non-empty strings; fail-closed
-     * regardless of the caller's static type hint.
-     *
-     * @param  array<string, mixed>  $keys
-     * @param  string  $algorithm
-     * @return array<string, \Firebase\JWT\Key>
-     *
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
-     */
-    private static function buildKeyMap(#[\SensitiveParameter] array $keys, string $algorithm): array
-    {
-        $built = [];
-
-        foreach ($keys as $kid => $material) {
-            if ($kid === '') {
-
-                $message = 'JWT key map contains an empty kid. Every entry under'
-                    . ' `authentication.jwt.keys` must be keyed by a'
-                    . ' non-empty string.';
-
-                throw new InvalidJwtConfigurationException($message);
-            }
-
-            if (!is_string($material) || $material === '') {
-
-                $message = "JWT key '{$kid}' has empty material. Every kid in"
-                    . ' `authentication.jwt.keys` must map to a non-empty secret.';
-
-                throw new InvalidJwtConfigurationException($message);
-            }
-
-            $built[$kid] = new Key($material, $algorithm);
-        }
-
-        return $built;
     }
 }

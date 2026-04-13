@@ -26,7 +26,8 @@ final class DefaultPrincipalResolver implements PrincipalResolver
      * Resolve a principal for the given identity.
      *
      * Resolution order:
-     *  1. Hint + `ResolvesHintedPrincipal`: lookup via `resolveHintedPrincipal()`.
+     *  1. Hint + `ResolvesHintedPrincipal`: lookup via
+     *  `resolveHintedPrincipal()`.
      *  2. Hint + `HasPrincipals`: lookup via `principals()->find()`.
      *  3. 2D: identity is itself a `Principal`.
      *  4. 3D: delegate to `resolveDefaultPrincipal()`.
