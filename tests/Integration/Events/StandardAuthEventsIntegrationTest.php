@@ -177,7 +177,9 @@ final class StandardAuthEventsIntegrationTest extends TestCase
                  * @param  string  $providerModelClass
                  * @param  mixed  $identifier
                  * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-                 * @return ?\Illuminate\Contracts\Auth\Authenticatable
+                 * @return never
+                 *
+                 * @throws \LogicException
                  */
                 #[\Override]
                 public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable

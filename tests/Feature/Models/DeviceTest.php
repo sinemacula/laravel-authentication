@@ -33,6 +33,8 @@ use SineMacula\Laravel\Authentication\Models\Device;
 final class DeviceTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
+
+    /** @var string Shared timestamp for device factory tests. */
     private const FIXED_TIMESTAMP = '2026-04-06 12:00:00';
 
     /**
