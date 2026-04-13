@@ -476,6 +476,228 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
+     * The `Attempting` event fires with `remember = false` so stateless guards
+     * never advertise remember-me capability. Mutation guard: pins the literal
+     * `false` in `fireAttemptingEvent()`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptingEventCarriesFalseRememberParameter(): void
+    {
+        $guard = $this->makeGuard();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturnNull();
+
+        $attemptingEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$attemptingEvent): void {
+                if ($event instanceof Attempting) {
+                    $attemptingEvent = $event;
+                }
+            });
+
+        $guard->attempt(['email' => 'x']);
+
+        self::assertInstanceOf(Attempting::class, $attemptingEvent);
+        self::assertFalse($attemptingEvent->remember);
+    }
+
+    /**
+     * `validate()` calls `Timebox::returnEarly()` when credentials are valid,
+     * so the timing budget is consumed on the success path. Mutation guard:
+     * pins the `$timebox->returnEarly()` call in `validate()`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testValidateCallsReturnEarlyOnSuccessfulCredentials(): void
+    {
+        $returnEarlyCalled = false;
+
+        $timeboxSpy = new class extends Timebox {
+            /** @var bool Tracks whether returnEarly() was called. */
+            public bool $returnEarlyCalled = false;
+
+            /**
+             * @return static
+             */
+            public function returnEarly(): static
+            {
+                $this->returnEarlyCalled = true;
+
+                return parent::returnEarly();
+            }
+        };
+
+        $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('call')
+            ->once()
+            ->andReturnUsing(static function (callable $callback) use ($timeboxSpy, &$returnEarlyCalled): mixed {
+                $result            = $callback($timeboxSpy);
+                $returnEarlyCalled = $timeboxSpy->returnEarlyCalled;
+
+                return $result;
+            });
+
+        $guard = $this->makeGuard();
+
+        $user = \Mockery::mock(Authenticatable::class);
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($user);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
+        self::assertTrue($returnEarlyCalled);
+    }
+
+    /**
+     * `attempt()` calls `Timebox::returnEarly()` when credentials and principal
+     * resolve successfully, so the timing budget is consumed on the success
+     * path. Mutation guard: pins the `$timebox->returnEarly()` call in
+     * `attempt()`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptCallsReturnEarlyOnSuccess(): void
+    {
+        $returnEarlyCalled = false;
+
+        $timeboxSpy = new class extends Timebox {
+            /** @var bool Tracks whether returnEarly() was called. */
+            public bool $returnEarlyCalled = false;
+
+            /**
+             * @return static
+             */
+            public function returnEarly(): static
+            {
+                $this->returnEarlyCalled = true;
+
+                return parent::returnEarly();
+            }
+        };
+
+        $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('call')
+            ->once()
+            ->andReturnUsing(static function (callable $callback) use ($timeboxSpy, &$returnEarlyCalled): mixed {
+                $result            = $callback($timeboxSpy);
+                $returnEarlyCalled = $timeboxSpy->returnEarlyCalled;
+
+                return $result;
+            });
+
+        $guard = $this->makeGuard();
+
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockActivePrincipal();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        static::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
+        static::assertTrue($returnEarlyCalled);
+    }
+
+    /**
+     * `bindAuthenticationLifecycle()` clears prior contextual state before
+     * binding the new triple, so a stale device from a previous login does not
+     * leak into a deviceless `attempt()`. Mutation guard: pins the
+     * `clearContextualState()` call at the top of
+     * `bindAuthenticationLifecycle()`.
+     *
+     * @return void
+     */
+    public function testAttemptClearsPriorContextualStateBeforeNewBind(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity1  = $this->mockIdentity();
+        $principal1 = $this->mockActivePrincipal();
+        $device1    = \Mockery::mock(Device::class);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        // First login binds identity, principal, and device.
+        $guard->login($identity1, $principal1, $device1);
+
+        static::assertSame($device1, $guard->device());
+
+        $identity2  = $this->mockIdentity();
+        $principal2 = $this->mockActivePrincipal();
+
+        // Second login without a device must NOT carry over device1.
+        $guard->login($identity2, $principal2);
+
+        static::assertNull($guard->device());
+        static::assertSame($identity2, $guard->user());
+        static::assertSame($principal2, $guard->principal());
+    }
+
+    /**
+     * When the `Config` facade is not bootstrapped (e.g. the guard is used
+     * outside a full application boot), the `catch (\Throwable)` branch of
+     * `timeboxMicroseconds()` returns the default budget rather than letting
+     * the exception propagate. Mutation guard: pins the `return
+     * self::DEFAULT_TIMEBOX_MICROSECONDS` inside the `catch` block.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTimeboxBudgetFallsBackToDefaultWhenConfigFacadeThrows(): void
+    {
+        // Set config to a non-numeric value that triggers a Throwable
+        // when Config::integer() is invoked.
+        config()->set('authentication.timebox.credentials_microseconds', 'not-a-number');
+
+        $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('call')
+            ->once()
+            ->with(\Mockery::type('callable'), 400000)
+            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
+
+        $guard = $this->makeGuard();
+
+        $user = \Mockery::mock(Authenticatable::class);
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($user);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        static::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
+    }
+
+    /**
      * `attempt()` accepts an explicit `Principal` argument and uses it directly
      * instead of invoking the resolver. Pins the `$principal ??
      * $this->safeResolvePrincipal(...)` short-circuit - a mutation that swaps
@@ -506,14 +728,14 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        self::assertTrue(
+        static::assertTrue(
             $guard->attempt(
                 ['email' => 'x', 'password' => 'y'],
                 $explicit,
             ),
         );
 
-        self::assertSame($explicit, $guard->principal());
+        static::assertSame($explicit, $guard->principal());
     }
 
     /**
@@ -551,7 +773,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
                 $dispatched[] = $event::class;
             });
 
-        self::assertTrue(
+        static::assertTrue(
             $guard->attempt(
                 ['email' => 'x', 'password' => 'y'],
                 null,
@@ -559,8 +781,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ),
         );
 
-        self::assertSame($device, $guard->device());
-        self::assertContains(DeviceAuthenticated::class, $dispatched);
+        static::assertSame($device, $guard->device());
+        static::assertContains(DeviceAuthenticated::class, $dispatched);
     }
 
     /**
@@ -597,10 +819,10 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
                 $dispatched[] = $event::class;
             });
 
-        self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
+        static::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
 
-        self::assertNull($guard->device());
-        self::assertNotContains(DeviceAuthenticated::class, $dispatched);
+        static::assertNull($guard->device());
+        static::assertNotContains(DeviceAuthenticated::class, $dispatched);
     }
 
     /**
@@ -634,6 +856,6 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
+        static::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
     }
 }

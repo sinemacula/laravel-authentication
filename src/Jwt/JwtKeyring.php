@@ -90,28 +90,6 @@ final class JwtKeyring
     }
 
     /**
-     * Reject any signing algorithm not on the allow-list. Run first in both
-     * factories so weak or typo'd settings fail fast at boot.
-     *
-     * @param  string  $algorithm
-     * @return void
-     *
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
-     */
-    private static function assertAlgorithmSupported(string $algorithm): void
-    {
-        if (in_array($algorithm, self::SUPPORTED_ALGORITHMS, true)) {
-            return;
-        }
-
-        $message = "JWT algorithm '{$algorithm}' is not supported."
-            . ' Set `authentication.jwt.algorithm` to one of: '
-            . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
-
-        throw new InvalidJwtConfigurationException($message);
-    }
-
-    /**
      * Construct a kid-aware keyring with an active signing key and a
      * verification map for graceful rotation.
      *
@@ -156,6 +134,60 @@ final class JwtKeyring
     }
 
     /**
+     * Return the active signing key.
+     *
+     * @return \Firebase\JWT\Key
+     */
+    public function activeKey(): Key
+    {
+        return $this->keys[$this->activeKid];
+    }
+
+    /**
+     * Return the kid embedded in newly issued tokens, or `null` in
+     * single-secret mode.
+     *
+     * @return ?string
+     */
+    public function activeKid(): ?string
+    {
+        return $this->kidMode ? $this->activeKid : null;
+    }
+
+    /**
+     * Return the verification key set in the form `firebase/php-jwt` expects:
+     * a single `Key` in single-secret mode, or a `kid -> Key` map in kid mode.
+     *
+     * @return array<string, \Firebase\JWT\Key>|\Firebase\JWT\Key
+     */
+    public function verificationKeys(): array|Key
+    {
+        return $this->kidMode ? $this->keys : $this->keys[self::LEGACY_KID];
+    }
+
+    /**
+     * Reject any signing algorithm not on the allow-list. Run first in both
+     * factories so weak or typo'd settings fail fast at boot.
+     *
+     * @param  string  $algorithm
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private static function assertAlgorithmSupported(string $algorithm): void
+    {
+        if (in_array($algorithm, self::SUPPORTED_ALGORITHMS, true)) {
+            return;
+        }
+
+        $message = "JWT algorithm '{$algorithm}' is not supported."
+            . ' Set `authentication.jwt.algorithm` to one of: '
+            . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
+
+        throw new InvalidJwtConfigurationException($message);
+    }
+
+    /**
      * Validate the supplied kid -> secret map and convert it into a kid -> Key
      * map. Both kid and secret must be non-empty strings; fail-closed
      * regardless of the caller's static type hint.
@@ -193,37 +225,5 @@ final class JwtKeyring
         }
 
         return $built;
-    }
-
-    /**
-     * Return the active signing key.
-     *
-     * @return \Firebase\JWT\Key
-     */
-    public function activeKey(): Key
-    {
-        return $this->keys[$this->activeKid];
-    }
-
-    /**
-     * Return the kid embedded in newly issued tokens, or `null` in
-     * single-secret mode.
-     *
-     * @return ?string
-     */
-    public function activeKid(): ?string
-    {
-        return $this->kidMode ? $this->activeKid : null;
-    }
-
-    /**
-     * Return the verification key set in the form `firebase/php-jwt` expects:
-     * a single `Key` in single-secret mode, or a `kid -> Key` map in kid mode.
-     *
-     * @return array<string, \Firebase\JWT\Key>|\Firebase\JWT\Key
-     */
-    public function verificationKeys(): array|Key
-    {
-        return $this->kidMode ? $this->keys : $this->keys[self::LEGACY_KID];
     }
 }

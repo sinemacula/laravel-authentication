@@ -65,6 +65,8 @@ final class ResolutionCacheTest extends TestCase
      * guard's warm hit does not satisfy another guard's first read.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testBearerIdentityCacheIsScopedPerGuard(): void
     {
@@ -123,6 +125,8 @@ final class ResolutionCacheTest extends TestCase
      * identity so subsequent reads fall back to the live provider.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityRemovesCachedEntriesForMatchingJwtGuards(): void
     {
@@ -184,6 +188,354 @@ final class ResolutionCacheTest extends TestCase
 
         self::assertSame(2, $staffCalls);
         self::assertSame(2, $customerCalls);
+    }
+
+    /**
+     * Cached identity clones have their relations stripped so eager-loaded
+     * relation graphs do not leak across requests. Mutation guard: pins the
+     * `$clone->unsetRelations()` call inside `cloneIdentity()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testCachedIdentityCloneHasNoRelations(): void
+    {
+        $cache = app(ResolutionCache::class);
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+
+        $identity = $this->seedIdentity('relations@example.test');
+
+        // Manually set a relation so we can verify it gets stripped.
+        $identity->setRelation('fakeRelation', collect(['foo']));
+
+        self::assertTrue($identity->relationLoaded('fakeRelation'));
+
+        // First call: stores the identity into the cache.
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            fn (): StubPrincipal => $identity,
+        );
+
+        // Second call: returns from cache.
+        $cached = $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            fn (): StubPrincipal => $identity,
+        );
+
+        self::assertInstanceOf(StubPrincipal::class, $cached);
+
+        /** @var \Tests\Unit\Stubs\StubPrincipal $cachedPrincipal */
+        $cachedPrincipal = $cached;
+        self::assertEmpty($cachedPrincipal->getRelations());
+    }
+
+    /**
+     * When the cache contains a non-Identity/Model value (e.g. a corrupted
+     * entry), `loadCachedIdentity` forgets the key and falls back to the live
+     * resolver. Mutation guard: pins the `$cached !== null` cleanup branch
+     * and the `forgetKey()` call.
+     *
+     * The resolver returns `null` so `storeResolvedIdentity` skips writing,
+     * making the cleanup the only operation that removes the corrupted entry.
+     *
+     * @return void
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException
+     */
+    public function testCacheCleanupOnTypeMismatch(): void
+    {
+        $cache = app(ResolutionCache::class);
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+
+        // Build the cache key the same way StoreBackedResolutionCache does:
+        // ltrim leading backslash, replace remaining backslashes with dots.
+        $providerSegment = str_replace('\\', '.', ltrim(StubPrincipal::class, '\\'));
+        $cacheKey        = sprintf(
+            'sm.auth.resolution.v1.jwt.staff.identity.%s.%s',
+            $providerSegment,
+            '999',
+        );
+
+        // Inject a non-Identity value directly into the cache store.
+        Cache::store()->put($cacheKey, 'not-an-identity-instance', 60);
+
+        $calls = 0;
+
+        // Return null so `storeResolvedIdentity` does not overwrite the key.
+        // The cleanup branch is the only thing that removes the corrupted
+        // entry.
+        $result = $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            999,
+            function () use (&$calls): ?StubPrincipal {
+                $calls++;
+
+                return null;
+            },
+        );
+
+        self::assertSame(1, $calls);
+        self::assertNull($result);
+
+        // The corrupted entry should have been removed by the cleanup
+        // branch, and null resolved means nothing was re-stored.
+        self::assertNull(Cache::store()->get($cacheKey));
+    }
+
+    /**
+     * When the `forgetIdentity()` method is called with an explicit identifier,
+     * it uses that identifier instead of `getAuthIdentifier()`. Mutation
+     * guard: pins the coalesce order `$identifier ??
+     * $identity->getAuthIdentifier()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentityUsesExplicitIdentifierOverDefault(): void
+    {
+        $cache       = app(ResolutionCache::class);
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('coalesce@example.test');
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        $defaultId  = $identity->getAuthIdentifier();
+        $explicitId = 99999;
+
+        // Warm the cache under the explicit identifier.
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $explicitId,
+            fn (): StubPrincipal => $identity,
+        );
+
+        // Also warm the cache under the default identifier.
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $defaultId,
+            fn (): StubPrincipal => $identity,
+        );
+
+        // Invalidate using the explicit identifier only.
+        $invalidator->forgetIdentity($identity, $explicitId);
+
+        // The explicit-id entry should be gone.
+        $explicitCalls = 0;
+
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $explicitId,
+            function () use (&$explicitCalls, $identity): StubPrincipal {
+                $explicitCalls++;
+
+                return $identity;
+            },
+        );
+
+        self::assertSame(1, $explicitCalls, 'Explicit identifier entry should have been forgotten.');
+
+        // The default-id entry should still be cached.
+        $defaultCalls = 0;
+
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $defaultId,
+            function () use (&$defaultCalls, $identity): StubPrincipal {
+                $defaultCalls++;
+
+                return $identity;
+            },
+        );
+
+        self::assertSame(0, $defaultCalls, 'Default identifier entry should still be cached.');
+    }
+
+    /**
+     * A non-jwt guard (e.g. basic) is skipped by the invalidator so its cache
+     * entries are never touched by `forgetIdentity()`. Mutation guard: pins the
+     * `$driver !== 'jwt'` arm in `providerModelClassForJwtGuard()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Psr\SimpleCache\InvalidArgumentException
+     */
+    public function testForgetIdentitySkipsNonJwtGuards(): void
+    {
+        $cache       = app(ResolutionCache::class);
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('nonjwt@example.test');
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        // Warm the cache under the "cli" (basic) guard's namespace by writing
+        // directly - basic guards don't use the cache, but this verifies the
+        // invalidator never touches non-jwt entries.
+        $providerSegment = str_replace('\\', '.', ltrim(StubPrincipal::class, '\\'));
+        $cliKey          = sprintf(
+            'sm.auth.resolution.v1.jwt.cli.identity.%s.%s',
+            $providerSegment,
+            $identity->getAuthIdentifier(),
+        );
+
+        Cache::store()->put($cliKey, $identity, 60);
+
+        // Invalidate all JWT entries for this identity.
+        $invalidator->forgetIdentity($identity);
+
+        // The cli entry must still be there because the invalidator skipped the
+        // non-jwt "cli" guard.
+        self::assertNotNull(Cache::store()->get($cliKey));
+    }
+
+    /**
+     * A guard with a non-model provider driver (e.g. `database`) is skipped by
+     * the invalidator. Mutation guard: pins the `$providerDriver !== 'model'`
+     * arm in `providerModelClassForJwtGuard()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Psr\SimpleCache\InvalidArgumentException
+     */
+    public function testForgetIdentitySkipsNonModelProviderDriverGuards(): void
+    {
+        // Add a jwt guard backed by a database provider (non-model).
+        config()->set('auth.guards.api-db', [
+            'driver'   => 'jwt',
+            'provider' => 'db-identities',
+        ]);
+
+        config()->set('auth.providers.db-identities', [
+            'driver' => 'database',
+            'table'  => 'users',
+        ]);
+
+        $cache       = app(ResolutionCache::class);
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('dbprovider@example.test');
+
+        self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        // Plant a cache entry under the api-db guard namespace.
+        $providerSegment = str_replace('\\', '.', ltrim(StubPrincipal::class, '\\'));
+        $dbKey           = sprintf(
+            'sm.auth.resolution.v1.jwt.api-db.identity.%s.%s',
+            $providerSegment,
+            $identity->getAuthIdentifier(),
+        );
+
+        Cache::store()->put($dbKey, $identity, 60);
+
+        $invalidator->forgetIdentity($identity);
+
+        // The entry must remain because the provider driver is not "model".
+        self::assertNotNull(Cache::store()->get($dbKey));
+    }
+
+    /**
+     * A guard whose provider name is missing or empty is skipped by the
+     * invalidator. Mutation guard: pins the `!is_string($providerName) ||
+     * $providerName === ''` arms in `providerModelClassForJwtGuard()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentitySkipsGuardWithMissingOrEmptyProvider(): void
+    {
+        config()->set('auth.guards.no-provider', [
+            'driver' => 'jwt',
+        ]);
+
+        config()->set('auth.guards.empty-provider', [
+            'driver'   => 'jwt',
+            'provider' => '',
+        ]);
+
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('noprovider@example.test');
+
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        // Should not throw even with misconfigured guards.
+        $invalidator->forgetIdentity($identity);
+
+        // If we got here without an exception, the guards were skipped.
+        self::assertTrue(true);
+    }
+
+    /**
+     * A guard whose provider model is an empty string is skipped by the
+     * invalidator. Mutation guard: pins the `$providerModelClass === ''` arm in
+     * `providerModelClassForJwtGuard()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForgetIdentitySkipsGuardWithEmptyModelClass(): void
+    {
+        config()->set('auth.guards.empty-model', [
+            'driver'   => 'jwt',
+            'provider' => 'empty-model-provider',
+        ]);
+
+        config()->set('auth.providers.empty-model-provider', [
+            'driver' => 'model',
+            'model'  => '',
+        ]);
+
+        $invalidator = app(ResolutionCacheInvalidator::class);
+        $identity    = $this->seedIdentity('emptymodel@example.test');
+
+        self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
+
+        // Warm a JWT cache entry for the "staff" guard.
+        $cache      = app(ResolutionCache::class);
+        $staffCalls = 0;
+
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$staffCalls, $identity): StubPrincipal {
+                $staffCalls++;
+
+                return $identity;
+            },
+        );
+
+        // Invalidate - the empty-model guard should be skipped, but the
+        // valid staff guard should still be invalidated.
+        $invalidator->forgetIdentity($identity);
+
+        $cache->rememberJwtIdentity(
+            'staff',
+            StubPrincipal::class,
+            $identity->getAuthIdentifier(),
+            function () use (&$staffCalls, $identity): StubPrincipal {
+                $staffCalls++;
+
+                return $identity;
+            },
+        );
+
+        self::assertSame(2, $staffCalls);
     }
 
     /**
