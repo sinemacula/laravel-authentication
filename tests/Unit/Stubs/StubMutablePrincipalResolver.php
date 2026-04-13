@@ -9,8 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Mutable stub resolver whose default and hinted principals can be
- * swapped at test-time via setters.
+ * Mutable stub resolver whose default and hinted principals can be swapped at
+ * test-time via setters.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -19,10 +19,10 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
  */
 final class StubMutablePrincipalResolver implements PrincipalResolver
 {
-    /** @var ?\SineMacula\Laravel\Authentication\Contracts\Principal */
+    /** @var ?\SineMacula\Laravel\Authentication\Contracts\Principal Fallback principal when no hint is supplied. */
     private ?Principal $defaultPrincipal = null;
 
-    /** @var array<string, \SineMacula\Laravel\Authentication\Contracts\Principal> */
+    /** @var array<string, \SineMacula\Laravel\Authentication\Contracts\Principal> Map of principal id to principal. */
     private array $hintedPrincipals = [];
 
     /**

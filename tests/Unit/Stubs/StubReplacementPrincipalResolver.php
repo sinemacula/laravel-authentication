@@ -9,8 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Stub resolver representing a runtime rebind replacement for the
- * app-wide principal resolver binding.
+ * Stub resolver representing a runtime rebind replacement for the app-wide
+ * principal resolver binding.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

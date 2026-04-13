@@ -9,8 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Stub resolver that returns a constructor-injected principal
- * regardless of the identity or hint supplied.
+ * Stub resolver that returns a constructor-injected principal regardless of the
+ * identity or hint supplied.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -9,9 +9,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Stub resolver representing a second per-guard principal resolver
- * override, distinct from `StubGuardScopedPrincipalResolver` for
- * multi-guard type-based assertions.
+ * Stub resolver representing a second per-guard principal resolver override,
+ * distinct from `StubGuardScopedPrincipalResolver` for multi-guard type-based
+ * assertions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

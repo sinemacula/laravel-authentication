@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  *
  * @internal
  */
-final class PlainIdentityFixture implements Identity
+final readonly class PlainIdentityFixture implements Identity
 {
     /**
      * Constructor.
@@ -28,10 +28,10 @@ final class PlainIdentityFixture implements Identity
     public function __construct(
 
         /** Stable identifier used as the `sub` claim. */
-        public readonly int|string $id,
+        public int|string $id,
 
         /** Pre-hashed password used for the `getAuthPassword()` accessor. */
-        public readonly string $password = 'hashed-password',
+        public string $password = 'hashed-password',
 
     ) {}
 

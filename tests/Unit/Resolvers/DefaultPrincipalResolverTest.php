@@ -124,8 +124,8 @@ final class DefaultPrincipalResolverTest extends TestCase
      * When `principals()->find($hint)` returns a value that is NOT a
      * `Principal` (e.g. a bare Model or `null`), the resolver falls through to
      * the 2D/3D path instead of returning the non-Principal. Mutation guard:
-     * pins the `$hinted instanceof Principal` check in `resolve()` -
-     * removing it would cause the resolver to return a non-Principal object.
+     * pins the `$hinted instanceof Principal` check in `resolve()` - removing
+     * it would cause the resolver to return a non-Principal object.
      *
      * @return void
      */
@@ -236,8 +236,8 @@ final class DefaultPrincipalResolverTest extends TestCase
      * Asserts a bare Identity mock that implements neither Principal nor
      * HasPrincipals throws the typed `UnresolvableIdentityException` (a
      * `\LogicException` subclass) whose message names the offending class.
-     * Guards catch this specific type and convert it to a `Failed` event so
-     * the request still surfaces as a 401 - but consumer error reporters can
+     * Guards catch this specific type and convert it to a `Failed` event so the
+     * request still surfaces as a 401 - but consumer error reporters can
      * attribute the misconfiguration via the typed class.
      *
      * @return void

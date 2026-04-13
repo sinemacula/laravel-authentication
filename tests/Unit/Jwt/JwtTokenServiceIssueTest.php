@@ -48,6 +48,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      * the future and `typ = access`.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssueAccessTokenReturnsParseableJwt(): void
     {
@@ -75,6 +77,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      * against.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssueAccessTokenIncludesJtiClaim(): void
     {
@@ -94,10 +98,12 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An integer identifier returned by `getAuthIdentifier()` is stringified
-     * in the `sub` claim per RFC 7519 §4.1.2.
+     * An integer identifier returned by `getAuthIdentifier()` is stringified in
+     * the `sub` claim per RFC 7519 §4.1.2.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssueAccessTokenStringifiesIntegerSubjectClaim(): void
     {
@@ -122,6 +128,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      * consumers see "no device hint" rather than a shape change.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssueAccessTokenWithoutDeviceSetsNullDeviceClaim(): void
     {
@@ -140,8 +148,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
     /**
      * Asserts the refresh-token claims contain the device identifier, the
-     * supplied rotation id (`jti`), and an `exp` claim `refresh_ttl_minutes`
-     * in the future. Legacy refresh tokens still omit `pid`.
+     * supplied rotation id (`jti`), and an `exp` claim `refresh_ttl_minutes` in
+     * the future. Legacy refresh tokens still omit `pid`.
      *
      * @return void
      */

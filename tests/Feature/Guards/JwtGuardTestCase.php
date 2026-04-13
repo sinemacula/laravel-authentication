@@ -25,7 +25,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use Tests\Unit\Stubs\InjectableDeviceStub;
+use Tests\Unit\Stubs\StubInjectableDevice;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -271,7 +271,7 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Swap the configured device model to `InjectableDeviceStub`, whose
+     * Swap the configured device model to `StubInjectableDevice`, whose
      * `newQuery()` yields a Builder mock that returns the supplied in-memory
      * device from `find()`. This lets the refresh tests keep their manually
      * preset `authenticatable` relation intact rather than re-fetching from
@@ -289,8 +289,8 @@ abstract class JwtGuardTestCase extends TestCase
         $builder->shouldReceive('find')
             ->andReturn(null);
 
-        InjectableDeviceStub::$injectedBuilder = $builder;
+        StubInjectableDevice::$injectedBuilder = $builder;
 
-        config()->set('authentication.device.model', InjectableDeviceStub::class);
+        config()->set('authentication.device.model', StubInjectableDevice::class);
     }
 }

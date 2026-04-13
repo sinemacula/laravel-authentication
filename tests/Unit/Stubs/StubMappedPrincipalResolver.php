@@ -9,8 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Stub resolver that returns a default principal when no hint is
- * supplied, or looks up the hinted principal from a pre-built map.
+ * Stub resolver that returns a default principal when no hint is supplied, or
+ * looks up the hinted principal from a pre-built map.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,8 +36,8 @@ final class StubMappedPrincipalResolver implements PrincipalResolver
     ) {}
 
     /**
-     * Resolve the default principal when no hint is provided,
-     * otherwise return the principal mapped to the hinted id.
+     * Resolve the default principal when no hint is provided, otherwise return
+     * the principal mapped to the hinted id.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint

@@ -15,6 +15,6 @@ namespace Tests\Unit\Traits\Fixtures;
  */
 enum ProvidesTenantTypeTestBackedType: string
 {
-    case STAFF    = 'staff';
+    case STAFF = 'staff';
     case CUSTOMER = 'customer';
 }

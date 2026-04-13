@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use Tests\Unit\Stubs\BareDeviceModel;
+use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\StubAlternateGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -198,10 +198,10 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      */
     public function testJwtGuardRejectsConfiguredDeviceModelOutsideEloquentBoundary(): void
     {
-        config()->set('authentication.device.model', BareDeviceModel::class);
+        config()->set('authentication.device.model', StubBareDevice::class);
 
         $this->expectException(InvalidDeviceModelConfiguration::class);
-        $this->expectExceptionMessage(BareDeviceModel::class);
+        $this->expectExceptionMessage(StubBareDevice::class);
 
         AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'   => 'jwt',

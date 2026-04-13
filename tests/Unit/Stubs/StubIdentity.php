@@ -15,10 +15,10 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 /**
  * Eloquent stub implementing Identity, HasPrincipals, and HasDevices.
  *
- * Used by guard and integration tests that need a real Eloquent identity
- * rather than a Mockery mock. Intentionally not `final` so individual tests
- * may extend it for hint-based or relation-based scenarios (Mockery cannot
- * subclass or partial-mock a final class).
+ * Used by guard and integration tests that need a real Eloquent identity rather
+ * than a Mockery mock. Intentionally not `final` so individual tests may extend
+ * it for hint-based or relation-based scenarios (Mockery cannot subclass or
+ * partial-mock a final class).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -39,8 +39,8 @@ class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
      * Eloquent relation builder for the identity's principals.
      *
      * Tests typically override this via a Mockery partial. The default returns
-     * a query builder against this model so static analysis and Eloquent
-     * remain happy without a database connection.
+     * a query builder against this model so static analysis and Eloquent remain
+     * happy without a database connection.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */

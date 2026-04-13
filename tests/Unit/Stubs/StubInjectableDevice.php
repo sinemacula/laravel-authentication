@@ -21,16 +21,16 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * @internal
  */
-final class InjectableDeviceStub extends StubDevice
+final class StubInjectableDevice extends StubDevice
 {
-    /** @var \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\InjectableDeviceStub>|null Builder returned from `newQuery()` when set. */
+    /** @var \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubInjectableDevice>|null Builder returned from `newQuery()` when set. */
     public static ?Builder $injectedBuilder = null;
 
     /**
      * Return the injected Builder mock if present, otherwise fall back to
      * Eloquent's default query builder.
      *
-     * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\InjectableDeviceStub>
+     * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubInjectableDevice>
      */
     public function newQuery(): Builder
     {

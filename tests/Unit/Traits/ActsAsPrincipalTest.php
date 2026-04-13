@@ -6,6 +6,7 @@ namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -23,7 +24,7 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
+#[CoversNothing]
 final class ActsAsPrincipalTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -107,8 +108,7 @@ final class ActsAsPrincipalTest extends TestCase
 
     /**
      * Trait honours an `identityRelationName` override declared on the
-     * principal subclass and reads the identity from the renamed relation
-     * slot.
+     * principal subclass and reads the identity from the renamed relation slot.
      *
      * @return void
      */

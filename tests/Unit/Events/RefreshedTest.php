@@ -6,6 +6,7 @@ namespace Tests\Unit\Events;
 
 use Illuminate\Queue\SerializesModels;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -23,7 +24,7 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  *
  * @internal
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
+#[CoversNothing]
 final class RefreshedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -38,6 +39,23 @@ final class RefreshedTest extends TestCase
         $event = $this->makeEvent('api');
 
         self::assertSame('api', $event->guard);
+    }
+
+    /**
+     * Build a Refreshed event with the supplied guard name and fresh mock
+     * collaborators.
+     *
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Events\Refreshed
+     */
+    private function makeEvent(string $guard): Refreshed
+    {
+        return new Refreshed(
+            $guard,
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            \Mockery::mock(Device::class),
+        );
     }
 
     /**
@@ -145,22 +163,5 @@ final class RefreshedTest extends TestCase
         self::assertSame(42, $roundTripped->identity->getAuthIdentifier());
         self::assertSame(7, $roundTripped->principal->getPrincipalIdentifier());
         self::assertSame('01HZZ-device-id', $roundTripped->device->getDeviceIdentifier());
-    }
-
-    /**
-     * Build a Refreshed event with the supplied guard name and fresh mock
-     * collaborators.
-     *
-     * @param  string  $guard
-     * @return \SineMacula\Laravel\Authentication\Events\Refreshed
-     */
-    private function makeEvent(string $guard): Refreshed
-    {
-        return new Refreshed(
-            $guard,
-            \Mockery::mock(Identity::class),
-            \Mockery::mock(Principal::class),
-            \Mockery::mock(Device::class),
-        );
     }
 }

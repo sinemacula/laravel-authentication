@@ -6,6 +6,7 @@ namespace Tests\Unit\Traits;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
@@ -13,45 +14,19 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * Unit tests for the package ActsAsDevice trait.
  *
  * Exercises the trait through an anonymous Eloquent model because the trait is
- * defined against Eloquent's `getAttribute` accessor contract, without
- * relying on explicit PHPUnit coverage metadata for traits.
+ * defined against Eloquent's `getAttribute` accessor contract, without relying
+ * on explicit PHPUnit coverage metadata for traits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
+#[CoversNothing]
 final class ActsAsDeviceTest extends TestCase
 {
     /** @var \Carbon\Carbon Frozen clock reference shared across timestamp assertions. */
     private Carbon $now;
-
-    /**
-     * Freeze the clock so Carbon timestamp assertions are deterministic.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($this->now);
-    }
-
-    /**
-     * Release the frozen clock once each test has completed.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        Carbon::setTestNow();
-
-        parent::tearDown();
-    }
 
     /**
      * Asserts the device identifier getter reads the model's `id` attribute
@@ -104,8 +79,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the MFA verification getter returns the Carbon instance stored
-     * in the attribute, and null when the attribute is null.
+     * Asserts the MFA verification getter returns the Carbon instance stored in
+     * the attribute, and null when the attribute is null.
      *
      * @return void
      */
@@ -169,8 +144,8 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
-     * Asserts the refresh-key getter casts the underlying attribute to a
-     * string before returning it.
+     * Asserts the refresh-key getter casts the underlying attribute to a string
+     * before returning it.
      *
      * @return void
      */
@@ -286,5 +261,31 @@ final class ActsAsDeviceTest extends TestCase
         ]);
 
         self::assertSame('uuid-from-override', $device->getDeviceIdentifier());
+    }
+
+    /**
+     * Freeze the clock so Carbon timestamp assertions are deterministic.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($this->now);
+    }
+
+    /**
+     * Release the frozen clock once each test has completed.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
     }
 }

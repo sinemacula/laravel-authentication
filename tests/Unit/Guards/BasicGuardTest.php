@@ -28,9 +28,9 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 /**
  * Unit tests for the BasicGuard contextual guard.
  *
- * Exercises HTTP Basic credential extraction, timing-safe credential
- * validation via the inherited Timebox path, identity-as-principal resolution,
- * and the login/logout state cycle. Uses a plain PHPUnit TestCase because the
+ * Exercises HTTP Basic credential extraction, timing-safe credential validation
+ * via the inherited Timebox path, identity-as-principal resolution, and the
+ * login/logout state cycle. Uses a plain PHPUnit TestCase because the
  * BasicGuard takes its identifier field via the constructor (no facade
  * dependency). The Request collaborator is a real Symfony/Illuminate `Request`
  * instance built via `Request::create(...)`.
@@ -540,6 +540,8 @@ final class BasicGuardTest extends TestCase
      * `Authenticated`, `PrincipalAssigned`, and `Login` for valid credentials.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testInheritedAttemptDispatchesAttemptingAndLoginEvents(): void
     {

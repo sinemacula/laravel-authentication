@@ -9,8 +9,8 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 
 /**
- * Stub 2D principal resolver: returns the identity itself when it
- * implements Principal, otherwise null.
+ * Stub 2D principal resolver: returns the identity itself when it implements
+ * Principal, otherwise null.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 final class StubTwoDPrincipalResolver implements PrincipalResolver
 {
     /**
-     * Return the identity as its own principal when it implements
-     * the Principal contract (2D adoption mode).
+     * Return the identity as its own principal when it implements the Principal
+     * contract (2D adoption mode).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint

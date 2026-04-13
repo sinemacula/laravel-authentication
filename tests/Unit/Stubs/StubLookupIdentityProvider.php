@@ -10,9 +10,9 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 /**
  * Stub identity provider that looks up a StubPrincipal by primary key.
  *
- * Only `retrieveById` performs a real database lookup; all other methods
- * return null/false/void. Used by integration tests that need a wired
- * provider without the full `ModelProvider` machinery.
+ * Only `retrieveById` performs a real database lookup; all other methods return
+ * null/false/void. Used by integration tests that need a wired provider without
+ * the full `ModelProvider` machinery.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -36,6 +36,8 @@ final class StubLookupIdentityProvider implements IdentityProvider
     }
 
     /**
+     * Inert; returns null.
+     *
      * @param  mixed  $identifier
      * @param  mixed  $token
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
@@ -47,6 +49,8 @@ final class StubLookupIdentityProvider implements IdentityProvider
     }
 
     /**
+     * Inert; no-op.
+     *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  mixed  $token
      * @return void
@@ -55,6 +59,8 @@ final class StubLookupIdentityProvider implements IdentityProvider
     public function updateRememberToken(Authenticatable $user, #[\SensitiveParameter] mixed $token): void {}
 
     /**
+     * Inert; returns null.
+     *
      * @param  array<array-key, mixed>  $credentials
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
@@ -65,6 +71,8 @@ final class StubLookupIdentityProvider implements IdentityProvider
     }
 
     /**
+     * Inert; returns false.
+     *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
      * @return bool
@@ -76,6 +84,8 @@ final class StubLookupIdentityProvider implements IdentityProvider
     }
 
     /**
+     * Inert; no-op.
+     *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
      * @param  bool  $force

@@ -40,9 +40,8 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts a string input is returned verbatim - no normalisation,
-     * trimming, or case folding - so the round-trip with the resolver is
-     * byte-identical.
+     * Asserts a string input is returned verbatim - no normalisation, trimming,
+     * or case folding - so the round-trip with the resolver is byte-identical.
      *
      * @return void
      */
@@ -152,9 +151,9 @@ final class IdentifierCoercionTest extends TestCase
     }
 
     /**
-     * Asserts an arbitrary `\stdClass` (non-Stringable) object is rejected
-     * with `null` so a misbehaving custom resolver cannot embed an object
-     * literal in the `sub` claim.
+     * Asserts an arbitrary `\stdClass` (non-Stringable) object is rejected with
+     * `null` so a misbehaving custom resolver cannot embed an object literal in
+     * the `sub` claim.
      *
      * @return void
      */

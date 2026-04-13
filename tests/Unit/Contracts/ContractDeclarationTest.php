@@ -30,8 +30,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
  *
  * Pins the documented method surface of every contract and the inheritance
  * chains that let framework typehints resolve against package implementations.
- * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a
- * bare interface; the assertions run against interface metadata only.
+ * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a bare
+ * interface; the assertions run against interface metadata only.
  *
  * @internal
  *
@@ -42,74 +42,9 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 final class ContractDeclarationTest extends TestCase
 {
     /**
-     * Data provider listing the methods `Device` must declare.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function provideDeviceContractMethods(): array
-    {
-        return [
-            'getDeviceIdentifier'    => ['getDeviceIdentifier'],
-            'getLastLoggedIn'        => ['getLastLoggedIn'],
-            'getLastMfaVerification' => ['getLastMfaVerification'],
-            'getOperatingSystem'     => ['getOperatingSystem'],
-            'getRefreshKey'          => ['getRefreshKey'],
-            'getRevokedAt'           => ['getRevokedAt'],
-        ];
-    }
-
-    /**
-     * Data provider listing the methods `Principal` must declare.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function providePrincipalContractMethods(): array
-    {
-        return [
-            'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
-            'getIdentity'            => ['getIdentity'],
-            'getTenant'              => ['getTenant'],
-            'isActive'               => ['isActive'],
-        ];
-    }
-
-    /**
-     * Data provider listing the methods `EloquentDevice` must declare.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function provideEloquentDeviceContractMethods(): array
-    {
-        return [
-            'authenticatable'     => ['authenticatable'],
-            'getLastLoggedInName' => ['getLastLoggedInName'],
-            'getRefreshKeyName'   => ['getRefreshKeyName'],
-            'getRevokedAtName'    => ['getRevokedAtName'],
-        ];
-    }
-
-    /**
-     * Data provider listing every method on Laravel's `Guard` contract.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function provideLaravelGuardMethods(): array
-    {
-        return [
-            'check'    => ['check'],
-            'guest'    => ['guest'],
-            'user'     => ['user'],
-            'id'       => ['id'],
-            'validate' => ['validate'],
-            'hasUser'  => ['hasUser'],
-            'setUser'  => ['setUser'],
-        ];
-    }
-
-    /**
      * `IdentityProvider` extends Laravel's framework `UserProvider` contract
-     * so the package provider drops into Laravel's
-     * `Auth::createUserProvider()` factory unchanged.
+     * so the package provider drops into Laravel's `Auth::createUserProvider()`
+     * factory unchanged.
      *
      * @return void
      */
@@ -133,6 +68,23 @@ final class ContractDeclarationTest extends TestCase
 
         self::assertTrue($reflection->isInterface());
         self::assertContains(LaravelAuthenticatable::class, $reflection->getInterfaceNames());
+    }
+
+    /**
+     * Data provider listing the methods `Device` must declare.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function provideDeviceContractMethods(): iterable
+    {
+        yield from [
+            'getDeviceIdentifier'    => ['getDeviceIdentifier'],
+            'getLastLoggedIn'        => ['getLastLoggedIn'],
+            'getLastMfaVerification' => ['getLastMfaVerification'],
+            'getOperatingSystem'     => ['getOperatingSystem'],
+            'getRefreshKey'          => ['getRefreshKey'],
+            'getRevokedAt'           => ['getRevokedAt'],
+        ];
     }
 
     /**
@@ -167,6 +119,21 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
+     * Data provider listing the methods `EloquentDevice` must declare.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function provideEloquentDeviceContractMethods(): iterable
+    {
+        yield from [
+            'authenticatable'     => ['authenticatable'],
+            'getLastLoggedInName' => ['getLastLoggedInName'],
+            'getRefreshKeyName'   => ['getRefreshKeyName'],
+            'getRevokedAtName'    => ['getRevokedAtName'],
+        ];
+    }
+
+    /**
      * `EloquentDevice` declares every explicit Eloquent persistence hook the
      * refresh and last-seen paths depend on.
      *
@@ -187,6 +154,8 @@ final class ContractDeclarationTest extends TestCase
      * the persistence column-name accessors must return strings.
      *
      * @return void
+     *
+     * @throws \ReflectionException
      */
     public function testEloquentDeviceDeclaresExpectedReturnTypes(): void
     {
@@ -199,6 +168,21 @@ final class ContractDeclarationTest extends TestCase
             self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
             self::assertSame('string', $returnType->getName());
         }
+    }
+
+    /**
+     * Data provider listing the methods `Principal` must declare.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function providePrincipalContractMethods(): iterable
+    {
+        yield from [
+            'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
+            'getIdentity'            => ['getIdentity'],
+            'getTenant'              => ['getTenant'],
+            'isActive'               => ['isActive'],
+        ];
     }
 
     /**
@@ -342,6 +326,24 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(BasicGuard::class))->implementsInterface(LaravelGuard::class),
             'BasicGuard must implement Illuminate\Contracts\Auth\Guard.',
         );
+    }
+
+    /**
+     * Data provider listing every method on Laravel's `Guard` contract.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function provideLaravelGuardMethods(): iterable
+    {
+        yield from [
+            'check'    => ['check'],
+            'guest'    => ['guest'],
+            'user'     => ['user'],
+            'id'       => ['id'],
+            'validate' => ['validate'],
+            'hasUser'  => ['hasUser'],
+            'setUser'  => ['setUser'],
+        ];
     }
 
     /**

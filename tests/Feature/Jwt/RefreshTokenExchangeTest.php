@@ -29,8 +29,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
-use Tests\Unit\Stubs\BareDeviceModel;
-use Tests\Unit\Stubs\InjectableDeviceStub;
+use Tests\Unit\Stubs\StubBareDevice;
+use Tests\Unit\Stubs\StubInjectableDevice;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -363,7 +363,7 @@ final class RefreshTokenExchangeTest extends TestCase
      */
     public function testExchangeThrowsWhenConfiguredDeviceModelDoesNotImplementEloquentDevice(): void
     {
-        config()->set('authentication.device.model', BareDeviceModel::class);
+        config()->set('authentication.device.model', StubBareDevice::class);
 
         $exchange = $this->makeExchange();
 
@@ -373,7 +373,7 @@ final class RefreshTokenExchangeTest extends TestCase
         ]);
 
         $this->expectException(InvalidDeviceModelConfiguration::class);
-        $this->expectExceptionMessage(BareDeviceModel::class);
+        $this->expectExceptionMessage(StubBareDevice::class);
 
         $exchange->exchange($token);
     }
@@ -463,8 +463,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $builder->shouldReceive('find')
             ->andReturn(null);
 
-        InjectableDeviceStub::$injectedBuilder = $builder;
+        StubInjectableDevice::$injectedBuilder = $builder;
 
-        config()->set('authentication.device.model', InjectableDeviceStub::class);
+        config()->set('authentication.device.model', StubInjectableDevice::class);
     }
 }

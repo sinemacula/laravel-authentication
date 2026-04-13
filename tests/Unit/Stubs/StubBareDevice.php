@@ -10,9 +10,9 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 
 /**
  * Eloquent `Device` fixture that intentionally does NOT satisfy the explicit
- * `EloquentDevice` persistence boundary. Used by configuration validation
- * tests to prove refresh and last-seen flows fail fast for unsupported
- * Eloquent device implementations.
+ * `EloquentDevice` persistence boundary. Used by configuration validation tests
+ * to prove refresh and last-seen flows fail fast for unsupported Eloquent
+ * device implementations.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,7 +24,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  *
  * @internal
  */
-final class BareDeviceModel extends Model implements Device
+final class StubBareDevice extends Model implements Device
 {
     /** @var bool Indicates whether the IDs are auto-incrementing. */
     public $incrementing = false;
