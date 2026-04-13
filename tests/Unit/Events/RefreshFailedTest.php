@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Events\RefreshFailed;
  *
  * @internal
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
+#[\PHPUnit\Framework\Attributes\CoversClass(RefreshFailed::class)]
 final class RefreshFailedTest extends TestCase
 {
     /**

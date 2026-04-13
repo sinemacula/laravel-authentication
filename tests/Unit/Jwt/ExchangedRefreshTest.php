@@ -24,7 +24,7 @@ use Tests\Unit\Stubs\StubDevice;
  *
  * @internal
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
+#[\PHPUnit\Framework\Attributes\CoversClass(ExchangedRefresh::class)]
 final class ExchangedRefreshTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
