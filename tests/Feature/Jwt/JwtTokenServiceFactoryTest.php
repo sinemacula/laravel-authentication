@@ -10,6 +10,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
@@ -270,9 +271,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Per-guard integer JWT config overrides (e.g. `access_ttl_minutes`)
-     * are honoured over the package defaults. Pins the guard-level int
-     * return in `resolveJwtInteger()`.
+     * Per-guard integer JWT config overrides (e.g. `access_ttl_minutes`) are
+     * honoured over the package defaults. Pins the guard-level int return in
+     * `resolveJwtInteger()`.
      *
      * @return void
      *
@@ -295,9 +296,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * When the PSR-3 logger is not bound in the container, the factory
-     * returns null so the JWT service uses its NullLogger fallback. Pins
-     * the `!$this->app->bound(LoggerInterface::class)` return path.
+     * When the PSR-3 logger is not bound in the container, the factory returns
+     * null so the JWT service uses its NullLogger fallback. Pins the
+     * `!$this->app->bound(LoggerInterface::class)` return path.
      *
      * @return void
      *
@@ -305,22 +306,22 @@ final class JwtTokenServiceFactoryTest extends TestCase
      */
     public function testForGuardReturnsNullLoggerWhenNotBound(): void
     {
-        // Use a fresh Application container without any logger binding
-        // to exercise the resolveOptionalLogger() null branch.
+        // Use a fresh Application container without any logger binding to
+        // exercise the resolveOptionalLogger() null branch.
         $bareApp = \Mockery::mock(Application::class)->makePartial();
         $bareApp->shouldReceive('bound')
             ->with(LoggerInterface::class)
             ->andReturnFalse();
 
         /** @var \Illuminate\Config\Repository $config */
-        $config = $this->app?->make(\Illuminate\Config\Repository::class);
+        $config = $this->app?->make(ConfigRepository::class);
 
         $factory = new JwtTokenServiceFactory($bareApp, $config);
 
         $service = $factory->forGuard('staff');
 
         self::assertInstanceOf(
-            \Psr\Log\NullLogger::class,
+            NullLogger::class,
             $this->readServiceProperty($service, 'logger'),
         );
     }

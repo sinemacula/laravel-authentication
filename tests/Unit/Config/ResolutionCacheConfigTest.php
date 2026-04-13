@@ -116,8 +116,8 @@ final class ResolutionCacheConfigTest extends TestCase
     }
 
     /**
-     * `jwtIdentityTtlSeconds()` returns the default when the config
-     * repository throws.
+     * `jwtIdentityTtlSeconds()` returns the default when the config repository
+     * throws.
      *
      * @return void
      */
@@ -175,8 +175,8 @@ final class ResolutionCacheConfigTest extends TestCase
     }
 
     /**
-     * `jwtPrincipalTtlSeconds()` returns the default when the config
-     * repository throws.
+     * `jwtPrincipalTtlSeconds()` returns the default when the config repository
+     * throws.
      *
      * @return void
      */
@@ -191,8 +191,8 @@ final class ResolutionCacheConfigTest extends TestCase
     }
 
     /**
-     * Build a ResolutionCacheConfig backed by a real config repository
-     * seeded with the supplied values.
+     * Build a ResolutionCacheConfig backed by a real config repository seeded
+     * with the supplied values.
      *
      * @param  array<string, mixed>  $values
      * @return \SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig
@@ -205,8 +205,8 @@ final class ResolutionCacheConfigTest extends TestCase
     }
 
     /**
-     * Build a ResolutionCacheConfig whose config resolver throws on every
-     * call to exercise the catch branches.
+     * Build a ResolutionCacheConfig whose config resolver throws on every call
+     * to exercise the catch branches.
      *
      * @return \SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig
      */

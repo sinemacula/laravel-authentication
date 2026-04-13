@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Cache;
 
+use Illuminate\Contracts\Cache\Factory;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
@@ -12,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
 use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
+use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -561,9 +564,8 @@ final class ResolutionCacheTest extends TestCase
     }
 
     /**
-     * `rememberJwtIdentity()` falls back to the resolver when the cache
-     * store throws during a read. Pins the catch branch in
-     * `loadCachedIdentity()`.
+     * `rememberJwtIdentity()` falls back to the resolver when the cache store
+     * throws during a read. Pins the catch branch in `loadCachedIdentity()`.
      *
      * @return void
      *
@@ -574,17 +576,17 @@ final class ResolutionCacheTest extends TestCase
         $identity = $this->seedIdentity('store-throw-read@example.test');
 
         // Replace the cache store with one that throws on get().
-        $throwingStore = \Mockery::mock(\Illuminate\Contracts\Cache\Repository::class);
+        $throwingStore = \Mockery::mock(Repository::class);
         $throwingStore->shouldReceive('get')
             ->andThrow(new \RuntimeException('cache read failed'));
         $throwingStore->shouldReceive('put')
             ->andReturnTrue();
 
-        $throwingFactory = \Mockery::mock(\Illuminate\Contracts\Cache\Factory::class);
+        $throwingFactory = \Mockery::mock(Factory::class);
         $throwingFactory->shouldReceive('store')
             ->andReturn($throwingStore);
 
-        $config = app(\SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig::class);
+        $config = app(ResolutionCacheConfig::class);
 
         $cache = new StoreBackedResolutionCache($throwingFactory, $config);
 
@@ -605,8 +607,8 @@ final class ResolutionCacheTest extends TestCase
     }
 
     /**
-     * `forgetKey()` swallows exceptions from the cache store. Pins the
-     * catch branch in `StoreBackedResolutionCache::forgetKey()`.
+     * `forgetKey()` swallows exceptions from the cache store. Pins the catch
+     * branch in `StoreBackedResolutionCache::forgetKey()`.
      *
      * @return void
      *
@@ -614,28 +616,28 @@ final class ResolutionCacheTest extends TestCase
      */
     public function testForgetKeySwallowsCacheStoreExceptions(): void
     {
-        $throwingStore = \Mockery::mock(\Illuminate\Contracts\Cache\Repository::class);
+        $throwingStore = \Mockery::mock(Repository::class);
         $throwingStore->shouldReceive('forget')
             ->andThrow(new \RuntimeException('cache forget failed'));
 
-        $throwingFactory = \Mockery::mock(\Illuminate\Contracts\Cache\Factory::class);
+        $throwingFactory = \Mockery::mock(Factory::class);
         $throwingFactory->shouldReceive('store')
             ->andReturn($throwingStore);
 
-        $config = app(\SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig::class);
+        $config = app(ResolutionCacheConfig::class);
 
         $cache = new StoreBackedResolutionCache($throwingFactory, $config);
 
-        // forgetJwtIdentity calls forgetKey internally. No exception means
-        // the catch branch swallowed the error.
+        // forgetJwtIdentity calls forgetKey internally. No exception means the
+        // catch branch swallowed the error.
         $cache->forgetJwtIdentity('staff', StubPrincipal::class, 1);
 
         self::assertTrue(true, 'forgetKey swallowed the cache store exception.');
     }
 
     /**
-     * `storeResolvedIdentity()` swallows exceptions from the cache store
-     * write. Pins the catch branch in
+     * `storeResolvedIdentity()` swallows exceptions from the cache store write.
+     * Pins the catch branch in
      * `StoreBackedResolutionCache::storeResolvedIdentity()`.
      *
      * @return void
@@ -646,17 +648,17 @@ final class ResolutionCacheTest extends TestCase
     {
         $identity = $this->seedIdentity('store-throw-write@example.test');
 
-        $throwingStore = \Mockery::mock(\Illuminate\Contracts\Cache\Repository::class);
+        $throwingStore = \Mockery::mock(Repository::class);
         $throwingStore->shouldReceive('get')
             ->andReturnNull();
         $throwingStore->shouldReceive('put')
             ->andThrow(new \RuntimeException('cache write failed'));
 
-        $throwingFactory = \Mockery::mock(\Illuminate\Contracts\Cache\Factory::class);
+        $throwingFactory = \Mockery::mock(Factory::class);
         $throwingFactory->shouldReceive('store')
             ->andReturn($throwingStore);
 
-        $config = app(\SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig::class);
+        $config = app(ResolutionCacheConfig::class);
 
         $cache = new StoreBackedResolutionCache($throwingFactory, $config);
 
@@ -671,8 +673,8 @@ final class ResolutionCacheTest extends TestCase
     }
 
     /**
-     * `rememberJwtIdentity()` skips the cache lookup when the identity
-     * TTL is zero. Pins the `: null` else branch of the ternary in
+     * `rememberJwtIdentity()` skips the cache lookup when the identity TTL is
+     * zero. Pins the `: null` else branch of the ternary in
      * `rememberJwtIdentity()`.
      *
      * @return void
@@ -708,8 +710,8 @@ final class ResolutionCacheTest extends TestCase
     }
 
     /**
-     * `rememberJwtIdentity()` returns a cached hit when available. Pins
-     * the `$cached !== null` return path inside `rememberJwtIdentity()`.
+     * `rememberJwtIdentity()` returns a cached hit when available. Pins the
+     * `$cached !== null` return path inside `rememberJwtIdentity()`.
      *
      * @return void
      *
@@ -750,8 +752,8 @@ final class ResolutionCacheTest extends TestCase
     }
 
     /**
-     * `forgetIdentityForGuard()` removes the cache entry only for the
-     * specified guard. Pins the single-guard invalidation path in
+     * `forgetIdentityForGuard()` removes the cache entry only for the specified
+     * guard. Pins the single-guard invalidation path in
      * `ResolutionCacheInvalidator::forgetIdentityForGuard()`.
      *
      * @return void
@@ -825,8 +827,8 @@ final class ResolutionCacheTest extends TestCase
     }
 
     /**
-     * `forgetIdentityForGuard()` is a no-op when the guard is not a JWT
-     * guard. Pins the `$providerModelClass === null` early-return path.
+     * `forgetIdentityForGuard()` is a no-op when the guard is not a JWT guard.
+     * Pins the `$providerModelClass === null` early-return path.
      *
      * @return void
      *
@@ -922,8 +924,8 @@ final class ResolutionCacheTest extends TestCase
 
     /**
      * Guards with non-array config values are skipped by the invalidator
-     * without error. Pins the `!is_array($guardConfig)` continue branch
-     * in `matchingJwtGuardProviderModels()`.
+     * without error. Pins the `!is_array($guardConfig)` continue branch in
+     * `matchingJwtGuardProviderModels()`.
      *
      * @return void
      *

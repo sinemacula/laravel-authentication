@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Exceptions;
 
-use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
@@ -56,9 +55,9 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
     public function testValidateThrowsForNonexistentClass(): void
     {
         $this->expectException(InvalidDeviceModelConfiguration::class);
-        $this->expectExceptionMessage('App\\Models\\FakeDevice');
+        $this->expectExceptionMessage('App\Models\FakeDevice');
 
-        InvalidDeviceModelConfiguration::validate('App\\Models\\FakeDevice');
+        InvalidDeviceModelConfiguration::validate('App\Models\FakeDevice');
     }
 
     /**
@@ -74,8 +73,7 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
     }
 
     /**
-     * `validate()` throws for a Model that does not implement
-     * EloquentDevice.
+     * `validate()` throws for a Model that does not implement EloquentDevice.
      *
      * @return void
      */
@@ -94,9 +92,9 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testUnsupportedIncludesConfiguredClassInMessage(): void
     {
-        $exception = InvalidDeviceModelConfiguration::unsupported('App\\BadDevice');
+        $exception = InvalidDeviceModelConfiguration::unsupported('App\BadDevice');
 
-        self::assertStringContainsString('App\\BadDevice', $exception->getMessage());
+        self::assertStringContainsString('App\BadDevice', $exception->getMessage());
         self::assertStringContainsString(
             EloquentDevice::class,
             $exception->getMessage(),
@@ -104,8 +102,8 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
     }
 
     /**
-     * `unsupported()` substitutes `(empty string)` when the configured
-     * class is empty.
+     * `unsupported()` substitutes `(empty string)` when the configured class is
+     * empty.
      *
      * @return void
      */

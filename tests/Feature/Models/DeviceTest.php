@@ -219,8 +219,8 @@ final class DeviceTest extends TestCase
     /**
      * Asserts `getLastLoggedIn()` returns the Carbon instance when the
      * attribute holds a datetime, and null when the attribute is null.
-     * Exercises the `ActsAsDevice::getLastLoggedIn()` accessor through
-     * the shipped Device model.
+     * Exercises the `ActsAsDevice::getLastLoggedIn()` accessor through the
+     * shipped Device model.
      *
      * @return void
      */
@@ -242,8 +242,8 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts `getLastMfaVerification()` returns the Carbon instance when
-     * set, and null when the attribute is null. Exercises the
+     * Asserts `getLastMfaVerification()` returns the Carbon instance when set,
+     * and null when the attribute is null. Exercises the
      * `ActsAsDevice::getLastMfaVerification()` accessor.
      *
      * @return void
@@ -266,8 +266,8 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts `getLastMfaVerificationName()` returns the documented
-     * default column name. Exercises the
+     * Asserts `getLastMfaVerificationName()` returns the documented default
+     * column name. Exercises the
      * `ActsAsDevice::getLastMfaVerificationName()` accessor.
      *
      * @return void
@@ -280,8 +280,8 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts `getOperatingSystem()` casts the underlying attribute to
-     * string. Exercises the `ActsAsDevice::getOperatingSystem()` accessor.
+     * Asserts `getOperatingSystem()` casts the underlying attribute to string.
+     * Exercises the `ActsAsDevice::getOperatingSystem()` accessor.
      *
      * @return void
      */
@@ -296,9 +296,8 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts `getOperatingSystemName()` returns the documented default
-     * column name. Exercises the
-     * `ActsAsDevice::getOperatingSystemName()` accessor.
+     * Asserts `getOperatingSystemName()` returns the documented default column
+     * name. Exercises the `ActsAsDevice::getOperatingSystemName()` accessor.
      *
      * @return void
      */

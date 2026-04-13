@@ -109,10 +109,12 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `jwt()` throws when the default guard resolves to an empty string.
-     * Pins the `$guardName === ''` early-throw in `AuthManager::jwt()`.
+     * `jwt()` throws when the default guard resolves to an empty string. Pins
+     * the `$guardName === ''` early-throw in `AuthManager::jwt()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testJwtThrowsWhenDefaultGuardIsEmpty(): void
     {
