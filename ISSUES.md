@@ -12,15 +12,6 @@
    `readServiceProperty` uses reflection to read private
    properties of `JwtTokenService` in 6 of 10 test methods.
 
-### auth-jwt-memoization: Auth::jwt() not memoized (Low)
-
-`AuthManager::jwt(?string $guard)` calls
-`JwtTokenServiceFactory::forGuard()` which constructs a new
-`JwtTokenService` on every invocation. Guards hold their own
-instance so the hot path (verification) is unaffected, but
-repeated issuance calls in a single request pay the
-construction cost each time. Consider adding a keyed cache
-in the factory.
 
 ## PR #7 - Formalize explicit Eloquent device boundary
 

@@ -327,6 +327,37 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * Repeated calls to `forGuard()` with the same guard name return the
+     * same memoized instance rather than constructing a new service.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForGuardReturnsMemoizedInstanceOnRepeatedCalls(): void
+    {
+        $first  = PackageAuth::jwt('staff');
+        $second = PackageAuth::jwt('staff');
+
+        self::assertSame($first, $second);
+    }
+
+    /**
+     * Different guard names resolve distinct memoized instances.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForGuardReturnsDifferentInstancesForDifferentGuards(): void
+    {
+        $staff    = PackageAuth::jwt('staff');
+        $customer = PackageAuth::jwt('customer');
+
+        self::assertNotSame($staff, $customer);
+    }
+
+    /**
      * Register the package service provider against the Testbench application.
      *
      * @param  mixed  $app
