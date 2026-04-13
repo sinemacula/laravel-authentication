@@ -56,6 +56,29 @@ final readonly class ResolutionCacheInvalidator
     }
 
     /**
+     * Forget a JWT bearer identity cache entry for a single guard.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $guardName
+     * @param  mixed  $identifier
+     * @return void
+     */
+    public function forgetIdentityForGuard(Identity&Model $identity, string $guardName, mixed $identifier = null): void
+    {
+        $providerModelClass = $this->providerModelClassForJwtGuard($guardName, $identity);
+
+        if ($providerModelClass === null) {
+            return;
+        }
+
+        $this->cache->forgetJwtIdentity(
+            $guardName,
+            $providerModelClass,
+            $identifier ?? $identity->getAuthIdentifier(),
+        );
+    }
+
+    /**
      * Resolve the JWT guards whose model providers can return this identity.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -102,7 +125,7 @@ final readonly class ResolutionCacheInvalidator
     private function providerModelClassForJwtGuard(string $guardName, Identity&Model $identity): ?string
     {
         $guardConfig  = $this->config()->array('auth.guards.' . $guardName, []);
-        $driver       = $guardConfig['driver'] ?? null;
+        $driver       = $guardConfig['driver']   ?? null;
         $providerName = $guardConfig['provider'] ?? null;
 
         if ($driver !== 'jwt' || !is_string($providerName) || $providerName === '') {
@@ -111,35 +134,12 @@ final readonly class ResolutionCacheInvalidator
 
         $providerConfig     = $this->config()->array('auth.providers.' . $providerName, []);
         $providerDriver     = $providerConfig['driver'] ?? null;
-        $providerModelClass = $providerConfig['model'] ?? null;
+        $providerModelClass = $providerConfig['model']  ?? null;
 
         if ($providerDriver !== 'model' || !is_string($providerModelClass) || $providerModelClass === '') {
             return null;
         }
 
         return is_a($identity, $providerModelClass) ? $providerModelClass : null;
-    }
-
-    /**
-     * Forget a JWT bearer identity cache entry for a single guard.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  string  $guardName
-     * @param  mixed  $identifier
-     * @return void
-     */
-    public function forgetIdentityForGuard(Identity&Model $identity, string $guardName, mixed $identifier = null): void
-    {
-        $providerModelClass = $this->providerModelClassForJwtGuard($guardName, $identity);
-
-        if ($providerModelClass === null) {
-            return;
-        }
-
-        $this->cache->forgetJwtIdentity(
-            $guardName,
-            $providerModelClass,
-            $identifier ?? $identity->getAuthIdentifier(),
-        );
     }
 }

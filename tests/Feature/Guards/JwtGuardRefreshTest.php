@@ -1030,6 +1030,134 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
+     * A failed refresh dispatches the standard Laravel `Failed` event in
+     * addition to the package-specific `RefreshFailed`. Mutation guard: pins
+     * the `$this->fireFailedEvent(null, [])` call in `refresh()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRefreshDispatchesFailedEventOnFailure(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $failedEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
+                if ($event instanceof Failed) {
+                    $failedEvent = $event;
+                }
+            });
+
+        $guard->refresh('not-a-jwt');
+
+        self::assertInstanceOf(Failed::class, $failedEvent);
+        self::assertSame(self::GUARD_NAME, $failedEvent->guard);
+        self::assertNull($failedEvent->user);
+    }
+
+    /**
+     * `setPrincipalResolver()` must update both the parent guard and the
+     * exchange resolver. This test asserts the parent (bearer) resolver is
+     * also updated by resolving a bearer token after rebinding. Mutation
+     * guard: pins the `parent::setPrincipalResolver()` call in
+     * `JwtGuard::setPrincipalResolver()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testSetPrincipalResolverUpdatesBearerResolutionPath(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $replacement = \Mockery::mock(PrincipalResolver::class);
+        $replacement->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        // The original resolver must NOT be called.
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        $guard->setPrincipalResolver($replacement);
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame($principal, $guard->principal());
+    }
+
+    /**
+     * Fail-closed: when the resolver returns `null` for a hinted `pid` during
+     * refresh, `matchesPidHint` must return `false` so the exchange rejects
+     * the token. Mutation guard: pins the `$resolved === null` early-return
+     * `false` in `RefreshTokenExchange::matchesPidHint()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRefreshRejectsTokenWhenNullPrincipalResolvesForPidHint(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 25]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '25',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturnNull();
+
+        $token = $this->encodeRefreshToken([
+            'pid' => 'p-hinted',
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+            );
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
      * Allow the standard `Attempting` + `Failed` events that every failed
      * `JwtGuard::refresh()` call now dispatches (alongside the
      * package-specific `RefreshFailed` event). Tests that assert a specific

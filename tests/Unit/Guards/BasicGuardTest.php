@@ -115,6 +115,41 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
+     * A request with an empty-string username and a non-empty password returns
+     * null. Mutation guard: pins each arm of the `||` guard in
+     * `credentialsFromRequest()` independently - the empty-username branch
+     * must short-circuit even when the password is present.
+     *
+     * @return void
+     */
+    public function testUserReturnsNullWhenUsernameIsEmptyString(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest('', 'secret'));
+
+        $this->provider->shouldNotReceive('retrieveByCredentials');
+        $this->events->shouldNotReceive('dispatch');
+
+        self::assertNull($guard->user());
+    }
+
+    /**
+     * A request with a non-empty username and an empty-string password returns
+     * null. Mutation guard: pins the `$password === ''` arm of the `||`
+     * guard in `credentialsFromRequest()`.
+     *
+     * @return void
+     */
+    public function testUserReturnsNullWhenPasswordIsEmptyString(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, ''));
+
+        $this->provider->shouldNotReceive('retrieveByCredentials');
+        $this->events->shouldNotReceive('dispatch');
+
+        self::assertNull($guard->user());
+    }
+
+    /**
      * When `retrieveByCredentials()` returns null, `user()` fires `Attempting`
      * and `Failed` and returns null.
      *
@@ -667,6 +702,97 @@ final class BasicGuardTest extends TestCase
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
         self::assertSame($identity, $guard->user());
+    }
+
+    /**
+     * `resolveCredentials()` calls `Timebox::returnEarly()` when the
+     * credentials validate and a principal resolves, so the timing budget is
+     * consumed on the success path. Mutation guard: pins the
+     * `$timebox->returnEarly()` call in `resolveCredentials()`.
+     *
+     * @return void
+     */
+    public function testUserCallsReturnEarlyOnSuccessfulResolution(): void
+    {
+        $returnEarlyCalled = false;
+
+        $timeboxSpy = new class extends Timebox {
+            /** @var bool Tracks whether returnEarly() was called. */
+            public bool $returnEarlyCalled = false;
+
+            /**
+             * @return static
+             */
+            public function returnEarly(): static
+            {
+                $this->returnEarlyCalled = true;
+
+                return parent::returnEarly();
+            }
+        };
+
+        $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('call')
+            ->once()
+            ->andReturnUsing(static function (callable $callback) use ($timeboxSpy, &$returnEarlyCalled): mixed {
+                $result            = $callback($timeboxSpy);
+                $returnEarlyCalled = $timeboxSpy->returnEarlyCalled;
+
+                return $result;
+            });
+
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        self::assertSame($identity, $guard->user());
+        self::assertTrue($returnEarlyCalled);
+    }
+
+    /**
+     * The `Attempting` event fires with `remember = false` so stateless guards
+     * never advertise remember-me capability. Mutation guard: pins the literal
+     * `false` in `fireAttemptingEvent()`.
+     *
+     * @return void
+     */
+    public function testAttemptingEventCarriesFalseRememberParameter(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(self::ALICE_EMAIL, 'secret'));
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturnNull();
+
+        $attemptingEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$attemptingEvent): void {
+                if ($event instanceof Attempting) {
+                    $attemptingEvent = $event;
+                }
+            });
+
+        $guard->user();
+
+        static::assertInstanceOf(Attempting::class, $attemptingEvent);
+        static::assertFalse($attemptingEvent->remember);
     }
 
     /**

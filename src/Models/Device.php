@@ -70,23 +70,6 @@ class Device extends Model implements EloquentDevice
     }
 
     /**
-     * Read the configured device table, falling back to `'devices'` when the
-     * key is absent or the Config facade is not yet bootstrapped.
-     *
-     * @return string
-     */
-    private function resolveConfiguredTable(): string
-    {
-        try {
-            $table = Config::string('authentication.device.table', 'devices');
-        } catch (\Throwable) {
-            return 'devices';
-        }
-
-        return $table === '' ? 'devices' : $table;
-    }
-
-    /**
      * Polymorphic relation to the owning authenticatable identity.
      *
      * @formatter:off
@@ -110,5 +93,22 @@ class Device extends Model implements EloquentDevice
     public function uniqueIds(): array
     {
         return ['id'];
+    }
+
+    /**
+     * Read the configured device table, falling back to `'devices'` when the
+     * key is absent or the Config facade is not yet bootstrapped.
+     *
+     * @return string
+     */
+    private function resolveConfiguredTable(): string
+    {
+        try {
+            $table = Config::string('authentication.device.table', 'devices');
+        } catch (\Throwable) {
+            return 'devices';
+        }
+
+        return $table === '' ? 'devices' : $table;
     }
 }

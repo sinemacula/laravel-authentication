@@ -187,21 +187,6 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Bind an identity to the guard and fire the standard Laravel
-     * `Authenticated` event. Shared entry point for `setUser()` and the
-     * contextual `login()` path.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return void
-     */
-    protected function setIdentity(Identity $identity): void
-    {
-        $this->identity = $identity;
-
-        $this->events->dispatch(new Authenticated($this->name, $identity));
-    }
-
-    /**
      * Attempt to authenticate a request against the identity provider,
      * optionally pinning a specific principal and device on success.
      *
@@ -237,105 +222,6 @@ abstract class AbstractGuard implements ContextualGuard
 
             return true;
         }, $this->timeboxMicroseconds());
-    }
-
-    /**
-     * Resolve the (identity, principal) pair for an `attempt()` call, or `null`
-     * if any check fails. Stores the retrieved user on
-     * `$this->lastRetrievedUser` so the caller can attribute the `Failed` event
-     * without re-fetching.
-     *
-     * @formatter:off
-     *
-     * @param  array<string, mixed>  $credentials
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
-     *
-     * @formatter:on
-     */
-    private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal): ?array
-    {
-        $this->lastRetrievedUser = $this->provider->retrieveByCredentials($credentials);
-        $user                    = $this->lastRetrievedUser;
-
-        // `hasValidCredentials` is called unconditionally (even on a null user)
-        // so elapsed time is uniform regardless of resolution; the trait
-        // handles the null case internally.
-        $credentialsAccepted = $this->hasValidCredentials($user, $credentials)
-            && $user instanceof Identity
-            && $this->isIdentityActive($user);
-
-        if (!$credentialsAccepted) {
-            return null;
-        }
-
-        /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        $resolved = $principal ?? $this->safeResolvePrincipal($user);
-
-        return $resolved !== null && $resolved->isActive() ? [$user, $resolved] : null;
-    }
-
-    /**
-     * Whether the identity opts into activation checking and, if it does,
-     * whether it currently reports active. Returns `true` for identities that
-     * do not implement `CanBeActive`.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return bool
-     */
-    protected function isIdentityActive(Identity $identity): bool
-    {
-        if (!$identity instanceof CanBeActive) {
-            return true;
-        }
-
-        return $identity->isActive();
-    }
-
-    /**
-     * Resolve a principal for the identity, catching
-     * `UnresolvableIdentityException` and returning `null` so the calling auth
-     * path surfaces a `Failed` event + 401 rather than propagating a 500.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    protected function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
-    {
-        try {
-            return $hint === null
-                ? $this->resolver->resolve($identity)
-                : $this->resolver->resolve($identity, $hint);
-        } catch (UnresolvableIdentityException) {
-            return null;
-        }
-    }
-
-    /**
-     * Internal bind: clear prior state, dispatch `Login`, then set the
-     * contextual triple (which dispatches `Authenticated`, `PrincipalAssigned`,
-     * and `DeviceAuthenticated` in order).
-     *
-     * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @return void
-     */
-    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
-    {
-        $this->clearContextualState();
-
-        $this->events->dispatch(new Login($this->name, $identity, false));
-
-        $this->setIdentity($identity);
-        $this->setPrincipal($principal);
-
-        if ($device !== null) {
-            $this->setDevice($device);
-        }
     }
 
     /**
@@ -433,5 +319,119 @@ abstract class AbstractGuard implements ContextualGuard
         $this->resolver = $resolver;
 
         return $this;
+    }
+
+    /**
+     * Bind an identity to the guard and fire the standard Laravel
+     * `Authenticated` event. Shared entry point for `setUser()` and the
+     * contextual `login()` path.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return void
+     */
+    protected function setIdentity(Identity $identity): void
+    {
+        $this->identity = $identity;
+
+        $this->events->dispatch(new Authenticated($this->name, $identity));
+    }
+
+    /**
+     * Whether the identity opts into activation checking and, if it does,
+     * whether it currently reports active. Returns `true` for identities that
+     * do not implement `CanBeActive`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return bool
+     */
+    protected function isIdentityActive(Identity $identity): bool
+    {
+        if (!$identity instanceof CanBeActive) {
+            return true;
+        }
+
+        return $identity->isActive();
+    }
+
+    /**
+     * Resolve a principal for the identity, catching
+     * `UnresolvableIdentityException` and returning `null` so the calling auth
+     * path surfaces a `Failed` event + 401 rather than propagating a 500.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    protected function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
+    {
+        try {
+            return $hint === null
+                ? $this->resolver->resolve($identity)
+                : $this->resolver->resolve($identity, $hint);
+        } catch (UnresolvableIdentityException) {
+            return null;
+        }
+    }
+
+    /**
+     * Internal bind: clear prior state, dispatch `Login`, then set the
+     * contextual triple (which dispatches `Authenticated`, `PrincipalAssigned`,
+     * and `DeviceAuthenticated` in order).
+     *
+     * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return void
+     */
+    protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
+    {
+        $this->clearContextualState();
+
+        $this->events->dispatch(new Login($this->name, $identity, false));
+
+        $this->setIdentity($identity);
+        $this->setPrincipal($principal);
+
+        if ($device !== null) {
+            $this->setDevice($device);
+        }
+    }
+
+    /**
+     * Resolve the (identity, principal) pair for an `attempt()` call, or `null`
+     * if any check fails. Stores the retrieved user on
+     * `$this->lastRetrievedUser` so the caller can attribute the `Failed` event
+     * without re-fetching.
+     *
+     * @formatter:off
+     *
+     * @param  array<string, mixed>  $credentials
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
+     *
+     * @formatter:on
+     */
+    private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal): ?array
+    {
+        $this->lastRetrievedUser = $this->provider->retrieveByCredentials($credentials);
+        $user                    = $this->lastRetrievedUser;
+
+        // `hasValidCredentials` is called unconditionally (even on a null user)
+        // so elapsed time is uniform regardless of resolution; the trait
+        // handles the null case internally.
+        $credentialsAccepted = $this->hasValidCredentials($user, $credentials)
+            && $user instanceof Identity
+            && $this->isIdentityActive($user);
+
+        if (!$credentialsAccepted) {
+            return null;
+        }
+
+        /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
+        $resolved = $principal ?? $this->safeResolvePrincipal($user);
+
+        return $resolved !== null && $resolved->isActive() ? [$user, $resolved] : null;
     }
 }
