@@ -4,13 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
-use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+use Tests\Unit\Stubs\Stub3dPrincipal;
+use Tests\Unit\Stubs\Stub3dPrincipalWithOwnerRelation;
+use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Unit tests for the ActsAsPrincipal trait.
@@ -23,7 +23,6 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class ActsAsPrincipalTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -35,12 +34,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetPrincipalIdentifierReturnsIdAttribute(): void
     {
-        $principal = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $principal = new Stub3dPrincipal;
         $principal->setAttribute('id', 42);
 
         self::assertSame(42, $principal->getPrincipalIdentifier());
@@ -55,12 +49,7 @@ final class ActsAsPrincipalTest extends TestCase
     {
         $identity = \Mockery::mock(Identity::class);
 
-        $principal = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $principal = new Stub3dPrincipal;
         $principal->setRelation('identity', $identity);
 
         self::assertSame($identity, $principal->getIdentity());
@@ -74,12 +63,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetIdentityReturnsSelfWhen2dIdentity(): void
     {
-        $principal = new class extends Model implements Identity {
-            use ActsAsPrincipal, Authenticatable;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $principal = new StubPrincipal;
 
         self::assertSame($principal, $principal->getIdentity());
     }
@@ -91,12 +75,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetIdentityThrowsLogicExceptionWhenRelationMissing(): void
     {
-        $principal = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $principal = new Stub3dPrincipal;
         $principal->setRelation('identity', null);
 
         $this->expectException(\LogicException::class);
@@ -115,22 +94,7 @@ final class ActsAsPrincipalTest extends TestCase
     {
         $identity = \Mockery::mock(Identity::class);
 
-        $principal = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-
-            /**
-             * Override the identity relation name.
-             *
-             * @return string
-             */
-            protected function getIdentityRelationName(): string
-            {
-                return 'owner';
-            }
-        };
+        $principal = new Stub3dPrincipalWithOwnerRelation;
         $principal->setRelation('owner', $identity);
 
         self::assertSame($identity, $principal->getIdentity());
@@ -145,12 +109,7 @@ final class ActsAsPrincipalTest extends TestCase
     {
         $tenant = \Mockery::mock(Tenant::class);
 
-        $principal = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $principal = new Stub3dPrincipal;
         $principal->setRelation('tenant', $tenant);
 
         self::assertSame($tenant, $principal->getTenant());
@@ -163,12 +122,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetTenantReturnsNullWhenAbsent(): void
     {
-        $principal = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $principal = new Stub3dPrincipal;
         $principal->setRelation('tenant', null);
 
         self::assertNull($principal->getTenant());
@@ -181,22 +135,10 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testIsActiveCastsAttributeToBool(): void
     {
-        $active = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $active = new Stub3dPrincipal;
         $active->setAttribute('is_active', 1);
 
-        $inactive = new class extends Model {
-            use ActsAsPrincipal;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $inactive = new Stub3dPrincipal;
         $inactive->setAttribute('is_active', 0);
 
         self::assertTrue($active->isActive());
