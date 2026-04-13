@@ -62,6 +62,7 @@ final class RefreshFailedTest extends TestCase
         self::assertSame('authenticatable_missing', RefreshFailureReason::AUTHENTICATABLE_MISSING->value);
         self::assertSame('identity_inactive', RefreshFailureReason::IDENTITY_INACTIVE->value);
         self::assertSame('principal_unresolved', RefreshFailureReason::PRINCIPAL_UNRESOLVED->value);
+        self::assertSame('principal_mismatch', RefreshFailureReason::PRINCIPAL_MISMATCH->value);
         self::assertSame('principal_inactive', RefreshFailureReason::PRINCIPAL_INACTIVE->value);
     }
 }
