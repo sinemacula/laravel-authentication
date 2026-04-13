@@ -65,6 +65,8 @@ final class ResolutionCacheTest extends TestCase
      * guard's warm hit does not satisfy another guard's first read.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testBearerIdentityCacheIsScopedPerGuard(): void
     {
@@ -123,6 +125,8 @@ final class ResolutionCacheTest extends TestCase
      * identity so subsequent reads fall back to the live provider.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityRemovesCachedEntriesForMatchingJwtGuards(): void
     {
@@ -192,6 +196,8 @@ final class ResolutionCacheTest extends TestCase
      * `$clone->unsetRelations()` call inside `cloneIdentity()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testCachedIdentityCloneHasNoRelations(): void
     {
@@ -239,6 +245,8 @@ final class ResolutionCacheTest extends TestCase
      * making the cleanup the only operation that removes the corrupted entry.
      *
      * @return void
+     *
+     * @throws \Psr\SimpleCache\InvalidArgumentException
      */
     public function testCacheCleanupOnTypeMismatch(): void
     {
@@ -289,6 +297,8 @@ final class ResolutionCacheTest extends TestCase
      * $identity->getAuthIdentifier()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityUsesExplicitIdentifierOverDefault(): void
     {
@@ -356,10 +366,12 @@ final class ResolutionCacheTest extends TestCase
 
     /**
      * A non-jwt guard (e.g. basic) is skipped by the invalidator so its cache
-     * entries are never touched by `forgetIdentity()`. Mutation guard: pins
-     * the `$driver !== 'jwt'` arm in `providerModelClassForJwtGuard()`.
+     * entries are never touched by `forgetIdentity()`. Mutation guard: pins the
+     * `$driver !== 'jwt'` arm in `providerModelClassForJwtGuard()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Psr\SimpleCache\InvalidArgumentException
      */
     public function testForgetIdentitySkipsNonJwtGuards(): void
     {
@@ -370,9 +382,9 @@ final class ResolutionCacheTest extends TestCase
         self::assertInstanceOf(StoreBackedResolutionCache::class, $cache);
         self::assertInstanceOf(ResolutionCacheInvalidator::class, $invalidator);
 
-        // Warm the cache under the "cli" (basic) guard's namespace by
-        // writing directly - basic guards don't use the cache, but this
-        // verifies the invalidator never touches non-jwt entries.
+        // Warm the cache under the "cli" (basic) guard's namespace by writing
+        // directly - basic guards don't use the cache, but this verifies the
+        // invalidator never touches non-jwt entries.
         $providerSegment = str_replace('\\', '.', ltrim(StubPrincipal::class, '\\'));
         $cliKey          = sprintf(
             'sm.auth.resolution.v1.jwt.cli.identity.%s.%s',
@@ -385,17 +397,19 @@ final class ResolutionCacheTest extends TestCase
         // Invalidate all JWT entries for this identity.
         $invalidator->forgetIdentity($identity);
 
-        // The cli entry must still be there because the invalidator skipped
-        // the non-jwt "cli" guard.
+        // The cli entry must still be there because the invalidator skipped the
+        // non-jwt "cli" guard.
         self::assertNotNull(Cache::store()->get($cliKey));
     }
 
     /**
-     * A guard with a non-model provider driver (e.g. `database`) is skipped
-     * by the invalidator. Mutation guard: pins the `$providerDriver !==
-     * 'model'` arm in `providerModelClassForJwtGuard()`.
+     * A guard with a non-model provider driver (e.g. `database`) is skipped by
+     * the invalidator. Mutation guard: pins the `$providerDriver !== 'model'`
+     * arm in `providerModelClassForJwtGuard()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Psr\SimpleCache\InvalidArgumentException
      */
     public function testForgetIdentitySkipsNonModelProviderDriverGuards(): void
     {
@@ -439,6 +453,8 @@ final class ResolutionCacheTest extends TestCase
      * $providerName === ''` arms in `providerModelClassForJwtGuard()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentitySkipsGuardWithMissingOrEmptyProvider(): void
     {
@@ -465,10 +481,12 @@ final class ResolutionCacheTest extends TestCase
 
     /**
      * A guard whose provider model is an empty string is skipped by the
-     * invalidator. Mutation guard: pins the `$providerModelClass === ''` arm
-     * in `providerModelClassForJwtGuard()`.
+     * invalidator. Mutation guard: pins the `$providerModelClass === ''` arm in
+     * `providerModelClassForJwtGuard()`.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentitySkipsGuardWithEmptyModelClass(): void
     {
