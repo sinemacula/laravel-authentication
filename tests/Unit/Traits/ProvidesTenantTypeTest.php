@@ -4,9 +4,8 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
-use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
+use Tests\Unit\Stubs\StubTenant;
 use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestBackedType;
 use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestUnitType;
 
@@ -31,13 +30,7 @@ final class ProvidesTenantTypeTest extends TestCase
      */
     public function testGetTypeReturnsBackedEnumValue(): void
     {
-        $tenant = new class extends Model {
-            use ProvidesTenantType;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $tenant = new StubTenant;
         $tenant->setRawAttributes([]);
         $tenant->setAttribute('type', ProvidesTenantTypeTestBackedType::STAFF);
 
@@ -52,13 +45,7 @@ final class ProvidesTenantTypeTest extends TestCase
      */
     public function testGetTypeReturnsUnitEnumName(): void
     {
-        $tenant = new class extends Model {
-            use ProvidesTenantType;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $tenant = new StubTenant;
         $tenant->setRawAttributes([]);
         $tenant->setAttribute('type', ProvidesTenantTypeTestUnitType::CUSTOMER);
 
@@ -72,13 +59,7 @@ final class ProvidesTenantTypeTest extends TestCase
      */
     public function testGetTypeCastsStringToString(): void
     {
-        $tenant = new class extends Model {
-            use ProvidesTenantType;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $tenant = new StubTenant;
         $tenant->setRawAttributes(['type' => 'customer']);
 
         self::assertSame('customer', $tenant->getType());
@@ -92,12 +73,7 @@ final class ProvidesTenantTypeTest extends TestCase
      */
     public function testGetTypeCastsObjectViaStringConversion(): void
     {
-        $tenant = new class extends Model {
-            use ProvidesTenantType;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $tenant = new StubTenant;
 
         $value = new class implements \Stringable {
             /**
@@ -126,13 +102,7 @@ final class ProvidesTenantTypeTest extends TestCase
      */
     public function testGetTypeCastsNullToEmptyString(): void
     {
-        $tenant = new class extends Model {
-            use ProvidesTenantType;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $tenant = new StubTenant;
         $tenant->setRawAttributes(['type' => null]);
 
         self::assertSame('', $tenant->getType());
@@ -146,13 +116,7 @@ final class ProvidesTenantTypeTest extends TestCase
      */
     public function testGetTypeCastsIntegerToString(): void
     {
-        $tenant = new class extends Model {
-            use ProvidesTenantType;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $tenant = new StubTenant;
         $tenant->setRawAttributes(['type' => 1]);
 
         self::assertSame('1', $tenant->getType());

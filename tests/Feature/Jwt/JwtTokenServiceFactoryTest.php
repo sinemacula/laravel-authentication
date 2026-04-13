@@ -56,7 +56,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testAuthFacadeJwtUsesDefaultGuardConfig(): void
     {
@@ -75,7 +76,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testAuthManagerJwtUsesNamedGuardSecretAndAudienceOverride(): void
     {
@@ -114,7 +116,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testAuthFacadeJwtFallsBackToPackageDefaultsWhenGuardHasNoJwtBlock(): void
     {
@@ -133,7 +136,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testAuthFacadeJwtHonoursGuardKidOverride(): void
     {
@@ -156,7 +160,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testAuthFacadeJwtUsesBoundLoggerWhenAvailable(): void
     {
@@ -277,7 +282,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testForGuardHonoursPerGuardIntegerOverride(): void
     {
@@ -324,6 +330,37 @@ final class JwtTokenServiceFactoryTest extends TestCase
             NullLogger::class,
             $this->readServiceProperty($service, 'logger'),
         );
+    }
+
+    /**
+     * Repeated calls to `forGuard()` with the same guard name return the same
+     * memoized instance rather than constructing a new service.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForGuardReturnsMemoizedInstanceOnRepeatedCalls(): void
+    {
+        $first  = PackageAuth::jwt('staff');
+        $second = PackageAuth::jwt('staff');
+
+        self::assertSame($first, $second);
+    }
+
+    /**
+     * Different guard names resolve distinct memoized instances.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testForGuardReturnsDifferentInstancesForDifferentGuards(): void
+    {
+        $staff    = PackageAuth::jwt('staff');
+        $customer = PackageAuth::jwt('customer');
+
+        self::assertNotSame($staff, $customer);
     }
 
     /**

@@ -4,14 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
-use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+use Tests\Unit\Stubs\StubIdentity;
 
 /**
  * Unit tests for the package Authenticatable trait.
  *
- * Exercises the public trait surface through anonymous Eloquent models without
+ * Exercises the public trait surface through a named Eloquent stub without
  * relying on explicit PHPUnit coverage metadata for traits.
  *
  * @internal
@@ -28,9 +27,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetRememberTokenNameIsEmptyString(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-        };
+        $consumer = new StubIdentity;
 
         self::assertSame('', $consumer->getRememberTokenName());
     }
@@ -42,9 +39,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetAuthIdentifierNameDelegatesToLaravelTrait(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-        };
+        $consumer = new StubIdentity;
 
         self::assertSame('id', $consumer->getAuthIdentifierName());
     }
@@ -56,9 +51,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetAuthPasswordNameDelegatesToLaravelTrait(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-        };
+        $consumer = new StubIdentity;
 
         self::assertSame('password', $consumer->getAuthPasswordName());
     }
@@ -72,13 +65,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetRememberTokenIsNull(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $consumer = new StubIdentity;
         $consumer->setRawAttributes(['remember_token' => 'should-be-ignored']);
 
         self::assertNull($consumer->getRememberToken());
@@ -92,12 +79,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testSetRememberTokenIsNoOp(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $consumer = new StubIdentity;
 
         $consumer->setRememberToken('should-not-be-stored');
 

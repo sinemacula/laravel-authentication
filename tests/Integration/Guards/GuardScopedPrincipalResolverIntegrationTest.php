@@ -90,7 +90,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testGuardsResolveDifferentPrincipalsWithoutCrossContamination(): void
     {
@@ -140,7 +141,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testDefaultGuardSwitchesFacadeContextBetweenGuardLocalResolvers(): void
     {

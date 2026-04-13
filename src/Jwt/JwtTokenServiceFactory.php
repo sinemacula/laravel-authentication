@@ -18,8 +18,11 @@ use Psr\Log\LoggerInterface;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class JwtTokenServiceFactory
+final class JwtTokenServiceFactory
 {
+    /** @var array<string, \SineMacula\Laravel\Authentication\Jwt\JwtTokenService> Memoized services keyed by guard name. */
+    private array $resolved = [];
+
     /**
      * Constructor.
      *
@@ -29,10 +32,10 @@ final readonly class JwtTokenServiceFactory
     public function __construct(
 
         /** @var \Illuminate\Foundation\Application */
-        private Application $app,
+        private readonly Application $app,
 
         /** @var \Illuminate\Config\Repository */
-        private ConfigRepository $config,
+        private readonly ConfigRepository $config,
 
     ) {}
 
@@ -52,6 +55,21 @@ final readonly class JwtTokenServiceFactory
             throw new \InvalidArgumentException('JWT token service resolution requires a non-empty guard name.');
         }
 
+        return $this->resolved[$guard] ??= $this->buildForGuard($guard);
+    }
+
+    /**
+     * Construct a fresh `JwtTokenService` for the named guard.
+     *
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @throws \InvalidArgumentException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private function buildForGuard(string $guard): JwtTokenService
+    {
         $guardConfig = $this->guardConfig($guard);
 
         $guardJwtConfig = is_array($guardConfig['jwt'] ?? null) ? $guardConfig['jwt'] : [];
