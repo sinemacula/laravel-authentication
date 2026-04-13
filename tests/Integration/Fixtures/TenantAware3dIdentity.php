@@ -7,7 +7,6 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
-use Illuminate\Support\Facades\DB;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -95,7 +94,7 @@ final class TenantAware3dIdentity extends Model implements HasPrincipals, Identi
      */
     private function queryTenantAwarePrincipal(\Closure $scope): ?Principal
     {
-        $query = DB::table('tenant_aware_3d_principals')
+        $query = $this->getConnection()->table('tenant_aware_3d_principals')
             ->join(
                 'tenant_aware_3d_tenants',
                 'tenant_aware_3d_tenants.id',

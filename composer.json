@@ -76,6 +76,7 @@
             "@php vendor/bin/phpbench run benchmarks --config=phpbench.json --progress=plain --report=aggregate"
         ],
         "bench:ci": [
+            "@php -r \"is_dir('build') || mkdir('build', 0777, true);\"",
             "@php vendor/bin/phpbench run benchmarks --config=phpbench.json --progress=plain --report=aggregate --dump-file=build/phpbench.xml"
         ],
         "test": [
