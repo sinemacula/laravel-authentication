@@ -21,7 +21,6 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  *
  * @internal
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class ActsAsDeviceTest extends TestCase
 {
     /** @var \Carbon\Carbon Frozen clock reference shared across timestamp assertions. */
