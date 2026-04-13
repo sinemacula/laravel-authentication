@@ -8,11 +8,13 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Config\Repository;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
@@ -40,10 +42,10 @@ use Tests\Unit\Stubs\StubIdentity;
 final class AuthServiceProviderGuardConfigTest extends TestCase
 {
     /**
-     * A per-guard `identifier_field` override on the basic guard's config
-     * block wins over the package-wide default, so consumers can register
-     * multiple basic guards that look up credentials by different columns
-     * (e.g. `email` for web users and `key_id` for tenant API keys).
+     * A per-guard `identifier_field` override on the basic guard's config block
+     * wins over the package-wide default, so consumers can register multiple
+     * basic guards that look up credentials by different columns (e.g. `email`
+     * for web users and `key_id` for tenant API keys).
      *
      * Verified by triggering the guard's user-resolution path and inspecting
      * the credentials key in the dispatched `Attempting` event.
@@ -66,10 +68,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * With no per-guard `identifier_field` override, `createBasicGuard`
-     * falls back to the package-wide
-     * `authentication.credentials.identifier_field` default - backwards
-     * compatible with single-guard consumers.
+     * With no per-guard `identifier_field` override, `createBasicGuard` falls
+     * back to the package-wide `authentication.credentials.identifier_field`
+     * default - backwards compatible with single-guard consumers.
      *
      * @return void
      *
@@ -91,9 +92,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * A per-guard `principal_resolver` override on the basic guard's config
      * block wins over the app-wide `PrincipalResolver::class` binding.
      *
-     * Verified by completing authentication through the guard's public API
-     * and asserting the principal returned by the guard-scoped resolver
-     * appears on `$guard->principal()`.
+     * Verified by completing authentication through the guard's public API and
+     * asserting the principal returned by the guard-scoped resolver appears on
+     * `$guard->principal()`.
      *
      * @return void
      *
@@ -121,8 +122,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * With no per-guard `principal_resolver` override, the basic guard
-     * falls back to the app-wide `PrincipalResolver::class` binding.
+     * With no per-guard `principal_resolver` override, the basic guard falls
+     * back to the app-wide `PrincipalResolver::class` binding.
      *
      * @return void
      *
@@ -144,9 +145,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * A per-guard `principal_resolver` override on a JWT guard must be used
-     * by the guard so bearer flows use the guard-scoped resolver rather
-     * than the global binding.
+     * A per-guard `principal_resolver` override on a JWT guard must be used by
+     * the guard so bearer flows use the guard-scoped resolver rather than the
+     * global binding.
      *
      * The exchange's resolver sharing is verified indirectly: the factory
      * constructs both the guard and its exchange with the same resolved
@@ -185,16 +186,16 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
             'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
         ]);
 
-        // Exercise the guard's resolver by logging in with a stub identity
-        // and verifying the resolved principal is the scoped one.
+        // Exercise the guard's resolver by logging in with a stub identity and
+        // verifying the resolved principal is the scoped one.
         $identity         = new StubIdentity(['id' => 1]);
         $identity->exists = true;
         $guard->login($identity, $scopedPrincipal);
 
         self::assertSame($scopedPrincipal, $guard->principal());
 
-        // Verify the scoped resolver was actually resolved (not the global)
-        // by replacing it via setPrincipalResolver and confirming the guard
+        // Verify the scoped resolver was actually resolved (not the global) by
+        // replacing it via setPrincipalResolver and confirming the guard
         // previously held the scoped instance.
         $replacementPrincipal = $this->mockPrincipal('replacement');
         $replacementResolver  = \Mockery::mock(PrincipalResolver::class);
@@ -209,9 +210,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * JWT guards fail fast when `authentication.device.model` is empty
-     * instead of constructing a guard whose refresh path cannot resolve
-     * devices.
+     * JWT guards fail fast when `authentication.device.model` is empty instead
+     * of constructing a guard whose refresh path cannot resolve devices.
      *
      * @return void
      *
@@ -231,9 +231,9 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * JWT guards require the configured device model to satisfy the
-     * explicit Eloquent-backed persistence boundary, not just the generic
-     * `Device` contract.
+     * JWT guards require the configured device model to satisfy the explicit
+     * Eloquent-backed persistence boundary, not just the generic `Device`
+     * contract.
      *
      * @return void
      *
@@ -253,9 +253,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Plain-object device fixtures remain valid event/token payloads, but
-     * they are rejected when misconfigured as the persisted JWT device
-     * model.
+     * Plain-object device fixtures remain valid event/token payloads, but they
+     * are rejected when misconfigured as the persisted JWT device model.
      *
      * @return void
      *
@@ -316,8 +315,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * A configured guard-local resolver must resolve to the contract; any
-     * other object type is a configuration error.
+     * A configured guard-local resolver must resolve to the contract; any other
+     * object type is a configuration error.
      *
      * @return void
      *
@@ -363,8 +362,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench
-     * application so the container has the package config bindings.
+     * Register the package service provider against the Testbench application
+     * so the container has the package config bindings.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -405,13 +404,12 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Capture the identifier field key used by the guard's credential
-     * path by triggering `user()` with HTTP Basic credentials and
-     * inspecting the `Attempting` event.
+     * Capture the identifier field key used by the guard's credential path by
+     * triggering `user()` with HTTP Basic credentials and inspecting the
+     * `Attempting` event.
      *
-     * The provider is not expected to resolve a user; the event fires
-     * before the provider lookup so the identifier field is observable
-     * regardless.
+     * The provider is not expected to resolve a user; the event fires before
+     * the provider lookup so the identifier field is observable regardless.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\BasicGuard  $guard
      * @return string
@@ -427,8 +425,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
         try {
             $guard->user();
         } catch (\Throwable) {
-            // The provider may throw (no database); the event fires before
-            // the provider lookup so it is already captured.
+            // The provider may throw (no database); the event fires before the
+            // provider lookup so it is already captured.
         }
 
         $events = Event::dispatched(Attempting::class);
@@ -449,55 +447,40 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Build a `BasicGuard` wired with a mock identity provider so the
-     * full credential -> resolver -> principal path completes without a
-     * database.
+     * Build an `Illuminate\Http\Request` with HTTP Basic credentials set.
      *
-     * @param  string  $name
-     * @param  array<string, mixed>  $config
-     * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @param  string  $username
+     * @param  string  $password
+     * @return \Illuminate\Http\Request
      */
-    private function buildAuthenticatingBasicGuard(string $name, array $config): BasicGuard
-    {
-        $this->registerMockIdentityProvider();
-
-        $guard = AuthServiceProvider::createBasicGuard($this->app, $name, $config);
-        $guard->setRequest(
-            $this->createRequestWithBasicAuth('test-user', 'test-pass'),
+    private function createRequestWithBasicAuth(
+        string $username,
+        string $password,
+    ): Request {
+        return Request::create(
+            '/',
+            'GET',
+            server: [
+                'PHP_AUTH_USER' => $username,
+                'PHP_AUTH_PW'   => $password,
+            ],
         );
-
-        return $guard;
     }
 
     /**
-     * Register a mock identity provider driver (`mock-model`) that returns
-     * a `StubIdentity` with valid credentials, allowing the guard's auth
-     * flow to reach the principal resolver.
+     * Create a mock `Principal` with the supplied identifier.
      *
-     * @return void
+     * @param  string  $id
+     * @return \SineMacula\Laravel\Authentication\Contracts\Principal
      */
-    private function registerMockIdentityProvider(): void
+    private function mockPrincipal(string $id): Principal
     {
-        $identity         = new StubIdentity(['id' => 1]);
-        $identity->exists = true;
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn($id);
+        $principal->shouldReceive('isActive')->andReturnTrue();
+        $principal->shouldReceive('getTenant')->andReturnNull();
 
-        $provider = \Mockery::mock(
-            \SineMacula\Laravel\Authentication\Contracts\IdentityProvider::class,
-        );
-        $provider->shouldReceive('retrieveByCredentials')->andReturn($identity);
-        $provider->shouldReceive('validateCredentials')->andReturnTrue();
-        $provider->shouldReceive('rehashPasswordIfRequired');
-
-        IlluminateAuth::provider(
-            'mock-model',
-            fn () => $provider,
-        );
-
-        config()->set('auth.providers.identities', [
-            'driver' => 'mock-model',
-        ]);
+        return $principal;
     }
 
     /**
@@ -516,8 +499,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Bind a mock guard-scoped `PrincipalResolver` under the supplied
-     * class name that returns the supplied principal.
+     * Bind a mock guard-scoped `PrincipalResolver` under the supplied class
+     * name that returns the supplied principal.
      *
      * The mock targets the `PrincipalResolver` interface (not the final
      * concrete class) and is bound under the concrete class name so the
@@ -538,39 +521,53 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Create a mock `Principal` with the supplied identifier.
+     * Build a `BasicGuard` wired with a mock identity provider so the full
+     * credential -> resolver -> principal path completes without a database.
      *
-     * @param  string  $id
-     * @return \SineMacula\Laravel\Authentication\Contracts\Principal
+     * @param  string  $name
+     * @param  array<string, mixed>  $config
+     * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function mockPrincipal(string $id): Principal
+    private function buildAuthenticatingBasicGuard(string $name, array $config): BasicGuard
     {
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->andReturn($id);
-        $principal->shouldReceive('isActive')->andReturnTrue();
-        $principal->shouldReceive('getTenant')->andReturnNull();
+        $this->registerMockIdentityProvider();
 
-        return $principal;
+        $guard = AuthServiceProvider::createBasicGuard($this->app, $name, $config);
+        $guard->setRequest(
+            $this->createRequestWithBasicAuth('test-user', 'test-pass'),
+        );
+
+        return $guard;
     }
 
     /**
-     * Build an `Illuminate\Http\Request` with HTTP Basic credentials set.
+     * Register a mock identity provider driver (`mock-model`) that returns a
+     * `StubIdentity` with valid credentials, allowing the guard's auth flow to
+     * reach the principal resolver.
      *
-     * @param  string  $username
-     * @param  string  $password
-     * @return \Illuminate\Http\Request
+     * @return void
      */
-    private function createRequestWithBasicAuth(
-        string $username,
-        string $password,
-    ): \Illuminate\Http\Request {
-        return \Illuminate\Http\Request::create(
-            '/',
-            'GET',
-            server: [
-                'PHP_AUTH_USER' => $username,
-                'PHP_AUTH_PW'   => $password,
-            ],
+    private function registerMockIdentityProvider(): void
+    {
+        $identity         = new StubIdentity(['id' => 1]);
+        $identity->exists = true;
+
+        $provider = \Mockery::mock(
+            IdentityProvider::class,
         );
+        $provider->shouldReceive('retrieveByCredentials')->andReturn($identity);
+        $provider->shouldReceive('validateCredentials')->andReturnTrue();
+        $provider->shouldReceive('rehashPasswordIfRequired');
+
+        IlluminateAuth::provider(
+            'mock-model',
+            fn () => $provider,
+        );
+
+        config()->set('auth.providers.identities', [
+            'driver' => 'mock-model',
+        ]);
     }
 }

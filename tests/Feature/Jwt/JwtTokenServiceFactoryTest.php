@@ -14,6 +14,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -59,8 +62,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     private const string KID_OLD_SECRET = 'kid-old-secret-material-32-bytes!!';
 
     /**
-     * Freeze Carbon and the JWT library clock before each test so
-     * time-based assertions are deterministic.
+     * Freeze Carbon and the JWT library clock before each test so time-based
+     * assertions are deterministic.
      *
      * @return void
      */
@@ -90,12 +93,11 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * `Auth::jwt()` resolves a service for the current default guard, so
-     * the no-argument issuance API is still explicit about which guard it
-     * targets.
+     * `Auth::jwt()` resolves a service for the current default guard, so the
+     * no-argument issuance API is still explicit about which guard it targets.
      *
-     * Verified by issuing a token and asserting its `aud` claim and TTL
-     * match the package defaults.
+     * Verified by issuing a token and asserting its `aud` claim and TTL match
+     * the package defaults.
      *
      * @return void
      *
@@ -120,12 +122,12 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * `Auth::manager()->jwt('staff')` resolves the staff guard's override
-     * set, not the package defaults or another guard's JWT config.
+     * `Auth::manager()->jwt('staff')` resolves the staff guard's override set,
+     * not the package defaults or another guard's JWT config.
      *
-     * Verified by issuing a token with the staff service and confirming
-     * it can be parsed by a standalone service using the same secret, and
-     * that the `aud` claim reflects the staff audience.
+     * Verified by issuing a token with the staff service and confirming it can
+     * be parsed by a standalone service using the same secret, and that the
+     * `aud` claim reflects the staff audience.
      *
      * @return void
      *
@@ -147,8 +149,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * `Auth::jwt('customer')` resolves a distinct guard-scoped service,
-     * so multi-guard apps do not share a context-free JWT issuer.
+     * `Auth::jwt('customer')` resolves a distinct guard-scoped service, so
+     * multi-guard apps do not share a context-free JWT issuer.
      *
      * @return void
      *
@@ -171,11 +173,11 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Guards with no `jwt` sub-block fall back cleanly to the package
-     * defaults, preserving single-guard behaviour.
+     * Guards with no `jwt` sub-block fall back cleanly to the package defaults,
+     * preserving single-guard behaviour.
      *
-     * Verified by issuing a token and asserting the `aud` claim, TTL,
-     * and signing secret all match the package-wide config.
+     * Verified by issuing a token and asserting the `aud` claim, TTL, and
+     * signing secret all match the package-wide config.
      *
      * @return void
      *
@@ -197,11 +199,11 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Kid-mode overrides are guard-scoped too, so one guard can rotate
-     * keys independently of the package defaults.
+     * Kid-mode overrides are guard-scoped too, so one guard can rotate keys
+     * independently of the package defaults.
      *
-     * Verified by issuing a token and checking the JWT header's `kid`
-     * field, then confirming both the new and old keys can verify it.
+     * Verified by issuing a token and checking the JWT header's `kid` field,
+     * then confirming both the new and old keys can verify it.
      *
      * @return void
      *
@@ -225,20 +227,20 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         self::assertSame(self::KID_NEW, $header['kid'] ?? null);
 
-        // The token must be parseable by the same service (which accepts
-        // both the new and old kid for verification).
+        // The token must be parseable by the same service (which accepts both
+        // the new and old kid for verification).
         $claims = $service->parse($token, TokenType::ACCESS);
         self::assertNotNull($claims);
 
-        // A standalone service with only the new kid's secret must also
-        // parse the token.
+        // A standalone service with only the new kid's secret must also parse
+        // the token.
         $newKeyVerifier = new JwtTokenService(self::KID_NEW_SECRET, 'HS256', 15, 60 * 24 * 30);
         self::assertNotNull($newKeyVerifier->parse($token, TokenType::ACCESS));
     }
 
     /**
-     * When a PSR-3 logger is bound, the factory forwards it into the
-     * built service instead of falling back to `NullLogger`.
+     * When a PSR-3 logger is bound, the factory forwards it into the built
+     * service instead of falling back to `NullLogger`.
      *
      * Verified by parsing an invalid token and asserting the mock logger
      * received a `debug` call from the decode-failure path.
@@ -266,8 +268,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Non-JWT guards are rejected up front so the issuance API cannot be
-     * used against the basic driver.
+     * Non-JWT guards are rejected up front so the issuance API cannot be used
+     * against the basic driver.
      *
      * @return void
      *
@@ -282,8 +284,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Unknown guard names are rejected clearly instead of falling back to
-     * a context-free service.
+     * Unknown guard names are rejected clearly instead of falling back to a
+     * context-free service.
      *
      * @return void
      *
@@ -298,8 +300,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Integer-indexed key lists are rejected so guard-local kid mode
-     * still fails closed on malformed config.
+     * Integer-indexed key lists are rejected so guard-local kid mode still
+     * fails closed on malformed config.
      *
      * @return void
      *
@@ -323,8 +325,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Null secret material inside a kid map is rejected before the
-     * keyring is built, and the error names the offending kid.
+     * Null secret material inside a kid map is rejected before the keyring is
+     * built, and the error names the offending kid.
      *
      * @return void
      *
@@ -367,9 +369,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Per-guard integer JWT config overrides (e.g. `access_ttl_minutes`)
-     * are honoured over the package defaults. Pins the guard-level int
-     * return in `resolveJwtInteger()`.
+     * Per-guard integer JWT config overrides (e.g. `access_ttl_minutes`) are
+     * honoured over the package defaults. Pins the guard-level int return in
+     * `resolveJwtInteger()`.
      *
      * Verified by issuing a token and checking the `exp - iat` delta.
      *
@@ -402,16 +404,17 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * When the PSR-3 logger is not bound in the container, the factory
-     * returns null so the JWT service uses its NullLogger fallback. Pins
-     * the `!$this->app->bound(LoggerInterface::class)` return path.
+     * When the PSR-3 logger is not bound in the container, the factory returns
+     * null so the JWT service uses its NullLogger fallback. Pins the
+     * `!$this->app->bound(LoggerInterface::class)` return path.
      *
-     * Verified by building a factory against a container with no logger
-     * binding and parsing an invalid token - the service must return
-     * null without error, proving the NullLogger fallback handles the
-     * debug call silently.
+     * Verified by building a factory against a container with no logger binding
+     * and parsing an invalid token - the service must return null without
+     * error, proving the NullLogger fallback handles the debug call silently.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForGuardReturnsNullLoggerWhenNotBound(): void
     {
@@ -426,17 +429,19 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $factory = new JwtTokenServiceFactory($bareApp, $config);
         $service = $factory->forGuard('staff');
 
-        // Parsing an invalid token exercises the decode-failure path
-        // which calls logger->debug(). If the NullLogger fallback was
-        // not injected this would throw.
+        // Parsing an invalid token exercises the decode-failure path which
+        // calls logger->debug(). If the NullLogger fallback was not injected
+        // this would throw.
         self::assertNull($service->parse('not-a-valid-jwt'));
     }
 
     /**
-     * Repeated calls to `forGuard()` with the same guard name return the
-     * same memoized instance rather than constructing a new service.
+     * Repeated calls to `forGuard()` with the same guard name return the same
+     * memoized instance rather than constructing a new service.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForGuardReturnsMemoizedInstanceOnRepeatedCalls(): void
     {
@@ -450,6 +455,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * Different guard names resolve distinct memoized instances.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForGuardReturnsDifferentInstancesForDifferentGuards(): void
     {
@@ -460,8 +467,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Register the package service provider against the Testbench
-     * application.
+     * Register the package service provider against the Testbench application.
      *
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
@@ -473,8 +479,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Define the default package JWT config plus several guards that
-     * exercise guard-scoped service resolution.
+     * Define the default package JWT config plus several guards that exercise
+     * guard-scoped service resolution.
      *
      * @param  mixed  $app
      * @return void
@@ -547,16 +553,18 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @return string
+     *
+     * @throws \Random\RandomException
      */
     private function issueAccessToken(JwtTokenService $service): string
     {
-        $identity = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Identity::class);
+        $identity = \Mockery::mock(Identity::class);
         $identity->shouldReceive('getAuthIdentifier')->andReturn('id-1');
 
-        $principal = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
 
-        $device = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Device::class);
+        $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')->andReturn('did-1');
 
         return $service->issueAccessToken($identity, $principal, $device);
