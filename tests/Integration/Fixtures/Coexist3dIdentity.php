@@ -47,6 +47,25 @@ final class Coexist3dIdentity extends Model implements HasPrincipals, Identity
     ];
 
     /**
+     * Application-defined default principal lookup.
+     *
+     * Returns the first active principal owned by this identity, or `null`
+     * when none exists. The integration test seeds exactly one active principal
+     * per identity so the default-principal branch of the resolver returns a
+     * deterministic row.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    public function resolveDefaultPrincipal(): ?Principal
+    {
+        $principal = $this->principals()
+            ->where('is_active', true)
+            ->first();
+
+        return $principal instanceof Principal ? $principal : null;
+    }
+
+    /**
      * Eloquent relation builder for the identity's principals.
      *
      * Returns a fresh query against `Coexist3dPrincipal` scoped to this
@@ -60,24 +79,5 @@ final class Coexist3dIdentity extends Model implements HasPrincipals, Identity
     {
         return Coexist3dPrincipal::query()
             ->where('identity_id', $this->getKey());
-    }
-
-    /**
-     * Application-defined default principal lookup.
-     *
-     * Returns the first active principal owned by this identity, or `null`
-     * when none exists. The integration test seeds exactly one active
-     * principal per identity so the default-principal branch of the resolver
-     * returns a deterministic row.
-     *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    public function resolveDefaultPrincipal(): ?Principal
-    {
-        $principal = $this->principals()
-            ->where('is_active', true)
-            ->first();
-
-        return $principal instanceof Principal ? $principal : null;
     }
 }

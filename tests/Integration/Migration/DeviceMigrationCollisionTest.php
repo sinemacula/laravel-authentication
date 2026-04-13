@@ -16,8 +16,8 @@ use Tests\TestCase;
  *
  * Verifies that the migration aborts with a `\RuntimeException` carrying an
  * actionable message when the configured devices table already exists on the
- * target connection, and that the abort occurs before any schema mutation.
- * Also verifies the happy path when no collision is present.
+ * target connection, and that the abort occurs before any schema mutation. Also
+ * verifies the happy path when no collision is present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,37 +29,6 @@ final class DeviceMigrationCollisionTest extends TestCase
 {
     /** Absolute path to the shipped devices migration file. */
     private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_devices_table.php';
-
-    /**
-     * Ensure every test starts with the default device config and a clean
-     * in-memory schema. Individual tests mutate state as required.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        config()->set('authentication.device.table', 'devices');
-        config()->set('authentication.device.refresh_key_column', 'refresh_key');
-
-        Schema::dropIfExists('devices');
-        Schema::dropIfExists('app_devices');
-    }
-
-    /**
-     * Drop any tables created by the test so later tests see a clean
-     * connection.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        Schema::dropIfExists('devices');
-        Schema::dropIfExists('app_devices');
-
-        parent::tearDown();
-    }
 
     /**
      * Running the migration when a `devices` table already exists throws a
@@ -85,10 +54,44 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * When the collision guard throws, the pre-existing `devices` table
-     * remains untouched - specifically, the sentinel column seeded before the
-     * throw is still present, proving the abort happened before
-     * `Schema::create(...)` could mutate the schema.
+     * Require the shipped anonymous-class migration file and return the
+     * resulting `Migration` instance. The shipped anonymous class defines
+     * `up()` and `down()` directly; callers invoke via `runMigrationUp()`
+     * because `up()` is not declared on the parent `Migration` class.
+     *
+     * @return \Illuminate\Database\Migrations\Migration
+     *
+     * @SuppressWarnings("php:S4833")
+     * @SuppressWarnings("php:S2003")
+     */
+    private function loadMigration(): Migration
+    {
+        $migration = include self::MIGRATION_PATH;
+
+        if (!$migration instanceof Migration) {
+            self::fail('Devices migration file did not return a Migration instance.');
+        }
+
+        return $migration;
+    }
+
+    /**
+     * Invoke the migration's `up()` method without statically calling it on the
+     * parent `Migration` class (which does not declare `up`).
+     *
+     * @param  \Illuminate\Database\Migrations\Migration  $migration
+     * @return void
+     */
+    private function runMigrationUp(Migration $migration): void
+    {
+        \call_user_func([$migration, 'up']);
+    }
+
+    /**
+     * When the collision guard throws, the pre-existing `devices` table remains
+     * untouched - specifically, the sentinel column seeded before the throw is
+     * still present, proving the abort happened before `Schema::create(...)`
+     * could mutate the schema.
      *
      * @return void
      */
@@ -136,8 +139,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Overriding `device.table` with a custom name routes the migration to
-     * that table and leaves the default `devices` table uncreated.
+     * Overriding `device.table` with a custom name routes the migration to that
+     * table and leaves the default `devices` table uncreated.
      *
      * @return void
      */
@@ -155,36 +158,33 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Require the shipped anonymous-class migration file and return the
-     * resulting `Migration` instance. The shipped anonymous class defines
-     * `up()` and `down()` directly; callers invoke via `runMigrationUp()`
-     * because `up()` is not declared on the parent `Migration` class.
+     * Ensure every test starts with the default device config and a clean
+     * in-memory schema. Individual tests mutate state as required.
      *
-     * @return \Illuminate\Database\Migrations\Migration
-     *
-     * @SuppressWarnings("php:S4833")
-     * @SuppressWarnings("php:S2003")
+     * @return void
      */
-    private function loadMigration(): Migration
+    protected function setUp(): void
     {
-        $migration = include self::MIGRATION_PATH;
+        parent::setUp();
 
-        if (!$migration instanceof Migration) {
-            self::fail('Devices migration file did not return a Migration instance.');
-        }
+        config()->set('authentication.device.table', 'devices');
+        config()->set('authentication.device.refresh_key_column', 'refresh_key');
 
-        return $migration;
+        Schema::dropIfExists('devices');
+        Schema::dropIfExists('app_devices');
     }
 
     /**
-     * Invoke the migration's `up()` method without statically calling it on
-     * the parent `Migration` class (which does not declare `up`).
+     * Drop any tables created by the test so later tests see a clean
+     * connection.
      *
-     * @param  \Illuminate\Database\Migrations\Migration  $migration
      * @return void
      */
-    private function runMigrationUp(Migration $migration): void
+    protected function tearDown(): void
     {
-        \call_user_func([$migration, 'up']);
+        Schema::dropIfExists('devices');
+        Schema::dropIfExists('app_devices');
+
+        parent::tearDown();
     }
 }

@@ -36,8 +36,8 @@ use Tests\Unit\Stubs\StubIdentity;
 final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 {
     /**
-     * A request with no Authorization header returns null from `user()`
-     * without firing Attempting or Failed (there is nothing to attempt).
+     * A request with no Authorization header returns null from `user()` without
+     * firing Attempting or Failed (there is nothing to attempt).
      *
      * @return void
      *
@@ -153,8 +153,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When `retrieveById()` returns an Authenticatable that is not an
-     * Identity, `user()` returns null.
+     * When `retrieveById()` returns an Authenticatable that is not an Identity,
+     * `user()` returns null.
      *
      * @return void
      *
@@ -335,9 +335,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the resolver
-     * returns `null` (the hinted principal cannot be resolved), `user()`
-     * rejects the token rather than falling back to the default principal.
+     * Fail-closed: when the token carries a `pid` hint but the resolver returns
+     * `null` (the hinted principal cannot be resolved), `user()` rejects the
+     * token rather than falling back to the default principal.
      *
      * @return void
      *
@@ -370,10 +370,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the resolver
-     * returns a *different* principal (because it fell through to the
-     * default), `user()` returns null rather than silently downgrading the
-     * active principal.
+     * Fail-closed: when the token carries a `pid` hint but the resolver returns
+     * a *different* principal (because it fell through to the default),
+     * `user()` returns null rather than silently downgrading the active
+     * principal.
      *
      * @return void
      *
@@ -412,8 +412,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     /**
      * Fail-closed: when the resolver returns a principal whose identifier
      * stringifies to `null` (e.g. an unsaved Eloquent model returned from a
-     * misbehaving custom resolver), the guard MUST reject the token rather
-     * than bind a transient actor. Pins the `$resolvedId !== null` arm of
+     * misbehaving custom resolver), the guard MUST reject the token rather than
+     * bind a transient actor. Pins the `$resolvedId !== null` arm of
      * `matchesPidHint()`.
      *
      * @return void
@@ -561,8 +561,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token whose claims include `sub`, `pid`, and `did` results in
-     * the guard binding the identity, principal, and device and dispatching
+     * A valid token whose claims include `sub`, `pid`, and `did` results in the
+     * guard binding the identity, principal, and device and dispatching
      * `Attempting`, `Authenticated`, `Validated`, `PrincipalAssigned`,
      * `DeviceAuthenticated`, and `Login`.
      *

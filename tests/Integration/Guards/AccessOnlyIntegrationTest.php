@@ -24,9 +24,8 @@ use Tests\Integration\Fixtures\AccessOnlyIdentity;
  * Verifies the "access-only" usage pattern: the package works end-to-end with
  * no devices migration, no Device contract implementation, and no
  * refresh-token flow. Consumers who only need access tokens without device
- * binding or refresh can skip the devices table entirely, while the bearer
- * path still rehydrates the persisted identity through the configured
- * provider.
+ * binding or refresh can skip the devices table entirely, while the bearer path
+ * still rehydrates the persisted identity through the configured provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,8 +43,8 @@ final class AccessOnlyIntegrationTest extends TestCase
     private const string GUARD = 'api';
 
     /**
-     * Provision only the identity table; deliberately do not create the
-     * devices table or any other package-owned schema.
+     * Provision only the identity table; deliberately do not create the devices
+     * table or any other package-owned schema.
      *
      * @return void
      */
@@ -65,18 +64,19 @@ final class AccessOnlyIntegrationTest extends TestCase
 
     /**
      * Issuing an access token with `null` device produces a JWT whose `did`
-     * claim is explicitly null, so the bearer path sees no usable device
-     * hint and still resolves identity + principal without needing a devices
-     * table. The identity is still loaded through the configured provider.
+     * claim is explicitly null, so the bearer path sees no usable device hint
+     * and still resolves identity + principal without needing a devices table.
+     * The identity is still loaded through the configured provider.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testAccessTokenFlowSucceedsWithoutDevice(): void
     {
         $user = $this->seedUser();
 
-        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($user, $user, null);
-
+        $token  = PackageAuth::jwt(self::GUARD)->issueAccessToken($user, $user, null);
         $claims = PackageAuth::jwt(self::GUARD)->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
@@ -104,6 +104,8 @@ final class AccessOnlyIntegrationTest extends TestCase
      * fail closed even though the deployment has no `devices` table.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgedDeviceHintFailsClosedWithoutDevicesTable(): void
     {

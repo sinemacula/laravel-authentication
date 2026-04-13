@@ -22,8 +22,8 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
- * Feature tests for the credential `attempt()` flow on `AbstractGuard`, including
- * the timing-safe Timebox path and the standard auth event sequence.
+ * Feature tests for the credential `attempt()` flow on `AbstractGuard`,
+ * including the timing-safe Timebox path and the standard auth event sequence.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,6 +37,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * attempt() dispatches Attempting first, then Failed on failure.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesAttemptingEventBeforeValidation(): void
     {
@@ -61,6 +62,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A successful attempt dispatches Validated before Login and Authenticated.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesValidatedAfterSuccessfulHasherCheck(): void
     {
@@ -100,6 +102,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * false).
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesLoginEventOnSuccess(): void
     {
@@ -131,8 +134,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof Login
-                    && $event->guard    === self::GUARD_NAME
-                    && $event->user     === $identity
+                    && $event->guard === self::GUARD_NAME
+                    && $event->user === $identity
                     && $event->remember === false),
             );
 
@@ -143,6 +146,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A wrong-password attempt dispatches Failed and returns false.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenCredentialsDoNotMatch(): void
     {
@@ -166,7 +170,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof Failed
                     && $event->guard === self::GUARD_NAME
-                    && $event->user  === $identity),
+                    && $event->user === $identity),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -176,6 +180,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A non-resolving identifier dispatches Failed and returns false.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenIdentifierDoesNotResolve(): void
     {
@@ -193,7 +198,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof Failed
                     && $event->guard === self::GUARD_NAME
-                    && $event->user  === null),
+                    && $event->user === null),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x']));
@@ -209,6 +214,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * asserts `Timebox::call` is invoked once even on the null-user path.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptAlwaysInvokesTimeboxOnNullUserPath(): void
     {
@@ -238,6 +244,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A successful hasher check but null principal dispatches Failed.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenPrincipalResolverReturnsNull(): void
     {
@@ -276,6 +283,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * fires.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenCanBeActiveIdentityIsInactive(): void
     {
@@ -310,6 +318,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * dispatched.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenResolvedPrincipalIsInactive(): void
     {
@@ -354,6 +363,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * returns 401, not 500.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptConvertsUnresolvableIdentityExceptionToFailedEvent(): void
     {
@@ -392,6 +402,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * microsecond window.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testHasValidCredentialsRunsInsideTimebox(): void
     {
@@ -424,6 +435,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * `Timebox::call()` when the project overrides the default.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testTimeboxBudgetReadsConfiguredOverride(): void
     {
@@ -459,6 +471,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * truthy, so we use a fresh mock the resolver MUST NOT touch.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptUsesExplicitPrincipalArgumentWithoutInvokingResolver(): void
     {
@@ -496,6 +509,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * `bindAuthenticationLifecycle` for the non-null device branch.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptBindsDeviceAndFiresDeviceAuthenticatedEvent(): void
     {
@@ -537,10 +551,11 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
     /**
      * `attempt()` does NOT fire `DeviceAuthenticated` when no device is
-     * supplied. Pins the `if ($device !== null)` guard  inside
+     * supplied. Pins the `if ($device !== null)` guard inside
      * `bindAuthenticationLifecycle`.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testAttemptDoesNotFireDeviceAuthenticatedWhenDeviceOmitted(): void
     {
@@ -578,6 +593,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * to the trait default budget.
      *
      * @return void
+     * @throws \Throwable
      */
     public function testTimeboxBudgetFallsBackToDefaultOnNonPositiveOverride(): void
     {

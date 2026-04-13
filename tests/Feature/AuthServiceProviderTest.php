@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -13,8 +14,6 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
@@ -25,6 +24,8 @@ use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
+use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
 /**
  * Feature tests for the package AuthServiceProvider.
@@ -171,7 +172,7 @@ final class AuthServiceProviderTest extends TestCase
             $this->readObjectProperty($exchange, 'resolver'),
         );
 
-        $replacement = new AuthServiceProviderTestReplacementResolver;
+        $replacement = new StubReplacementPrincipalResolver;
 
         $this->app->instance(PrincipalResolver::class, $replacement);
 
@@ -196,11 +197,11 @@ final class AuthServiceProviderTest extends TestCase
         $resolver = $this->readObjectProperty($guard, 'resolver');
         $exchange = $this->readObjectProperty($guard, 'exchange');
 
-        self::assertInstanceOf(AuthServiceProviderTestGuardScopedResolver::class, $resolver);
+        self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $resolver);
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
         self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
 
-        $replacement = new AuthServiceProviderTestReplacementResolver;
+        $replacement = new StubReplacementPrincipalResolver;
 
         $this->app->instance(PrincipalResolver::class, $replacement);
 
@@ -292,11 +293,13 @@ final class AuthServiceProviderTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
@@ -318,7 +321,7 @@ final class AuthServiceProviderTest extends TestCase
         $config->set('auth.guards.api_override', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
-            'principal_resolver' => AuthServiceProviderTestGuardScopedResolver::class,
+            'principal_resolver' => StubGuardScopedPrincipalResolver::class,
         ]);
 
         $config->set('auth.guards.cli', [
@@ -343,53 +346,5 @@ final class AuthServiceProviderTest extends TestCase
         $reflectionProperty = (new \ReflectionClass($target))->getProperty($property);
 
         return $reflectionProperty->getValue($target);
-    }
-}
-
-/**
- * Stub guard-scoped resolver for rebind tests.
- *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited
- *
- * @internal
- */
-final class AuthServiceProviderTestGuardScopedResolver implements PrincipalResolver
-{
-    /**
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
-    {
-        unset($identity, $hint);
-
-        return null;
-    }
-}
-
-/**
- * Stub replacement resolver for global rebind tests.
- *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited
- *
- * @internal
- */
-final class AuthServiceProviderTestReplacementResolver implements PrincipalResolver
-{
-    /**
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
-    {
-        unset($identity, $hint);
-
-        return null;
     }
 }

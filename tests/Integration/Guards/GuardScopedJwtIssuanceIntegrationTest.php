@@ -97,6 +97,8 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      * owning guard when the guards carry distinct JWT secrets.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testGuardScopedAccessTokensAuthenticateOnlyOnOwningGuard(): void
     {
@@ -113,11 +115,12 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh continues to issue follow-up credentials under the owning
-     * guard's config, so a refreshed staff token still authenticates on the
-     * staff guard and not on the customer guard.
+     * Refresh continues to issue follow-up credentials under the owning guard's
+     * config, so a refreshed staff token still authenticates on the staff guard
+     * and not on the customer guard.
      *
      * @return void
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshIssuesFollowUpTokensThroughOwningGuardConfig(): void
     {
@@ -209,6 +212,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      *
      * @param  string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function guard(string $name): JwtGuard
     {
@@ -228,6 +232,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      * @param  string  $name
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function guardForBearer(string $name, #[\SensitiveParameter] string $token): JwtGuard
     {

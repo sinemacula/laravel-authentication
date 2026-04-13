@@ -11,6 +11,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
@@ -69,7 +70,6 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         parent::setUp();
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-
             $blueprint->increments('id');
             $blueprint->string('email')->unique();
             $blueprint->string('password');
@@ -177,7 +177,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
                  * @return ?\Illuminate\Contracts\Auth\Authenticatable
                  */
                 #[\Override]
-                public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?\Illuminate\Contracts\Auth\Authenticatable
+                public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
                 {
                     unset($guardName, $providerModelClass, $identifier, $resolver);
 

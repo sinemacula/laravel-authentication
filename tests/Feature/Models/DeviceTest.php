@@ -35,43 +35,6 @@ final class DeviceTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Set up the in-memory schema for the Device table after the Testbench
-     * application is ready.
-     *
-     * @return void
-     */
-    #[\Override]
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        Schema::create('devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type')->nullable();
-            $blueprint->string('authenticatable_id')->nullable();
-            $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
-        });
-    }
-
-    /**
-     * Drop the in-memory schema once each test has completed.
-     *
-     * @return void
-     */
-    #[\Override]
-    protected function tearDown(): void
-    {
-        Schema::dropIfExists('devices');
-
-        parent::tearDown();
-    }
-
-    /**
      * Asserts that swapping `authentication.device.table` at runtime is
      * observed by the next Device instantiation. The model reads the config
      * lazily in its constructor, so no cache priming is required - tests and
@@ -217,8 +180,45 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Define the test environment: in-memory sqlite and package config
-     * defaults that the Device model depends on.
+     * Set up the in-memory schema for the Device table after the Testbench
+     * application is ready.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::create('devices', static function (Blueprint $blueprint): void {
+            $blueprint->uuid('id')->primary();
+            $blueprint->string('authenticatable_type')->nullable();
+            $blueprint->string('authenticatable_id')->nullable();
+            $blueprint->string('os')->default('');
+            $blueprint->string('refresh_key', 64)->nullable();
+            $blueprint->timestamp('revoked_at')->nullable();
+            $blueprint->timestamp('last_logged_in_at')->nullable();
+            $blueprint->timestamp('last_mfa_verified_at')->nullable();
+            $blueprint->timestamps();
+        });
+    }
+
+    /**
+     * Drop the in-memory schema once each test has completed.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('devices');
+
+        parent::tearDown();
+    }
+
+    /**
+     * Define the test environment: in-memory sqlite and package config defaults
+     * that the Device model depends on.
      *
      * @param  mixed  $app
      * @return void

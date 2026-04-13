@@ -17,6 +17,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -34,8 +35,8 @@ use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Feature tests for the `RefreshTokenExchange` service that fill in the
- * few branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
+ * Feature tests for the `RefreshTokenExchange` service that fill in the few
+ * branches not covered by the JwtGuardRefreshTest's end-to-end coverage:
  *
  * - invalid `device.model` config -> refresh fails fast with an explicit
  *   configuration exception rather than falling through to `device_unknown`.
@@ -263,7 +264,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $exchange = $this->makeExchange();
 
-        $principal = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->times(3)
             ->andReturn('p-12');
@@ -324,7 +325,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $exchange = $this->makeExchange();
 
-        $principal = \Mockery::mock(\SineMacula\Laravel\Authentication\Contracts\Principal::class);
+        $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->once()
             ->andReturn(null);

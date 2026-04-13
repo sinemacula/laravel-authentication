@@ -47,50 +47,8 @@ final class JwtGuardIntegrationTest extends TestCase
     private Carbon $now;
 
     /**
-     * Freeze the clock and create the in-memory identity table.
-     *
-     * @return void
-     */
-    #[\Override]
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($this->now);
-
-        JWT::$timestamp = $this->now->getTimestamp();
-
-        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password');
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
-    }
-
-    /**
-     * Release the frozen clock and drop the in-memory schema.
-     *
-     * @return void
-     */
-    #[\Override]
-    protected function tearDown(): void
-    {
-        Schema::dropIfExists('stub_principals');
-
-        Carbon::setTestNow();
-
-        JWT::$timestamp = null;
-
-        parent::tearDown();
-    }
-
-    /**
-     * A valid JWT passes the `auth:api` middleware and exposes the
-     * identity via `Auth::check()`, `Auth::id()`, and `Auth::user()`.
+     * A valid JWT passes the `auth:api` middleware and exposes the identity via
+     * `Auth::check()`, `Auth::id()`, and `Auth::user()`.
      *
      * @return void
      */
@@ -119,6 +77,39 @@ final class JwtGuardIntegrationTest extends TestCase
             'id'       => (string) $user->getKey(), // @phpstan-ignore cast.string
             'user_key' => (string) $user->getKey(), // @phpstan-ignore cast.string
         ]);
+    }
+
+    /**
+     * Persist and return a hashed-password identity row.
+     *
+     * @return \Tests\Unit\Stubs\StubPrincipal
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function seedUser(): StubPrincipal
+    {
+        $hasher = app(Hasher::class);
+
+        $user           = new StubPrincipal;
+        $user->email    = 'jwt-integration@example.test';
+        $user->password = $hasher->make('correct horse battery staple');
+        $user->save();
+
+        return $user;
+    }
+
+    /**
+     * Encode a signed access-token JWT from the supplied claims.
+     *
+     * @param  array<string, mixed>  $claims
+     * @return string
+     */
+    private function encodeAccessToken(array $claims): string
+    {
+        return JWT::encode(
+            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
+            self::JWT_SECRET,
+            'HS256',
+        );
     }
 
     /**
@@ -161,8 +152,8 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * An authenticated request exposes the resolved principal and
-     * device through the `AuthManager` contextual accessors.
+     * An authenticated request exposes the resolved principal and device
+     * through the `AuthManager` contextual accessors.
      *
      * @return void
      */
@@ -193,7 +184,7 @@ final class JwtGuardIntegrationTest extends TestCase
 
             return [
                 'principal_present' => $manager->principal() !== null,
-                'device_present'    => $manager->device()    !== null,
+                'device_present'    => $manager->device() !== null,
                 'device_key'        => $manager->device()?->getDeviceIdentifier(),
             ];
         });
@@ -253,6 +244,7 @@ final class JwtGuardIntegrationTest extends TestCase
      * `revoked_at` timestamp.
      *
      * @return void
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRevokingDeviceBlocksRefreshButNotExistingAccessToken(): void
     {
@@ -308,54 +300,6 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Configure the JWT guard, provider, and in-memory sqlite.
-     *
-     * @param  mixed  $app
-     * @return void
-     */
-    #[\Override]
-    protected function defineEnvironment(mixed $app): void
-    {
-        parent::defineEnvironment($app);
-
-        /** @var \Illuminate\Config\Repository $config */
-        $config = app(ConfigRepository::class);
-
-        $config->set('auth.defaults.guard', 'api');
-
-        $config->set('auth.guards.api', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-        ]);
-
-        $config->set('auth.providers.identities', [
-            'driver' => 'model',
-            'model'  => StubPrincipal::class,
-        ]);
-
-        $config->set('authentication.jwt.secret', self::JWT_SECRET);
-        $config->set('authentication.jwt.algorithm', 'HS256');
-        $config->set('authentication.jwt.access_ttl_minutes', 15);
-    }
-
-    /**
-     * Persist and return a hashed-password identity row.
-     *
-     * @return \Tests\Unit\Stubs\StubPrincipal
-     */
-    private function seedUser(): StubPrincipal
-    {
-        $hasher = app(Hasher::class);
-
-        $user           = new StubPrincipal;
-        $user->email    = 'jwt-integration@example.test';
-        $user->password = $hasher->make('correct horse battery staple');
-        $user->save();
-
-        return $user;
-    }
-
-    /**
      * Resolve a fresh package auth manager instance.
      *
      * @return \SineMacula\Laravel\Authentication\AuthManager
@@ -388,17 +332,75 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Encode a signed access-token JWT from the supplied claims.
+     * Freeze the clock and create the in-memory identity table.
      *
-     * @param  array<string, mixed>  $claims
-     * @return string
+     * @return void
      */
-    private function encodeAccessToken(array $claims): string
+    #[\Override]
+    protected function setUp(): void
     {
-        return JWT::encode(
-            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
-            self::JWT_SECRET,
-            'HS256',
-        );
+        parent::setUp();
+
+        $this->now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($this->now);
+
+        JWT::$timestamp = $this->now->getTimestamp();
+
+        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+    }
+
+    /**
+     * Release the frozen clock and drop the in-memory schema.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('stub_principals');
+
+        Carbon::setTestNow();
+
+        JWT::$timestamp = null;
+
+        parent::tearDown();
+    }
+
+    /**
+     * Configure the JWT guard, provider, and in-memory sqlite.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = app(ConfigRepository::class);
+
+        $config->set('auth.defaults.guard', 'api');
+
+        $config->set('auth.guards.api', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
+
+        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.access_ttl_minutes', 15);
     }
 }

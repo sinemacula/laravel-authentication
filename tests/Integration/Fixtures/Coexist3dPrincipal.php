@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
  * active-principal check.
  *
  * The model intentionally does NOT implement `Identity`: the integration test
- * asserts that `Auth::identity()` and `Auth::principal()` expose distinct
- * model classes on the 3D guard, which is only true when the principal is a
+ * asserts that `Auth::identity()` and `Auth::principal()` expose distinct model
+ * classes on the 3D guard, which is only true when the principal is a
  * first-class model in its own right.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

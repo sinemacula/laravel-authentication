@@ -55,7 +55,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testAuthFacadeJwtUsesDefaultGuardConfig(): void
     {
@@ -74,7 +74,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testAuthManagerJwtUsesNamedGuardSecretAndAudienceOverride(): void
     {
@@ -113,7 +113,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testAuthFacadeJwtFallsBackToPackageDefaultsWhenGuardHasNoJwtBlock(): void
     {
@@ -132,7 +132,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testAuthFacadeJwtHonoursGuardKidOverride(): void
     {
@@ -155,7 +155,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testAuthFacadeJwtUsesBoundLoggerWhenAvailable(): void
     {
@@ -291,6 +291,24 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * Read a private property off a `JwtTokenService` instance via reflection.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
+     * @param  string  $property
+     * @return mixed
+     *
+     * @throws \ReflectionException
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    private function readServiceProperty(JwtTokenService $service, string $property): mixed
+    {
+        $reflectionProperty = (new \ReflectionClass($service))->getProperty($property);
+
+        return $reflectionProperty->getValue($service);
+    }
+
+    /**
      * Register the per-guard auth config blocks.
      *
      * @param  \Illuminate\Config\Repository  $config
@@ -351,23 +369,5 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.audience', 'package-default-audience');
         $config->set('authentication.jwt.access_ttl_minutes', 45);
-    }
-
-    /**
-     * Read a private property off a `JwtTokenService` instance via reflection.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
-     * @param  string  $property
-     * @return mixed
-     *
-     * @throws \ReflectionException
-     *
-     * @SuppressWarnings("php:S3011")
-     */
-    private function readServiceProperty(JwtTokenService $service, string $property): mixed
-    {
-        $reflectionProperty = (new \ReflectionClass($service))->getProperty($property);
-
-        return $reflectionProperty->getValue($service);
     }
 }

@@ -178,7 +178,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof Authenticated
                     && $event->guard === self::GUARD_NAME
-                    && $event->user  === $identity),
+                    && $event->user === $identity),
             );
 
         $guard->setUser($identity);
@@ -322,8 +322,8 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * Rebinding the request must clear any previously memoized contextual
-     * state so guard instances cannot leak auth context across requests.
+     * Rebinding the request must clear any previously memoized contextual state
+     * so guard instances cannot leak auth context across requests.
      *
      * @return void
      */

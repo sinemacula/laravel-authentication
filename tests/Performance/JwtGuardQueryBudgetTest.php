@@ -22,8 +22,7 @@ use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
- * Query-budget contracts for the main JwtGuard bearer-auth
- * success paths.
+ * Query-budget contracts for the main JwtGuard bearer-auth success paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -33,9 +32,16 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 {
-    private const string ACCESS_ONLY_GUARD          = 'access_only';
-    private const string DEVICE_GUARD               = 'device_api';
-    private const string THREE_D_GUARD              = 'api_3d';
+    /** @var string Guard name for 2D access-only bearer tests. */
+    private const string ACCESS_ONLY_GUARD = 'access_only';
+
+    /** @var string Guard name for device-bearing bearer tests. */
+    private const string DEVICE_GUARD = 'device_api';
+
+    /** @var string Guard name for 3D principal-resolution tests. */
+    private const string THREE_D_GUARD = 'api_3d';
+
+    /** @var string Guard name for tenant-aware 3D tests. */
     private const string TENANT_AWARE_THREE_D_GUARD = 'tenant_api_3d';
 
     /**
@@ -128,6 +134,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * identity row.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testAccessOnlyBearerPathUsesSingleReadAndNoWrites(): void
     {
@@ -139,6 +147,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $guard = $this->freshJwtGuard(self::ACCESS_ONLY_GUARD);
 
         $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
+
             $authenticated = $guard->check();
             $guard->principal();
             $guard->device();
@@ -154,6 +163,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * should avoid all SQL reads and writes on a fresh guard instance.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testAccessOnlyBearerPathWithWarmIdentityCacheUsesZeroReadsAndNoWrites(): void
     {
@@ -184,6 +195,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * should do the identity read plus the device read, but no update.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testBearerPathWithDeviceHintAndFreshTimestampUsesTwoReadsAndNoWrites(): void
     {
@@ -219,6 +232,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * only the live device lookup and no writes when the timestamp is fresh.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testBearerPathWithDeviceHintAndWarmIdentityCacheUsesOneReadAndNoWrites(): void
     {
@@ -259,6 +274,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * the mandatory identity + device reads.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testBearerPathWithDeviceHintAndStaleTimestampUsesTwoReadsAndOneWrite(): void
     {
@@ -294,6 +311,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * top of the identity rehydration read.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testThreeDimensionalBearerPathUsesTwoReadsAndNoWrites(): void
     {
@@ -320,6 +339,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * principal-resolution read rather than triggering a third lookup.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testThreeDimensionalBearerPathWithTenantAccessUsesTwoReadsAndNoWrites(): void
     {
@@ -350,6 +371,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * tenant path.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testThreeDimensionalBearerPathWithSecondaryTenantHintUsesTwoReadsAndNoWrites(): void
     {
@@ -381,6 +404,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * the joined principal+tenant read.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testThreeDimensionalBearerPathWithWarmIdentityCacheAndTenantAccessUsesOneReadAndNoWrites(): void
     {
@@ -478,6 +503,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * Persist a 2D access-only identity.
      *
      * @return \Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedAccessOnlyIdentity(): PerformanceAccessOnlyIdentity
     {
@@ -496,6 +523,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @param  string  $email
      * @return \Tests\Integration\Fixtures\IntegrationIdentity
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIntegrationIdentity(string $email): IntegrationIdentity
     {
@@ -513,8 +542,13 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     /**
      * Persist and return one 3D identity plus its active principal.
      *
-     * @return array{0: \Tests\Integration\Fixtures\Coexist3dIdentity, 1:
-     *     \Tests\Integration\Fixtures\Coexist3dPrincipal}
+     * @formatter:off
+     *
+     * @return array{0: \Tests\Integration\Fixtures\Coexist3dIdentity, 1: \Tests\Integration\Fixtures\Coexist3dPrincipal}
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     *
+     * @formatter:on
      */
     private function seedThreeDimensionalFixtures(): array
     {
@@ -539,13 +573,17 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * Persist and return one tenant-aware 3D identity plus its active
      * principal.
      *
+     * @formatter:off
+     *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1:
-     *     \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     *
+     * @formatter:on
      */
-    private function seedTenantAwareThreeDimensionalFixtures(
-        string $email = 'tenant-aware-three-dimensional-performance@example.test',
-    ): array {
+    private function seedTenantAwareThreeDimensionalFixtures(string $email = 'tenant-aware-three-dimensional-performance@example.test'): array
+    {
         $hasher = app(Hasher::class);
 
         $identity            = new TenantAware3dIdentity;
@@ -573,13 +611,17 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * Persist and return one tenant-aware 3D identity plus active principals
      * for two distinct tenant types.
      *
+     * @formatter:off
+     *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1:
-     *     \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     *
+     * @formatter:on
      */
-    private function seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant(
-        string $email = 'tenant-aware-three-dimensional-secondary-performance@example.test',
-    ): array {
+    private function seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant(string $email = 'tenant-aware-three-dimensional-secondary-performance@example.test'): array
+    {
         [$identity, $primaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixtures($email);
 
         $secondaryTenant       = new TenantAware3dTenant;

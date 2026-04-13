@@ -12,8 +12,6 @@ use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
@@ -45,66 +43,6 @@ final class DeviceModelOverrideTest extends TestCase
 {
     /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> */
     private string $customModel;
-
-    /**
-     * Configure the custom device model class and table name, then replay the
-     * shipped migration body inline against the in-memory connection so the
-     * custom table exists for the test.
-     *
-     * @return void
-     */
-    #[\Override]
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // Anonymous subclass of the shipped Device model - the FQCN is
-        // synthetic but usable as a `class-string` across the test.
-        $anonymous = new class extends Device {};
-
-        /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> $class */
-        $class = $anonymous::class;
-
-        $this->customModel = $class;
-
-        config()->set('authentication.device.model', $this->customModel);
-        config()->set('authentication.device.table', 'custom_devices');
-
-        // The Device model reads the table name lazily in its constructor,
-        // so no manual cache priming is needed - the config swap in
-        // `defineEnvironment()` is picked up on the next instantiation.
-        Schema::create('custom_devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type')->nullable();
-            $blueprint->string('authenticatable_id')->nullable();
-            $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
-        });
-
-        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-            $blueprint->id();
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
-    }
-
-    /**
-     * Drop the custom tables on tear-down so each test starts clean.
-     *
-     * @return void
-     */
-    #[\Override]
-    protected function tearDown(): void
-    {
-        Schema::dropIfExists('custom_devices');
-        Schema::dropIfExists('stub_principals');
-
-        parent::tearDown();
-    }
 
     /**
      * Instantiating the custom subclass yields a model whose table matches the
@@ -139,6 +77,7 @@ final class DeviceModelOverrideTest extends TestCase
      * class as the active device.
      *
      * @return void
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testGuardResolvesDeviceThroughCustomModelClass(): void
     {
@@ -177,49 +116,12 @@ final class DeviceModelOverrideTest extends TestCase
     }
 
     /**
-     * Skip the parent's default `devices` migration so this test can verify
-     * that the custom-table override is the only `devices`-shaped table on the
-     * connection (TAC: `Schema::hasTable('devices') === false`).
-     *
-     * @return void
-     */
-    #[\Override]
-    protected function defineDatabaseMigrations(): void
-    {
-        // intentionally empty - the test creates the custom table in setUp().
-    }
-
-    /**
-     * Register the manual `custom-jwt` guard config used by the guard-scoped
-     * `Auth::jwt('custom-jwt')` issuance surface in this test.
-     *
-     * @param  mixed  $app
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    #[\Override]
-    protected function defineEnvironment(mixed $app): void
-    {
-        parent::defineEnvironment($app);
-
-        config()->set('auth.guards.custom-jwt', [
-            'driver'   => 'jwt',
-            'provider' => 'principals',
-        ]);
-
-        config()->set('auth.providers.principals', [
-            'driver' => 'model',
-            'model'  => StubPrincipal::class,
-        ]);
-    }
-
-    /**
      * Build a `JwtGuard` wired against a stub identity provider that echoes a
      * persisted `StubPrincipal` for any identifier lookup, and a resolver that
      * treats the identity as its own principal (2D mode).
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function makeJwtGuard(): JwtGuard
     {
@@ -245,5 +147,101 @@ final class DeviceModelOverrideTest extends TestCase
             $tokens,
             $exchange,
         );
+    }
+
+    /**
+     * Configure the custom device model class and table name, then replay the
+     * shipped migration body inline against the in-memory connection so the
+     * custom table exists for the test.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Anonymous subclass of the shipped Device model - the FQCN is
+        // synthetic but usable as a `class-string` across the test.
+        $anonymous = new class extends Device { };
+
+        /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> $class */
+        $class = $anonymous::class;
+
+        $this->customModel = $class;
+
+        config()->set('authentication.device.model', $this->customModel);
+        config()->set('authentication.device.table', 'custom_devices');
+
+        // The Device model reads the table name lazily in its constructor, so
+        // no manual cache priming is needed - the config swap in
+        // `defineEnvironment()` is picked up on the next instantiation.
+        Schema::create('custom_devices', static function (Blueprint $blueprint): void {
+            $blueprint->uuid('id')->primary();
+            $blueprint->string('authenticatable_type')->nullable();
+            $blueprint->string('authenticatable_id')->nullable();
+            $blueprint->string('os')->default('');
+            $blueprint->string('refresh_key', 64)->nullable();
+            $blueprint->timestamp('revoked_at')->nullable();
+            $blueprint->timestamp('last_logged_in_at')->nullable();
+            $blueprint->timestamp('last_mfa_verified_at')->nullable();
+            $blueprint->timestamps();
+        });
+
+        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
+            $blueprint->id();
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+    }
+
+    /**
+     * Drop the custom tables on tear-down so each test starts clean.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('custom_devices');
+        Schema::dropIfExists('stub_principals');
+
+        parent::tearDown();
+    }
+
+    /**
+     * Skip the parent's default `devices` migration so this test can verify
+     * that the custom-table override is the only `devices`-shaped table on the
+     * connection (TAC: `Schema::hasTable('devices') === false`).
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function defineDatabaseMigrations(): void
+    {
+        // intentionally empty - the test creates the custom table in setUp().
+    }
+
+    /**
+     * Register the manual `custom-jwt` guard config used by the guard-scoped
+     * `Auth::jwt('custom-jwt')` issuance surface in this test.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        config()->set('auth.guards.custom-jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'principals',
+        ]);
+
+        config()->set('auth.providers.principals', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
     }
 }

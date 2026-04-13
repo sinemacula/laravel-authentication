@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
  * Feature tests for the package AuthManager subclass.
@@ -51,12 +52,13 @@ final class AuthManagerTest extends TestCase
      * that resolves a guard-scoped `JwtTokenService`.
      *
      * @return void
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testAuthManagerExposesJwtMethod(): void
     {
         config()->set('auth.providers.identities', [
             'driver' => 'model',
-            'model'  => \Tests\Unit\Stubs\StubAuthenticatableModel::class,
+            'model'  => StubAuthenticatableModel::class,
         ]);
         config()->set('auth.guards.test_jwt', [
             'driver'   => 'jwt',
@@ -106,10 +108,10 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `inheritDriversFrom()` does not throw and leaves the receiver
-     * driver-less when the donor has no custom creators registered. Pins the
-     * empty-array short-circuit in `inheritDriversFrom()`: a freshly bound
-     * provider that points at an unregistered custom driver still raises
+     * `inheritDriversFrom()` does not throw and leaves the receiver driver-less
+     * when the donor has no custom creators registered. Pins the empty-array
+     * short-circuit in `inheritDriversFrom()`: a freshly bound provider that
+     * points at an unregistered custom driver still raises
      * `InvalidArgumentException`, proving the empty donor did not silently
      * leak driver registrations.
      *

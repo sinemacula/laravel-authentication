@@ -92,7 +92,6 @@ final class CustomEventsIntegrationTest extends TestCase
         JWT::$timestamp = $this->now->getTimestamp();
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-
             $blueprint->increments('id');
             $blueprint->string('email')->unique();
             $blueprint->string('password');

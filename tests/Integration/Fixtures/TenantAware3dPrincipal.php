@@ -43,8 +43,11 @@ final class TenantAware3dPrincipal extends Model implements Principal
     /**
      * Owning identity relation.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dIdentity, covariant
-     *     $this>
+     * @formatter:off
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dIdentity, covariant $this>
+     *
+     * @formatter:on
      */
     public function identity(): BelongsTo
     {
@@ -54,8 +57,11 @@ final class TenantAware3dPrincipal extends Model implements Principal
     /**
      * Acting tenant relation.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dTenant, covariant
-     *     $this>
+     * @formatter:off
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\TenantAware3dTenant, covariant $this>
+     *
+     * @formatter:on
      */
     public function tenant(): BelongsTo
     {

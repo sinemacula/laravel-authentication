@@ -5,19 +5,21 @@ declare(strict_types = 1);
 namespace Tests\Feature;
 
 use Illuminate\Config\Repository;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use Tests\Unit\Stubs\BareDeviceModel;
 use Tests\Unit\Stubs\PlainDeviceFixture;
+use Tests\Unit\Stubs\StubAlternateGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubGlobalPrincipalResolver;
+use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
 
 /**
  * Feature tests for guard-local config override layering on
@@ -35,14 +37,14 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 final class AuthServiceProviderGuardConfigTest extends TestCase
 {
     /**
-     * A per-guard `identifier_field` override on the basic guard's config
-     * block wins over the package-wide default, so consumers can register
-     * multiple basic guards that look up credentials by different columns (e.g.
-     * `email` for web users and `key_id` for tenant API keys).
+     * A per-guard `identifier_field` override on the basic guard's config block
+     * wins over the package-wide default, so consumers can register multiple
+     * basic guards that look up credentials by different columns (e.g. `email`
+     * for web users and `key_id` for tenant API keys).
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testBasicGuardAppliesPerGuardIdentifierFieldOverride(): void
     {
@@ -64,7 +66,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testBasicGuardFallsBackToPackageIdentifierField(): void
     {
@@ -84,23 +86,23 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testBasicGuardAppliesPerGuardPrincipalResolverOverride(): void
     {
-        $global = new AuthServiceProviderGuardConfigGlobalResolver;
+        $global = new StubGlobalPrincipalResolver;
 
         $this->app->instance(PrincipalResolver::class, $global);
 
         $guard = AuthServiceProvider::createBasicGuard($this->app, 'tenant_api', [
             'driver'             => 'basic',
             'provider'           => 'identities',
-            'principal_resolver' => AuthServiceProviderGuardConfigBasicResolver::class,
+            'principal_resolver' => StubGuardScopedPrincipalResolver::class,
         ]);
 
         $resolver = $this->readObjectProperty($guard, 'resolver');
 
-        self::assertInstanceOf(AuthServiceProviderGuardConfigBasicResolver::class, $resolver);
+        self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $resolver);
         self::assertNotSame($global, $resolver);
     }
 
@@ -110,11 +112,11 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testBasicGuardFallsBackToContainerPrincipalResolverBinding(): void
     {
-        $global = new AuthServiceProviderGuardConfigGlobalResolver;
+        $global = new StubGlobalPrincipalResolver;
 
         $this->app->instance(PrincipalResolver::class, $global);
 
@@ -133,29 +135,29 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
      */
     public function testJwtGuardAppliesPerGuardPrincipalResolverOverrideAndSharesItWithRefreshExchange(): void
     {
-        $global = new AuthServiceProviderGuardConfigGlobalResolver;
+        $global = new StubGlobalPrincipalResolver;
 
         $this->app->instance(PrincipalResolver::class, $global);
 
         config()->set('auth.guards.custom_jwt', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
-            'principal_resolver' => AuthServiceProviderGuardConfigJwtResolver::class,
+            'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
         ]);
 
         $guard = AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
-            'principal_resolver' => AuthServiceProviderGuardConfigJwtResolver::class,
+            'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
         ]);
 
         $resolver = $this->readObjectProperty($guard, 'resolver');
 
-        self::assertInstanceOf(AuthServiceProviderGuardConfigJwtResolver::class, $resolver);
+        self::assertInstanceOf(StubAlternateGuardScopedPrincipalResolver::class, $resolver);
         self::assertNotSame($global, $resolver);
 
         $exchange = $this->readObjectProperty($guard, 'exchange');
@@ -169,6 +171,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * of constructing a guard whose refresh path cannot resolve devices.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testJwtGuardRejectsEmptyConfiguredDeviceModel(): void
     {
@@ -189,6 +193,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * contract.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testJwtGuardRejectsConfiguredDeviceModelOutsideEloquentBoundary(): void
     {
@@ -208,6 +214,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * are rejected when misconfigured as the persisted JWT device model.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testJwtGuardRejectsPlainDeviceFixtureAsConfiguredDeviceModel(): void
     {
@@ -228,6 +236,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * binding.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testGuardPrincipalResolverRejectsEmptyStringOverride(): void
     {
@@ -246,6 +256,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * payloads.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testGuardPrincipalResolverRejectsNonStringOverride(): void
     {
@@ -264,6 +276,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * other object type is a configuration error.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testGuardPrincipalResolverRejectsResolvedNonResolverInstance(): void
     {
@@ -295,7 +309,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
             'principal_resolver' => 'missing-resolver-binding',
         ]);
 
-        $this->expectException(\Illuminate\Contracts\Container\BindingResolutionException::class);
+        $this->expectException(BindingResolutionException::class);
 
         AuthServiceProvider::createJwtGuard($this->app, 'unresolvable_jwt', [
             'driver'             => 'jwt',
@@ -347,6 +361,20 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
+     * Read a property off a `BasicGuard` instance via reflection.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\BasicGuard  $guard
+     * @param  string  $property
+     * @return mixed
+     *
+     * @throws \ReflectionException
+     */
+    private function readGuardProperty(BasicGuard $guard, string $property): mixed
+    {
+        return $this->readObjectProperty($guard, $property);
+    }
+
+    /**
      * Read a private / readonly property off a `BasicGuard` instance via
      * reflection. Used by the identifier-field override tests to inspect the
      * resolved lookup column directly.
@@ -364,91 +392,5 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
         $reflectionProperty = (new \ReflectionClass($target))->getProperty($property);
 
         return $reflectionProperty->getValue($target);
-    }
-
-    /**
-     * Read a property off a `BasicGuard` instance via reflection.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Guards\BasicGuard  $guard
-     * @param  string  $property
-     * @return mixed
-     *
-     * @throws \ReflectionException
-     */
-    private function readGuardProperty(BasicGuard $guard, string $property): mixed
-    {
-        return $this->readObjectProperty($guard, $property);
-    }
-}
-
-/**
- * Stub basic-guard resolver for config override tests.
- *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited
- *
- * @internal
- */
-final class AuthServiceProviderGuardConfigBasicResolver implements PrincipalResolver
-{
-    /**
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
-    {
-        unset($identity, $hint);
-
-        return null;
-    }
-}
-
-/**
- * Stub JWT-guard resolver for config override tests.
- *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited
- *
- * @internal
- */
-final class AuthServiceProviderGuardConfigJwtResolver implements PrincipalResolver
-{
-    /**
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
-    {
-        unset($identity, $hint);
-
-        return null;
-    }
-}
-
-/**
- * Stub global resolver for config fallback tests.
- *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited
- *
- * @internal
- */
-final class AuthServiceProviderGuardConfigGlobalResolver implements PrincipalResolver
-{
-    /**
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
-    {
-        unset($identity, $hint);
-
-        return null;
     }
 }

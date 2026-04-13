@@ -14,13 +14,12 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
@@ -28,8 +27,8 @@ use Tests\Unit\Stubs\StubTenant;
  * Integration tests for guard-local principal resolvers.
  *
  * Verifies that two JWT guards can share one identity model while resolving
- * distinct principals, tenants, and types from guard-specific resolver
- * bindings configured in `auth.guards.<name>.principal_resolver`.
+ * distinct principals, tenants, and types from guard-specific resolver bindings
+ * configured in `auth.guards.<name>.principal_resolver`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,40 +40,17 @@ use Tests\Unit\Stubs\StubTenant;
 #[CoversClass(AuthServiceProvider::class)]
 final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 {
-    private const string STAFF_GUARD       = 'staff';
-    private const string CUSTOMER_GUARD    = 'customer';
-    private const string STAFF_RESOLVER    = 'staff-principal-resolver';
+    /** @var string Guard name for the staff JWT guard. */
+    private const string STAFF_GUARD = 'staff';
+
+    /** @var string Guard name for the customer JWT guard. */
+    private const string CUSTOMER_GUARD = 'customer';
+
+    /** @var string Container alias for the staff principal resolver. */
+    private const string STAFF_RESOLVER = 'staff-principal-resolver';
+
+    /** @var string Container alias for the customer principal resolver. */
     private const string CUSTOMER_RESOLVER = 'customer-principal-resolver';
-
-    /**
-     * Provision the in-memory identity table used by both guards.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password');
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
-    }
-
-    /**
-     * Release the in-memory schema.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        Schema::dropIfExists('stub_principals');
-
-        parent::tearDown();
-    }
 
     /**
      * The same identity can authenticate through two guards that resolve
@@ -83,6 +59,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      * previously memoized principal on the old guard instance.
      *
      * @return void
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testGuardsResolveDifferentPrincipalsWithoutCrossContamination(): void
     {
@@ -127,10 +104,74 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     }
 
     /**
+     * Persist and return an active identity row.
+     *
+     * @return \Tests\Unit\Stubs\StubPrincipal
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function seedIdentity(): StubPrincipal
+    {
+        $hasher = app(Hasher::class);
+
+        $identity            = new StubPrincipal;
+        $identity->email     = 'guard-local-resolver@example.test';
+        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        return $identity;
+    }
+
+    /**
+     * Build an unsaved tenant object with an identifier and type.
+     *
+     * @param  int  $id
+     * @param  string  $type
+     * @return \Tests\Unit\Stubs\StubTenant
+     */
+    private function makeTenant(int $id, string $type): StubTenant
+    {
+        $tenant = new StubTenant;
+        $tenant->forceFill([
+            'id'   => $id,
+            'type' => $type,
+        ]);
+
+        return $tenant;
+    }
+
+    /**
+     * Register the fixed guard-local resolver bindings used by the test.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $staffPrincipal
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $customerPrincipal
+     * @return void
+     */
+    private function bindResolvers(Principal $staffPrincipal, Principal $customerPrincipal): void
+    {
+        $this->app->instance(self::STAFF_RESOLVER, new StubFixedPrincipalResolver($staffPrincipal));
+        $this->app->instance(self::CUSTOMER_RESOLVER, new StubFixedPrincipalResolver($customerPrincipal));
+    }
+
+    /**
+     * Rebind the current request with the supplied bearer token.
+     *
+     * @param  string  $token
+     * @return void
+     */
+    private function bindRequestWithBearer(#[\SensitiveParameter] string $token): void
+    {
+        app()->instance('request', Request::create('/guard-local-resolver', 'GET', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
+        ]));
+    }
+
+    /**
      * Switching the default guard flips the package facade's contextual
      * accessors to the guard-local principal, tenant, and type.
      *
      * @return void
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testDefaultGuardSwitchesFacadeContextBetweenGuardLocalResolvers(): void
     {
@@ -171,6 +212,36 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     }
 
     /**
+     * Provision the in-memory identity table used by both guards.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+    }
+
+    /**
+     * Release the in-memory schema.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('stub_principals');
+
+        parent::tearDown();
+    }
+
+    /**
      * Configure two JWT guards that share the same identity provider and use
      * guard-local resolver aliases from the container.
      *
@@ -206,106 +277,5 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
             'driver' => 'model',
             'model'  => StubPrincipal::class,
         ]);
-    }
-
-    /**
-     * Persist and return an active identity row.
-     *
-     * @return \Tests\Unit\Stubs\StubPrincipal
-     */
-    private function seedIdentity(): StubPrincipal
-    {
-        $hasher = app(Hasher::class);
-
-        $identity            = new StubPrincipal;
-        $identity->email     = 'guard-local-resolver@example.test';
-        $identity->password  = $hasher->make('correct horse battery staple');
-        $identity->is_active = true;
-        $identity->save();
-
-        return $identity;
-    }
-
-    /**
-     * Register the fixed guard-local resolver bindings used by the test.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $staffPrincipal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $customerPrincipal
-     * @return void
-     */
-    private function bindResolvers(Principal $staffPrincipal, Principal $customerPrincipal): void
-    {
-        $this->app->instance(self::STAFF_RESOLVER, new GuardScopedPrincipalResolverIntegrationResolver($staffPrincipal));
-        $this->app->instance(self::CUSTOMER_RESOLVER, new GuardScopedPrincipalResolverIntegrationResolver($customerPrincipal));
-    }
-
-    /**
-     * Build an unsaved tenant object with an identifier and type.
-     *
-     * @param  int  $id
-     * @param  string  $type
-     * @return \Tests\Unit\Stubs\StubTenant
-     */
-    private function makeTenant(int $id, string $type): StubTenant
-    {
-        $tenant = new StubTenant;
-        $tenant->forceFill([
-            'id'   => $id,
-            'type' => $type,
-        ]);
-
-        return $tenant;
-    }
-
-    /**
-     * Rebind the current request with the supplied bearer token.
-     *
-     * @param  string  $token
-     * @return void
-     */
-    private function bindRequestWithBearer(#[\SensitiveParameter] string $token): void
-    {
-        app()->instance('request', Request::create('/guard-local-resolver', 'GET', [], [], [], [
-            'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
-        ]));
-    }
-}
-
-/**
- * Fixed-principal resolver for guard-local integration
- * tests.
- *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited
- *
- * @internal
- */
-final class GuardScopedPrincipalResolverIntegrationResolver implements PrincipalResolver
-{
-    /**
-     * Constructor.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     */
-    public function __construct(
-
-        /** @var \SineMacula\Laravel\Authentication\Contracts\Principal */
-        private readonly Principal $principal,
-
-    ) {}
-
-    /**
-     * Return the fixed principal for the owning guard.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
-    {
-        unset($identity, $hint);
-
-        return $this->principal;
     }
 }

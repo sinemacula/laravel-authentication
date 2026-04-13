@@ -171,7 +171,7 @@ abstract class JwtGuardTestCase extends TestCase
      * supplied request.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  ?ResolutionCache  $resolutionCache
+     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException

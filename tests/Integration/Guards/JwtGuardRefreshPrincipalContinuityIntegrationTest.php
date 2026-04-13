@@ -23,6 +23,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
+use Tests\Unit\Stubs\StubMappedPrincipalResolver;
 use Tests\Unit\Stubs\StubPrincipal;
 use Tests\Unit\Stubs\StubTenant;
 
@@ -41,7 +42,10 @@ use Tests\Unit\Stubs\StubTenant;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 {
-    private const string GUARD    = 'api';
+    /** @var string Guard name used by all refresh continuity tests. */
+    private const string GUARD = 'api';
+
+    /** @var string Container alias for the fixed principal resolver. */
     private const string RESOLVER = 'refresh-principal-continuity-resolver';
 
     /**
@@ -81,6 +85,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      * into that same scope instead of downgrading to the resolver's default.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshPreservesOriginalPrincipalTenantAndTypeWhenDefaultDiffers(): void
     {
@@ -91,7 +97,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         $customerPrincipal = new PlainPrincipalFixture('customer-actor', $identity, $customerTenant);
         $staffPrincipal    = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
 
-        $resolver = new JwtGuardRefreshPrincipalContinuityResolver(
+        $resolver = new StubMappedPrincipalResolver(
             $customerPrincipal,
             [
                 'customer-actor' => $customerPrincipal,
@@ -172,6 +178,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      * Persist and return an active identity row.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(): StubPrincipal
     {
@@ -208,6 +216,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      * Resolve a fresh guard for the current request.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function freshGuard(): JwtGuard
     {
@@ -226,6 +236,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function guardForBearer(#[\SensitiveParameter] string $token): JwtGuard
     {
@@ -234,52 +246,5 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         ]));
 
         return $this->freshGuard();
-    }
-}
-
-/**
- * In-memory principal resolver for refresh continuity tests.
- *
- * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited
- *
- * @internal
- */
-final class JwtGuardRefreshPrincipalContinuityResolver implements PrincipalResolver
-{
-    /**
-     * Constructor.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $defaultPrincipal
-     * @param  array<string, \SineMacula\Laravel\Authentication\Contracts\Principal>  $hintedPrincipals
-     */
-    public function __construct(
-
-        /** The fallback principal when no hint is supplied. */
-        private readonly Principal $defaultPrincipal,
-
-        /** Map of principal id to principal instance. */
-        private readonly array $hintedPrincipals,
-
-    ) {}
-
-    /**
-     * Resolve the default principal when no hint is provided,
-     * otherwise return the principal mapped to the hinted id.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
-    {
-        unset($identity);
-
-        if (is_string($hint) || is_int($hint)) {
-            return $this->hintedPrincipals[(string) $hint] ?? null;
-        }
-
-        return $this->defaultPrincipal;
     }
 }

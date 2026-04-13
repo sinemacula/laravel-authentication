@@ -16,10 +16,10 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 /**
  * Minimal Eloquent fixture used by the integration tests.
  *
- * Implements `Identity` and `Principal` so the package guards can operate in
- * 2D mode, and `HasDevices` so the JwtGuard's device-hint resolution path has
- * a real relation to query against the shipped Device model. Tests create rows
- * in the backing `integration_identities` table (seeded in
+ * Implements `Identity` and `Principal` so the package guards can operate in 2D
+ * mode, and `HasDevices` so the JwtGuard's device-hint resolution path has a
+ * real relation to query against the shipped Device model. Tests create rows in
+ * the backing `integration_identities` table (seeded in
  * `Tests\TestCase::defineDatabaseMigrations()`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
