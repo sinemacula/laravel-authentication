@@ -85,7 +85,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testBearerRejectsPreviouslyIssuedTokenWhenIdentityBecomesInactiveBetweenRequests(): void
     {
@@ -112,7 +113,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testBearerRejectsPreviouslyIssuedTokenWhenResolvedPrincipalBecomesInactiveBetweenRequests(): void
     {
@@ -138,7 +140,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testBearerRejectsPreviouslyIssuedTokenWhenHintedDeviceIsDeletedBetweenRequests(): void
     {

@@ -83,7 +83,8 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExpiredBearerTokenDoesNotHitTheDatabase(): void
     {

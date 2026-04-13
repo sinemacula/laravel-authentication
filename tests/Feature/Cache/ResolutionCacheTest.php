@@ -374,7 +374,8 @@ final class ResolutionCacheTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Psr\SimpleCache\InvalidArgumentException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Psr\SimpleCache\InvalidArgumentException
      */
     public function testForgetIdentitySkipsNonJwtGuards(): void
     {
@@ -412,7 +413,8 @@ final class ResolutionCacheTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Psr\SimpleCache\InvalidArgumentException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Psr\SimpleCache\InvalidArgumentException
      */
     public function testForgetIdentitySkipsNonModelProviderDriverGuards(): void
     {

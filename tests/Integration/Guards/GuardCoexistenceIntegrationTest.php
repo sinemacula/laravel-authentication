@@ -203,7 +203,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testSwitchingDefaultGuardTo2dExposesCorrectContext(): void
     {
@@ -234,7 +235,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testSwitchingDefaultGuardTo3dExposesCorrectContext(): void
     {

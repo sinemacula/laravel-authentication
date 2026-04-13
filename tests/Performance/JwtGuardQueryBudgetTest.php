@@ -135,7 +135,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testAccessOnlyBearerPathUsesSingleReadAndNoWrites(): void
     {
@@ -164,7 +165,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testAccessOnlyBearerPathWithWarmIdentityCacheUsesZeroReadsAndNoWrites(): void
     {
@@ -196,7 +198,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testBearerPathWithDeviceHintAndFreshTimestampUsesTwoReadsAndNoWrites(): void
     {
@@ -233,7 +236,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testBearerPathWithDeviceHintAndWarmIdentityCacheUsesOneReadAndNoWrites(): void
     {
@@ -275,7 +279,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testBearerPathWithDeviceHintAndStaleTimestampUsesTwoReadsAndOneWrite(): void
     {
@@ -312,7 +317,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testThreeDimensionalBearerPathUsesTwoReadsAndNoWrites(): void
     {
@@ -340,7 +346,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testThreeDimensionalBearerPathWithTenantAccessUsesTwoReadsAndNoWrites(): void
     {
@@ -372,7 +379,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testThreeDimensionalBearerPathWithSecondaryTenantHintUsesTwoReadsAndNoWrites(): void
     {
@@ -405,7 +413,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testThreeDimensionalBearerPathWithWarmIdentityCacheAndTenantAccessUsesOneReadAndNoWrites(): void
     {

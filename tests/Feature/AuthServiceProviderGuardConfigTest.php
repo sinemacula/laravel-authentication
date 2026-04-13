@@ -44,7 +44,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testBasicGuardAppliesPerGuardIdentifierFieldOverride(): void
     {
@@ -66,7 +67,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testBasicGuardFallsBackToPackageIdentifierField(): void
     {
@@ -86,7 +88,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testBasicGuardAppliesPerGuardPrincipalResolverOverride(): void
     {
@@ -112,7 +115,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testBasicGuardFallsBackToContainerPrincipalResolverBinding(): void
     {
@@ -135,7 +139,8 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\ReflectionException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \ReflectionException
      */
     public function testJwtGuardAppliesPerGuardPrincipalResolverOverrideAndSharesItWithRefreshExchange(): void
     {

@@ -89,7 +89,8 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testSequentialTwoDimensionalAndThreeDimensionalAuthUsesThreeReadsAndNoWrites(): void
     {

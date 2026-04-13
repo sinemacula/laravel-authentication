@@ -98,7 +98,8 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testGuardScopedAccessTokensAuthenticateOnlyOnOwningGuard(): void
     {
