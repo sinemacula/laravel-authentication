@@ -21,6 +21,7 @@ use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestUnitType;
  *
  * @internal
  */
+#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class ProvidesTenantTypeTest extends TestCase
 {
     /**
