@@ -383,7 +383,7 @@ final class JwtGuardBenchHarness
         );
 
         $twoDimensionalGuard->user();
-        $twoDimensionalGuard->principal();
+        $_ = $twoDimensionalGuard->principal();
 
         $threeDimensionalGuard = $this->makeGuard(
             'api_3d',
@@ -392,7 +392,7 @@ final class JwtGuardBenchHarness
         );
 
         $threeDimensionalGuard->user();
-        $threeDimensionalGuard->principal();
+        $_ = $threeDimensionalGuard->principal();
     }
 
     /**

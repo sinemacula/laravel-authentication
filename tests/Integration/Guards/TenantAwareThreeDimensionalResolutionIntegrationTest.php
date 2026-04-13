@@ -113,7 +113,10 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     {
         [$identity, $principal, $tenant] = $this->seedTenantAwareThreeDimensionalFixtures();
 
-        $token = PackageAuth::jwt(self::JWT_GUARD)->issueAccessToken($identity, $principal, null);
+        $jwt = PackageAuth::jwt(self::JWT_GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueAccessToken($identity, $principal, null);
         $guard = $this->jwtGuardForBearer($token);
 
         self::assertTrue($guard->check());
@@ -265,8 +268,8 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $tenant->save();
 
         $principal              = new TenantAware3dPrincipal;
-        $principal->identity_id = $identity->getKey();
-        $principal->tenant_id   = $tenant->getKey();
+        $principal->identity_id = $identity->getKey(); // @phpstan-ignore assign.propertyType
+        $principal->tenant_id   = $tenant->getKey(); // @phpstan-ignore assign.propertyType
         $principal->name        = 'staff-actor';
         $principal->is_active   = true;
         $principal->save();
@@ -289,9 +292,10 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
             'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
         ]));
 
-        PackageAuth::manager()->forgetGuards();
+        $manager = PackageAuth::manager();
+        $manager->forgetGuards();
 
-        $guard = PackageAuth::guard(self::JWT_GUARD);
+        $guard = $manager->guard(self::JWT_GUARD);
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
@@ -315,9 +319,10 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
             'PHP_AUTH_PW'   => $password,
         ]));
 
-        PackageAuth::manager()->forgetGuards();
+        $manager = PackageAuth::manager();
+        $manager->forgetGuards();
 
-        $guard = PackageAuth::guard($guardName);
+        $guard = $manager->guard($guardName);
 
         self::assertInstanceOf(BasicGuard::class, $guard);
 

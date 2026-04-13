@@ -96,12 +96,19 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
     {
         [$twoDimensionalIdentity, $threeDimensionalIdentity, $threeDimensionalPrincipal] = $this->seedFixtures();
 
-        $twoDimensionalToken = PackageAuth::jwt(self::GUARD_2D)->issueAccessToken(
+        $twoDimensionalJwt = PackageAuth::jwt(self::GUARD_2D);
+        self::assertNotNull($twoDimensionalJwt);
+
+        $twoDimensionalToken = $twoDimensionalJwt->issueAccessToken(
             $twoDimensionalIdentity,
             $twoDimensionalIdentity,
             null,
         );
-        $threeDimensionalToken = PackageAuth::jwt(self::GUARD_3D)->issueAccessToken(
+
+        $threeDimensionalJwt = PackageAuth::jwt(self::GUARD_3D);
+        self::assertNotNull($threeDimensionalJwt);
+
+        $threeDimensionalToken = $threeDimensionalJwt->issueAccessToken(
             $threeDimensionalIdentity,
             $threeDimensionalPrincipal,
             null,
@@ -206,7 +213,7 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
         $threeDimensionalIdentity->save();
 
         $threeDimensionalPrincipal              = new Coexist3dPrincipal;
-        $threeDimensionalPrincipal->identity_id = $threeDimensionalIdentity->getKey();
+        $threeDimensionalPrincipal->identity_id = $threeDimensionalIdentity->getKey(); // @phpstan-ignore assign.propertyType
         $threeDimensionalPrincipal->name        = 'coexist-3d-performance-actor';
         $threeDimensionalPrincipal->is_active   = true;
         $threeDimensionalPrincipal->save();

@@ -167,6 +167,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      */
     public function testBasicGuardNeverUsesResolutionCache(): void
     {
+        assert($this->app !== null);
+
         $this->app->instance(
             ResolutionCache::class, new class implements ResolutionCache {
                 /**

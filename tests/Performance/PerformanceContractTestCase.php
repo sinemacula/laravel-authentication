@@ -94,7 +94,7 @@ abstract class PerformanceContractTestCase extends TestCase
 
         $guard = PackageAuth::guard($name);
 
-        assert($guard instanceof JwtGuard);
+        static::assertInstanceOf(JwtGuard::class, $guard); // @phpstan-ignore staticMethod.impossibleType
 
         return $guard;
     }
@@ -115,18 +115,16 @@ abstract class PerformanceContractTestCase extends TestCase
 
         $result = $callback();
 
-        $writes = array_values(
-            array_filter(
-                $this->capturedSql,
-                static fn (string $sql): bool => preg_match('/^\s*(insert|update|delete|replace)\b/i', $sql) === 1,
-            ),
+        $writes = array_filter(
+            $this->capturedSql,
+            static fn (string $sql): bool => preg_match('/^\s*(insert|update|delete|replace)\b/i', $sql) === 1,
         );
 
         $reads   = count($this->capturedSql) - count($writes);
         $queries = implode(' | ', $this->capturedSql);
 
         static::assertSame($expectedReads, $reads, "Unexpected read-query budget. Queries: {$queries}");
-        static::assertSame($expectedWrites, count($writes), "Unexpected write-query budget. Queries: {$queries}");
+        static::assertCount($expectedWrites, $writes, "Unexpected write-query budget. Queries: {$queries}");
 
         return $result;
     }

@@ -186,9 +186,9 @@ final class ModelProviderConstructorTest extends TestCase
      * that the hasher stays the single source of truth for password
      * verification.
      *
-     * @return array<string, array{0: string}>
+     * @return \Generator<string, array{0: string}>
      */
-    public static function providePasswordKeyVariants(): iterable
+    public static function providePasswordKeyVariants(): \Generator
     {
         yield from [
             'password'              => ['password'],

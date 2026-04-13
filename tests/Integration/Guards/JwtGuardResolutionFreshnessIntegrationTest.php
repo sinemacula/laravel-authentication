@@ -64,6 +64,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
             $blueprint->timestamps();
         });
 
+        assert($this->app !== null);
+
         $this->app->instance(self::RESOLVER, new StubMutablePrincipalResolver);
     }
 
@@ -95,7 +97,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $this->resolver()->setHintedPrincipal('principal-live', $principal);
 
-        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($identity, $principal, null);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueAccessToken($identity, $principal, null);
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -125,7 +130,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $this->resolver()->setHintedPrincipal('principal-live', $activePrincipal);
 
-        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($identity, $activePrincipal, null);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueAccessToken($identity, $activePrincipal, null);
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -148,9 +156,12 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $identity = $this->seedIdentity('device-delete@example.test');
         $device   = $this->seedDevice($identity);
 
-        $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity);
+        $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity); // @phpstan-ignore cast.string
 
-        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($identity, $identity, $device);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueAccessToken($identity, $identity, $device);
 
         self::assertTrue($this->guardForBearer($token)->check());
 
@@ -171,7 +182,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $identity = $this->seedIdentity('refresh-identity@example.test');
         $device   = $this->seedDevice($identity, 'stored-rotation-id');
 
-        $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, 'stored-rotation-id', $identity);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueRefreshToken($device, 'stored-rotation-id', $identity);
 
         $identity->is_active = false;
         $identity->save();
@@ -194,7 +208,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $activePrincipal   = new PlainPrincipalFixture('principal-refresh', $identity, null, true);
         $inactivePrincipal = new PlainPrincipalFixture('principal-refresh', $identity, null, false);
 
-        $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, 'refresh-principal-rotation', $activePrincipal);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueRefreshToken($device, 'refresh-principal-rotation', $activePrincipal);
 
         $this->resolver()->setHintedPrincipal('principal-refresh', $inactivePrincipal);
 
@@ -214,7 +231,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $identity = $this->seedIdentity('refresh-device-delete@example.test');
         $device   = $this->seedDevice($identity, 'refresh-device-delete');
 
-        $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, 'refresh-device-delete', $identity);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueRefreshToken($device, 'refresh-device-delete', $identity);
 
         $device->delete();
 
@@ -266,7 +286,9 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $identity = $this->seedIdentity('refresh-cache-bypass@example.test');
         $device   = $this->seedDevice($identity, 'refresh-cache-bypass');
 
-        $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity);
+        $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity); // @phpstan-ignore cast.string
+
+        assert($this->app !== null);
 
         $this->app->instance(
             ResolutionCache::class, new class implements ResolutionCache {
@@ -301,7 +323,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
             },
         );
 
-        $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, 'refresh-cache-bypass', $identity);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueRefreshToken($device, 'refresh-cache-bypass', $identity);
 
         self::assertNotNull($this->freshGuard()->refresh($token));
     }
@@ -372,6 +397,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      */
     private function resolver(): StubMutablePrincipalResolver
     {
+        assert($this->app !== null);
+
         $resolver = $this->app->make(self::RESOLVER);
 
         assert($resolver instanceof StubMutablePrincipalResolver);
@@ -405,11 +432,12 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      */
     private function freshGuard(): JwtGuard
     {
-        PackageAuth::manager()->forgetGuards();
+        $manager = PackageAuth::manager();
+        $manager->forgetGuards();
 
-        $guard = PackageAuth::guard(self::GUARD);
+        $guard = $manager->guard(self::GUARD);
 
-        assert($guard instanceof JwtGuard);
+        self::assertInstanceOf(JwtGuard::class, $guard);
 
         return $guard;
     }

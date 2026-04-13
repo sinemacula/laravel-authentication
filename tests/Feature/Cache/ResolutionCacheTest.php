@@ -47,7 +47,7 @@ final class ResolutionCacheTest extends TestCase
             $blueprint->timestamps();
         });
 
-        Cache::store()->flush();
+        Cache::store()->clear();
     }
 
     /**
@@ -57,7 +57,7 @@ final class ResolutionCacheTest extends TestCase
      */
     protected function tearDown(): void
     {
-        Cache::store()->flush();
+        Cache::store()->clear();
         Schema::dropIfExists('stub_principals');
 
         parent::tearDown();

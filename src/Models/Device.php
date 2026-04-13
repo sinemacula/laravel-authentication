@@ -81,7 +81,7 @@ class Device extends Model implements EloquentDevice
     #[\Override]
     public function authenticatable(): MorphTo
     {
-        return $this->morphTo();
+        return $this->morphTo(); // @phpstan-ignore return.type
     }
 
     /**

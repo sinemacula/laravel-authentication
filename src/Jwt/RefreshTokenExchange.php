@@ -255,11 +255,11 @@ final class RefreshTokenExchange
      * Look up a device by id through the configured device model class.
      *
      * @param  mixed  $id
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\EloquentDevice
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
      */
-    private function findDeviceById(mixed $id): ?EloquentDevice
+    private function findDeviceById(mixed $id): (EloquentDevice&Model)|null
     {
         $class = $this->configuredDeviceModelClass();
 
@@ -268,7 +268,11 @@ final class RefreshTokenExchange
 
         $device = $model->newQuery()->find($id);
 
-        return $device instanceof EloquentDevice ? $device : null;
+        if (!$device instanceof Model || !$device instanceof EloquentDevice) {
+            return null;
+        }
+
+        return $device;
     }
 
     /**

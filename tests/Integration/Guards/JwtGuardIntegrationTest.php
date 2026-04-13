@@ -242,6 +242,8 @@ final class JwtGuardIntegrationTest extends TestCase
 
         $fresh = Device::query()->findOrFail($device->getKey());
 
+        assert($fresh instanceof Device);
+
         self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
         self::assertTrue($this->now->equalTo($fresh->last_logged_in_at));
     }

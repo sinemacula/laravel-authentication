@@ -141,7 +141,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     public function testAccessOnlyBearerPathUsesSingleReadAndNoWrites(): void
     {
         $identity = $this->seedAccessOnlyIdentity();
-        $token    = PackageAuth::jwt(self::ACCESS_ONLY_GUARD)->issueAccessToken($identity, $identity, null);
+        $jwt      = PackageAuth::jwt(self::ACCESS_ONLY_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $identity, null);
 
         $this->bindRequestWithBearer('/perf/access-only', $token);
 
@@ -150,8 +153,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
 
             $authenticated = $guard->check();
-            $guard->principal();
-            $guard->device();
+            $_             = $guard->principal();
+            $_             = $guard->device();
 
             return $authenticated;
         });
@@ -171,7 +174,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     public function testAccessOnlyBearerPathWithWarmIdentityCacheUsesZeroReadsAndNoWrites(): void
     {
         $identity = $this->seedAccessOnlyIdentity();
-        $token    = PackageAuth::jwt(self::ACCESS_ONLY_GUARD)->issueAccessToken($identity, $identity, null);
+        $jwt      = PackageAuth::jwt(self::ACCESS_ONLY_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $identity, null);
 
         config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
 
@@ -184,7 +190,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(0, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->principal();
+            $_             = $guard->principal();
 
             return $authenticated;
         });
@@ -214,7 +220,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'last_logged_in_at'    => $this->now,
         ])->save();
 
-        $token = PackageAuth::jwt(self::DEVICE_GUARD)->issueAccessToken($identity, $identity, $device);
+        $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $identity, $device);
 
         $this->bindRequestWithBearer('/perf/device-fresh', $token);
 
@@ -222,7 +231,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->device();
+            $_             = $guard->device();
 
             return $authenticated;
         });
@@ -252,7 +261,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'last_logged_in_at'    => $this->now,
         ])->save();
 
-        $token = PackageAuth::jwt(self::DEVICE_GUARD)->issueAccessToken($identity, $identity, $device);
+        $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $identity, $device);
 
         config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
 
@@ -265,7 +277,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->device();
+            $_             = $guard->device();
 
             return $authenticated;
         });
@@ -295,7 +307,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'last_logged_in_at'    => null,
         ])->save();
 
-        $token = PackageAuth::jwt(self::DEVICE_GUARD)->issueAccessToken($identity, $identity, $device);
+        $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $identity, $device);
 
         $this->bindRequestWithBearer('/perf/device-stale', $token);
 
@@ -303,7 +318,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 1, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->device();
+            $_             = $guard->device();
 
             return $authenticated;
         });
@@ -324,7 +339,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, $principal] = $this->seedThreeDimensionalFixtures();
 
-        $token = PackageAuth::jwt(self::THREE_D_GUARD)->issueAccessToken($identity, $principal, null);
+        $jwt = PackageAuth::jwt(self::THREE_D_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $principal, null);
 
         $this->bindRequestWithBearer('/perf/3d', $token);
 
@@ -332,7 +350,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->principal();
+            $_             = $guard->principal();
 
             return $authenticated;
         });
@@ -353,7 +371,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
 
-        $token = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD)->issueAccessToken($identity, $principal, null);
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $principal, null);
 
         $this->bindRequestWithBearer('/perf/3d-tenant-aware', $token);
 
@@ -361,9 +382,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->principal();
-            $guard->tenant();
-            $guard->type();
+            $_             = $guard->principal();
+            $_             = $guard->tenant();
+            $_             = $guard->type();
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -386,7 +407,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, , $secondaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant();
 
-        $token = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD)->issueAccessToken($identity, $secondaryPrincipal, null);
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $secondaryPrincipal, null);
 
         $this->bindRequestWithBearer('/perf/3d-tenant-aware-secondary', $token);
 
@@ -394,9 +418,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->principal();
-            $guard->tenant();
-            $guard->type();
+            $_             = $guard->principal();
+            $_             = $guard->tenant();
+            $_             = $guard->type();
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -420,7 +444,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     {
         [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures('three-dimensional-warm@example.test');
 
-        $token = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD)->issueAccessToken($identity, $principal, null);
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $principal, null);
 
         config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
 
@@ -433,9 +460,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $guard->principal();
-            $guard->tenant();
-            $guard->type();
+            $_             = $guard->principal();
+            $_             = $guard->tenant();
+            $_             = $guard->type();
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -570,7 +597,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $identity->save();
 
         $principal              = new Coexist3dPrincipal;
-        $principal->identity_id = $identity->getKey();
+        $principal->identity_id = $identity->getKey(); // @phpstan-ignore assign.propertyType
         $principal->name        = 'performance-actor';
         $principal->is_active   = true;
         $principal->save();
@@ -607,8 +634,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $tenant->save();
 
         $principal              = new TenantAware3dPrincipal;
-        $principal->identity_id = $identity->getKey();
-        $principal->tenant_id   = $tenant->getKey();
+        $principal->identity_id = $identity->getKey(); // @phpstan-ignore assign.propertyType
+        $principal->tenant_id   = $tenant->getKey(); // @phpstan-ignore assign.propertyType
         $principal->name        = 'performance-staff-actor';
         $principal->is_active   = true;
         $principal->save();
@@ -639,8 +666,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $secondaryTenant->save();
 
         $secondaryPrincipal              = new TenantAware3dPrincipal;
-        $secondaryPrincipal->identity_id = $identity->getKey();
-        $secondaryPrincipal->tenant_id   = $secondaryTenant->getKey();
+        $secondaryPrincipal->identity_id = $identity->getKey(); // @phpstan-ignore assign.propertyType
+        $secondaryPrincipal->tenant_id   = $secondaryTenant->getKey(); // @phpstan-ignore assign.propertyType
         $secondaryPrincipal->name        = 'performance-customer-actor';
         $secondaryPrincipal->is_active   = true;
         $secondaryPrincipal->save();

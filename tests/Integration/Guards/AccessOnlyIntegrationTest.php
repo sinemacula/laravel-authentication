@@ -77,8 +77,12 @@ final class AccessOnlyIntegrationTest extends TestCase
     {
         $user = $this->seedUser();
 
-        $token  = PackageAuth::jwt(self::GUARD)->issueAccessToken($user, $user, null);
-        $claims = PackageAuth::jwt(self::GUARD)->parse($token, TokenType::ACCESS);
+        $jwtService = PackageAuth::jwt(self::GUARD);
+
+        assert($jwtService !== null);
+
+        $token  = $jwtService->issueAccessToken($user, $user, null);
+        $claims = $jwtService->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertArrayHasKey(Claims::DEVICE_ID->value, $claims);
@@ -114,8 +118,8 @@ final class AccessOnlyIntegrationTest extends TestCase
         $now  = time();
 
         $token = JWT::encode([
-            'sub' => (string) $user->getAuthIdentifier(),
-            'pid' => (string) $user->getAuthIdentifier(),
+            'sub' => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
+            'pid' => (string) $user->getAuthIdentifier(), // @phpstan-ignore cast.string
             'did' => 'forged-device-id',
             'iat' => $now,
             'exp' => $now + 900,

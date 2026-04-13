@@ -160,7 +160,11 @@ final class DeviceModelOverrideTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $refreshToken = PackageAuth::jwt('custom-jwt')->issueRefreshToken($device, $plainRotationId);
+        $jwtService = PackageAuth::jwt('custom-jwt');
+
+        assert($jwtService !== null);
+
+        $refreshToken = $jwtService->issueRefreshToken($device, $plainRotationId);
 
         $guard = $this->makeJwtGuard();
 

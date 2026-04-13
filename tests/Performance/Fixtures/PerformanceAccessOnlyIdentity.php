@@ -16,6 +16,9 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
+ * @property string $email
+ * @property string $password
+ *
  * @internal
  */
 final class PerformanceAccessOnlyIdentity extends Model implements Identity, Principal

@@ -53,9 +53,9 @@ final class ModelProviderTest extends TestCase
      * Data provider for
      * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
      *
-     * @return array<string, array{0: mixed}>
+     * @return \Generator<string, array{0: mixed}>
      */
-    public static function provideNonStringPasswords(): iterable
+    public static function provideNonStringPasswords(): \Generator
     {
         yield from [
             'integer'      => [123],
