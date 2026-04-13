@@ -35,6 +35,8 @@ trait Authenticatable
      * Stateless package: no-op, returns empty string.
      *
      * @return string
+     *
+     * @SuppressWarnings("php:S4144")
      */
     public function getRememberToken(): string
     {

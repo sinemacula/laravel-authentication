@@ -170,7 +170,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         assert($this->app !== null);
 
         $this->app->instance(
-            ResolutionCache::class, new class implements ResolutionCache {
+            ResolutionCache::class,
+            new class implements ResolutionCache {
                 /**
                  * @param  string  $guardName
                  * @param  string  $providerModelClass

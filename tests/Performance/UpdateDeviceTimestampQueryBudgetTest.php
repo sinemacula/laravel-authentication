@@ -23,6 +23,8 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversClass(UpdateDeviceTimestamp::class)]
 final class UpdateDeviceTimestampQueryBudgetTest extends PerformanceContractTestCase
 {
+    private const DATETIME_FORMAT = 'Y-m-d H:i:s';
+
     /**
      * Provision the persisted stub-device table.
      *
@@ -74,7 +76,7 @@ final class UpdateDeviceTimestampQueryBudgetTest extends PerformanceContractTest
 
         $this->assertQueryBudget(0, 0, static fn () => $listener(new DeviceAuthenticated('api', $device)));
 
-        self::assertSame($this->now->format('Y-m-d H:i:s'), $device->last_logged_in_at?->format('Y-m-d H:i:s'));
+        self::assertSame($this->now->format(self::DATETIME_FORMAT), $device->last_logged_in_at?->format(self::DATETIME_FORMAT));
     }
 
     /**
@@ -95,7 +97,7 @@ final class UpdateDeviceTimestampQueryBudgetTest extends PerformanceContractTest
 
         $this->assertQueryBudget(0, 1, static fn () => $listener(new DeviceAuthenticated('api', $device)));
 
-        self::assertSame($advanced->format('Y-m-d H:i:s'), $device->last_logged_in_at?->format('Y-m-d H:i:s'));
+        self::assertSame($advanced->format(self::DATETIME_FORMAT), $device->last_logged_in_at?->format(self::DATETIME_FORMAT));
     }
 
     /**

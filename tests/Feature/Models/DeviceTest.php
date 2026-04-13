@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 final class DeviceTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
+    private const FIXED_TIMESTAMP = '2026-04-06 12:00:00';
 
     /**
      * Set up the in-memory schema for the Device table after the Testbench
@@ -115,7 +116,7 @@ final class DeviceTest extends TestCase
     public function testCastsLastLoggedInAtToCarbon(): void
     {
         $device = new Device;
-        $device->forceFill(['last_logged_in_at' => '2026-04-06 12:00:00'])->save();
+        $device->forceFill(['last_logged_in_at' => self::FIXED_TIMESTAMP])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 
@@ -130,7 +131,7 @@ final class DeviceTest extends TestCase
     public function testCastsLastMfaVerifiedAtToCarbon(): void
     {
         $device = new Device;
-        $device->forceFill(['last_mfa_verified_at' => '2026-04-06 12:00:00'])->save();
+        $device->forceFill(['last_mfa_verified_at' => self::FIXED_TIMESTAMP])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 
@@ -227,7 +228,7 @@ final class DeviceTest extends TestCase
     public function testGetLastLoggedInReturnsCarbonOrNull(): void
     {
         $device = new Device;
-        $device->forceFill(['last_logged_in_at' => '2026-04-06 12:00:00'])->save();
+        $device->forceFill(['last_logged_in_at' => self::FIXED_TIMESTAMP])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 
@@ -251,7 +252,7 @@ final class DeviceTest extends TestCase
     public function testGetLastMfaVerificationReturnsCarbonOrNull(): void
     {
         $device = new Device;
-        $device->forceFill(['last_mfa_verified_at' => '2026-04-06 12:00:00'])->save();
+        $device->forceFill(['last_mfa_verified_at' => self::FIXED_TIMESTAMP])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 

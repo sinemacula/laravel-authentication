@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -19,7 +18,13 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubModel;
 
 /**
- * Unit tests for the ModelProvider identity provider.
+ * Unit tests for the ModelProvider constructor validation, identity retrieval,
+ * and basic credential query building.
+ *
+ * Covers constructor type checks, retrieveById, retrieveByToken,
+ * updateRememberToken, simple credential-to-query mapping, and modelClass().
+ * Credential filtering edge cases, validateCredentials, and
+ * rehashPasswordIfRequired tests live in ModelProviderCredentialTest.
  *
  * @internal
  *
@@ -47,26 +52,6 @@ final class ModelProviderTest extends TestCase
         parent::setUp();
 
         $this->hasher = \Mockery::mock(Hasher::class);
-    }
-
-    /**
-     * Data provider for
-     * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
-     *
-     * @return \Generator<string, array{0: mixed}>
-     */
-    public static function provideNonStringPasswords(): \Generator
-    {
-        yield from [
-            'integer'      => [123],
-            'float'        => [1.5],
-            'true'         => [true],
-            'false'        => [false],
-            'array'        => [['secret']],
-            'object'       => [new \stdClass],
-            'null'         => [null],
-            'empty-string' => [''],
-        ];
     }
 
     /**
@@ -159,18 +144,15 @@ final class ModelProviderTest extends TestCase
      * `Authenticatable`.
      *
      * @return void
+     *
+     * @SuppressWarnings("php:S1848")
      */
     public function testConstructorRejectsModelWithoutAuthenticatable(): void
     {
-        try {
-            new ModelProvider($this->hasher, StubModel::class);
-            self::fail('Expected constructor to reject a non-Authenticatable model.');
-        } catch (\InvalidArgumentException $exception) {
-            self::assertStringContainsString(
-                'must be both an Eloquent Model and implement Authenticatable',
-                $exception->getMessage(),
-            );
-        }
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('must be both an Eloquent Model and implement Authenticatable');
+
+        new ModelProvider($this->hasher, StubModel::class);
     }
 
     /**
@@ -178,18 +160,15 @@ final class ModelProviderTest extends TestCase
      * not extend `Model`.
      *
      * @return void
+     *
+     * @SuppressWarnings("php:S1848")
      */
     public function testConstructorRejectsAuthenticatableWithoutModel(): void
     {
-        try {
-            new ModelProvider($this->hasher, PlainIdentityFixture::class);
-            self::fail('Expected constructor to reject a non-Eloquent authenticatable.');
-        } catch (\InvalidArgumentException $exception) {
-            self::assertStringContainsString(
-                'must be both an Eloquent Model and implement Authenticatable',
-                $exception->getMessage(),
-            );
-        }
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('must be both an Eloquent Model and implement Authenticatable');
+
+        new ModelProvider($this->hasher, PlainIdentityFixture::class);
     }
 
     /**
@@ -216,87 +195,6 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * Password-like keys are filtered case-insensitively and do not block
-     * later valid credentials from reaching the query.
-     *
-     * @return void
-     */
-    public function testRetrieveByCredentialsSkipsCaseInsensitivePasswordKeysAndContinues(): void
-    {
-        $found = new StubAuthenticatableModel;
-
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('where')
-            ->once()
-            ->with('email', self::ALICE_EMAIL)
-            ->andReturnSelf();
-        $builder->shouldReceive('first')
-            ->once()
-            ->andReturn($found);
-
-        $provider = $this->makeProvider($builder);
-
-        self::assertSame($found, $provider->retrieveByCredentials([
-            'PASSWORD' => 'secret',
-            'email'    => self::ALICE_EMAIL,
-        ]));
-    }
-
-    /**
-     * Invalid credential keys with a leading non-identifier byte are dropped
-     * without blocking later valid credentials.
-     *
-     * @return void
-     */
-    public function testRetrieveByCredentialsSkipsLeadingJunkKeyAndContinues(): void
-    {
-        $found = new StubAuthenticatableModel;
-
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('where')
-            ->once()
-            ->with('email', self::ALICE_EMAIL)
-            ->andReturnSelf();
-        $builder->shouldReceive('first')
-            ->once()
-            ->andReturn($found);
-
-        $provider = $this->makeProvider($builder);
-
-        self::assertSame($found, $provider->retrieveByCredentials([
-            '1email' => 'malicious',
-            'email'  => self::ALICE_EMAIL,
-        ]));
-    }
-
-    /**
-     * Invalid credential keys with a trailing dot are dropped without blocking
-     * later valid credentials.
-     *
-     * @return void
-     */
-    public function testRetrieveByCredentialsSkipsTrailingDotKeyAndContinues(): void
-    {
-        $found = new StubAuthenticatableModel;
-
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('where')
-            ->once()
-            ->with('email', self::ALICE_EMAIL)
-            ->andReturnSelf();
-        $builder->shouldReceive('first')
-            ->once()
-            ->andReturn($found);
-
-        $provider = $this->makeProvider($builder);
-
-        self::assertSame($found, $provider->retrieveByCredentials([
-            'email.' => 'malicious',
-            'email'  => self::ALICE_EMAIL,
-        ]));
-    }
-
-    /**
      * Numeric credential keys are silently dropped - they cannot be passed
      * safely to `where()` and would otherwise crash the query.
      *
@@ -309,264 +207,6 @@ final class ModelProviderTest extends TestCase
         // After dropping numeric keys the credentials array is empty - the
         // provider returns null without composing a query.
         self::assertNull($provider->retrieveByCredentials([self::ALICE_EMAIL]));
-    }
-
-    /**
-     * Array credentials are passed through to whereIn() for IN expansion.
-     *
-     * @return void
-     */
-    public function testRetrieveByCredentialsAppliesArrayCredentialsAsWhereInClauses(): void
-    {
-        $roles = ['admin', 'staff'];
-
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('whereIn')
-            ->once()
-            ->with('role', $roles)
-            ->andReturnSelf();
-        $builder->shouldReceive('first')
-            ->once()
-            ->andReturnNull();
-
-        $provider = $this->makeProvider($builder);
-
-        self::assertNull($provider->retrieveByCredentials(['role' => $roles]));
-    }
-
-    /**
-     * Closure credentials are invoked with the query builder.
-     *
-     * @return void
-     */
-    public function testRetrieveByCredentialsInvokesClosureCredentialsAgainstQuery(): void
-    {
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('where')
-            ->once()
-            ->with('flag', true)
-            ->andReturnSelf();
-        $builder->shouldReceive('first')
-            ->once()
-            ->andReturnNull();
-
-        $provider = $this->makeProvider($builder);
-
-        $closureInvoked = false;
-
-        $provider->retrieveByCredentials([
-            'custom' => static function (Builder $query) use (&$closureInvoked): void {
-                $closureInvoked = true;
-                $query->where('flag', true);
-            },
-        ]);
-
-        self::assertTrue($closureInvoked);
-    }
-
-    /**
-     * validateCredentials returns false when the password is missing.
-     *
-     * @return void
-     */
-    public function testValidateCredentialsReturnsFalseWhenPasswordMissing(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        $user = \Mockery::mock(Authenticatable::class);
-        $this->hasher->shouldNotReceive('check');
-
-        self::assertFalse($provider->validateCredentials($user, []));
-    }
-
-    /**
-     * validateCredentials returns false when the password is not a string
-     * (integer, array, object, boolean, or null). Uses a data provider so each
-     * non-string variant is its own assertion row and a mutation that loosens
-     * the type check fails a single row cleanly.
-     *
-     * @param  mixed  $password
-     * @return void
-     */
-    #[DataProvider('provideNonStringPasswords')]
-    public function testValidateCredentialsReturnsFalseWhenPasswordNotString(mixed $password): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        $user = \Mockery::mock(Authenticatable::class);
-        $this->hasher->shouldNotReceive('check');
-
-        self::assertFalse($provider->validateCredentials($user, ['password' => $password]));
-    }
-
-    /**
-     * Multiple scalar credential entries compose as AND-combined `where()`
-     * clauses - the query builder receives one `where()` call per entry in
-     * declaration order. Pins the iteration path through
-     * `applyCredentialClauses`.
-     *
-     * @return void
-     */
-    public function testRetrieveByCredentialsAndCombinesMultipleScalarClauses(): void
-    {
-        $found = new StubAuthenticatableModel;
-
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('where')
-            ->once()
-            ->with('email', self::ALICE_EMAIL)
-            ->andReturnSelf();
-        $builder->shouldReceive('where')
-            ->once()
-            ->with('tenant_id', 42)
-            ->andReturnSelf();
-        $builder->shouldReceive('first')
-            ->once()
-            ->andReturn($found);
-
-        $provider = $this->makeProvider($builder);
-
-        self::assertSame($found, $provider->retrieveByCredentials([
-            'email'     => self::ALICE_EMAIL,
-            'tenant_id' => 42,
-        ]));
-    }
-
-    /**
-     * validateCredentials delegates to Hasher::check when a plain password is
-     * provided.
-     *
-     * @return void
-     */
-    public function testValidateCredentialsDelegatesToHasherCheck(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        $user = \Mockery::mock(Authenticatable::class);
-        $user->shouldReceive('getAuthPassword')
-            ->once()
-            ->andReturn('hashed');
-
-        $this->hasher->shouldReceive('check')
-            ->once()
-            ->with('plain', 'hashed')
-            ->andReturnTrue();
-
-        self::assertTrue($provider->validateCredentials($user, ['password' => 'plain']));
-    }
-
-    /**
-     * rehashPasswordIfRequired is a no-op when no password is supplied.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredNoOpsWhenPasswordMissing(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        $user = \Mockery::mock(Authenticatable::class);
-        $this->hasher->shouldNotReceive('needsRehash');
-        $this->hasher->shouldNotReceive('make');
-
-        $provider->rehashPasswordIfRequired($user, []);
-
-        self::assertTrue(true, 'rehashPasswordIfRequired returned without touching the hasher.');
-    }
-
-    /**
-     * rehashPasswordIfRequired is a no-op when the password is an empty string,
-     * even for an Eloquent model user.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredNoOpsWhenPasswordEmptyString(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
-        $user->shouldNotReceive('save');
-
-        $this->hasher->shouldNotReceive('needsRehash');
-        $this->hasher->shouldNotReceive('make');
-
-        $provider->rehashPasswordIfRequired($user, ['password' => '']);
-
-        self::assertTrue(true, 'rehashPasswordIfRequired short-circuited for an empty string password.');
-    }
-
-    /**
-     * rehashPasswordIfRequired is a no-op when the user is not an Eloquent
-     * model.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredNoOpsWhenUserNotEloquentModel(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        $user = \Mockery::mock(Authenticatable::class);
-        $this->hasher->shouldNotReceive('needsRehash');
-        $this->hasher->shouldNotReceive('make');
-
-        $provider->rehashPasswordIfRequired($user, ['password' => 'plain']);
-
-        self::assertTrue(true, 'rehashPasswordIfRequired short-circuited for a non-Model user.');
-    }
-
-    /**
-     * rehashPasswordIfRequired skips rehash when Hasher::needsRehash returns
-     * false.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredSkipsWhenHasherNeedsRehashFalse(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
-        $user->shouldReceive('getAuthPassword')
-            ->andReturn('hashed');
-        $user->shouldNotReceive('save');
-
-        $this->hasher->shouldReceive('needsRehash')
-            ->once()
-            ->with('hashed')
-            ->andReturnFalse();
-        $this->hasher->shouldNotReceive('make');
-
-        $provider->rehashPasswordIfRequired($user, ['password' => 'plain']);
-
-        self::assertTrue(true, 'rehashPasswordIfRequired skipped without calling hasher->make().');
-    }
-
-    /**
-     * rehashPasswordIfRequired rehashes and saves when forced.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredRehashesWhenForced(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
-        $user->shouldReceive('getAuthPasswordName')
-            ->andReturn('password');
-        $user->shouldReceive('save')
-            ->once()
-            ->andReturnTrue();
-
-        $this->hasher->shouldNotReceive('needsRehash');
-        $this->hasher->shouldReceive('make')
-            ->once()
-            ->with('plain')
-            ->andReturn('rehashed');
-
-        $provider->rehashPasswordIfRequired($user, ['password' => 'plain'], true);
-
-        self::assertSame('rehashed', $user->getAttribute('password'));
     }
 
     /**

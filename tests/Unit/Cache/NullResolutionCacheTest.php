@@ -23,6 +23,9 @@ final class NullResolutionCacheTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
+    /** @var string Stub provider model class for all cache tests. */
+    private const PROVIDER_MODEL = 'App\Models\User';
+
     /**
      * `rememberJwtIdentity()` delegates to the resolver and returns its result
      * when the resolver returns an Authenticatable.
@@ -38,7 +41,7 @@ final class NullResolutionCacheTest extends TestCase
 
         $result = $cache->rememberJwtIdentity(
             'api',
-            'App\Models\User',
+            self::PROVIDER_MODEL,
             1,
             static fn (): Authenticatable => $user,
         );
@@ -57,7 +60,7 @@ final class NullResolutionCacheTest extends TestCase
 
         $result = $cache->rememberJwtIdentity(
             'api',
-            'App\Models\User',
+            self::PROVIDER_MODEL,
             1,
             static fn (): ?Authenticatable => null,
         );
@@ -77,7 +80,7 @@ final class NullResolutionCacheTest extends TestCase
 
         $result = $cache->rememberJwtIdentity(
             'api',
-            'App\Models\User',
+            self::PROVIDER_MODEL,
             1,
             static fn (): string => 'not-authenticatable', // @phpstan-ignore return.type
         );
@@ -94,7 +97,7 @@ final class NullResolutionCacheTest extends TestCase
     {
         $cache = new NullResolutionCache;
 
-        $cache->forgetJwtIdentity('api', 'App\Models\User', 1);
+        $cache->forgetJwtIdentity('api', self::PROVIDER_MODEL, 1);
 
         self::assertTrue(true, 'forgetJwtIdentity completed without error.');
     }

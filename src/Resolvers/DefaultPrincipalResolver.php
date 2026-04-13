@@ -42,20 +42,11 @@ final class DefaultPrincipalResolver implements PrincipalResolver
     #[\Override]
     public function resolve(Identity $identity, mixed $hint = null): ?Principal
     {
-        if ($hint !== null && $identity instanceof ResolvesHintedPrincipal) {
+        if ($hint !== null) {
 
-            $hinted = $identity->resolveHintedPrincipal($hint);
+            $hinted = $this->resolveHinted($identity, $hint);
 
-            if ($hinted instanceof Principal) {
-                return $hinted;
-            }
-        }
-
-        if ($hint !== null && $identity instanceof HasPrincipals) {
-
-            $hinted = $identity->principals()->find($hint);
-
-            if ($hinted instanceof Principal) {
+            if ($hinted !== null) {
                 return $hinted;
             }
         }
@@ -69,5 +60,35 @@ final class DefaultPrincipalResolver implements PrincipalResolver
         }
 
         throw new UnresolvableIdentityException(sprintf('Cannot resolve a principal for identity %s: it implements neither Principal nor HasPrincipals.', $identity::class));
+    }
+
+    /**
+     * Attempt hint-based principal resolution.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    private function resolveHinted(Identity $identity, mixed $hint): ?Principal
+    {
+        if ($identity instanceof ResolvesHintedPrincipal) {
+
+            $hinted = $identity->resolveHintedPrincipal($hint);
+
+            if ($hinted instanceof Principal) {
+                return $hinted;
+            }
+        }
+
+        if ($identity instanceof HasPrincipals) {
+
+            $hinted = $identity->principals()->find($hint);
+
+            if ($hinted instanceof Principal) {
+                return $hinted;
+            }
+        }
+
+        return null;
     }
 }

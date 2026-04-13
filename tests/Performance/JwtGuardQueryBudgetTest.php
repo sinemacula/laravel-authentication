@@ -32,6 +32,8 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 {
+    private const TEST_PASSWORD = 'correct horse battery staple';
+
     /** @var string Guard name for 2D access-only bearer tests. */
     private const string ACCESS_ONLY_GUARD = 'access_only';
 
@@ -548,7 +550,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $identity           = new PerformanceAccessOnlyIdentity;
         $identity->email    = 'access-only-performance@example.test';
-        $identity->password = $hasher->make('correct horse battery staple');
+        $identity->password = $hasher->make(self::TEST_PASSWORD);
         $identity->save();
 
         return $identity;
@@ -568,7 +570,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $identity            = new IntegrationIdentity;
         $identity->email     = $email;
-        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
 
@@ -592,7 +594,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $identity            = new Coexist3dIdentity;
         $identity->email     = 'three-dimensional-performance@example.test';
-        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
 
@@ -624,7 +626,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $identity            = new TenantAware3dIdentity;
         $identity->email     = $email;
-        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
 
@@ -650,7 +652,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * @formatter:off
      *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity,
+     *               1: \Tests\Integration\Fixtures\TenantAware3dPrincipal,
+     *               2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      *

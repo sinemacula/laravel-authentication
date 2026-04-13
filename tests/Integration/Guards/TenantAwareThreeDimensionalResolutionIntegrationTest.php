@@ -34,6 +34,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(DefaultPrincipalResolver::class)]
 final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCase
 {
+    private const TEST_PASSWORD = 'correct horse battery staple';
+
     /** @var string JWT guard name for 3D bearer tests. */
     private const string JWT_GUARD = 'api_3d';
 
@@ -148,7 +150,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $guard = $this->basicGuardForCredentials(
             self::BASIC_THREE_D_GUARD,
             $identity->email,
-            'correct horse battery staple',
+            self::TEST_PASSWORD,
         );
 
         self::assertNotNull($guard->user());
@@ -181,7 +183,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $guard = $this->basicGuardForCredentials(
             self::BASIC_TWO_D_GUARD,
             $identity->email,
-            'correct horse battery staple',
+            self::TEST_PASSWORD,
         );
 
         self::assertNotNull($guard->user());
@@ -258,7 +260,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
 
         $identity            = new TenantAware3dIdentity;
         $identity->email     = $email;
-        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
 
@@ -342,7 +344,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
 
         $identity            = new StubPrincipal;
         $identity->email     = 'basic-2d@example.test';
-        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
 
