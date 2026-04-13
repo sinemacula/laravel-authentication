@@ -28,6 +28,39 @@ use Tests\Unit\Stubs\StubPrincipal;
 final class ResolutionCacheTest extends TestCase
 {
     /**
+     * Provision the shared identity table used by the cache tests.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+
+        Cache::store()->flush();
+    }
+
+    /**
+     * Drop the shared identity table.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        Cache::store()->flush();
+        Schema::dropIfExists('stub_principals');
+
+        parent::tearDown();
+    }
+
+    /**
      * Guard names must partition the shared bearer identity cache so one
      * guard's warm hit does not satisfy another guard's first read.
      *
@@ -83,26 +116,6 @@ final class ResolutionCacheTest extends TestCase
         self::assertSame(1, $calls);
         self::assertSame(1, $customerCalls);
         self::assertNotSame($first, $second);
-    }
-
-    /**
-     * Persist and return an active identity row.
-     *
-     * @param  string  $email
-     * @return \Tests\Unit\Stubs\StubPrincipal
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function seedIdentity(string $email = 'cache@example.test'): StubPrincipal
-    {
-        $hasher = app(Hasher::class);
-
-        $identity            = new StubPrincipal;
-        $identity->email     = $email;
-        $identity->password  = $hasher->make('correct horse battery staple');
-        $identity->is_active = true;
-        $identity->save();
-
-        return $identity;
     }
 
     /**
@@ -174,39 +187,6 @@ final class ResolutionCacheTest extends TestCase
     }
 
     /**
-     * Provision the shared identity table used by the cache tests.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password');
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
-
-        Cache::store()->flush();
-    }
-
-    /**
-     * Drop the shared identity table.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        Cache::store()->flush();
-        Schema::dropIfExists('stub_principals');
-
-        parent::tearDown();
-    }
-
-    /**
      * Configure the shared JWT/basic guards used by the cache tests.
      *
      * @param  mixed  $app
@@ -239,5 +219,26 @@ final class ResolutionCacheTest extends TestCase
         ]);
 
         config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
+    }
+
+    /**
+     * Persist and return an active identity row.
+     *
+     * @param  string  $email
+     * @return \Tests\Unit\Stubs\StubPrincipal
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function seedIdentity(string $email = 'cache@example.test'): StubPrincipal
+    {
+        $hasher = app(Hasher::class);
+
+        $identity            = new StubPrincipal;
+        $identity->email     = $email;
+        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        return $identity;
     }
 }

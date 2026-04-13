@@ -85,6 +85,7 @@ abstract class PerformanceContractTestCase extends TestCase
      *
      * @param  string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     protected function freshJwtGuard(string $name): JwtGuard

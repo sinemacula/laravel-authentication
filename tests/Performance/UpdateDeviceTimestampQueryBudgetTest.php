@@ -24,66 +24,6 @@ use Tests\Unit\Stubs\StubDevice;
 final class UpdateDeviceTimestampQueryBudgetTest extends PerformanceContractTestCase
 {
     /**
-     * Within the debounce window the listener should skip all SQL activity.
-     *
-     * @return void
-     */
-    public function testListenerWithinThrottleWindowUsesZeroReadsAndNoWrites(): void
-    {
-        config()->set('authentication.device.last_seen_throttle_seconds', 60);
-
-        $device = $this->makePersistedDevice($this->now);
-
-        $advanced = $this->now->copy()->addSeconds(30);
-        Carbon::setTestNow($advanced);
-
-        $listener = app(UpdateDeviceTimestamp::class);
-
-        $this->assertQueryBudget(0, 0, static fn () => $listener(new DeviceAuthenticated('api', $device)));
-
-        self::assertSame($this->now->format('Y-m-d H:i:s'), $device->last_logged_in_at?->format('Y-m-d H:i:s'));
-    }
-
-    /**
-     * Persist one stub device with an optional stored last-login timestamp.
-     *
-     * @param  ?\Carbon\Carbon  $lastLoggedInAt
-     * @return \Tests\Unit\Stubs\StubDevice
-     */
-    private function makePersistedDevice(?Carbon $lastLoggedInAt): StubDevice
-    {
-        $device = new StubDevice;
-        $device->forceFill([
-            'os'                => 'ios',
-            'refresh_key'       => 'stub-refresh-key',
-            'last_logged_in_at' => $lastLoggedInAt,
-        ])->save();
-
-        return $device;
-    }
-
-    /**
-     * A stale or missing timestamp should do exactly one update and no reads.
-     *
-     * @return void
-     */
-    public function testListenerForStaleTimestampUsesZeroReadsAndOneWrite(): void
-    {
-        config()->set('authentication.device.last_seen_throttle_seconds', 60);
-
-        $device = $this->makePersistedDevice(null);
-
-        $advanced = $this->now->copy()->addSeconds(61);
-        Carbon::setTestNow($advanced);
-
-        $listener = app(UpdateDeviceTimestamp::class);
-
-        $this->assertQueryBudget(0, 1, static fn () => $listener(new DeviceAuthenticated('api', $device)));
-
-        self::assertSame($advanced->format('Y-m-d H:i:s'), $device->last_logged_in_at?->format('Y-m-d H:i:s'));
-    }
-
-    /**
      * Provision the persisted stub-device table.
      *
      * @return void
@@ -114,5 +54,65 @@ final class UpdateDeviceTimestampQueryBudgetTest extends PerformanceContractTest
         Schema::dropIfExists('stub_devices');
 
         parent::tearDown();
+    }
+
+    /**
+     * Within the debounce window the listener should skip all SQL activity.
+     *
+     * @return void
+     */
+    public function testListenerWithinThrottleWindowUsesZeroReadsAndNoWrites(): void
+    {
+        config()->set('authentication.device.last_seen_throttle_seconds', 60);
+
+        $device = $this->makePersistedDevice($this->now);
+
+        $advanced = $this->now->copy()->addSeconds(30);
+        Carbon::setTestNow($advanced);
+
+        $listener = app(UpdateDeviceTimestamp::class);
+
+        $this->assertQueryBudget(0, 0, static fn () => $listener(new DeviceAuthenticated('api', $device)));
+
+        self::assertSame($this->now->format('Y-m-d H:i:s'), $device->last_logged_in_at?->format('Y-m-d H:i:s'));
+    }
+
+    /**
+     * A stale or missing timestamp should do exactly one update and no reads.
+     *
+     * @return void
+     */
+    public function testListenerForStaleTimestampUsesZeroReadsAndOneWrite(): void
+    {
+        config()->set('authentication.device.last_seen_throttle_seconds', 60);
+
+        $device = $this->makePersistedDevice(null);
+
+        $advanced = $this->now->copy()->addSeconds(61);
+        Carbon::setTestNow($advanced);
+
+        $listener = app(UpdateDeviceTimestamp::class);
+
+        $this->assertQueryBudget(0, 1, static fn () => $listener(new DeviceAuthenticated('api', $device)));
+
+        self::assertSame($advanced->format('Y-m-d H:i:s'), $device->last_logged_in_at?->format('Y-m-d H:i:s'));
+    }
+
+    /**
+     * Persist one stub device with an optional stored last-login timestamp.
+     *
+     * @param  ?\Carbon\Carbon  $lastLoggedInAt
+     * @return \Tests\Unit\Stubs\StubDevice
+     */
+    private function makePersistedDevice(?Carbon $lastLoggedInAt): StubDevice
+    {
+        $device = new StubDevice;
+        $device->forceFill([
+            'os'                => 'ios',
+            'refresh_key'       => 'stub-refresh-key',
+            'last_logged_in_at' => $lastLoggedInAt,
+        ])->save();
+
+        return $device;
     }
 }

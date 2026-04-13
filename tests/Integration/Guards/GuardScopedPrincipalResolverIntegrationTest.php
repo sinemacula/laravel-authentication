@@ -53,12 +53,43 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     private const string CUSTOMER_RESOLVER = 'customer-principal-resolver';
 
     /**
+     * Provision the in-memory identity table used by both guards.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+    }
+
+    /**
+     * Release the in-memory schema.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('stub_principals');
+
+        parent::tearDown();
+    }
+
+    /**
      * The same identity can authenticate through two guards that resolve
      * different principals, and a token minted for one guard's resolver is
      * rejected by the other guard's resolver. Rebinding the request clears the
      * previously memoized principal on the old guard instance.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
      */
     public function testGuardsResolveDifferentPrincipalsWithoutCrossContamination(): void
@@ -104,9 +135,94 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
     }
 
     /**
+     * Switching the default guard flips the package facade's contextual
+     * accessors to the guard-local principal, tenant, and type.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     */
+    public function testDefaultGuardSwitchesFacadeContextBetweenGuardLocalResolvers(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $staffTenant       = $this->makeTenant(101, 'staff');
+        $customerTenant    = $this->makeTenant(202, 'customer');
+        $staffPrincipal    = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
+        $customerPrincipal = new PlainPrincipalFixture('customer-actor', $identity, $customerTenant);
+
+        $this->bindResolvers($staffPrincipal, $customerPrincipal);
+
+        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
+        $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($identity, $customerPrincipal, null);
+
+        config()->set('auth.defaults.guard', self::STAFF_GUARD);
+        $this->bindRequestWithBearer($staffToken);
+
+        $staffGuard = PackageAuth::guard();
+
+        self::assertInstanceOf(ContextualGuard::class, $staffGuard);
+        self::assertTrue($staffGuard->check());
+        self::assertSame('staff-actor', PackageAuth::principal()?->getPrincipalIdentifier());
+        self::assertSame($staffTenant, PackageAuth::tenant());
+        self::assertSame('staff', PackageAuth::type());
+
+        config()->set('auth.defaults.guard', self::CUSTOMER_GUARD);
+        $this->bindRequestWithBearer($customerToken);
+
+        $customerGuard = PackageAuth::guard();
+
+        self::assertInstanceOf(ContextualGuard::class, $customerGuard);
+        self::assertNotSame($staffGuard, $customerGuard);
+        self::assertTrue($customerGuard->check());
+        self::assertSame('customer-actor', PackageAuth::principal()?->getPrincipalIdentifier());
+        self::assertSame($customerTenant, PackageAuth::tenant());
+        self::assertSame('customer', PackageAuth::type());
+    }
+
+    /**
+     * Configure two JWT guards that share the same identity provider and use
+     * guard-local resolver aliases from the container.
+     *
+     * @param  mixed  $app
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof Application);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('auth.defaults.guard', self::STAFF_GUARD);
+
+        $config->set('auth.guards.' . self::STAFF_GUARD, [
+            'driver'             => 'jwt',
+            'provider'           => 'identities',
+            'principal_resolver' => self::STAFF_RESOLVER,
+        ]);
+
+        $config->set('auth.guards.' . self::CUSTOMER_GUARD, [
+            'driver'             => 'jwt',
+            'provider'           => 'identities',
+            'principal_resolver' => self::CUSTOMER_RESOLVER,
+        ]);
+
+        $config->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => StubPrincipal::class,
+        ]);
+    }
+
+    /**
      * Persist and return an active identity row.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(): StubPrincipal
@@ -164,118 +280,5 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         app()->instance('request', Request::create('/guard-local-resolver', 'GET', [], [], [], [
             'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
         ]));
-    }
-
-    /**
-     * Switching the default guard flips the package facade's contextual
-     * accessors to the guard-local principal, tenant, and type.
-     *
-     * @return void
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
-     */
-    public function testDefaultGuardSwitchesFacadeContextBetweenGuardLocalResolvers(): void
-    {
-        $identity = $this->seedIdentity();
-
-        $staffTenant       = $this->makeTenant(101, 'staff');
-        $customerTenant    = $this->makeTenant(202, 'customer');
-        $staffPrincipal    = new PlainPrincipalFixture('staff-actor', $identity, $staffTenant);
-        $customerPrincipal = new PlainPrincipalFixture('customer-actor', $identity, $customerTenant);
-
-        $this->bindResolvers($staffPrincipal, $customerPrincipal);
-
-        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
-        $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($identity, $customerPrincipal, null);
-
-        config()->set('auth.defaults.guard', self::STAFF_GUARD);
-        $this->bindRequestWithBearer($staffToken);
-
-        $staffGuard = PackageAuth::guard();
-
-        self::assertInstanceOf(ContextualGuard::class, $staffGuard);
-        self::assertTrue($staffGuard->check());
-        self::assertSame('staff-actor', PackageAuth::principal()?->getPrincipalIdentifier());
-        self::assertSame($staffTenant, PackageAuth::tenant());
-        self::assertSame('staff', PackageAuth::type());
-
-        config()->set('auth.defaults.guard', self::CUSTOMER_GUARD);
-        $this->bindRequestWithBearer($customerToken);
-
-        $customerGuard = PackageAuth::guard();
-
-        self::assertInstanceOf(ContextualGuard::class, $customerGuard);
-        self::assertNotSame($staffGuard, $customerGuard);
-        self::assertTrue($customerGuard->check());
-        self::assertSame('customer-actor', PackageAuth::principal()?->getPrincipalIdentifier());
-        self::assertSame($customerTenant, PackageAuth::tenant());
-        self::assertSame('customer', PackageAuth::type());
-    }
-
-    /**
-     * Provision the in-memory identity table used by both guards.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password');
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
-    }
-
-    /**
-     * Release the in-memory schema.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        Schema::dropIfExists('stub_principals');
-
-        parent::tearDown();
-    }
-
-    /**
-     * Configure two JWT guards that share the same identity provider and use
-     * guard-local resolver aliases from the container.
-     *
-     * @param  mixed  $app
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    protected function defineEnvironment(mixed $app): void
-    {
-        parent::defineEnvironment($app);
-
-        assert($app instanceof Application);
-
-        /** @var \Illuminate\Config\Repository $config */
-        $config = $app->make(ConfigRepository::class);
-
-        $config->set('auth.defaults.guard', self::STAFF_GUARD);
-
-        $config->set('auth.guards.' . self::STAFF_GUARD, [
-            'driver'             => 'jwt',
-            'provider'           => 'identities',
-            'principal_resolver' => self::STAFF_RESOLVER,
-        ]);
-
-        $config->set('auth.guards.' . self::CUSTOMER_GUARD, [
-            'driver'             => 'jwt',
-            'provider'           => 'identities',
-            'principal_resolver' => self::CUSTOMER_RESOLVER,
-        ]);
-
-        $config->set('auth.providers.identities', [
-            'driver' => 'model',
-            'model'  => StubPrincipal::class,
-        ]);
     }
 }

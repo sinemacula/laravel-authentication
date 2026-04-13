@@ -30,9 +30,9 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Unit\Stubs\StubBareDevice;
-use Tests\Unit\Stubs\StubInjectableDevice;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubInjectableDevice;
 
 /**
  * Feature tests for the `RefreshTokenExchange` service that fill in the few

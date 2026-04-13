@@ -120,6 +120,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      * and not on the customer guard.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshIssuesFollowUpTokensThroughOwningGuardConfig(): void
@@ -212,6 +213,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      *
      * @param  string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function guard(string $name): JwtGuard
@@ -232,6 +234,7 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
      * @param  string  $name
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function guardForBearer(string $name, #[\SensitiveParameter] string $token): JwtGuard

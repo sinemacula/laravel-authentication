@@ -54,6 +54,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * fires `RefreshFailed` with reason `token_invalid`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenTokenCannotBeParsed(): void
@@ -72,27 +73,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * Allow the standard `Attempting` + `Failed` events that every failed
-     * `JwtGuard::refresh()` call now dispatches (alongside the
-     * package-specific `RefreshFailed` event). Tests that assert a specific
-     * `RefreshFailed` reason call this helper first to permit the standard
-     * events without constraining them.
-     *
-     * @return void
-     */
-    private function expectRefreshFailureEvents(): void
-    {
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
-    }
-
-    /**
      * A refresh token without a `did` claim returns null and fires
      * `RefreshFailed` with reason `token_invalid`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenDeviceIdMissingFromClaims(): void
@@ -117,6 +102,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * `RefreshFailed` with reason `device_unknown`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenDeviceLookupFails(): void
@@ -133,7 +119,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::DEVICE_UNKNOWN
+                    && $event->reason   === RefreshFailureReason::DEVICE_UNKNOWN
                     && $event->deviceId === '01HZZZZZZZZZZZZZZZZZZZZZZZ'),
             );
 
@@ -146,6 +132,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * `RefreshFailed` with reason `rotation_mismatch`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenRefreshKeyDoesNotMatch(): void
@@ -165,7 +152,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_MISMATCH
+                    && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
                     && $event->deviceId === $device->id),
             );
 
@@ -177,6 +164,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * null and fires `RefreshFailed` with reason `authenticatable_missing`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenAuthenticatableRelationIsNotIdentity(): void
@@ -216,6 +204,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * with `identity_inactive` and dispatches `RefreshFailed`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenIdentityIsInactive(): void
@@ -257,6 +246,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * to the default principal.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenPrincipalIsUnresolved(): void
@@ -294,7 +284,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 
@@ -306,6 +296,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * different principal, refresh fails with `principal_unresolved`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenPidHintDoesNotMatchResolvedPrincipal(): void
@@ -348,7 +339,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 
@@ -360,6 +351,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * `token_invalid` while preserving the parseable device id for attribution.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenRotationIdClaimIsEmptyString(): void
@@ -376,7 +368,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->reason   === RefreshFailureReason::TOKEN_INVALID
                     && $event->deviceId === 'device-empty-jti'),
             );
 
@@ -388,6 +380,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * `token_invalid` while preserving the parseable device id for attribution.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenRotationIdClaimIsNotString(): void
@@ -404,7 +397,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::TOKEN_INVALID
+                    && $event->reason   === RefreshFailureReason::TOKEN_INVALID
                     && $event->deviceId === 'device-non-string-jti'),
             );
 
@@ -416,6 +409,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * must be rejected rather than rebound into a transient principal.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenResolvedPrincipalIdentifierIsNull(): void
@@ -458,7 +452,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
                     && $event->deviceId === $device->id),
             );
 
@@ -470,6 +464,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * with `principal_inactive` and dispatches `RefreshFailed`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenPrincipalIsInactive(): void
@@ -524,6 +519,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * digest.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshReturnsNullWhenDeviceHasBeenRevoked(): void
@@ -570,6 +566,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * and the refresh() call.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshRevokesDeviceOnRotationReuseWhenCasAffectsZeroRows(): void
@@ -620,7 +617,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_REUSE
+                    && $event->reason   === RefreshFailureReason::ROTATION_REUSE
                     && $event->deviceId === $device->id),
             );
 
@@ -640,6 +637,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * token.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshRotatesAndIssuesNewTokenPairOnSuccess(): void
@@ -731,6 +729,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * package `Refreshed` event, yielding the full ordered success sequence.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshDispatchesSuccessfulLifecycleEventsBeforeRefreshed(): void
@@ -798,6 +797,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * branch where the token verified before losing a concurrent race.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshRejectsOldRefreshTokenAfterSuccessfulRotationWithoutRevokingDevice(): void
@@ -852,7 +852,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::ROTATION_MISMATCH
+                    && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
                     && $event->deviceId === $device->id),
             );
 
@@ -872,6 +872,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * device bound for the rest of the request.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshBindsIdentityPrincipalAndDeviceOnSuccess(): void
@@ -925,6 +926,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * constructor-time one.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshUsesReplacementResolverAfterGuardResolverRebind(): void
@@ -981,6 +983,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * injected into the guard.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRefreshPathNeverUsesResolutionCache(): void
@@ -1024,5 +1027,22 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
         self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
+    }
+
+    /**
+     * Allow the standard `Attempting` + `Failed` events that every failed
+     * `JwtGuard::refresh()` call now dispatches (alongside the
+     * package-specific `RefreshFailed` event). Tests that assert a specific
+     * `RefreshFailed` reason call this helper first to permit the standard
+     * events without constraining them.
+     *
+     * @return void
+     */
+    private function expectRefreshFailureEvents(): void
+    {
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
     }
 }

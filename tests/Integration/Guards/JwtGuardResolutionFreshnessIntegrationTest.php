@@ -48,6 +48,38 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     private const string JWT_SECRET = 'freshness-secret-with-at-least-32-bytes!';
 
     /**
+     * Provision the identity table and register the mutable principal resolver.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+
+        $this->app->instance(self::RESOLVER, new StubMutablePrincipalResolver);
+    }
+
+    /**
+     * Drop the shared identity table.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('stub_principals');
+
+        parent::tearDown();
+    }
+
+    /**
      * Bearer auth must reject the next request once the identity becomes
      * inactive and the shared identity cache entry is explicitly invalidated.
      *
@@ -72,77 +104,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         app(ResolutionCacheInvalidator::class)->forgetIdentity($identity);
 
         self::assertFalse($this->guardForBearer($token)->check());
-    }
-
-    /**
-     * Persist and return an active identity row.
-     *
-     * @param  string  $email
-     * @return \Tests\Unit\Stubs\StubActiveAwarePrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function seedIdentity(string $email = 'freshness@example.test'): StubActiveAwarePrincipal
-    {
-        $hasher = app(Hasher::class);
-
-        $identity            = new StubActiveAwarePrincipal;
-        $identity->email     = $email;
-        $identity->password  = $hasher->make('correct horse battery staple');
-        $identity->is_active = true;
-        $identity->save();
-
-        return $identity;
-    }
-
-    /**
-     * Return the mutable principal resolver bound for the suite.
-     *
-     * @return \Tests\Unit\Stubs\StubMutablePrincipalResolver
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function resolver(): StubMutablePrincipalResolver
-    {
-        $resolver = $this->app->make(self::RESOLVER);
-
-        assert($resolver instanceof StubMutablePrincipalResolver);
-
-        return $resolver;
-    }
-
-    /**
-     * Resolve a fresh guard against a bearer-authenticated request.
-     *
-     * @param  string  $token
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function guardForBearer(#[\SensitiveParameter] string $token): JwtGuard
-    {
-        app()->instance('request', Request::create('/freshness', 'GET', [], [], [], [
-            'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
-        ]));
-
-        return $this->freshGuard();
-    }
-
-    /**
-     * Resolve a fresh guard against the current request binding.
-     *
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function freshGuard(): JwtGuard
-    {
-        PackageAuth::manager()->forgetGuards();
-
-        $guard = PackageAuth::guard(self::GUARD);
-
-        assert($guard instanceof JwtGuard);
-
-        return $guard;
     }
 
     /**
@@ -193,26 +154,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $device->delete();
 
         self::assertFalse($this->guardForBearer($token)->check());
-    }
-
-    /**
-     * Persist and return a device row for the supplied identity.
-     *
-     * @param  \Tests\Unit\Stubs\StubActiveAwarePrincipal  $identity
-     * @param  ?string  $rotationId
-     * @return \SineMacula\Laravel\Authentication\Models\Device
-     */
-    private function seedDevice(StubActiveAwarePrincipal $identity, ?string $rotationId = null): Device
-    {
-        $device = new Device;
-        $device->forceFill([
-            'authenticatable_type' => StubActiveAwarePrincipal::class,
-            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
-            'refresh_key'          => $rotationId === null ? null : RefreshTokenHasher::hash($rotationId),
-        ])->save();
-
-        return $device;
     }
 
     /**
@@ -311,21 +252,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Encode an access token with only the claims needed by the bearer tests.
-     *
-     * @param  array<string, mixed>  $claims
-     * @return string
-     */
-    private function encodeAccessToken(array $claims): string
-    {
-        return JWT::encode(
-            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
-            self::JWT_SECRET,
-            'HS256',
-        );
-    }
-
-    /**
      * Refresh must not consult the shared bearer identity cache at all.
      *
      * @return void
@@ -341,72 +267,40 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $this->app->instance(
             ResolutionCache::class, new class implements ResolutionCache {
-            /**
-             * @param  string  $guardName
-             * @param  string  $providerModelClass
-             * @param  mixed  $identifier
-             * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-             * @return ?\Illuminate\Contracts\Auth\Authenticatable
-             */
-            #[\Override]
-            public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
-            {
-                unset($guardName, $providerModelClass, $identifier, $resolver);
+                /**
+                 * @param  string  $guardName
+                 * @param  string  $providerModelClass
+                 * @param  mixed  $identifier
+                 * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
+                 * @return ?\Illuminate\Contracts\Auth\Authenticatable
+                 */
+                #[\Override]
+                public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
+                {
+                    unset($guardName, $providerModelClass, $identifier, $resolver);
 
-                throw new \LogicException('Refresh must not use the shared resolution cache.');
-            }
+                    throw new \LogicException('Refresh must not use the shared resolution cache.');
+                }
 
-            /**
-             * @param  string  $guardName
-             * @param  string  $providerModelClass
-             * @param  mixed  $identifier
-             * @return void
-             */
-            #[\Override]
-            public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
-            {
-                unset($guardName, $providerModelClass, $identifier);
+                /**
+                 * @param  string  $guardName
+                 * @param  string  $providerModelClass
+                 * @param  mixed  $identifier
+                 * @return void
+                 */
+                #[\Override]
+                public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
+                {
+                    unset($guardName, $providerModelClass, $identifier);
 
-                throw new \LogicException('Refresh must not invalidate the shared resolution cache.');
-            }
-        },
+                    throw new \LogicException('Refresh must not invalidate the shared resolution cache.');
+                }
+            },
         );
 
         $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, 'refresh-cache-bypass', $identity);
 
         self::assertNotNull($this->freshGuard()->refresh($token));
-    }
-
-    /**
-     * Provision the identity table and register the mutable principal resolver.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password');
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
-
-        $this->app->instance(self::RESOLVER, new StubMutablePrincipalResolver);
-    }
-
-    /**
-     * Drop the shared identity table.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        Schema::dropIfExists('stub_principals');
-
-        parent::tearDown();
     }
 
     /**
@@ -443,5 +337,112 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $config->set('authentication.jwt.secret', self::JWT_SECRET);
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
+    }
+
+    /**
+     * Persist and return an active identity row.
+     *
+     * @param  string  $email
+     * @return \Tests\Unit\Stubs\StubActiveAwarePrincipal
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function seedIdentity(string $email = 'freshness@example.test'): StubActiveAwarePrincipal
+    {
+        $hasher = app(Hasher::class);
+
+        $identity            = new StubActiveAwarePrincipal;
+        $identity->email     = $email;
+        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->is_active = true;
+        $identity->save();
+
+        return $identity;
+    }
+
+    /**
+     * Return the mutable principal resolver bound for the suite.
+     *
+     * @return \Tests\Unit\Stubs\StubMutablePrincipalResolver
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function resolver(): StubMutablePrincipalResolver
+    {
+        $resolver = $this->app->make(self::RESOLVER);
+
+        assert($resolver instanceof StubMutablePrincipalResolver);
+
+        return $resolver;
+    }
+
+    /**
+     * Resolve a fresh guard against a bearer-authenticated request.
+     *
+     * @param  string  $token
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function guardForBearer(#[\SensitiveParameter] string $token): JwtGuard
+    {
+        app()->instance('request', Request::create('/freshness', 'GET', [], [], [], [
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
+        ]));
+
+        return $this->freshGuard();
+    }
+
+    /**
+     * Resolve a fresh guard against the current request binding.
+     *
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function freshGuard(): JwtGuard
+    {
+        PackageAuth::manager()->forgetGuards();
+
+        $guard = PackageAuth::guard(self::GUARD);
+
+        assert($guard instanceof JwtGuard);
+
+        return $guard;
+    }
+
+    /**
+     * Persist and return a device row for the supplied identity.
+     *
+     * @param  \Tests\Unit\Stubs\StubActiveAwarePrincipal  $identity
+     * @param  ?string  $rotationId
+     * @return \SineMacula\Laravel\Authentication\Models\Device
+     */
+    private function seedDevice(StubActiveAwarePrincipal $identity, ?string $rotationId = null): Device
+    {
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => StubActiveAwarePrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'ios',
+            'refresh_key'          => $rotationId === null ? null : RefreshTokenHasher::hash($rotationId),
+        ])->save();
+
+        return $device;
+    }
+
+    /**
+     * Encode an access token with only the claims needed by the bearer tests.
+     *
+     * @param  array<string, mixed>  $claims
+     * @return string
+     */
+    private function encodeAccessToken(array $claims): string
+    {
+        return JWT::encode(
+            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
+            self::JWT_SECRET,
+            'HS256',
+        );
     }
 }

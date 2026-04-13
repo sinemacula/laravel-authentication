@@ -52,6 +52,7 @@ final class AuthManagerTest extends TestCase
      * that resolves a guard-scoped `JwtTokenService`.
      *
      * @return void
+     *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testAuthManagerExposesJwtMethod(): void

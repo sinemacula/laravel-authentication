@@ -38,6 +38,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * rather than raising an exception.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseReturnsNullOnInvalidSignature(): void
@@ -57,6 +58,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * Asserts parsing a token whose `exp` claim has passed returns null.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseReturnsNullOnExpiredToken(): void
@@ -93,6 +95,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * rejected - the `typ` check prevents token-type confusion.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseRejectsAccessTokenWhenRefreshTypeIsExpected(): void
@@ -111,6 +114,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * issued by that service parses cleanly on that service.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseAcceptsIssuerAndAudienceOnMatchingService(): void
@@ -141,6 +145,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * issuer is rejected.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseRejectsTokenWithMismatchedIssuer(): void
@@ -176,6 +181,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * audience is rejected.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseRejectsTokenWithMismatchedAudience(): void
@@ -213,6 +219,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * `exp` still decode cleanly.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseAppliesLeewayWindow(): void
@@ -247,6 +254,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * tolerance across our decode window.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseRestoresPreviousLeewayAfterDecode(): void
@@ -308,6 +316,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * received issuer.
      *
      * @return void
+     *
      * @throws \Random\RandomException
      */
     public function testParseDebugLogsIssuerMismatchWhenLoggerSupplied(): void

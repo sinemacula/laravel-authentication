@@ -25,8 +25,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use Tests\Unit\Stubs\StubInjectableDevice;
 use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubInjectableDevice;
 
 /**
  * Shared base case for the JwtGuard split tests.

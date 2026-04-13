@@ -14,10 +14,10 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\StubAlternateGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\StubGlobalPrincipalResolver;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
 

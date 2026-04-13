@@ -31,66 +31,6 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
     private const string GUARD = 'api';
 
     /**
-     * Malformed bearer tokens should fail before any provider or device query.
-     *
-     * @return void
-     */
-    public function testMalformedBearerTokenDoesNotHitTheDatabase(): void
-    {
-        $this->bindRequestWithBearer('/perf/invalid-bearer', 'not-a-jwt');
-
-        $guard = $this->freshJwtGuard(self::GUARD);
-
-        $result = $this->assertQueryBudget(0, 0, static fn (): bool => $guard->check());
-
-        self::assertFalse($result);
-    }
-
-    /**
-     * Expired bearer tokens should fail during JWT parse, before any
-     * identity/provider hydration.
-     *
-     * @return void
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
-     */
-    public function testExpiredBearerTokenDoesNotHitTheDatabase(): void
-    {
-        $identity = $this->seedIdentity();
-
-        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($identity, $identity, null);
-
-        $expiredNow = $this->now->copy()->addMinutes(16);
-        Carbon::setTestNow($expiredNow);
-        JWT::$timestamp = $expiredNow->getTimestamp();
-
-        $this->bindRequestWithBearer('/perf/expired-bearer', $token);
-
-        $guard = $this->freshJwtGuard(self::GUARD);
-
-        $result = $this->assertQueryBudget(0, 0, static fn (): bool => $guard->check());
-
-        self::assertFalse($result);
-    }
-
-    /**
-     * Persist a single active 2D identity.
-     *
-     * @return \Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function seedIdentity(): PerformanceAccessOnlyIdentity
-    {
-        $hasher = app(Hasher::class);
-
-        $identity           = new PerformanceAccessOnlyIdentity;
-        $identity->email    = 'expired-bearer-performance@example.test';
-        $identity->password = $hasher->make('correct horse battery staple');
-        $identity->save();
-
-        return $identity;
-    }
-
-    /**
      * Provision the identity table used to mint the expired token fixture.
      *
      * @return void
@@ -122,6 +62,49 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * Malformed bearer tokens should fail before any provider or device query.
+     *
+     * @return void
+     */
+    public function testMalformedBearerTokenDoesNotHitTheDatabase(): void
+    {
+        $this->bindRequestWithBearer('/perf/invalid-bearer', 'not-a-jwt');
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        $result = $this->assertQueryBudget(0, 0, static fn (): bool => $guard->check());
+
+        self::assertFalse($result);
+    }
+
+    /**
+     * Expired bearer tokens should fail during JWT parse, before any
+     * identity/provider hydration.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     */
+    public function testExpiredBearerTokenDoesNotHitTheDatabase(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($identity, $identity, null);
+
+        $expiredNow = $this->now->copy()->addMinutes(16);
+        Carbon::setTestNow($expiredNow);
+        JWT::$timestamp = $expiredNow->getTimestamp();
+
+        $this->bindRequestWithBearer('/perf/expired-bearer', $token);
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        $result = $this->assertQueryBudget(0, 0, static fn (): bool => $guard->check());
+
+        self::assertFalse($result);
+    }
+
+    /**
      * Configure the single access-only JWT guard used by this test.
      *
      * @param  mixed  $app
@@ -150,5 +133,24 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
             'driver' => 'model',
             'model'  => PerformanceAccessOnlyIdentity::class,
         ]);
+    }
+
+    /**
+     * Persist a single active 2D identity.
+     *
+     * @return \Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function seedIdentity(): PerformanceAccessOnlyIdentity
+    {
+        $hasher = app(Hasher::class);
+
+        $identity           = new PerformanceAccessOnlyIdentity;
+        $identity->email    = 'expired-bearer-performance@example.test';
+        $identity->password = $hasher->make('correct horse battery staple');
+        $identity->save();
+
+        return $identity;
     }
 }

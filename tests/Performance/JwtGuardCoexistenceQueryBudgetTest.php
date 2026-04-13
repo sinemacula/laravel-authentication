@@ -34,94 +34,6 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
     private const string GUARD_3D = 'api_3d';
 
     /**
-     * A sequential 2D then 3D authentication run should pay one 2D identity
-     * read plus the 3D identity + principal reads, with no writes.
-     *
-     * @return void
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
-     */
-    public function testSequentialTwoDimensionalAndThreeDimensionalAuthUsesThreeReadsAndNoWrites(): void
-    {
-        [$twoDimensionalIdentity, $threeDimensionalIdentity, $threeDimensionalPrincipal] = $this->seedFixtures();
-
-        $twoDimensionalToken   = PackageAuth::jwt(self::GUARD_2D)->issueAccessToken(
-            $twoDimensionalIdentity,
-            $twoDimensionalIdentity,
-            null,
-        );
-        $threeDimensionalToken = PackageAuth::jwt(self::GUARD_3D)->issueAccessToken(
-            $threeDimensionalIdentity,
-            $threeDimensionalPrincipal,
-            null,
-        );
-
-        $result = $this->assertQueryBudget(3, 0, function () use (
-            $twoDimensionalToken,
-            $threeDimensionalToken,
-        ): array {
-            $this->bindRequestWithBearer('/perf/coexist-2d', $twoDimensionalToken);
-
-            $twoDimensionalGuard         = $this->freshJwtGuard(self::GUARD_2D);
-            $twoDimensionalAuthenticated = $twoDimensionalGuard->check();
-            $twoDimensionalPrincipalId   = $twoDimensionalGuard->principal()?->getPrincipalIdentifier();
-
-            $this->bindRequestWithBearer('/perf/coexist-3d', $threeDimensionalToken);
-
-            $threeDimensionalGuard         = $this->freshJwtGuard(self::GUARD_3D);
-            $threeDimensionalAuthenticated = $threeDimensionalGuard->check();
-            $threeDimensionalPrincipalId   = $threeDimensionalGuard->principal()?->getPrincipalIdentifier();
-
-            return [
-                'two_dimensional_authenticated'   => $twoDimensionalAuthenticated,
-                'two_dimensional_principal'       => $twoDimensionalPrincipalId,
-                'three_dimensional_authenticated' => $threeDimensionalAuthenticated,
-                'three_dimensional_principal'     => $threeDimensionalPrincipalId,
-            ];
-        });
-
-        self::assertTrue($result['two_dimensional_authenticated']);
-        self::assertSame($twoDimensionalIdentity->getPrincipalIdentifier(), $result['two_dimensional_principal']);
-        self::assertTrue($result['three_dimensional_authenticated']);
-        self::assertSame($threeDimensionalPrincipal->getPrincipalIdentifier(), $result['three_dimensional_principal']);
-    }
-
-    /**
-     * Persist one 2D identity plus one 3D identity and principal.
-     *
-     * @formatter:off
-     *
-     * @return array{0: \Tests\Integration\Fixtures\Coexist2dIdentity, 1: \Tests\Integration\Fixtures\Coexist3dIdentity, 2: \Tests\Integration\Fixtures\Coexist3dPrincipal}
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     *
-     * @formatter:on
-     */
-    private function seedFixtures(): array
-    {
-        $hasher = app(Hasher::class);
-
-        $twoDimensionalIdentity            = new Coexist2dIdentity;
-        $twoDimensionalIdentity->email     = 'coexist-2d-performance@example.test';
-        $twoDimensionalIdentity->password  = $hasher->make('correct horse battery staple');
-        $twoDimensionalIdentity->is_active = true;
-        $twoDimensionalIdentity->save();
-
-        $threeDimensionalIdentity            = new Coexist3dIdentity;
-        $threeDimensionalIdentity->email     = 'coexist-3d-performance@example.test';
-        $threeDimensionalIdentity->password  = $hasher->make('correct horse battery staple');
-        $threeDimensionalIdentity->is_active = true;
-        $threeDimensionalIdentity->save();
-
-        $threeDimensionalPrincipal              = new Coexist3dPrincipal;
-        $threeDimensionalPrincipal->identity_id = $threeDimensionalIdentity->getKey();
-        $threeDimensionalPrincipal->name        = 'coexist-3d-performance-actor';
-        $threeDimensionalPrincipal->is_active   = true;
-        $threeDimensionalPrincipal->save();
-
-        return [$twoDimensionalIdentity, $threeDimensionalIdentity, $threeDimensionalPrincipal];
-    }
-
-    /**
      * Provision the coexistence fixture tables.
      *
      * @return void
@@ -172,6 +84,59 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
     }
 
     /**
+     * A sequential 2D then 3D authentication run should pay one 2D identity
+     * read plus the 3D identity + principal reads, with no writes.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException|\Random\RandomException
+     */
+    public function testSequentialTwoDimensionalAndThreeDimensionalAuthUsesThreeReadsAndNoWrites(): void
+    {
+        [$twoDimensionalIdentity, $threeDimensionalIdentity, $threeDimensionalPrincipal] = $this->seedFixtures();
+
+        $twoDimensionalToken = PackageAuth::jwt(self::GUARD_2D)->issueAccessToken(
+            $twoDimensionalIdentity,
+            $twoDimensionalIdentity,
+            null,
+        );
+        $threeDimensionalToken = PackageAuth::jwt(self::GUARD_3D)->issueAccessToken(
+            $threeDimensionalIdentity,
+            $threeDimensionalPrincipal,
+            null,
+        );
+
+        $result = $this->assertQueryBudget(3, 0, function () use (
+            $twoDimensionalToken,
+            $threeDimensionalToken,
+        ): array {
+            $this->bindRequestWithBearer('/perf/coexist-2d', $twoDimensionalToken);
+
+            $twoDimensionalGuard         = $this->freshJwtGuard(self::GUARD_2D);
+            $twoDimensionalAuthenticated = $twoDimensionalGuard->check();
+            $twoDimensionalPrincipalId   = $twoDimensionalGuard->principal()?->getPrincipalIdentifier();
+
+            $this->bindRequestWithBearer('/perf/coexist-3d', $threeDimensionalToken);
+
+            $threeDimensionalGuard         = $this->freshJwtGuard(self::GUARD_3D);
+            $threeDimensionalAuthenticated = $threeDimensionalGuard->check();
+            $threeDimensionalPrincipalId   = $threeDimensionalGuard->principal()?->getPrincipalIdentifier();
+
+            return [
+                'two_dimensional_authenticated'   => $twoDimensionalAuthenticated,
+                'two_dimensional_principal'       => $twoDimensionalPrincipalId,
+                'three_dimensional_authenticated' => $threeDimensionalAuthenticated,
+                'three_dimensional_principal'     => $threeDimensionalPrincipalId,
+            ];
+        });
+
+        self::assertTrue($result['two_dimensional_authenticated']);
+        self::assertSame($twoDimensionalIdentity->getPrincipalIdentifier(), $result['two_dimensional_principal']);
+        self::assertTrue($result['three_dimensional_authenticated']);
+        self::assertSame($threeDimensionalPrincipal->getPrincipalIdentifier(), $result['three_dimensional_principal']);
+    }
+
+    /**
      * Configure the two coexistence guards.
      *
      * @param  mixed  $app
@@ -210,5 +175,41 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
             'driver' => 'model',
             'model'  => Coexist3dIdentity::class,
         ]);
+    }
+
+    /**
+     * Persist one 2D identity plus one 3D identity and principal.
+     *
+     * @formatter:off
+     *
+     * @return array{0: \Tests\Integration\Fixtures\Coexist2dIdentity, 1: \Tests\Integration\Fixtures\Coexist3dIdentity, 2: \Tests\Integration\Fixtures\Coexist3dPrincipal}
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     *
+     * @formatter:on
+     */
+    private function seedFixtures(): array
+    {
+        $hasher = app(Hasher::class);
+
+        $twoDimensionalIdentity            = new Coexist2dIdentity;
+        $twoDimensionalIdentity->email     = 'coexist-2d-performance@example.test';
+        $twoDimensionalIdentity->password  = $hasher->make('correct horse battery staple');
+        $twoDimensionalIdentity->is_active = true;
+        $twoDimensionalIdentity->save();
+
+        $threeDimensionalIdentity            = new Coexist3dIdentity;
+        $threeDimensionalIdentity->email     = 'coexist-3d-performance@example.test';
+        $threeDimensionalIdentity->password  = $hasher->make('correct horse battery staple');
+        $threeDimensionalIdentity->is_active = true;
+        $threeDimensionalIdentity->save();
+
+        $threeDimensionalPrincipal              = new Coexist3dPrincipal;
+        $threeDimensionalPrincipal->identity_id = $threeDimensionalIdentity->getKey();
+        $threeDimensionalPrincipal->name        = 'coexist-3d-performance-actor';
+        $threeDimensionalPrincipal->is_active   = true;
+        $threeDimensionalPrincipal->save();
+
+        return [$twoDimensionalIdentity, $threeDimensionalIdentity, $threeDimensionalPrincipal];
     }
 }

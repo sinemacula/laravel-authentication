@@ -29,6 +29,32 @@ final class ActsAsDeviceTest extends TestCase
     private Carbon $now;
 
     /**
+     * Freeze the clock so Carbon timestamp assertions are deterministic.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($this->now);
+    }
+
+    /**
+     * Release the frozen clock once each test has completed.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
+    /**
      * Asserts the device identifier getter reads the model's `id` attribute
      * when no attribute-name override is supplied.
      *
@@ -261,31 +287,5 @@ final class ActsAsDeviceTest extends TestCase
         ]);
 
         self::assertSame('uuid-from-override', $device->getDeviceIdentifier());
-    }
-
-    /**
-     * Freeze the clock so Carbon timestamp assertions are deterministic.
-     *
-     * @return void
-     */
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $this->now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($this->now);
-    }
-
-    /**
-     * Release the frozen clock once each test has completed.
-     *
-     * @return void
-     */
-    protected function tearDown(): void
-    {
-        Carbon::setTestNow();
-
-        parent::tearDown();
     }
 }

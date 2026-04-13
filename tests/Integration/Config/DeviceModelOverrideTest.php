@@ -45,111 +45,6 @@ final class DeviceModelOverrideTest extends TestCase
     private string $customModel;
 
     /**
-     * Instantiating the custom subclass yields a model whose table matches the
-     * configured `device.table` value.
-     *
-     * @return void
-     */
-    public function testCustomTableNameAppliesToDeviceModel(): void
-    {
-        $model = new $this->customModel;
-
-        self::assertSame('custom_devices', $model->getTable());
-        self::assertInstanceOf(EloquentDevice::class, $model);
-    }
-
-    /**
-     * The shipped migration body creates the custom table (not the default
-     * `devices` table) when `device.table` is overridden.
-     *
-     * @return void
-     */
-    public function testCustomTableNameAppliesToShippedMigration(): void
-    {
-        self::assertTrue(Schema::hasTable('custom_devices'));
-        self::assertFalse(Schema::hasTable('devices'));
-    }
-
-    /**
-     * Invoking `JwtGuard::refresh()` with a refresh token whose `did` claim
-     * points at a row in the custom table returns a refreshed access token
-     * sourced from the overridden model class, binding an instance of that
-     * class as the active device.
-     *
-     * @return void
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    public function testGuardResolvesDeviceThroughCustomModelClass(): void
-    {
-        // Arrange: persist a principal identity and a device row on the custom
-        // table, then build a refresh token whose `did` claim points at that
-        // row. The stored refresh_key is the SHA-256 digest of the plaintext
-        // rotation id; the token carries the plaintext in its `jti` claim.
-        $principal = new StubPrincipal;
-        $principal->forceFill(['is_active' => true])->save();
-
-        $plainRotationId = 'plain-rotation-id';
-
-        /** @var \SineMacula\Laravel\Authentication\Models\Device $device */
-        $device = new $this->customModel;
-        $device->forceFill([
-            'authenticatable_type' => StubPrincipal::class,
-            'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
-            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
-        ])->save();
-
-        $refreshToken = PackageAuth::jwt('custom-jwt')->issueRefreshToken($device, $plainRotationId);
-
-        $guard = $this->makeJwtGuard();
-
-        // Act: exchange the refresh token via the guard's refresh() path, which
-        // reads the configured model class.
-        $result = $guard->refresh($refreshToken);
-
-        // Assert: the refresh succeeded and the bound device is an instance of
-        // the overridden model class.
-        self::assertInstanceOf(RefreshResult::class, $result);
-        self::assertNotSame('', $result->accessToken);
-        self::assertNotSame('', $result->refreshToken);
-        self::assertInstanceOf($this->customModel, $guard->device());
-    }
-
-    /**
-     * Build a `JwtGuard` wired against a stub identity provider that echoes a
-     * persisted `StubPrincipal` for any identifier lookup, and a resolver that
-     * treats the identity as its own principal (2D mode).
-     *
-     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function makeJwtGuard(): JwtGuard
-    {
-        $provider = new StubLookupIdentityProvider;
-        $resolver = new StubTwoDPrincipalResolver;
-        $tokens   = PackageAuth::jwt('custom-jwt');
-        $events   = app(Dispatcher::class);
-        $exchange = new RefreshTokenExchange(
-            $tokens,
-            app(ConnectionResolverInterface::class),
-            $events,
-            $resolver,
-            'custom-jwt',
-        );
-
-        return new JwtGuard(
-            'custom-jwt',
-            $provider,
-            $resolver,
-            $events,
-            app('request'),
-            app(Timebox::class),
-            $tokens,
-            $exchange,
-        );
-    }
-
-    /**
      * Configure the custom device model class and table name, then replay the
      * shipped migration body inline against the in-memory connection so the
      * custom table exists for the test.
@@ -163,7 +58,7 @@ final class DeviceModelOverrideTest extends TestCase
 
         // Anonymous subclass of the shipped Device model - the FQCN is
         // synthetic but usable as a `class-string` across the test.
-        $anonymous = new class extends Device { };
+        $anonymous = new class extends Device {};
 
         /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> $class */
         $class = $anonymous::class;
@@ -210,6 +105,78 @@ final class DeviceModelOverrideTest extends TestCase
     }
 
     /**
+     * Instantiating the custom subclass yields a model whose table matches the
+     * configured `device.table` value.
+     *
+     * @return void
+     */
+    public function testCustomTableNameAppliesToDeviceModel(): void
+    {
+        $model = new $this->customModel;
+
+        self::assertSame('custom_devices', $model->getTable());
+        self::assertInstanceOf(EloquentDevice::class, $model);
+    }
+
+    /**
+     * The shipped migration body creates the custom table (not the default
+     * `devices` table) when `device.table` is overridden.
+     *
+     * @return void
+     */
+    public function testCustomTableNameAppliesToShippedMigration(): void
+    {
+        self::assertTrue(Schema::hasTable('custom_devices'));
+        self::assertFalse(Schema::hasTable('devices'));
+    }
+
+    /**
+     * Invoking `JwtGuard::refresh()` with a refresh token whose `did` claim
+     * points at a row in the custom table returns a refreshed access token
+     * sourced from the overridden model class, binding an instance of that
+     * class as the active device.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testGuardResolvesDeviceThroughCustomModelClass(): void
+    {
+        // Arrange: persist a principal identity and a device row on the custom
+        // table, then build a refresh token whose `did` claim points at that
+        // row. The stored refresh_key is the SHA-256 digest of the plaintext
+        // rotation id; the token carries the plaintext in its `jti` claim.
+        $principal = new StubPrincipal;
+        $principal->forceFill(['is_active' => true])->save();
+
+        $plainRotationId = 'plain-rotation-id';
+
+        /** @var \SineMacula\Laravel\Authentication\Models\Device $device */
+        $device = new $this->customModel;
+        $device->forceFill([
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'ios',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+
+        $refreshToken = PackageAuth::jwt('custom-jwt')->issueRefreshToken($device, $plainRotationId);
+
+        $guard = $this->makeJwtGuard();
+
+        // Act: exchange the refresh token via the guard's refresh() path, which
+        // reads the configured model class.
+        $result = $guard->refresh($refreshToken);
+
+        // Assert: the refresh succeeded and the bound device is an instance of
+        // the overridden model class.
+        self::assertInstanceOf(RefreshResult::class, $result);
+        self::assertNotSame('', $result->accessToken);
+        self::assertNotSame('', $result->refreshToken);
+        self::assertInstanceOf($this->customModel, $guard->device());
+    }
+
+    /**
      * Skip the parent's default `devices` migration so this test can verify
      * that the custom-table override is the only `devices`-shaped table on the
      * connection (TAC: `Schema::hasTable('devices') === false`).
@@ -243,5 +210,40 @@ final class DeviceModelOverrideTest extends TestCase
             'driver' => 'model',
             'model'  => StubPrincipal::class,
         ]);
+    }
+
+    /**
+     * Build a `JwtGuard` wired against a stub identity provider that echoes a
+     * persisted `StubPrincipal` for any identifier lookup, and a resolver that
+     * treats the identity as its own principal (2D mode).
+     *
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function makeJwtGuard(): JwtGuard
+    {
+        $provider = new StubLookupIdentityProvider;
+        $resolver = new StubTwoDPrincipalResolver;
+        $tokens   = PackageAuth::jwt('custom-jwt');
+        $events   = app(Dispatcher::class);
+        $exchange = new RefreshTokenExchange(
+            $tokens,
+            app(ConnectionResolverInterface::class),
+            $events,
+            $resolver,
+            'custom-jwt',
+        );
+
+        return new JwtGuard(
+            'custom-jwt',
+            $provider,
+            $resolver,
+            $events,
+            app('request'),
+            app(Timebox::class),
+            $tokens,
+            $exchange,
+        );
     }
 }

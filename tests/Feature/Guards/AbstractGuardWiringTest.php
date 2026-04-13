@@ -249,6 +249,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
      * match.
      *
      * @return void
+     *
      * @throws \Throwable
      */
     public function testValidateReturnsFalseWhenCredentialsRejected(): void
@@ -271,6 +272,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
      * false because the empty credentials never resolve a user.
      *
      * @return void
+     *
      * @throws \Throwable
      */
     public function testValidateAcceptsDefaultEmptyCredentialsArgument(): void

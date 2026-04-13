@@ -15,4 +15,4 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
  *
  * @internal
  */
-final class StubActiveAwarePrincipal extends StubPrincipal implements CanBeActive { }
+final class StubActiveAwarePrincipal extends StubPrincipal implements CanBeActive {}

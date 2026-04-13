@@ -42,23 +42,6 @@ final class RefreshedTest extends TestCase
     }
 
     /**
-     * Build a Refreshed event with the supplied guard name and fresh mock
-     * collaborators.
-     *
-     * @param  string  $guard
-     * @return \SineMacula\Laravel\Authentication\Events\Refreshed
-     */
-    private function makeEvent(string $guard): Refreshed
-    {
-        return new Refreshed(
-            $guard,
-            \Mockery::mock(Identity::class),
-            \Mockery::mock(Principal::class),
-            \Mockery::mock(Device::class),
-        );
-    }
-
-    /**
      * Asserts the event retains the identity instance supplied at construction.
      *
      * @return void
@@ -163,5 +146,22 @@ final class RefreshedTest extends TestCase
         self::assertSame(42, $roundTripped->identity->getAuthIdentifier());
         self::assertSame(7, $roundTripped->principal->getPrincipalIdentifier());
         self::assertSame('01HZZ-device-id', $roundTripped->device->getDeviceIdentifier());
+    }
+
+    /**
+     * Build a Refreshed event with the supplied guard name and fresh mock
+     * collaborators.
+     *
+     * @param  string  $guard
+     * @return \SineMacula\Laravel\Authentication\Events\Refreshed
+     */
+    private function makeEvent(string $guard): Refreshed
+    {
+        return new Refreshed(
+            $guard,
+            \Mockery::mock(Identity::class),
+            \Mockery::mock(Principal::class),
+            \Mockery::mock(Device::class),
+        );
     }
 }

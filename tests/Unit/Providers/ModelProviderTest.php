@@ -38,6 +38,18 @@ final class ModelProviderTest extends TestCase
     private MockInterface $hasher;
 
     /**
+     * Setup.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->hasher = \Mockery::mock(Hasher::class);
+    }
+
+    /**
      * Data provider for
      * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
      *
@@ -78,58 +90,6 @@ final class ModelProviderTest extends TestCase
         $provider = $this->makeProvider($builder);
 
         self::assertSame($found, $provider->retrieveById(7));
-    }
-
-    /**
-     * Build a ModelProvider whose createModel() returns an Eloquent model whose
-     * newQuery() yields the supplied builder mock, so collaborators can be
-     * asserted without a real database connection.
-     *
-     * @param  \Mockery\MockInterface  $builder
-     * @return \SineMacula\Laravel\Authentication\Providers\ModelProvider
-     */
-    private function makeProvider(MockInterface $builder): ModelProvider
-    {
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $model */
-        $model = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
-        $model->shouldReceive('newQuery')
-            ->andReturn($builder);
-        $model->shouldReceive('getAuthIdentifierName')
-            ->andReturn('id');
-
-        return new class ($this->hasher, StubAuthenticatableModel::class, $model) extends ModelProvider {
-            /**
-             * Constructor.
-             *
-             * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
-             * @param  string  $modelClass
-             * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $instance
-             */
-            public function __construct(
-
-                // Hasher forwarded to the parent constructor.
-                Hasher $hasher,
-
-                // Fully-qualified Eloquent model class forwarded to the parent.
-                string $modelClass,
-
-                /** Pre-built model instance returned from createModel(). */
-                private readonly Authenticatable&Model $instance,
-
-            ) {
-                parent::__construct($hasher, $modelClass);
-            }
-
-            /**
-             * Create model.
-             *
-             * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
-             */
-            protected function createModel(): Authenticatable&Model
-            {
-                return $this->instance;
-            }
-        };
     }
 
     /**
@@ -610,14 +570,54 @@ final class ModelProviderTest extends TestCase
     }
 
     /**
-     * Setup.
+     * Build a ModelProvider whose createModel() returns an Eloquent model whose
+     * newQuery() yields the supplied builder mock, so collaborators can be
+     * asserted without a real database connection.
      *
-     * @return void
+     * @param  \Mockery\MockInterface  $builder
+     * @return \SineMacula\Laravel\Authentication\Providers\ModelProvider
      */
-    protected function setUp(): void
+    private function makeProvider(MockInterface $builder): ModelProvider
     {
-        parent::setUp();
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $model */
+        $model = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
+        $model->shouldReceive('newQuery')
+            ->andReturn($builder);
+        $model->shouldReceive('getAuthIdentifierName')
+            ->andReturn('id');
 
-        $this->hasher = \Mockery::mock(Hasher::class);
+        return new class ($this->hasher, StubAuthenticatableModel::class, $model) extends ModelProvider {
+            /**
+             * Constructor.
+             *
+             * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
+             * @param  string  $modelClass
+             * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $instance
+             */
+            public function __construct(
+
+                // Hasher forwarded to the parent constructor.
+                Hasher $hasher,
+
+                // Fully-qualified Eloquent model class forwarded to the parent.
+                string $modelClass,
+
+                /** Pre-built model instance returned from createModel(). */
+                private readonly Authenticatable&Model $instance,
+
+            ) {
+                parent::__construct($hasher, $modelClass);
+            }
+
+            /**
+             * Create model.
+             *
+             * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
+             */
+            protected function createModel(): Authenticatable&Model
+            {
+                return $this->instance;
+            }
+        };
     }
 }
