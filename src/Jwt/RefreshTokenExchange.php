@@ -381,7 +381,7 @@ final class RefreshTokenExchange
 
         if ($hintProvided && !$this->matchesPidHint($principal, $hint)) {
 
-            $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_UNRESOLVED, $deviceId);
+            $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_MISMATCH, $deviceId);
 
             return null;
         }

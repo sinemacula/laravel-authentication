@@ -284,7 +284,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
                     && $event->deviceId === $device->id),
             );
 
@@ -293,7 +293,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
     /**
      * When a refresh token carries a `pid` hint but the resolver returns a
-     * different principal, refresh fails with `principal_unresolved`.
+     * different principal, refresh fails with `principal_mismatch`.
      *
      * @return void
      *
@@ -339,7 +339,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
                     && $event->deviceId === $device->id),
             );
 
@@ -452,7 +452,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
                     && $event->deviceId === $device->id),
             );
 
@@ -1151,7 +1151,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_UNRESOLVED),
+                    && $event->reason === RefreshFailureReason::PRINCIPAL_MISMATCH),
             );
 
         self::assertNull($guard->refresh($token));

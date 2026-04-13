@@ -30,15 +30,6 @@ Scanner false positive.
 `#[\Override]` causes a fatal error.
 Scanner false positive.
 
-## PR #8 - Preserve principal context during refresh
-
-### Reuses PRINCIPAL_UNRESOLVED for pid mismatch (Low)
-
-When the refresh token carries `pid` and the resolved
-principal doesn't match, the failure reuses
-`RefreshFailureReason::PRINCIPAL_UNRESOLVED`. A dedicated
-`PRINCIPAL_MISMATCH` reason would give better SIEM
-attribution. Not a blocker.
 
 ## Cross-PR: Recurring patterns
 

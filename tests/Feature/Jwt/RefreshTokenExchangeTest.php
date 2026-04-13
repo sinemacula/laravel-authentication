@@ -345,7 +345,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
                     && $event->deviceId === $device->id),
             );
 

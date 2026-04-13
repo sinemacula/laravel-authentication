@@ -40,6 +40,9 @@ enum RefreshFailureReason: string
     // Principal resolver returned null
     case PRINCIPAL_UNRESOLVED = 'principal_unresolved';
 
+    // Resolved principal does not match the refresh token pid hint
+    case PRINCIPAL_MISMATCH = 'principal_mismatch';
+
     // Resolved principal reported inactive
     case PRINCIPAL_INACTIVE = 'principal_inactive';
 }
