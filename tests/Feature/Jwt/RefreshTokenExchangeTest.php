@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Schema;
@@ -347,6 +348,44 @@ final class RefreshTokenExchangeTest extends TestCase
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
                     && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
                     && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($exchange->exchange($token));
+    }
+
+    /**
+     * When the device lookup throws a `QueryException` (e.g. PostgreSQL
+     * rejecting a non-UUID string on a UUID column), the exchange catches it
+     * and surfaces `device_unknown` rather than propagating a 500.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testExchangeHandlesQueryExceptionDuringDeviceLookup(): void
+    {
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('find')
+            ->once()
+            ->andThrow(new QueryException('testing', 'select', [], new \Exception('invalid UUID')));
+
+        StubInjectableDevice::$injectedBuilder = $builder;
+
+        config()->set('authentication.device.model', StubInjectableDevice::class);
+
+        $exchange = $this->makeExchange();
+
+        $token = $this->encodeRefreshToken([
+            'did' => 'not-a-valid-uuid',
+            'jti' => 'rotation-id',
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::DEVICE_UNKNOWN
+                    && $event->deviceId === 'not-a-valid-uuid'),
             );
 
         self::assertNull($exchange->exchange($token));
