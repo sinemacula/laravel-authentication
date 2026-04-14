@@ -35,7 +35,7 @@ Branch from `master` using the appropriate prefix:
 This project uses [Conventional Commits](https://www.conventionalcommits.org/).
 Prefix your commit messages accordingly:
 
-```
+```text
 feat: add tenant-aware principal resolution
 fix: preserve principal context during refresh
 test: add query budget tests for 3D bearer path
