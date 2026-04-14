@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -100,10 +101,22 @@ abstract class TestCase extends OrchestraTestCase
      * table exists for tests that bind devices via the shipped `Device`
      * Eloquent model.
      *
+     * With persistent databases (MySQL, PostgreSQL) the table survives
+     * between test classes, so it must be dropped on teardown to prevent
+     * the migration collision guard from throwing on the next class.
+     *
      * @return void
      */
     protected function defineDatabaseMigrations(): void
     {
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+
+        if (env('DB_CONNECTION', 'sqlite') !== 'sqlite') {
+            $this->beforeApplicationDestroyed(function (): void {
+                Schema::dropIfExists(
+                    app(ConfigRepository::class)->string('authentication.device.table', 'devices')
+                );
+            });
+        }
     }
 }
