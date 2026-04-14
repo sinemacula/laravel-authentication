@@ -138,7 +138,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     public function testUnknownDeviceRefreshFailureUsesOneReadAndNoWrites(): void
     {
         $missingDevice = new Device;
-        $missingDevice->forceFill(['id' => 'missing-device-id']);
+        $missingDevice->forceFill(['id' => '00000000-0000-0000-0000-000000000000']);
 
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
