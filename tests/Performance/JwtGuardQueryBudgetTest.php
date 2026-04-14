@@ -155,8 +155,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
 
             $authenticated = $guard->check();
-            $_             = $guard->principal();
-            $_             = $guard->device();
+            $guard->principal(); // @phpstan-ignore method.resultUnused
+            $guard->device(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -192,7 +192,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(0, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->principal();
+            $guard->principal(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -233,7 +233,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->device();
+            $guard->device(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -279,7 +279,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->device();
+            $guard->device(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -320,7 +320,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 1, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->device();
+            $guard->device(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -352,7 +352,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->principal();
+            $guard->principal(); // @phpstan-ignore method.resultUnused
 
             return $authenticated;
         });
@@ -384,9 +384,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->principal();
-            $_             = $guard->tenant();
-            $_             = $guard->type();
+            $guard->principal(); // @phpstan-ignore method.resultUnused
+            $guard->tenant(); // @phpstan-ignore method.resultUnused
+            $guard->type(); // @phpstan-ignore method.resultUnused
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -420,9 +420,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->principal();
-            $_             = $guard->tenant();
-            $_             = $guard->type();
+            $guard->principal(); // @phpstan-ignore method.resultUnused
+            $guard->tenant(); // @phpstan-ignore method.resultUnused
+            $guard->type(); // @phpstan-ignore method.resultUnused
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -462,9 +462,9 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
-            $_             = $guard->principal();
-            $_             = $guard->tenant();
-            $_             = $guard->type();
+            $guard->principal(); // @phpstan-ignore method.resultUnused
+            $guard->tenant(); // @phpstan-ignore method.resultUnused
+            $guard->type(); // @phpstan-ignore method.resultUnused
             $guard->principal()?->getIdentity();
 
             return $authenticated;
@@ -651,10 +651,10 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @formatter:off
      *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity,
-     *               1: \Tests\Integration\Fixtures\TenantAware3dPrincipal,
-     *               2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      *

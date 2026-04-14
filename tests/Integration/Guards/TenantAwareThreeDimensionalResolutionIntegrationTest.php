@@ -247,10 +247,10 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      *
      * @formatter:off
      *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  string  $email
-     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity,
-     *               1: \Tests\Integration\Fixtures\TenantAware3dPrincipal,
-     *               2: \Tests\Integration\Fixtures\TenantAware3dTenant}
+     * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dTenant}
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      *
