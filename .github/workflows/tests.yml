@@ -81,3 +81,67 @@ jobs:
                 with:
                     token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
                     files: clover.xml
+
+    # ==========================================================================
+    # JOB: DATABASE TESTS
+    # ==========================================================================
+    database-tests:
+        name: Test / ${{ matrix.database.label }}
+        runs-on: ubuntu-latest
+
+        strategy:
+            fail-fast: false
+            matrix:
+                database:
+                    -   driver: mysql
+                        label: MySQL
+                        host: 127.0.0.1
+                        port: 3306
+                        username: root
+                        password: root
+                    -   driver: pgsql
+                        label: PostgreSQL
+                        host: 127.0.0.1
+                        port: 5432
+                        username: postgres
+                        password: postgres
+
+        env:
+            DB_CONNECTION: ${{ matrix.database.driver }}
+            DB_HOST: ${{ matrix.database.host }}
+            DB_PORT: ${{ matrix.database.port }}
+            DB_DATABASE: laravel_authentication_test
+            DB_USERNAME: ${{ matrix.database.username }}
+            DB_PASSWORD: ${{ matrix.database.password }}
+
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v5
+                with:
+                    persist-credentials: false
+
+            -   name: Setup MySQL
+                if: matrix.database.driver == 'mysql'
+                uses: sinemacula/.github/.github/actions/setup-mysql@v1.0.1
+                with:
+                    db-password: ${{ matrix.database.password }}
+                    db-name: laravel_authentication_test
+
+            -   name: Setup PostgreSQL
+                if: matrix.database.driver == 'pgsql'
+                uses: sinemacula/.github/.github/actions/setup-postgres@master
+                with:
+                    db-password: ${{ matrix.database.password }}
+                    db-name: laravel_authentication_test
+
+            -   name: Setup PHP
+                uses: sinemacula/.github/.github/actions/setup-php@v1.0.1
+                with:
+                    php-version: 8.3
+                    extensions: dom, mbstring, openssl, pdo_${{ matrix.database.driver == 'pgsql' && 'pgsql' || 'mysql' }}
+
+            -   name: Install dependencies
+                run: composer install --prefer-dist --no-interaction --no-progress
+
+            -   name: PHPUnit
+                run: composer test

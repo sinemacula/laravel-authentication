@@ -595,6 +595,21 @@ map - add a new kid, point `active_kid` at it, retire the old kid once every tok
 | `principal_mismatch`      | Resolved principal does not match refresh token hint |
 | `principal_inactive`      | Resolved principal reported inactive                 |
 
+## Extensibility
+
+All concrete classes in this package are `final`. Extension is through **composition and DI**, not inheritance:
+
+| Extension point                   | How                                                                    |
+|-----------------------------------|------------------------------------------------------------------------|
+| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces) |
+| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait               |
+| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally              |
+| Custom identity retrieval         | Subclass `ModelProvider` (the one non-final service)                   |
+| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
+| Resolution caching                | Bind your own `ResolutionCache` implementation                         |
+
+`AbstractGuard` is not final and may be extended for entirely new guard types.
+
 ## Requirements
 
 - PHP ^8.3 (extensions: hash, mbstring, openssl)
@@ -608,13 +623,20 @@ composer test-coverage
 composer check
 ```
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a list of notable changes.
+
 ## Contributing
 
-Contributions are welcome via GitHub pull requests.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+for guidelines on branching, commits, code quality, and pull requests.
 
 ## Security
 
-If you discover a security issue, please contact Sine Macula directly rather than opening a public issue.
+If you discover a security vulnerability, please report it responsibly.
+See [SECURITY.md](SECURITY.md) for the disclosure policy and contact
+details.
 
 ## License
 

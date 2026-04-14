@@ -39,7 +39,11 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Seed the in-memory sqlite connection and package config defaults.
+     * Seed the database connection and package config defaults.
+     *
+     * Reads `DB_CONNECTION` from the environment to select the driver.
+     * Defaults to in-memory SQLite when unset, so local development needs
+     * no extra configuration.
      *
      * @param  mixed  $app
      * @return void
@@ -50,11 +54,7 @@ abstract class TestCase extends OrchestraTestCase
         $config = app(ConfigRepository::class);
 
         $config->set('database.default', 'testing');
-        $config->set('database.connections.testing', [
-            'driver'   => 'sqlite',
-            'database' => ':memory:',
-            'prefix'   => '',
-        ]);
+        $config->set('database.connections.testing', $this->databaseConnection());
 
         $config->set('authentication.device.model', Device::class);
         $config->set('authentication.device.table', 'devices');
@@ -63,6 +63,36 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
         $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);
+    }
+
+    /**
+     * Build the database connection config from environment variables.
+     *
+     * @return array<string, mixed>
+     */
+    private function databaseConnection(): array
+    {
+        $driver = env('DB_CONNECTION', 'sqlite');
+
+        if ($driver === 'sqlite') {
+            return [
+                'driver'   => 'sqlite',
+                'database' => ':memory:',
+                'prefix'   => '',
+            ];
+        }
+
+        return [
+            'driver'   => $driver,
+            'host'     => env('DB_HOST', '127.0.0.1'),
+            'port'     => env('DB_PORT', $driver === 'pgsql' ? '5432' : '3306'),
+            'database' => env('DB_DATABASE', 'laravel_authentication_test'),
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'prefix'   => '',
+            'charset'  => $driver === 'pgsql' ? 'utf8' : 'utf8mb4',
+            'collation' => $driver === 'pgsql' ? null : 'utf8mb4_unicode_ci',
+        ];
     }
 
     /**
