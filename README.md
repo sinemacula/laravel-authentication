@@ -95,7 +95,8 @@ migration entirely:
 1. Publish only the config: `php artisan vendor:publish --tag=authentication-config`. Skip the
    `authentication-migrations` tag.
 2. Do not implement the `HasDevices` capability contract on your identity model.
-3. Issue access tokens through the guard-scoped issuer: `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
+3. Issue access tokens through the guard-scoped issuer:
+   `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
    The token carries `did = null`, so there is no usable device hint on the bearer path.
 4. Do not call `$guard->refresh($refreshToken)`. Clients re-authenticate when their access token expires.
 
@@ -290,6 +291,32 @@ Precedence is:
 This applies equally to bearer-token resolution and JWT refresh exchange: when a guard declares a local
 resolver, both paths use that same resolver instance.
 
+### Device configuration
+
+The published `authentication.php` config controls the device model, table name, and last-seen debounce:
+
+```php
+'device' => [
+    'model'                      => \SineMacula\Laravel\Authentication\Models\Device::class,
+    'table'                      => 'devices',
+    'refresh_key_column'         => 'refresh_key',
+    'last_seen_throttle_seconds' => 60,
+],
+```
+
+The shipped `Device` model uses UUID v7 primary keys and a polymorphic `authenticatable` relation. Subclass it
+or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract.
+
+### Credential validation timing
+
+The `basic` guard wraps credential checks in a constant-time `Timebox` to prevent timing side-channels:
+
+```php
+'timebox' => [
+    'credentials_microseconds' => 400000, // must exceed worst-case hasher cost
+],
+```
+
 ### 2D adoption (identity is the principal)
 
 The simplest shape. One model implements both `Identity` and `Principal` - the user who logs in *is* the actor on
@@ -311,6 +338,26 @@ class AppUser extends User implements Identity, Principal
 Point `auth.providers.users.model` at `AppUser::class` and you're done. `Auth::identity()` and `Auth::principal()`
 both return the same `AppUser` instance.
 
+To add device tracking and refresh-token rotation, implement `HasDevices` on the identity model:
+
+```php
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+
+class AppUser extends User implements Identity, Principal, HasDevices
+{
+    use Authenticatable, ActsAsPrincipal;
+
+    public function devices(): MorphMany
+    {
+        return $this->morphMany(Device::class, 'authenticatable');
+    }
+}
+```
+
+Without `HasDevices`, the guard skips device resolution and refresh is unavailable (see
+[access-only mode](#minimal-setup-access-only-no-refresh-no-devices)).
+
 ### 3D adoption (separate identity, principal, and tenant)
 
 For multi-tenant apps where the logged-in human operates on behalf of a tenant-scoped actor, split identity and
@@ -318,20 +365,24 @@ principal into two models. The identity implements `HasPrincipals` and returns i
 
 ```php
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
+use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
+use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
 // The human - implements Identity + HasPrincipals, NOT Principal.
-class AppIdentity extends User implements Identity, HasPrincipals, ResolvesHintedPrincipal
+// Add HasDevices for device tracking and refresh-token rotation.
+class AppIdentity extends User implements Identity, HasDevices, HasPrincipals, ResolvesHintedPrincipal
 {
     use Authenticatable;
 
@@ -344,6 +395,11 @@ class AppIdentity extends User implements Identity, HasPrincipals, ResolvesHinte
     public function principals(): HasMany
     {
         return $this->hasMany(AppMembership::class, 'identity_id');
+    }
+
+    public function devices(): MorphMany
+    {
+        return $this->morphMany(Device::class, 'authenticatable');
     }
 
     public function resolveDefaultPrincipal(): ?PrincipalContract
@@ -418,6 +474,26 @@ $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 All guards without a local `principal_resolver` override will use that binding for bearer-token and refresh
 resolution. Guards that do declare `auth.guards.<name>.principal_resolver` take precedence over the app-wide
 binding. No guard subclassing required.
+
+### Active-state enforcement
+
+When an identity model implements `CanBeActive`, both guards consult `isActive()` on every bearer and credential
+path and reject authentication when it returns `false`. Use this for banned, suspended, or soft-deleted identities
+without relying on short access-token lifetimes alone:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
+
+class AppUser extends User implements Identity, Principal, CanBeActive
+{
+    use Authenticatable, ActsAsPrincipal;
+
+    public function isActive(): bool
+    {
+        return $this->suspended_at === null;
+    }
+}
+```
 
 ### HTTP Basic behind PHP-FPM / nginx
 
@@ -504,9 +580,24 @@ map - add a new kid, point `active_kid` at it, retire the old kid once every tok
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 
+`RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution:
+
+| Reason                    | Meaning                                              |
+|---------------------------|------------------------------------------------------|
+| `token_invalid`           | Decode, expiry, typ, iss, or aud failure             |
+| `device_unknown`          | Device id did not resolve                            |
+| `rotation_mismatch`       | Digest did not match the stored refresh key          |
+| `rotation_reuse`          | Replay or concurrent rotation; device revoked        |
+| `device_revoked`          | Device row marked revoked                            |
+| `authenticatable_missing` | Device authenticatable relation missing              |
+| `identity_inactive`       | Resolved identity reported inactive                  |
+| `principal_unresolved`    | Principal resolver returned null                     |
+| `principal_mismatch`      | Resolved principal does not match refresh token hint |
+| `principal_inactive`      | Resolved principal reported inactive                 |
+
 ## Requirements
 
-- PHP ^8.3
+- PHP ^8.3 (extensions: hash, mbstring, openssl)
 - Laravel ^12.40 || ^13.3
 
 ## Testing
