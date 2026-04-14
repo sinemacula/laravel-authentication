@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -266,7 +267,11 @@ final class RefreshTokenExchange
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $model */
         $model = new $class;
 
-        $device = $model->newQuery()->find($id);
+        try {
+            $device = $model->newQuery()->find($id);
+        } catch (QueryException) {
+            return null;
+        }
 
         if (!$device instanceof Model || !$device instanceof EloquentDevice) {
             return null;
