@@ -143,5 +143,5 @@ jobs:
             -   name: Install dependencies
                 run: composer install --prefer-dist --no-interaction --no-progress
 
-            -   name: PHPUnit
-                run: composer test
+            -   name: PHPUnit (serial)
+                run: vendor/bin/phpunit
