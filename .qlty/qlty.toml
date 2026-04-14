@@ -118,4 +118,6 @@ name = "yamllint"
 [[plugin]]
 name = "phpstan"
 version = "2.1.46"
-package_file = "composer.json"
+
+[plugins.definitions.phpstan.drivers.lint]
+prepare_script = "~/.qlty/cache/tools/composer/generic-42cc848a9f5e/composer.phar install --no-scripts --ignore-platform-reqs"
