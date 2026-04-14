@@ -34,6 +34,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(DefaultPrincipalResolver::class)]
 final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCase
 {
+    private const TEST_PASSWORD = 'correct horse battery staple';
+
     /** @var string JWT guard name for 3D bearer tests. */
     private const string JWT_GUARD = 'api_3d';
 
@@ -113,7 +115,10 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     {
         [$identity, $principal, $tenant] = $this->seedTenantAwareThreeDimensionalFixtures();
 
-        $token = PackageAuth::jwt(self::JWT_GUARD)->issueAccessToken($identity, $principal, null);
+        $jwt = PackageAuth::jwt(self::JWT_GUARD);
+        assert($jwt !== null);
+
+        $token = $jwt->issueAccessToken($identity, $principal, null);
         $guard = $this->jwtGuardForBearer($token);
 
         self::assertTrue($guard->check());
@@ -145,7 +150,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $guard = $this->basicGuardForCredentials(
             self::BASIC_THREE_D_GUARD,
             $identity->email,
-            'correct horse battery staple',
+            self::TEST_PASSWORD,
         );
 
         self::assertNotNull($guard->user());
@@ -178,7 +183,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $guard = $this->basicGuardForCredentials(
             self::BASIC_TWO_D_GUARD,
             $identity->email,
-            'correct horse battery staple',
+            self::TEST_PASSWORD,
         );
 
         self::assertNotNull($guard->user());
@@ -242,6 +247,8 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      *
      * @formatter:off
      *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  string  $email
      * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dTenant}
      *
@@ -255,7 +262,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
 
         $identity            = new TenantAware3dIdentity;
         $identity->email     = $email;
-        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
 
@@ -265,8 +272,8 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $tenant->save();
 
         $principal              = new TenantAware3dPrincipal;
-        $principal->identity_id = $identity->getKey();
-        $principal->tenant_id   = $tenant->getKey();
+        $principal->identity_id = $identity->getKey(); // @phpstan-ignore assign.propertyType
+        $principal->tenant_id   = $tenant->getKey(); // @phpstan-ignore assign.propertyType
         $principal->name        = 'staff-actor';
         $principal->is_active   = true;
         $principal->save();
@@ -289,9 +296,10 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
             'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
         ]));
 
-        PackageAuth::manager()->forgetGuards();
+        $manager = PackageAuth::manager();
+        $manager->forgetGuards();
 
-        $guard = PackageAuth::guard(self::JWT_GUARD);
+        $guard = $manager->guard(self::JWT_GUARD);
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
@@ -315,9 +323,10 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
             'PHP_AUTH_PW'   => $password,
         ]));
 
-        PackageAuth::manager()->forgetGuards();
+        $manager = PackageAuth::manager();
+        $manager->forgetGuards();
 
-        $guard = PackageAuth::guard($guardName);
+        $guard = $manager->guard($guardName);
 
         self::assertInstanceOf(BasicGuard::class, $guard);
 
@@ -337,7 +346,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
 
         $identity            = new StubPrincipal;
         $identity->email     = 'basic-2d@example.test';
-        $identity->password  = $hasher->make('correct horse battery staple');
+        $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
 

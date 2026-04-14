@@ -104,8 +104,13 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 
         $this->bindResolvers($staffPrincipal, $customerPrincipal);
 
-        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
-        $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($identity, $customerPrincipal, null);
+        $staffJwt = PackageAuth::jwt(self::STAFF_GUARD);
+        assert($staffJwt !== null);
+        $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
+        assert($customerJwt !== null);
+
+        $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null);
+        $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null);
 
         $this->bindRequestWithBearer($staffToken);
 
@@ -155,8 +160,13 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 
         $this->bindResolvers($staffPrincipal, $customerPrincipal);
 
-        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($identity, $staffPrincipal, null);
-        $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($identity, $customerPrincipal, null);
+        $staffJwt = PackageAuth::jwt(self::STAFF_GUARD);
+        assert($staffJwt !== null);
+        $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
+        assert($customerJwt !== null);
+
+        $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null);
+        $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null);
 
         config()->set('auth.defaults.guard', self::STAFF_GUARD);
         $this->bindRequestWithBearer($staffToken);
@@ -177,7 +187,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
         self::assertInstanceOf(ContextualGuard::class, $customerGuard);
         self::assertNotSame($staffGuard, $customerGuard);
         self::assertTrue($customerGuard->check());
-        self::assertSame('customer-actor', PackageAuth::principal()?->getPrincipalIdentifier());
+        self::assertSame('customer-actor', PackageAuth::principal()->getPrincipalIdentifier());
         self::assertSame($customerTenant, PackageAuth::tenant());
         self::assertSame('customer', PackageAuth::type());
     }
@@ -267,6 +277,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      */
     private function bindResolvers(Principal $staffPrincipal, Principal $customerPrincipal): void
     {
+        assert($this->app !== null);
+
         $this->app->instance(self::STAFF_RESOLVER, new StubFixedPrincipalResolver($staffPrincipal));
         $this->app->instance(self::CUSTOMER_RESOLVER, new StubFixedPrincipalResolver($customerPrincipal));
     }

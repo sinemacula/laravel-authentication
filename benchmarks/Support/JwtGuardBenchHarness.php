@@ -383,7 +383,7 @@ final class JwtGuardBenchHarness
         );
 
         $twoDimensionalGuard->user();
-        $twoDimensionalGuard->principal();
+        $twoDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
 
         $threeDimensionalGuard = $this->makeGuard(
             'api_3d',
@@ -392,7 +392,7 @@ final class JwtGuardBenchHarness
         );
 
         $threeDimensionalGuard->user();
-        $threeDimensionalGuard->principal();
+        $threeDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
     }
 
     /**

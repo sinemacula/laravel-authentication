@@ -73,9 +73,9 @@ final class ContractDeclarationTest extends TestCase
     /**
      * Data provider listing the methods `Device` must declare.
      *
-     * @return array<string, array{0: string}>
+     * @return \Generator<string, array{0: string}>
      */
-    public static function provideDeviceContractMethods(): iterable
+    public static function provideDeviceContractMethods(): \Generator
     {
         yield from [
             'getDeviceIdentifier'    => ['getDeviceIdentifier'],
@@ -121,9 +121,9 @@ final class ContractDeclarationTest extends TestCase
     /**
      * Data provider listing the methods `EloquentDevice` must declare.
      *
-     * @return array<string, array{0: string}>
+     * @return \Generator<string, array{0: string}>
      */
-    public static function provideEloquentDeviceContractMethods(): iterable
+    public static function provideEloquentDeviceContractMethods(): \Generator
     {
         yield from [
             'authenticatable'     => ['authenticatable'],
@@ -173,9 +173,9 @@ final class ContractDeclarationTest extends TestCase
     /**
      * Data provider listing the methods `Principal` must declare.
      *
-     * @return array<string, array{0: string}>
+     * @return \Generator<string, array{0: string}>
      */
-    public static function providePrincipalContractMethods(): iterable
+    public static function providePrincipalContractMethods(): \Generator
     {
         yield from [
             'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
@@ -331,9 +331,9 @@ final class ContractDeclarationTest extends TestCase
     /**
      * Data provider listing every method on Laravel's `Guard` contract.
      *
-     * @return array<string, array{0: string}>
+     * @return \Generator<string, array{0: string}>
      */
-    public static function provideLaravelGuardMethods(): iterable
+    public static function provideLaravelGuardMethods(): \Generator
     {
         yield from [
             'check'    => ['check'],

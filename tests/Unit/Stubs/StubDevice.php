@@ -48,11 +48,15 @@ class StubDevice extends Model implements EloquentDevice
     /**
      * Polymorphic relation to the owning authenticatable identity.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, $this>
+     * @formatter:off
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
+     *
+     * @formatter:on
      */
     #[\Override]
     public function authenticatable(): MorphTo
     {
-        return $this->morphTo();
+        return $this->morphTo(); // @phpstan-ignore return.type
     }
 }

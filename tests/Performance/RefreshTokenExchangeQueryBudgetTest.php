@@ -117,7 +117,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'last_logged_in_at'    => $this->now,
         ])->save();
 
-        $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, $rotationId, $identity);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($device, $rotationId, $identity);
         $guard = $this->freshJwtGuard(self::GUARD);
 
         $result = $this->assertQueryBudget(2, 1, static fn () => $guard->refresh($token));
@@ -137,7 +140,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $missingDevice = new Device;
         $missingDevice->forceFill(['id' => 'missing-device-id']);
 
-        $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($missingDevice, 'missing-device-rotation');
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($missingDevice, 'missing-device-rotation');
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
@@ -166,7 +172,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 
-        $token = PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, 'tampered-rotation-id');
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($device, 'tampered-rotation-id');
         $guard = $this->freshJwtGuard(self::GUARD);
 
         $result = $this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token));
@@ -197,7 +206,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'last_logged_in_at'    => $this->now,
         ])->save();
 
-        $token = PackageAuth::jwt(self::TENANT_AWARE_GUARD)->issueRefreshToken($device, $rotationId, $principal);
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($device, $rotationId, $principal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token) {
@@ -235,7 +247,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'last_logged_in_at'    => $this->now,
         ])->save();
 
-        $token = PackageAuth::jwt(self::TENANT_AWARE_GUARD)->issueRefreshToken($device, $rotationId, $secondaryPrincipal);
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($device, $rotationId, $secondaryPrincipal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token) {
@@ -276,7 +291,10 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'last_logged_in_at'    => $this->now,
         ])->save();
 
-        $token = PackageAuth::jwt(self::TENANT_AWARE_GUARD)->issueRefreshToken($device, $rotationId, $principal);
+        $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($device, $rotationId, $principal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
         $result = $this->assertQueryBudget(3, 0, static function () use ($guard, $token) {
@@ -373,8 +391,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $tenant->save();
 
         $principal              = new TenantAware3dPrincipal;
-        $principal->identity_id = $identity->getKey();
-        $principal->tenant_id   = $tenant->getKey();
+        $principal->identity_id = $identity->getKey(); // @phpstan-ignore assign.propertyType
+        $principal->tenant_id   = $tenant->getKey(); // @phpstan-ignore assign.propertyType
         $principal->name        = 'refresh-staff-actor';
         $principal->is_active   = $principalActive;
         $principal->save();
@@ -387,6 +405,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
      * two separate tenant types.
      *
      * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $email
      * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
@@ -403,8 +423,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $secondaryTenant->save();
 
         $secondaryPrincipal              = new TenantAware3dPrincipal;
-        $secondaryPrincipal->identity_id = $identity->getKey();
-        $secondaryPrincipal->tenant_id   = $secondaryTenant->getKey();
+        $secondaryPrincipal->identity_id = $identity->getKey(); // @phpstan-ignore assign.propertyType
+        $secondaryPrincipal->tenant_id   = $secondaryTenant->getKey(); // @phpstan-ignore assign.propertyType
         $secondaryPrincipal->name        = 'refresh-customer-actor';
         $secondaryPrincipal->is_active   = true;
         $secondaryPrincipal->save();

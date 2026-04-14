@@ -57,18 +57,18 @@ final class AuthenticatableTest extends TestCase
     }
 
     /**
-     * The override returns `null` from `getRememberToken()` regardless of any
-     * in-memory `remember_token` attribute, so the stateless package never
-     * exposes a remember token to the framework.
+     * The override returns an empty string from `getRememberToken()` regardless
+     * of any in-memory `remember_token` attribute, so the stateless package
+     * never exposes a remember token to the framework.
      *
      * @return void
      */
-    public function testGetRememberTokenIsNull(): void
+    public function testGetRememberTokenIsEmpty(): void
     {
         $consumer = new StubIdentity;
         $consumer->setRawAttributes(['remember_token' => 'should-be-ignored']);
 
-        self::assertNull($consumer->getRememberToken());
+        self::assertSame('', $consumer->getRememberToken());
     }
 
     /**

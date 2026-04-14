@@ -90,7 +90,10 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
     {
         $identity = $this->seedIdentity();
 
-        $token = PackageAuth::jwt(self::GUARD)->issueAccessToken($identity, $identity, null);
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueAccessToken($identity, $identity, null);
 
         $expiredNow = $this->now->copy()->addMinutes(16);
         Carbon::setTestNow($expiredNow);

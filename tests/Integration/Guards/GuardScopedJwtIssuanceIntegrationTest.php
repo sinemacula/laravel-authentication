@@ -105,8 +105,14 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
     {
         $principal = $this->seedPrincipal();
 
-        $staffToken    = PackageAuth::jwt(self::STAFF_GUARD)->issueAccessToken($principal, $principal, null);
-        $customerToken = PackageAuth::jwt(self::CUSTOMER_GUARD)->issueAccessToken($principal, $principal, null);
+        $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
+        $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
+
+        assert($staffJwt !== null);
+        assert($customerJwt !== null);
+
+        $staffToken    = $staffJwt->issueAccessToken($principal, $principal, null);
+        $customerToken = $customerJwt->issueAccessToken($principal, $principal, null);
 
         self::assertTrue($this->guardForBearer(self::STAFF_GUARD, $staffToken)->check());
         self::assertFalse($this->guardForBearer(self::CUSTOMER_GUARD, $staffToken)->check());
@@ -138,7 +144,11 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $refreshToken = PackageAuth::jwt(self::STAFF_GUARD)->issueRefreshToken($device, $plainRotationId);
+        $jwtService = PackageAuth::jwt(self::STAFF_GUARD);
+
+        assert($jwtService !== null);
+
+        $refreshToken = $jwtService->issueRefreshToken($device, $plainRotationId);
 
         $staffGuard = $this->guard(self::STAFF_GUARD);
         $result     = $staffGuard->refresh($refreshToken);
@@ -221,9 +231,9 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
     {
         PackageAuth::manager()->forgetGuards();
 
-        $guard = PackageAuth::guard($name);
+        $guard = PackageAuth::manager()->guard($name);
 
-        assert($guard instanceof JwtGuard);
+        self::assertInstanceOf(JwtGuard::class, $guard); // @phpstan-ignore staticMethod.impossibleType
 
         return $guard;
     }

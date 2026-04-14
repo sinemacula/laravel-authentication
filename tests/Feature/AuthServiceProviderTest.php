@@ -174,6 +174,7 @@ final class AuthServiceProviderTest extends TestCase
 
         $replacement = new StubReplacementPrincipalResolver;
 
+        assert($this->app !== null);
         $this->app->instance(PrincipalResolver::class, $replacement);
 
         self::assertSame($replacement, $this->readObjectProperty($guard, 'resolver'));
@@ -203,6 +204,7 @@ final class AuthServiceProviderTest extends TestCase
 
         $replacement = new StubReplacementPrincipalResolver;
 
+        assert($this->app !== null);
         $this->app->instance(PrincipalResolver::class, $replacement);
 
         self::assertSame($resolver, $this->readObjectProperty($guard, 'resolver'));

@@ -36,10 +36,10 @@ final class StubFixedPrincipalResolver implements PrincipalResolver
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     * @return \SineMacula\Laravel\Authentication\Contracts\Principal
      */
     #[\Override]
-    public function resolve(Identity $identity, mixed $hint = null): ?Principal
+    public function resolve(Identity $identity, mixed $hint = null): Principal
     {
         unset($identity, $hint);
 

@@ -32,13 +32,15 @@ trait Authenticatable
     }
 
     /**
-     * Stateless package: returns `null`.
+     * Stateless package: no-op, returns empty string.
      *
-     * @return ?string
+     * @return string
+     *
+     * @SuppressWarnings("php:S4144")
      */
-    public function getRememberToken(): ?string
+    public function getRememberToken(): string
     {
-        return null;
+        return '';
     }
 
     /**

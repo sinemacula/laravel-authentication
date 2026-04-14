@@ -209,6 +209,8 @@ final class ResolutionCacheConfigTest extends TestCase
      * to exercise the catch branches.
      *
      * @return \SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig
+     *
+     * @SuppressWarnings("php:S112")
      */
     private function makeThrowingConfig(): ResolutionCacheConfig
     {

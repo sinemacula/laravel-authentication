@@ -104,6 +104,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
             ],
         );
 
+        assert($this->app !== null);
+
         $this->app->instance(self::RESOLVER, $resolver);
 
         self::assertSame('customer-actor', $resolver->resolve($identity)?->getPrincipalIdentifier());
@@ -118,9 +120,12 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
+        $jwt = PackageAuth::jwt(self::GUARD);
+        assert($jwt !== null);
+
         $guard  = $this->freshGuard();
         $result = $guard->refresh(
-            PackageAuth::jwt(self::GUARD)->issueRefreshToken($device, $plainRotationId, $staffPrincipal),
+            $jwt->issueRefreshToken($device, $plainRotationId, $staffPrincipal),
         );
 
         self::assertInstanceOf(RefreshResult::class, $result);
@@ -128,7 +133,10 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
         self::assertSame($staffTenant, $guard->tenant());
         self::assertSame('staff', $guard->type());
 
-        $refreshClaims = PackageAuth::jwt(self::GUARD)->parse($result->refreshToken, TokenType::REFRESH);
+        $parseJwt = PackageAuth::jwt(self::GUARD);
+        assert($parseJwt !== null);
+
+        $refreshClaims = $parseJwt->parse($result->refreshToken, TokenType::REFRESH);
 
         self::assertIsArray($refreshClaims);
         self::assertSame('staff-actor', $refreshClaims[Claims::PRINCIPAL_ID->value]);
@@ -220,11 +228,12 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      */
     private function freshGuard(): JwtGuard
     {
-        PackageAuth::manager()->forgetGuards();
+        $manager = PackageAuth::manager();
+        $manager->forgetGuards();
 
-        $guard = PackageAuth::guard(self::GUARD);
+        $guard = $manager->guard(self::GUARD);
 
-        assert($guard instanceof JwtGuard);
+        self::assertInstanceOf(JwtGuard::class, $guard);
 
         return $guard;
     }

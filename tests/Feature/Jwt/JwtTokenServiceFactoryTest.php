@@ -440,8 +440,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * memoized instance rather than constructing a new service.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForGuardReturnsMemoizedInstanceOnRepeatedCalls(): void
     {
@@ -455,8 +453,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * Different guard names resolve distinct memoized instances.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForGuardReturnsDifferentInstancesForDifferentGuards(): void
     {
