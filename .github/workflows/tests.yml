@@ -62,7 +62,7 @@ jobs:
                     persist-credentials: false
 
             -   name: Setup PHP
-                uses: sinemacula/.github/.github/actions/setup-php@v1.0.1
+                uses: sinemacula/.github/.github/actions/setup-php@v1.1.0
                 with:
                     php-version: ${{ matrix.php }}
                     extensions: dom, mbstring, openssl
@@ -122,20 +122,20 @@ jobs:
 
             -   name: Setup MySQL
                 if: matrix.database.driver == 'mysql'
-                uses: sinemacula/.github/.github/actions/setup-mysql@v1.0.1
+                uses: sinemacula/.github/.github/actions/setup-mysql@v1.1.0
                 with:
                     db-password: ${{ matrix.database.password }}
                     db-name: laravel_authentication_test
 
             -   name: Setup PostgreSQL
                 if: matrix.database.driver == 'pgsql'
-                uses: sinemacula/.github/.github/actions/setup-postgres@master
+                uses: sinemacula/.github/.github/actions/setup-postgres@v1.1.0
                 with:
                     db-password: ${{ matrix.database.password }}
                     db-name: laravel_authentication_test
 
             -   name: Setup PHP
-                uses: sinemacula/.github/.github/actions/setup-php@v1.0.1
+                uses: sinemacula/.github/.github/actions/setup-php@v1.1.0
                 with:
                     php-version: 8.3
                     extensions: dom, mbstring, openssl, pdo_${{ matrix.database.driver == 'pgsql' && 'pgsql' || 'mysql' }}
