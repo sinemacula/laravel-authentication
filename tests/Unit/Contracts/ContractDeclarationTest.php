@@ -8,16 +8,19 @@ use Illuminate\Contracts\Auth\Authenticatable as LaravelAuthenticatable;
 use Illuminate\Contracts\Auth\Guard as LaravelGuard;
 use Illuminate\Contracts\Auth\UserProvider as LaravelUserProvider;
 use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -27,71 +30,21 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
  *
  * Pins the documented method surface of every contract and the inheritance
  * chains that let framework typehints resolve against package implementations.
- * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a
- * bare interface; the assertions run against interface metadata only.
+ * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a bare
+ * interface; the assertions run against interface metadata only.
  *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 #[CoversNothing]
 final class ContractDeclarationTest extends TestCase
 {
     /**
-     * Data provider listing the methods `Device` must declare.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function provideDeviceContractMethods(): array
-    {
-        return [
-            'getDeviceIdentifier'    => ['getDeviceIdentifier'],
-            'getLastLoggedIn'        => ['getLastLoggedIn'],
-            'getLastMfaVerification' => ['getLastMfaVerification'],
-            'getOperatingSystem'     => ['getOperatingSystem'],
-            'getRefreshKey'          => ['getRefreshKey'],
-            'getRevokedAt'           => ['getRevokedAt'],
-        ];
-    }
-
-    /**
-     * Data provider listing the methods `Principal` must declare.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function providePrincipalContractMethods(): array
-    {
-        return [
-            'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
-            'getIdentity'            => ['getIdentity'],
-            'getTenant'              => ['getTenant'],
-            'isActive'               => ['isActive'],
-        ];
-    }
-
-    /**
-     * Data provider listing every method on Laravel's `Guard` contract.
-     *
-     * @return array<string, array{0: string}>
-     */
-    public static function provideLaravelGuardMethods(): array
-    {
-        return [
-            'check'    => ['check'],
-            'guest'    => ['guest'],
-            'user'     => ['user'],
-            'id'       => ['id'],
-            'validate' => ['validate'],
-            'hasUser'  => ['hasUser'],
-            'setUser'  => ['setUser'],
-        ];
-    }
-
-    /**
      * `IdentityProvider` extends Laravel's framework `UserProvider` contract
-     * so the package provider drops into Laravel's
-     * `Auth::createUserProvider()` factory unchanged.
+     * so the package provider drops into Laravel's `Auth::createUserProvider()`
+     * factory unchanged.
      *
      * @return void
      */
@@ -118,6 +71,23 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
+     * Data provider listing the methods `Device` must declare.
+     *
+     * @return \Generator<string, array{0: string}>
+     */
+    public static function provideDeviceContractMethods(): \Generator
+    {
+        yield from [
+            'getDeviceIdentifier'    => ['getDeviceIdentifier'],
+            'getLastLoggedIn'        => ['getLastLoggedIn'],
+            'getLastMfaVerification' => ['getLastMfaVerification'],
+            'getOperatingSystem'     => ['getOperatingSystem'],
+            'getRefreshKey'          => ['getRefreshKey'],
+            'getRevokedAt'           => ['getRevokedAt'],
+        ];
+    }
+
+    /**
      * `Device` declares every method the refresh-token exchange and
      * `ActsAsDevice` trait depend on. A reflection check kills a mutation that
      * removes or renames a contract method silently.
@@ -132,6 +102,87 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(Device::class))->hasMethod($method),
             "Device contract must declare {$method}().",
         );
+    }
+
+    /**
+     * `EloquentDevice` extends the generic `Device` contract with the relation
+     * and column-name accessors required by refresh persistence paths.
+     *
+     * @return void
+     */
+    public function testEloquentDeviceExtendsDevice(): void
+    {
+        self::assertContains(
+            Device::class,
+            (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
+        );
+    }
+
+    /**
+     * Data provider listing the methods `EloquentDevice` must declare.
+     *
+     * @return \Generator<string, array{0: string}>
+     */
+    public static function provideEloquentDeviceContractMethods(): \Generator
+    {
+        yield from [
+            'authenticatable'     => ['authenticatable'],
+            'getLastLoggedInName' => ['getLastLoggedInName'],
+            'getRefreshKeyName'   => ['getRefreshKeyName'],
+            'getRevokedAtName'    => ['getRevokedAtName'],
+        ];
+    }
+
+    /**
+     * `EloquentDevice` declares every explicit Eloquent persistence hook the
+     * refresh and last-seen paths depend on.
+     *
+     * @param  string  $method
+     * @return void
+     */
+    #[DataProvider('provideEloquentDeviceContractMethods')]
+    public function testEloquentDeviceContractDeclaresMethod(string $method): void
+    {
+        self::assertTrue(
+            (new \ReflectionClass(EloquentDevice::class))->hasMethod($method),
+            "EloquentDevice contract must declare {$method}().",
+        );
+    }
+
+    /**
+     * `EloquentDevice::authenticatable()` must return a MorphTo relation, and
+     * the persistence column-name accessors must return strings.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testEloquentDeviceDeclaresExpectedReturnTypes(): void
+    {
+        $authenticatableReturn = (new \ReflectionMethod(EloquentDevice::class, 'authenticatable'))->getReturnType();
+        self::assertInstanceOf(\ReflectionNamedType::class, $authenticatableReturn);
+        self::assertSame(MorphTo::class, $authenticatableReturn->getName());
+
+        foreach (['getLastLoggedInName', 'getRefreshKeyName', 'getRevokedAtName'] as $method) {
+            $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
+            self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
+            self::assertSame('string', $returnType->getName());
+        }
+    }
+
+    /**
+     * Data provider listing the methods `Principal` must declare.
+     *
+     * @return \Generator<string, array{0: string}>
+     */
+    public static function providePrincipalContractMethods(): \Generator
+    {
+        yield from [
+            'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
+            'getIdentity'            => ['getIdentity'],
+            'getTenant'              => ['getTenant'],
+            'isActive'               => ['isActive'],
+        ];
     }
 
     /**
@@ -208,6 +259,21 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
+     * `ResolvesHintedPrincipal::resolveHintedPrincipal()` must return a
+     * nullable `Principal`.
+     *
+     * @return void
+     */
+    public function testResolvesHintedPrincipalDeclaresReturnType(): void
+    {
+        $returnType = (new \ReflectionMethod(ResolvesHintedPrincipal::class, 'resolveHintedPrincipal'))->getReturnType();
+
+        self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
+        self::assertTrue($returnType->allowsNull());
+        self::assertSame(Principal::class, $returnType->getName());
+    }
+
+    /**
      * `JwtGuard` implements the package `ContextualGuard` interface so
      * typehints on the package facade and service locator resolve correctly.
      *
@@ -260,6 +326,24 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(BasicGuard::class))->implementsInterface(LaravelGuard::class),
             'BasicGuard must implement Illuminate\Contracts\Auth\Guard.',
         );
+    }
+
+    /**
+     * Data provider listing every method on Laravel's `Guard` contract.
+     *
+     * @return \Generator<string, array{0: string}>
+     */
+    public static function provideLaravelGuardMethods(): \Generator
+    {
+        yield from [
+            'check'    => ['check'],
+            'guest'    => ['guest'],
+            'user'     => ['user'],
+            'id'       => ['id'],
+            'validate' => ['validate'],
+            'hasUser'  => ['hasUser'],
+            'setUser'  => ['setUser'],
+        ];
     }
 
     /**

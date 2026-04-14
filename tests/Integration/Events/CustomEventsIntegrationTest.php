@@ -45,7 +45,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * separate principal table.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -92,7 +92,6 @@ final class CustomEventsIntegrationTest extends TestCase
         JWT::$timestamp = $this->now->getTimestamp();
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
-
             $blueprint->increments('id');
             $blueprint->string('email')->unique();
             $blueprint->string('password');

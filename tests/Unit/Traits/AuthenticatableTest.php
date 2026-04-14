@@ -4,25 +4,20 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
-use Illuminate\Database\Eloquent\Model;
-use PHPUnit\Framework\Attributes\CoversMethod;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+use Tests\Unit\Stubs\StubIdentity;
 
 /**
  * Unit tests for the package Authenticatable trait.
  *
- * Both `#[CoversTrait]` and `#[CoversMethod]` are present so PHPUnit
- * attributes the trait's coverage correctly.
+ * Exercises the public trait surface through a named Eloquent stub without
+ * relying on explicit PHPUnit coverage metadata for traits.
  *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
-#[CoversMethod(Authenticatable::class, 'getRememberTokenName')]
-#[CoversTrait(Authenticatable::class)]
 final class AuthenticatableTest extends TestCase
 {
     /**
@@ -32,9 +27,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetRememberTokenNameIsEmptyString(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-        };
+        $consumer = new StubIdentity;
 
         self::assertSame('', $consumer->getRememberTokenName());
     }
@@ -46,9 +39,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetAuthIdentifierNameDelegatesToLaravelTrait(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-        };
+        $consumer = new StubIdentity;
 
         self::assertSame('id', $consumer->getAuthIdentifierName());
     }
@@ -60,32 +51,24 @@ final class AuthenticatableTest extends TestCase
      */
     public function testGetAuthPasswordNameDelegatesToLaravelTrait(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-        };
+        $consumer = new StubIdentity;
 
         self::assertSame('password', $consumer->getAuthPasswordName());
     }
 
     /**
-     * The override returns `null` from `getRememberToken()` regardless of any
-     * in-memory `remember_token` attribute, so the stateless package never
-     * exposes a remember token to the framework.
+     * The override returns an empty string from `getRememberToken()` regardless
+     * of any in-memory `remember_token` attribute, so the stateless package
+     * never exposes a remember token to the framework.
      *
      * @return void
      */
-    public function testGetRememberTokenIsNull(): void
+    public function testGetRememberTokenIsEmpty(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
-
+        $consumer = new StubIdentity;
         $consumer->setRawAttributes(['remember_token' => 'should-be-ignored']);
 
-        self::assertNull($consumer->getRememberToken());
+        self::assertSame('', $consumer->getRememberToken());
     }
 
     /**
@@ -96,12 +79,7 @@ final class AuthenticatableTest extends TestCase
      */
     public function testSetRememberTokenIsNoOp(): void
     {
-        $consumer = new class extends Model {
-            use Authenticatable;
-
-            /** @var array<string> Mass-assignment guard list. */
-            protected $guarded = [];
-        };
+        $consumer = new StubIdentity;
 
         $consumer->setRememberToken('should-not-be-stored');
 

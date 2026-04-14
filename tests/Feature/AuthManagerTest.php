@@ -11,12 +11,14 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
  * Feature tests for the package AuthManager subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -42,12 +44,33 @@ final class AuthManagerTest extends TestCase
      */
     public function testAuthManagerExtendsLaravelAuthManager(): void
     {
-        $reflection = new \ReflectionClass(AuthManager::class);
+        self::assertInstanceOf(IlluminateAuthManager::class, app('auth'));
+    }
 
-        self::assertTrue(
-            $reflection->isSubclassOf(IlluminateAuthManager::class),
-            'Package AuthManager must extend Illuminate\Auth\AuthManager.',
-        );
+    /**
+     * The package `AuthManager` exposes a concrete `jwt()` instance method
+     * that resolves a guard-scoped `JwtTokenService`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAuthManagerExposesJwtMethod(): void
+    {
+        config()->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => StubAuthenticatableModel::class,
+        ]);
+        config()->set('auth.guards.test_jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+        config()->set('authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        self::assertInstanceOf(JwtTokenService::class, $manager->jwt('test_jwt'));
     }
 
     /**
@@ -86,10 +109,31 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * `inheritDriversFrom()` does not throw and leaves the receiver
-     * driver-less when the donor has no custom creators registered. Pins the
-     * empty-array short-circuit in `inheritDriversFrom()`: a freshly bound
-     * provider that points at an unregistered custom driver still raises
+     * `jwt()` throws when the default guard resolves to an empty string. Pins
+     * the `$guardName === ''` early-throw in `AuthManager::jwt()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testJwtThrowsWhenDefaultGuardIsEmpty(): void
+    {
+        config()->set('auth.defaults.guard', '');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('No default auth guard is configured.');
+
+        $manager->jwt();
+    }
+
+    /**
+     * `inheritDriversFrom()` does not throw and leaves the receiver driver-less
+     * when the donor has no custom creators registered. Pins the empty-array
+     * short-circuit in `inheritDriversFrom()`: a freshly bound provider that
+     * points at an unregistered custom driver still raises
      * `InvalidArgumentException`, proving the empty donor did not silently
      * leak driver registrations.
      *
@@ -119,6 +163,7 @@ final class AuthManagerTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];

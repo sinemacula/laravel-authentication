@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -38,6 +38,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * rather than raising an exception.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseReturnsNullOnInvalidSignature(): void
     {
@@ -56,6 +58,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * Asserts parsing a token whose `exp` claim has passed returns null.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseReturnsNullOnExpiredToken(): void
     {
@@ -91,6 +95,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * rejected - the `typ` check prevents token-type confusion.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseRejectsAccessTokenWhenRefreshTypeIsExpected(): void
     {
@@ -108,6 +114,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * issued by that service parses cleanly on that service.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseAcceptsIssuerAndAudienceOnMatchingService(): void
     {
@@ -137,6 +145,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * issuer is rejected.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseRejectsTokenWithMismatchedIssuer(): void
     {
@@ -167,10 +177,50 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * A token whose audience claim does not match the verifier's configured
+     * audience is rejected.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testParseRejectsTokenWithMismatchedAudience(): void
+    {
+        $identity  = $this->mockIdentity('identity-7');
+        $principal = $this->mockPrincipal('principal-3');
+
+        $issuer = new JwtTokenService(
+            self::SECRET,
+            self::ALGORITHM,
+            self::ACCESS_TTL_MINUTES,
+            self::REFRESH_TTL_MINUTES,
+            30,
+            null,
+            'https://audience-a.example.test',
+        );
+
+        $verifier = new JwtTokenService(
+            self::SECRET,
+            self::ALGORITHM,
+            self::ACCESS_TTL_MINUTES,
+            self::REFRESH_TTL_MINUTES,
+            30,
+            null,
+            'https://audience-b.example.test',
+        );
+
+        $token = $issuer->issueAccessToken($identity, $principal, null);
+
+        self::assertNull($verifier->parse($token, TokenType::ACCESS));
+    }
+
+    /**
      * Clock-skew leeway lets a token that is at most `leewaySeconds` past its
      * `exp` still decode cleanly.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseAppliesLeewayWindow(): void
     {
@@ -198,12 +248,14 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * After `parse()` returns, `JWT::$leeway` is restored to whatever value
-     * the consumer had set before the call - not hard-reset to `0`. This
-     * regression guards against the package clobbering consumer-configured
-     * clock-skew tolerance across our decode window.
+     * After `parse()` returns, `JWT::$leeway` is restored to whatever value the
+     * consumer had set before the call - not hard-reset to `0`. This regression
+     * guards against the package clobbering consumer-configured clock-skew
+     * tolerance across our decode window.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseRestoresPreviousLeewayAfterDecode(): void
     {
@@ -264,6 +316,8 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
      * received issuer.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseDebugLogsIssuerMismatchWhenLoggerSupplied(): void
     {
@@ -282,8 +336,11 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $logger = \Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('debug')
             ->once()
-            ->with('JWT issuer mismatch', \Mockery::on(static fn (mixed $context): bool => is_array($context)
-                && ($context['expected'] ?? null) === self::ISSUER_B));
+            ->with(
+                'JWT issuer mismatch',
+                \Mockery::on(static fn (mixed $context): bool => is_array($context)
+                    && ($context['expected'] ?? null) === self::ISSUER_B),
+            );
 
         $verifier = new JwtTokenService(
             self::SECRET,

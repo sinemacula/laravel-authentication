@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Config;
  * Credential-validation primitive plus the standard Laravel
  * `Attempting` / `Validated` / `Failed` event-firing helpers.
  *
- * Timing safety is the caller's responsibility: the enclosing guard flow
- * wraps the retrieve -> validate -> dispatch pipeline in a single
- * top-level timebox. Do not nest another timebox here.
+ * Timing safety is the caller's responsibility: the enclosing guard flow wraps
+ * the retrieve -> validate -> dispatch pipeline in a single  top-level timebox.
+ * Do not nest another timebox here.
  *
  * Expects the using class to declare:
  * - `protected string $name`
@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Config;
  * - `protected \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider`
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @property string $name
  * @property \Illuminate\Contracts\Events\Dispatcher $events

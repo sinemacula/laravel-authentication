@@ -16,11 +16,11 @@ use Tests\TestCase;
  *
  * Verifies that the migration aborts with a `\RuntimeException` carrying an
  * actionable message when the configured devices table already exists on the
- * target connection, and that the abort occurs before any schema mutation.
- * Also verifies the happy path when no collision is present.
+ * target connection, and that the abort occurs before any schema mutation. Also
+ * verifies the happy path when no collision is present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -85,10 +85,10 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * When the collision guard throws, the pre-existing `devices` table
-     * remains untouched - specifically, the sentinel column seeded before the
-     * throw is still present, proving the abort happened before
-     * `Schema::create(...)` could mutate the schema.
+     * When the collision guard throws, the pre-existing `devices` table remains
+     * untouched - specifically, the sentinel column seeded before the throw is
+     * still present, proving the abort happened before `Schema::create(...)`
+     * could mutate the schema.
      *
      * @return void
      */
@@ -136,8 +136,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Overriding `device.table` with a custom name routes the migration to
-     * that table and leaves the default `devices` table uncreated.
+     * Overriding `device.table` with a custom name routes the migration to that
+     * table and leaves the default `devices` table uncreated.
      *
      * @return void
      */
@@ -177,8 +177,8 @@ final class DeviceMigrationCollisionTest extends TestCase
     }
 
     /**
-     * Invoke the migration's `up()` method without statically calling it on
-     * the parent `Migration` class (which does not declare `up`).
+     * Invoke the migration's `up()` method without statically calling it on the
+     * parent `Migration` class (which does not declare `up`).
      *
      * @param  \Illuminate\Database\Migrations\Migration  $migration
      * @return void

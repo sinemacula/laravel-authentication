@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -17,38 +18,34 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
+use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
 /**
  * Feature tests for the package AuthServiceProvider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
 #[CoversClass(AuthServiceProvider::class)]
 final class AuthServiceProviderTest extends TestCase
 {
-    /** @var string The shared JWT secret used by the bound JwtTokenService. */
+    /** @var string Shared JWT secret for guard defaults. */
     private const string JWT_SECRET = 'service-provider-test-secret-32!!';
 
-    /** @var string The signing algorithm used by the bound JwtTokenService. */
+    /** @var string Signing algorithm for guard defaults. */
     private const string JWT_ALGORITHM = 'HS256';
 
-    /** @var int The access-token TTL used by the bound JwtTokenService. */
+    /** @var int Access-token TTL for guard defaults. */
     private const int JWT_TTL_MINUTES = 25;
-
-    /** @var string Kid used by the current-generation key in kid-mode tests. */
-    private const string KID_NEW = '2026-04';
-
-    /** @var string Kid used by the previous-generation key in kid-mode tests. */
-    private const string KID_OLD = '2026-03';
 
     /**
      * The `auth` container binding resolves to the package `AuthManager`
@@ -120,24 +117,6 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The package `AuthManager` exposes the four contextual accessors
-     * (`principal`, `device`, `tenant`, `type`) directly as instance methods
-     * so the framework `Auth::principal()` etc. calls work without macro
-     * registration.
-     *
-     * @return void
-     */
-    public function testAuthManagerExposesContextualAccessorMethods(): void
-    {
-        $reflection = new \ReflectionClass(AuthManager::class);
-
-        self::assertTrue($reflection->hasMethod('principal'));
-        self::assertTrue($reflection->hasMethod('device'));
-        self::assertTrue($reflection->hasMethod('tenant'));
-        self::assertTrue($reflection->hasMethod('type'));
-    }
-
-    /**
      * The contextual accessors return `null` when the active guard is not
      * contextual.
      *
@@ -171,32 +150,78 @@ final class AuthServiceProviderTest extends TestCase
     }
 
     /**
-     * The `JwtTokenService` is bound from package config - the resolved
-     * instance reflects the configured secret (via the keyring's active key),
-     * algorithm, and TTL via reflection on its private/promoted properties.
+     * JWT guards without a guard-local override should continue tracking later
+     * rebinds of the app-wide `PrincipalResolver::class` binding, and the
+     * refresh exchange must stay aligned with the guard's resolver.
      *
      * @return void
      *
-     * @SuppressWarnings("php:S3011")
+     * @throws \ReflectionException
      */
-    public function testJwtTokenServiceIsBoundFromConfig(): void
+    public function testJwtGuardWithoutOverrideTracksLaterGlobalResolverRebind(): void
     {
-        $service = app(JwtTokenService::class);
+        $guard = app('auth')->guard('api');
 
-        self::assertInstanceOf(JwtTokenService::class, $service);
+        self::assertInstanceOf(JwtGuard::class, $guard);
 
-        $reflection = new \ReflectionClass($service);
+        $exchange = $this->readObjectProperty($guard, 'exchange');
 
-        $keyringProp = $reflection->getProperty('keyring');
-        $algorithm   = $reflection->getProperty('algorithm');
-        $ttl         = $reflection->getProperty('accessTtlMinutes');
+        self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
+        self::assertSame(
+            $this->readObjectProperty($guard, 'resolver'),
+            $this->readObjectProperty($exchange, 'resolver'),
+        );
 
-        $keyring = $keyringProp->getValue($service);
+        $replacement = new StubReplacementPrincipalResolver;
 
-        self::assertInstanceOf(\SineMacula\Laravel\Authentication\Jwt\JwtKeyring::class, $keyring);
-        self::assertSame(self::JWT_SECRET, $keyring->activeKey()->getKeyMaterial());
-        self::assertSame(self::JWT_ALGORITHM, $algorithm->getValue($service));
-        self::assertSame(self::JWT_TTL_MINUTES, $ttl->getValue($service));
+        assert($this->app !== null);
+        $this->app->instance(PrincipalResolver::class, $replacement);
+
+        self::assertSame($replacement, $this->readObjectProperty($guard, 'resolver'));
+        self::assertSame($replacement, $this->readObjectProperty($exchange, 'resolver'));
+    }
+
+    /**
+     * JWT guards with a guard-local override must not be clobbered by later
+     * rebinds of the app-wide `PrincipalResolver::class` binding.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testJwtGuardWithOverrideIsNotClobberedByLaterGlobalResolverRebind(): void
+    {
+        $guard = app('auth')->guard('api_override');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $resolver = $this->readObjectProperty($guard, 'resolver');
+        $exchange = $this->readObjectProperty($guard, 'exchange');
+
+        self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $resolver);
+        self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
+        self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
+
+        $replacement = new StubReplacementPrincipalResolver;
+
+        assert($this->app !== null);
+        $this->app->instance(PrincipalResolver::class, $replacement);
+
+        self::assertSame($resolver, $this->readObjectProperty($guard, 'resolver'));
+        self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
+        self::assertNotSame($replacement, $this->readObjectProperty($guard, 'resolver'));
+    }
+
+    /**
+     * The guard-scoped JWT service factory is bound into the container so
+     * guards and the public `Auth::jwt()` surface resolve through the same
+     * internal construction path.
+     *
+     * @return void
+     */
+    public function testJwtTokenServiceFactoryIsBound(): void
+    {
+        self::assertInstanceOf(JwtTokenServiceFactory::class, app(JwtTokenServiceFactory::class));
     }
 
     /**
@@ -208,145 +233,6 @@ final class AuthServiceProviderTest extends TestCase
     public function testPackageConfigIsMergedIntoConfigRepository(): void
     {
         self::assertSame('devices', config('authentication.device.table'));
-    }
-
-    /**
-     * `buildKeyring` selects kid mode when `jwt.keys` is populated: the
-     * resulting keyring exposes the configured `active_kid` (rather than
-     * `null`, which is the legacy single-secret signal), and
-     * `verificationKeys()` returns a `kid → Key` map covering every entry in
-     * the supplied keys array.
-     *
-     * @return void
-     */
-    public function testBuildKeyringPicksKidModeWhenKeysAreConfigured(): void
-    {
-        $newSecret = 'kid-mode-new-secret-with-32-bytes!';
-        $oldSecret = 'kid-mode-old-secret-with-32-bytes!';
-
-        $config = new ConfigRepository([
-            'authentication' => [
-                'jwt' => [
-                    'algorithm' => 'HS256',
-                    'secret'    => null,
-                    'keys'      => [
-                        self::KID_NEW => $newSecret,
-                        self::KID_OLD => $oldSecret,
-                    ],
-                    'active_kid' => self::KID_NEW,
-                ],
-            ],
-        ]);
-
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-
-        $build = $reflection->getMethod('buildKeyring');
-
-        /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring $keyring */
-        $keyring = $build->invoke(null, $config, [], 'HS256');
-
-        self::assertInstanceOf(\SineMacula\Laravel\Authentication\Jwt\JwtKeyring::class, $keyring);
-        self::assertSame(self::KID_NEW, $keyring->activeKid());
-
-        $verificationKeys = $keyring->verificationKeys();
-
-        self::assertIsArray($verificationKeys);
-        self::assertArrayHasKey(self::KID_NEW, $verificationKeys);
-        self::assertArrayHasKey(self::KID_OLD, $verificationKeys);
-    }
-
-    /**
-     * `buildKeyring` rejects an integer-indexed `jwt.keys` config (a common
-     * operator mistake when writing `['secret_a', 'secret_b']` instead of a
-     * `kid → secret` map). Without this guard the kids would silently become
-     * `"0"` and `"1"`, producing meaningless `kid` headers in issued tokens.
-     *
-     * @return void
-     */
-    public function testBuildKeyringRejectsIntegerIndexedKeys(): void
-    {
-        $config = new ConfigRepository([
-            'authentication' => [
-                'jwt' => [
-                    'algorithm'  => 'HS256',
-                    'secret'     => null,
-                    'keys'       => ['secret_a', 'secret_b'],
-                    'active_kid' => 'whatever',
-                ],
-            ],
-        ]);
-
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-
-        $build = $reflection->getMethod('buildKeyring');
-
-        $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('non-string or empty kid');
-
-        $build->invoke(null, $config, [], 'HS256');
-    }
-
-    /**
-     * `buildKeyring` rejects a `jwt.keys` entry whose secret value is `null`
-     * (typically because the env var backing it is unset). The runtime guard
-     * must reject this before forwarding to the keyring factory and the
-     * message must name the offending kid.
-     *
-     * @return void
-     */
-    public function testBuildKeyringRejectsNullSecretValue(): void
-    {
-        $config = new ConfigRepository([
-            'authentication' => [
-                'jwt' => [
-                    'algorithm'  => 'HS256',
-                    'secret'     => null,
-                    'keys'       => [self::KID_NEW => null],
-                    'active_kid' => self::KID_NEW,
-                ],
-            ],
-        ]);
-
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-
-        $build = $reflection->getMethod('buildKeyring');
-
-        $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage(sprintf('JWT key \'%s\'', self::KID_NEW));
-
-        $build->invoke(null, $config, [], 'HS256');
-    }
-
-    /**
-     * `buildKeyring` falls back to legacy single-secret mode when `jwt.keys`
-     * is absent or empty: the resulting keyring reports `null` from
-     * `activeKid()` (no header on issued tokens) and `verificationKeys()`
-     * returns a single bare `Key`.
-     *
-     * @return void
-     */
-    public function testBuildKeyringFallsBackToLegacyModeWithoutKeys(): void
-    {
-        $config = new ConfigRepository([
-            'authentication' => [
-                'jwt' => [
-                    'algorithm'  => 'HS256',
-                    'secret'     => 'legacy-mode-secret-with-32-bytes!!',
-                    'keys'       => [],
-                    'active_kid' => '',
-                ],
-            ],
-        ]);
-
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
-
-        $build = $reflection->getMethod('buildKeyring');
-
-        /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring $keyring */
-        $keyring = $build->invoke(null, $config, [], 'HS256');
-
-        self::assertNull($keyring->activeKid());
-        self::assertInstanceOf(\Firebase\JWT\Key::class, $keyring->verificationKeys());
     }
 
     /**
@@ -396,6 +282,7 @@ final class AuthServiceProviderTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];
@@ -408,10 +295,13 @@ final class AuthServiceProviderTest extends TestCase
      *
      * @param  mixed  $app
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
-        assert($app instanceof \Illuminate\Foundation\Application);
+        assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
@@ -430,9 +320,33 @@ final class AuthServiceProviderTest extends TestCase
             'provider' => 'identities',
         ]);
 
+        $config->set('auth.guards.api_override', [
+            'driver'             => 'jwt',
+            'provider'           => 'identities',
+            'principal_resolver' => StubGuardScopedPrincipalResolver::class,
+        ]);
+
         $config->set('auth.guards.cli', [
             'driver'   => 'basic',
             'provider' => 'identities',
         ]);
+    }
+
+    /**
+     * Read a private or protected property off an object via reflection.
+     *
+     * @param  object  $target
+     * @param  string  $property
+     * @return mixed
+     *
+     * @throws \ReflectionException
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    private function readObjectProperty(object $target, string $property): mixed
+    {
+        $reflectionProperty = (new \ReflectionClass($target))->getProperty($property);
+
+        return $reflectionProperty->getValue($target);
     }
 }

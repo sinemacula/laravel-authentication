@@ -28,7 +28,7 @@ use Tests\Unit\Stubs\StubModel;
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 #[CoversClass(ModelProvider::class)]
 final class ModelProviderConstructorTest extends TestCase
@@ -85,8 +85,8 @@ final class ModelProviderConstructorTest extends TestCase
 
     /**
      * The constructor refuses a class that exists but does NOT extend
-     * Eloquent's `Model` or implement the framework `Authenticatable`
-     * contract. Pins the type-shape guard in `__construct()`.
+     * Eloquent's `Model` or implement the framework `Authenticatable` contract.
+     * Pins the type-shape guard in `__construct()`.
      *
      * @return void
      */
@@ -121,9 +121,9 @@ final class ModelProviderConstructorTest extends TestCase
 
     /**
      * The constructor refuses a class that implements `Authenticatable` but
-     * does NOT extend `Model`. Pins the `!is_subclass_of($model,
-     * Model::class)` arm independently - a mutation that removes this arm
-     * would let the class through.
+     * does NOT extend `Model`. Pins the `!is_subclass_of($model, Model::class)`
+     * arm independently - a mutation that removes this arm would let the class
+     * through.
      *
      * @return void
      */
@@ -138,8 +138,8 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `createModel()` returns a fresh instance of the configured Eloquent
-     * class on every call. Pins the parent `createModel()` body so a test that
+     * `createModel()` returns a fresh instance of the configured Eloquent class
+     * on every call. Pins the parent `createModel()` body so a test that
      * overrides the method on a subclass cannot mask a regression to the
      * production path.
      *
@@ -186,11 +186,11 @@ final class ModelProviderConstructorTest extends TestCase
      * that the hasher stays the single source of truth for password
      * verification.
      *
-     * @return array<string, array{0: string}>
+     * @return \Generator<string, array{0: string}>
      */
-    public static function providePasswordKeyVariants(): array
+    public static function providePasswordKeyVariants(): \Generator
     {
-        return [
+        yield from [
             'password'              => ['password'],
             'old_password'          => ['old_password'],
             'password_confirmation' => ['password_confirmation'],
@@ -361,11 +361,11 @@ final class ModelProviderConstructorTest extends TestCase
 
     /**
      * `retrieveByCredentials()` returns `null` when one of the supplied
-     * credential values is an unsupported type (e.g. an `\stdClass` object
-     * that is neither scalar, array, closure, nor Stringable). The provider
-     * refuses to compose the query rather than letting an unsafe value reach
-     * `where()`. Pins the failure branch in `retrieveByCredentials()` and
-     * the `default => false` arm in `applyCredentialClause()`.
+     * credential values is an unsupported type (e.g. an `\stdClass` object that
+     * is neither scalar, array, closure, nor Stringable). The provider refuses
+     * to compose the query rather than letting an unsafe value reach `where()`.
+     * Pins the failure branch in `retrieveByCredentials()` and the `default =>
+     * false` arm in `applyCredentialClause()`.
      *
      * @return void
      */

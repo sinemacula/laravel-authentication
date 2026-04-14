@@ -26,7 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
  * that, this guard sees no credentials.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class BasicGuard extends AbstractGuard
 {
@@ -128,6 +128,8 @@ final class BasicGuard extends AbstractGuard
      *
      * @param  array<string, string>  $credentials
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \Throwable
      */
     private function resolveCredentials(#[\SensitiveParameter] array $credentials): ?Identity
     {

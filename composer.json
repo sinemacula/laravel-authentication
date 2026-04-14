@@ -28,9 +28,11 @@
         "brianium/paratest": "^7.20",
         "doctrine/coding-standard": "^14.0",
         "friendsofphp/php-cs-fixer": "^3.94",
+        "infection/infection": "^0.32.6",
         "larastan/larastan": "^3.9",
         "mockery/mockery": "^1.6",
         "orchestra/testbench": "^10.2|^11.0",
+        "phpbench/phpbench": "^1.6.1",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpdoc-parser": "^2.3",
         "phpstan/phpstan": "^2.1",
@@ -50,6 +52,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "Benchmarks\\": "benchmarks/",
             "Tests\\": "tests/"
         }
     },
@@ -61,17 +64,66 @@
             "qlty fmt"
         ],
         "test": [
-            "@php vendor/bin/paratest $@"
+            "@php vendor/bin/paratest"
         ],
-        "test-coverage": [
+        "test:coverage": [
             "@php vendor/bin/paratest --coverage-clover=clover.xml"
+        ],
+        "test:unit": [
+            "@php vendor/bin/paratest --testsuite Unit"
+        ],
+        "test:unit:coverage": [
+            "@php vendor/bin/paratest --testsuite Unit --coverage-clover=clover.xml"
+        ],
+        "test:feature": [
+            "@php vendor/bin/paratest --testsuite Feature"
+        ],
+        "test:feature:coverage": [
+            "@php vendor/bin/paratest --testsuite Feature --coverage-clover=clover.xml"
+        ],
+        "test:integration": [
+            "@php vendor/bin/paratest --testsuite Integration"
+        ],
+        "test:integration:coverage": [
+            "@php vendor/bin/paratest --testsuite Integration --coverage-clover=clover.xml"
+        ],
+        "test:performance": [
+            "@php vendor/bin/phpunit --testsuite Performance"
+        ],
+        "test:performance:coverage": [
+            "@php vendor/bin/phpunit --testsuite Performance --coverage-clover=clover.xml"
+        ],
+        "test:mutation": [
+            "@php vendor/bin/infection --configuration=infection.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases --min-msi=85 --min-covered-msi=90"
+        ],
+        "test:mutation:full": [
+            "@php vendor/bin/infection --configuration=infection.full.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases"
+        ],
+        "bench": [
+            "@php vendor/bin/phpbench run benchmarks --config=phpbench.json --progress=plain --report=aggregate"
+        ],
+        "bench:ci": [
+            "@php -r \"is_dir('build') || mkdir('build', 0777, true);\"",
+            "@php vendor/bin/phpbench run benchmarks --config=phpbench.json --progress=plain --report=aggregate --dump-file=build/phpbench.xml"
         ]
     },
     "scripts-descriptions": {
         "check": "Run static analysis and lint checks via qlty.",
         "format": "Format codebase using qlty.",
-        "test": "Run the default PHPUnit test suites in parallel using Paratest.",
-        "test-coverage": "Shortcut to run Paratest coverage for default suites."
+        "test": "Run all PHPUnit test suites in parallel using Paratest.",
+        "test:coverage": "Run all PHPUnit test suites with clover coverage report.",
+        "test:unit": "Run the Unit test suite in parallel using Paratest.",
+        "test:unit:coverage": "Run the Unit test suite with clover coverage report.",
+        "test:feature": "Run the Feature test suite in parallel using Paratest.",
+        "test:feature:coverage": "Run the Feature test suite with clover coverage report.",
+        "test:integration": "Run the Integration test suite in parallel using Paratest.",
+        "test:integration:coverage": "Run the Integration test suite with clover coverage report.",
+        "test:performance": "Run the Performance test suite for query and write budget contracts.",
+        "test:performance:coverage": "Run the Performance test suite with clover coverage report.",
+        "test:mutation": "Run the scoped Infection mutation-testing gate for the highest-risk auth paths.",
+        "test:mutation:full": "Run the full Infection mutation suite across src/ without MSI thresholds.",
+        "bench": "Run PHPBench benchmarks for runtime and JWT hot paths.",
+        "bench:ci": "Run PHPBench benchmarks and dump CI output for artifact upload."
     },
     "extra": {
         "laravel": {
@@ -86,6 +138,7 @@
         "sort-packages": true,
         "allow-plugins": {
             "dealerdirect/phpcodesniffer-composer-installer": true,
+            "infection/extension-installer": true,
             "phpstan/extension-installer": true
         }
     },

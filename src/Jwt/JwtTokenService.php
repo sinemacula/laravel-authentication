@@ -27,7 +27,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  * - optional strict `iss` / `aud` verification
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class JwtTokenService
 {
@@ -65,13 +65,13 @@ final class JwtTokenService
         /** Refresh-token lifetime in minutes, written into the `exp` claim. */
         private int $refreshTtlMinutes,
 
-        /** Clock-skew tolerance in seconds applied to every `exp` / `iat` check. */
+        /** Clock-skew tolerance applied to every `exp`/`iat` check. */
         private int $leewaySeconds = 30,
 
-        /** Optional `iss` claim; when set, parse() rejects tokens whose issuer differs. */
+        /** Optional `iss` claim; rejects tokens with a different issuer. */
         private ?string $issuer = null,
 
-        /** Optional `aud` claim; when set, parse() rejects tokens whose audience differs. */
+        /** Optional `aud` claim; rejects tokens with a different audience. */
         private ?string $audience = null,
 
         // Optional PSR-3 logger for parse-failure debug traces; defaults to NullLogger.
@@ -92,6 +92,8 @@ final class JwtTokenService
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return string
+     *
+     * @throws \Random\RandomException
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device): string
     {
@@ -115,9 +117,10 @@ final class JwtTokenService
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return string
      */
-    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId): string
+    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null): string
     {
         $now = Carbon::now()->getTimestamp();
 
@@ -125,6 +128,10 @@ final class JwtTokenService
 
         $payload[Claims::DEVICE_ID->value] = IdentifierCoercion::stringify($device->getDeviceIdentifier());
         $payload[Claims::JWT_ID->value]    = $rotationId;
+
+        if ($principal !== null) {
+            $payload[Claims::PRINCIPAL_ID->value] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
+        }
 
         return $this->encode($payload);
     }
@@ -216,10 +223,12 @@ final class JwtTokenService
         $previousLeeway = JWT::$leeway;
 
         try {
+
             JWT::$leeway = $this->leewaySeconds;
 
             return JWT::decode($token, $this->keyring->verificationKeys());
         } catch (\Throwable $e) {
+
             $this->logger->debug('JWT decode failed', [
                 'exception' => $e::class,
                 'reason'    => $e->getMessage(),
@@ -240,15 +249,7 @@ final class JwtTokenService
      */
     private function normaliseClaims(\stdClass $decoded): array
     {
-        $claims = [];
-
-        foreach ((array) $decoded as $key => $value) {
-            if (is_string($key)) {
-                $claims[$key] = $value;
-            }
-        }
-
-        return $claims;
+        return array_filter((array) $decoded, fn ($key) => is_string($key), ARRAY_FILTER_USE_KEY);
     }
 
     /**

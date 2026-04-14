@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * signed under a kid that is not in the verifier's map are rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -46,6 +46,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
      * depend on the verifier path.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssuedTokenEmbedsActiveKidInHeader(): void
     {
@@ -63,12 +65,14 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts the token service accepts a token signed under an old kid as
-     * long as that kid is still present in its verification map. This is the
-     * core graceful-rotation contract: live tokens keep working until their
-     * `exp` passes.
+     * Asserts the token service accepts a token signed under an old kid as long
+     * as that kid is still present in its verification map. This is the core
+     * graceful-rotation contract: live tokens keep working until their `exp`
+     * passes.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseAcceptsTokenSignedWithOldKidDuringRotation(): void
     {
@@ -97,11 +101,13 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts a token signed under a kid the verifier does not know is
-     * rejected - operators who fully retire a kid should see tokens signed
-     * under it stop working.
+     * Asserts a token signed under a kid the verifier does not know is rejected
+     * - operators who fully retire a kid should see tokens signed under it stop
+     * working.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testParseRejectsTokenSignedWithRetiredKid(): void
     {
@@ -124,14 +130,16 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts a legacy single-secret verifier still accepts a token signed by
-     * a kid-mode service when both share the same secret material. php-jwt
+     * Asserts a legacy single-secret verifier still accepts a token signed by a
+     * kid-mode service when both share the same secret material. php-jwt
      * ignores the `kid` header when handed a bare `Key` rather than a map, so
      * consumers may upgrade their issuer to kid mode ahead of their verifier
      * without invalidating in-flight tokens - the cutover is graceful in both
      * directions.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testLegacyVerifierAcceptsKidSignedTokenWithMatchingSecret(): void
     {
@@ -162,6 +170,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
      * header - the rotation header is opt-in.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testLegacyServiceEmitsNoKidHeader(): void
     {
@@ -195,8 +205,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
     /**
      * Decode the JWT header segment of the supplied token and return its `kid`
-     * value (or `null` when the header omits it). Used by the rotation tests
-     * to assert what the issuer wrote into the header without depending on the
+     * value (or `null` when the header omits it). Used by the rotation tests to
+     * assert what the issuer wrote into the header without depending on the
      * verifier path.
      *
      * @param  string  $token

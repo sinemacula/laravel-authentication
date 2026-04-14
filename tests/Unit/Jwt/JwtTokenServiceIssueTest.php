@@ -19,7 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * on a single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -48,6 +48,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      * the future and `typ = access`.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssueAccessTokenReturnsParseableJwt(): void
     {
@@ -75,6 +77,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
      * against.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssueAccessTokenIncludesJtiClaim(): void
     {
@@ -94,10 +98,12 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * An integer identifier returned by `getAuthIdentifier()` is stringified
-     * in the `sub` claim per RFC 7519 §4.1.2.
+     * An integer identifier returned by `getAuthIdentifier()` is stringified in
+     * the `sub` claim per RFC 7519 §4.1.2.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testIssueAccessTokenStringifiesIntegerSubjectClaim(): void
     {
@@ -118,11 +124,14 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
     /**
      * Asserts issuing an access token without a device produces a token whose
-     * `did` claim is null.
+     * `did` claim is explicitly present with a null value, so downstream
+     * consumers see "no device hint" rather than a shape change.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
-    public function testIssueAccessTokenWithoutDeviceOmitsDeviceClaim(): void
+    public function testIssueAccessTokenWithoutDeviceSetsNullDeviceClaim(): void
     {
         $identity  = $this->mockIdentity('identity-7');
         $principal = $this->mockPrincipal('principal-3');
@@ -133,13 +142,14 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
+        self::assertArrayHasKey(Claims::DEVICE_ID->value, $claims);
         self::assertNull($claims[Claims::DEVICE_ID->value]);
     }
 
     /**
      * Asserts the refresh-token claims contain the device identifier, the
-     * supplied rotation id (`jti`), and an `exp` claim `refresh_ttl_minutes`
-     * in the future.
+     * supplied rotation id (`jti`), and an `exp` claim `refresh_ttl_minutes` in
+     * the future. Legacy refresh tokens still omit `pid`.
      *
      * @return void
      */
@@ -155,8 +165,31 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         self::assertIsArray($claims);
         self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
         self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
+        self::assertArrayNotHasKey(Claims::PRINCIPAL_ID->value, $claims);
         self::assertSame(TokenType::REFRESH->value, $claims[Claims::TYPE->value]);
         self::assertSame($this->now->getTimestamp(), $claims[Claims::ISSUED_AT->value]);
         self::assertSame($this->now->getTimestamp() + (self::REFRESH_TTL_MINUTES * 60), $claims[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * Refresh tokens may carry the active principal identifier so refresh can
+     * preserve principal context across rotations.
+     *
+     * @return void
+     */
+    public function testIssueRefreshTokenIncludesPrincipalIdWhenSupplied(): void
+    {
+        $device    = $this->mockDevice('device-42');
+        $principal = $this->mockPrincipal('principal-3');
+
+        $service = $this->makeService();
+
+        $token  = $service->issueRefreshToken($device, 'opaque-rotation-id', $principal);
+        $claims = $service->parse($token, TokenType::REFRESH);
+
+        self::assertIsArray($claims);
+        self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
+        self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
+        self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
     }
 }

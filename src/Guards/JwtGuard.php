@@ -4,9 +4,12 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Cache\NullResolutionCache;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -20,22 +23,27 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 
 /**
- * Stateless JWT bearer-token guard.
+ * Sessionless JWT bearer-token guard.
  *
  * Reads `Authorization: Bearer <token>` from the active request, decodes via
- * `JwtTokenService`, validates claims, and binds the resolved identity,
- * principal, and optional device.
+ * `JwtTokenService`, then rehydrates the live identity, principal, and
+ * optional device from the configured provider/resolver/model state before
+ * binding them.
  *
  * Exposes `refresh()` for refresh-credential exchange; the round trip is
  * delegated to `RefreshTokenExchange`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class JwtGuard extends AbstractGuard
 {
+    /** @var \SineMacula\Laravel\Authentication\Cache\ResolutionCache Shared bearer-identity cache. */
+    private ResolutionCache $resolutionCache;
+
     /**
      * Constructor.
      *
@@ -47,35 +55,29 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
+     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
      */
     public function __construct(
 
-        // Guard name, as registered under `auth.guards.<name>`.
         string $name,
-
-        // Identity provider used to look up and validate credentials.
         IdentityProvider $provider,
-
-        // Resolver that maps an identity to its acting principal.
         PrincipalResolver $resolver,
-
-        // Event dispatcher for standard and custom auth events.
         Dispatcher $events,
-
-        // Current HTTP request used to extract credentials.
         Request $request,
-
-        // Timebox enforcing uniform elapsed time on the credential path.
         Timebox $timebox,
 
-        /** JWT token service used to parse, verify, and issue access and refresh tokens. */
+        /** JWT token service for access and refresh tokens. */
         protected JwtTokenService $tokens,
 
-        /** Refresh-token exchange that rotates credentials and fires the `Refreshed` event. */
+        /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
+
+        ?ResolutionCache $resolutionCache = null,
 
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
+
+        $this->resolutionCache = $resolutionCache ?? new NullResolutionCache;
     }
 
     /**
@@ -121,6 +123,7 @@ final class JwtGuard extends AbstractGuard
         $result = $this->exchange->exchange($refreshToken);
 
         if ($result === null) {
+
             $this->fireFailedEvent(null, []);
 
             return null;
@@ -141,6 +144,22 @@ final class JwtGuard extends AbstractGuard
         );
 
         return $result->tokens;
+    }
+
+    /**
+     * Rebind the principal resolver onto both the guard and its refresh
+     * exchange so bearer and refresh flows continue to share the same policy.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
+     * @return static
+     */
+    #[\Override]
+    public function setPrincipalResolver(PrincipalResolver $resolver): static
+    {
+        parent::setPrincipalResolver($resolver);
+        $this->exchange->setPrincipalResolver($resolver);
+
+        return $this;
     }
 
     /**
@@ -181,6 +200,7 @@ final class JwtGuard extends AbstractGuard
         $context = $this->resolveContextFromToken($token);
 
         if ($context === null) {
+
             // lastRetrievedUser carries the identity loaded from the sub claim
             // so Failed attributes to the resolved account on the
             // inactive/unresolved/device-missing branches.
@@ -250,7 +270,7 @@ final class JwtGuard extends AbstractGuard
             return null;
         }
 
-        $user = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
+        $user = $this->loadUserBySubject($claims[Claims::SUBJECT->value]);
 
         // Track the retrieved user for Failed-event attribution even on the
         // inactive/non-Identity branches.
@@ -263,6 +283,30 @@ final class JwtGuard extends AbstractGuard
         }
 
         return $user;
+    }
+
+    /**
+     * Load the bearer-token subject through the shared identity cache when the
+     * configured provider is the package's Eloquent ModelProvider.
+     *
+     * Non-Eloquent and non-Identity results stay live-only so the cache does
+     * not silently broaden the package's supported provider surface.
+     *
+     * @param  mixed  $subject
+     * @return ?\Illuminate\Contracts\Auth\Authenticatable
+     */
+    private function loadUserBySubject(mixed $subject): ?Authenticatable
+    {
+        if (!$this->provider instanceof ModelProvider) {
+            return $this->provider->retrieveById($subject);
+        }
+
+        return $this->resolutionCache->rememberJwtIdentity(
+            $this->name,
+            $this->provider->modelClass(),
+            $subject,
+            fn (): ?Authenticatable => $this->provider->retrieveById($subject),
+        );
     }
 
     /**

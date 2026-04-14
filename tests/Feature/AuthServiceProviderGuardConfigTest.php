@@ -4,150 +4,47 @@ declare(strict_types = 1);
 
 namespace Tests\Feature;
 
+use Illuminate\Auth\Events\Attempting;
 use Illuminate\Config\Repository;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth as IlluminateAuth;
+use Illuminate\Support\Facades\Event;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
-use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
+use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
+use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Feature tests for the per-guard config override layering on
+ * Feature tests for the basic guard's config override layering on
  * `AuthServiceProvider`'s guard factories.
  *
- * Covers two override surfaces:
- *
- * - `auth.guards.<name>.jwt.*` for the jwt driver - secret, keys, audience,
- *   issuer, TTLs, etc. layered over the package-wide `authentication.jwt.*`
- *   defaults.
- * - `auth.guards.<name>.identifier_field` for the basic driver - lookup column
- *   layered over the package-wide `authentication.credentials.identifier_field`
- *   default.
- *
- * Together these let consumers register multiple guards with distinct trust
- * boundaries in a single `config/auth.php`.
- *
- * Split out of `AuthServiceProviderTest` so each class stays focused on a
- * single behavioural slice.
+ * Covers the basic driver's `identifier_field` and
+ * `principal_resolver` per-guard overrides plus their fallback to
+ * package-wide defaults.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
 #[CoversClass(AuthServiceProvider::class)]
 final class AuthServiceProviderGuardConfigTest extends TestCase
 {
-    /** @var string Shared package-default secret used across the override test cases. */
-    private const string PACKAGE_SECRET = 'package-default-secret-with-32-bytes!';
-
-    /** @var string Kid used by the current-generation key in kid-mode override tests. */
-    private const string KID_NEW = '2026-04';
-
-    /** @var string Kid used by the previous-generation key in kid-mode override tests. */
-    private const string KID_OLD = '2026-03';
-
     /**
-     * A per-guard `jwt` override block with a distinct `audience` produces a
-     * `JwtTokenService` whose audience differs from the package default, so
-     * two guards can verify different audiences without sharing a global
-     * configuration.
+     * A per-guard `identifier_field` override on the basic guard's config block
+     * wins over the package-wide default, so consumers can register multiple
+     * basic guards that look up credentials by different columns (e.g. `email`
+     * for web users and `key_id` for tenant API keys).
      *
-     * @return void
-     */
-    public function testAppliesGuardAudienceOverride(): void
-    {
-        config()->set('authentication.jwt.secret', self::PACKAGE_SECRET);
-        config()->set('authentication.jwt.audience', 'package-default-audience');
-
-        $service = $this->invokeBuildJwtTokenService(['audience' => 'staff-api']);
-
-        self::assertSame('staff-api', $this->readServiceProperty($service, 'audience'));
-    }
-
-    /**
-     * A per-guard `jwt.secret` override wins over the package default - the
-     * resulting keyring's active key holds the guard-specific signing material,
-     * not the package secret.
-     *
-     * @return void
-     */
-    public function testAppliesGuardSecretOverride(): void
-    {
-        config()->set('authentication.jwt.secret', self::PACKAGE_SECRET);
-
-        $guardSecret = 'guard-only-secret-with-at-least-32-bytes!';
-
-        $service = $this->invokeBuildJwtTokenService(['secret' => $guardSecret]);
-
-        $keyring = $this->readServiceProperty($service, 'keyring');
-
-        self::assertInstanceOf(JwtKeyring::class, $keyring);
-        self::assertSame($guardSecret, $keyring->activeKey()->getKeyMaterial());
-    }
-
-    /**
-     * A per-guard `jwt.keys` + `active_kid` override activates kid mode for
-     * that guard even when the package default is single-secret mode, so one
-     * guard can rotate keys independently of the package-wide configuration.
-     *
-     * @return void
-     */
-    public function testAppliesGuardKidKeysOverride(): void
-    {
-        config()->set('authentication.jwt.secret', self::PACKAGE_SECRET);
-
-        $service = $this->invokeBuildJwtTokenService([
-            'keys' => [
-                self::KID_NEW => 'kid-new-secret-material-32-bytes!!',
-                self::KID_OLD => 'kid-old-secret-material-32-bytes!!',
-            ],
-            'active_kid' => self::KID_NEW,
-        ]);
-
-        $keyring = $this->readServiceProperty($service, 'keyring');
-
-        self::assertInstanceOf(JwtKeyring::class, $keyring);
-        self::assertSame(self::KID_NEW, $keyring->activeKid());
-
-        $verificationKeys = $keyring->verificationKeys();
-
-        self::assertIsArray($verificationKeys);
-        self::assertArrayHasKey(self::KID_NEW, $verificationKeys);
-        self::assertArrayHasKey(self::KID_OLD, $verificationKeys);
-    }
-
-    /**
-     * With no per-guard `jwt` block, the builder falls back to the package-wide
-     * `authentication.jwt.*` defaults unchanged - backwards-compatible with
-     * single-guard consumers.
-     *
-     * @return void
-     */
-    public function testFallsBackToPackageDefaultsWithEmptyGuardBlock(): void
-    {
-        config()->set('authentication.jwt.secret', self::PACKAGE_SECRET);
-        config()->set('authentication.jwt.audience', 'package-default-audience');
-        config()->set('authentication.jwt.access_ttl_minutes', 45);
-
-        $service = $this->invokeBuildJwtTokenService([]);
-
-        $keyring = $this->readServiceProperty($service, 'keyring');
-
-        self::assertInstanceOf(JwtKeyring::class, $keyring);
-        self::assertSame(self::PACKAGE_SECRET, $keyring->activeKey()->getKeyMaterial());
-        self::assertSame('package-default-audience', $this->readServiceProperty($service, 'audience'));
-        self::assertSame(45, $this->readServiceProperty($service, 'accessTtlMinutes'));
-    }
-
-    /**
-     * A per-guard `identifier_field` override on the basic guard's config
-     * block wins over the package-wide default, so consumers can register
-     * multiple basic guards that look up credentials by different columns (e.g.
-     * `email` for web users and `key_id` for tenant API keys).
+     * Verified by triggering the guard's user-resolution path and inspecting
+     * the credentials key in the dispatched `Attempting` event.
      *
      * @return void
      *
@@ -163,13 +60,13 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
             'identifier_field' => 'key_id',
         ]);
 
-        self::assertSame('key_id', $this->readGuardProperty($guard, 'identifierField'));
+        self::assertSame('key_id', $this->capturedIdentifierField($guard));
     }
 
     /**
      * With no per-guard `identifier_field` override, `createBasicGuard` falls
      * back to the package-wide `authentication.credentials.identifier_field`
-     * default - backwards-compatible with single-guard consumers.
+     * default - backwards compatible with single-guard consumers.
      *
      * @return void
      *
@@ -184,7 +81,63 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
             'provider' => 'identities',
         ]);
 
-        self::assertSame('email', $this->readGuardProperty($guard, 'identifierField'));
+        self::assertSame('email', $this->capturedIdentifierField($guard));
+    }
+
+    /**
+     * A per-guard `principal_resolver` override on the basic guard's config
+     * block wins over the app-wide `PrincipalResolver::class` binding.
+     *
+     * Verified by completing authentication through the guard's public API and
+     * asserting the principal returned by the guard-scoped resolver appears on
+     * `$guard->principal()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testBasicGuardAppliesPerGuardPrincipalResolverOverride(): void
+    {
+        $globalPrincipal = $this->mockPrincipal('global');
+        $scopedPrincipal = $this->mockPrincipal('scoped');
+
+        $this->bindMockGlobalResolver($globalPrincipal);
+        $this->bindMockGuardScopedResolver(
+            StubGuardScopedPrincipalResolver::class,
+            $scopedPrincipal,
+        );
+
+        $guard = $this->buildAuthenticatingBasicGuard('tenant_api', [
+            'driver'             => 'basic',
+            'provider'           => 'identities',
+            'principal_resolver' => StubGuardScopedPrincipalResolver::class,
+        ]);
+
+        self::assertNotNull($guard->user());
+        self::assertSame($scopedPrincipal, $guard->principal());
+    }
+
+    /**
+     * With no per-guard `principal_resolver` override, the basic guard falls
+     * back to the app-wide `PrincipalResolver::class` binding.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testBasicGuardFallsBackToContainerPrincipalResolverBinding(): void
+    {
+        $globalPrincipal = $this->mockPrincipal('global');
+
+        $this->bindMockGlobalResolver($globalPrincipal);
+
+        $guard = $this->buildAuthenticatingBasicGuard('cli', [
+            'driver'   => 'basic',
+            'provider' => 'identities',
+        ]);
+
+        self::assertNotNull($guard->user());
+        self::assertSame($globalPrincipal, $guard->principal());
     }
 
     /**
@@ -194,6 +147,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthServiceProvider::class];
@@ -209,12 +163,18 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);
 
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(Repository::class);
+
+        $config->set('authentication.jwt.secret', 'guard-config-test-secret-with-at-least-32!');
+        $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.access_ttl_minutes', 15);
+        $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);
 
         $config->set('auth.providers.identities', [
             'driver' => 'model',
@@ -223,62 +183,170 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     }
 
     /**
-     * Invoke the private `buildJwtTokenService` factory via reflection with
-     * the supplied per-guard override block.
+     * Capture the identifier field key used by the guard's credential path by
+     * triggering `user()` with HTTP Basic credentials and inspecting the
+     * `Attempting` event.
      *
-     * @param  array<string, mixed>  $guardJwtConfig
-     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
-     *
-     * @throws \ReflectionException
-     */
-    private function invokeBuildJwtTokenService(array $guardJwtConfig): JwtTokenService
-    {
-        $service = (new \ReflectionClass(AuthServiceProvider::class))
-            ->getMethod('buildJwtTokenService')
-            ->invoke(null, $this->app, $guardJwtConfig);
-
-        assert($service instanceof JwtTokenService);
-
-        return $service;
-    }
-
-    /**
-     * Read a private property off a `JwtTokenService` instance via reflection
-     * so the override tests can inspect the merged field values directly
-     * without leaking getters to production.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
-     * @param  string  $property
-     * @return mixed
-     *
-     * @throws \ReflectionException
-     *
-     * @SuppressWarnings("php:S3011")
-     */
-    private function readServiceProperty(JwtTokenService $service, string $property): mixed
-    {
-        $reflectionProperty = (new \ReflectionClass($service))->getProperty($property);
-
-        return $reflectionProperty->getValue($service);
-    }
-
-    /**
-     * Read a private / readonly property off a `BasicGuard` instance via
-     * reflection. Used by the identifier-field override tests to inspect the
-     * resolved lookup column directly.
+     * The provider is not expected to resolve a user; the event fires before
+     * the provider lookup so the identifier field is observable regardless.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\BasicGuard  $guard
-     * @param  string  $property
-     * @return mixed
-     *
-     * @throws \ReflectionException
-     *
-     * @SuppressWarnings("php:S3011")
+     * @return string
      */
-    private function readGuardProperty(BasicGuard $guard, string $property): mixed
+    private function capturedIdentifierField(BasicGuard $guard): string
     {
-        $reflectionProperty = (new \ReflectionClass($guard))->getProperty($property);
+        Event::fake(Attempting::class);
 
-        return $reflectionProperty->getValue($guard);
+        $guard->setRequest(
+            $this->createRequestWithBasicAuth('test-user', 'test-pass'),
+        );
+
+        try {
+            $guard->user();
+        } catch (\Throwable) {
+            // The provider may throw (no database); the event fires before the
+            // provider lookup so it is already captured.
+        }
+
+        $events = Event::dispatched(Attempting::class);
+
+        self::assertNotEmpty($events, 'Attempting event was not dispatched');
+
+        /** @var \Illuminate\Auth\Events\Attempting $event */
+        $event = $events[0][0];
+
+        $keys = array_diff(
+            array_keys($event->credentials),
+            ['password'],
+        );
+
+        self::assertCount(1, $keys);
+
+        return (string) array_values($keys)[0];
+    }
+
+    /**
+     * Build an `Illuminate\Http\Request` with HTTP Basic credentials set.
+     *
+     * @param  string  $username
+     * @param  string  $password
+     * @return \Illuminate\Http\Request
+     */
+    private function createRequestWithBasicAuth(
+        string $username,
+        string $password,
+    ): Request {
+        return Request::create(
+            '/',
+            'GET',
+            server: [
+                'PHP_AUTH_USER' => $username,
+                'PHP_AUTH_PW'   => $password,
+            ],
+        );
+    }
+
+    /**
+     * Create a mock `Principal` with the supplied identifier.
+     *
+     * @param  string  $id
+     * @return \SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    private function mockPrincipal(string $id): Principal
+    {
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn($id);
+        $principal->shouldReceive('isActive')->andReturnTrue();
+        $principal->shouldReceive('getTenant')->andReturnNull();
+
+        return $principal;
+    }
+
+    /**
+     * Bind a mock global `PrincipalResolver` that returns the supplied
+     * principal.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return void
+     */
+    private function bindMockGlobalResolver(Principal $principal): void
+    {
+        $resolver = \Mockery::mock(PrincipalResolver::class);
+        $resolver->shouldReceive('resolve')->andReturn($principal);
+
+        $this->app?->instance(PrincipalResolver::class, $resolver);
+    }
+
+    /**
+     * Bind a mock guard-scoped `PrincipalResolver` under the supplied class
+     * name that returns the supplied principal.
+     *
+     * The mock targets the `PrincipalResolver` interface (not the final
+     * concrete class) and is bound under the concrete class name so the
+     * container resolves it during guard construction.
+     *
+     * @param  class-string  $class
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return void
+     */
+    private function bindMockGuardScopedResolver(
+        string $class,
+        Principal $principal,
+    ): void {
+        $resolver = \Mockery::mock(PrincipalResolver::class);
+        $resolver->shouldReceive('resolve')->andReturn($principal);
+
+        $this->app?->instance($class, $resolver);
+    }
+
+    /**
+     * Build a `BasicGuard` wired with a mock identity provider so the full
+     * credential -> resolver -> principal path completes without a database.
+     *
+     * @param  string  $name
+     * @param  array<string, mixed>  $config
+     * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function buildAuthenticatingBasicGuard(string $name, array $config): BasicGuard
+    {
+        $this->registerMockIdentityProvider();
+
+        $guard = AuthServiceProvider::createBasicGuard($this->app, $name, $config);
+        $guard->setRequest(
+            $this->createRequestWithBasicAuth('test-user', 'test-pass'),
+        );
+
+        return $guard;
+    }
+
+    /**
+     * Register a mock identity provider driver (`mock-model`) that returns a
+     * `StubIdentity` with valid credentials, allowing the guard's auth flow to
+     * reach the principal resolver.
+     *
+     * @return void
+     */
+    private function registerMockIdentityProvider(): void
+    {
+        $identity         = new StubIdentity(['id' => 1]);
+        $identity->exists = true;
+
+        $provider = \Mockery::mock(
+            IdentityProvider::class,
+        );
+        $provider->shouldReceive('retrieveByCredentials')->andReturn($identity);
+        $provider->shouldReceive('validateCredentials')->andReturnTrue();
+        $provider->shouldReceive('rehashPasswordIfRequired');
+
+        IlluminateAuth::provider(
+            'mock-model',
+            fn () => $provider,
+        );
+
+        config()->set('auth.providers.identities', [
+            'driver' => 'mock-model',
+        ]);
     }
 }

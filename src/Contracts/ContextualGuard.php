@@ -14,16 +14,16 @@ use Illuminate\Contracts\Auth\Guard;
  * `attempt` and `login`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 interface ContextualGuard extends Guard
 {
     /**
      * Contextual attempt with optional principal and device pinning.
      *
-     * Signature diverges from Laravel's `StatefulGuard::attempt()`: the
-     * second and third parameters are contextual pins, not a remember-me
-     * flag. This package is stateless-only.
+     * Signature diverges from Laravel's `StatefulGuard::attempt()`: the second
+     * and third parameters are contextual pins, not a remember-me flag. This
+     * package is stateless-only.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal

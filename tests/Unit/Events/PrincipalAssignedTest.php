@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Unit\Events;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -14,11 +13,11 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
  * PrincipalAssigned event unit tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(PrincipalAssigned::class)]
+#[\PHPUnit\Framework\Attributes\CoversNothing]
 final class PrincipalAssignedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Events;
 
-use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -13,11 +12,11 @@ use SineMacula\Laravel\Authentication\Events\RefreshFailed;
  * RefreshFailed event unit tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(RefreshFailed::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(RefreshFailed::class)]
 final class RefreshFailedTest extends TestCase
 {
     /**
@@ -63,6 +62,7 @@ final class RefreshFailedTest extends TestCase
         self::assertSame('authenticatable_missing', RefreshFailureReason::AUTHENTICATABLE_MISSING->value);
         self::assertSame('identity_inactive', RefreshFailureReason::IDENTITY_INACTIVE->value);
         self::assertSame('principal_unresolved', RefreshFailureReason::PRINCIPAL_UNRESOLVED->value);
+        self::assertSame('principal_mismatch', RefreshFailureReason::PRINCIPAL_MISMATCH->value);
         self::assertSame('principal_inactive', RefreshFailureReason::PRINCIPAL_INACTIVE->value);
     }
 }

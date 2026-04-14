@@ -6,7 +6,7 @@ namespace Tests\Unit\Events;
 
 use Illuminate\Queue\SerializesModels;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -20,11 +20,11 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  * Refreshed event unit tests.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(Refreshed::class)]
+#[CoversNothing]
 final class RefreshedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

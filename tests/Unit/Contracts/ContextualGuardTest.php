@@ -22,14 +22,14 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * inherits from Laravel's `Guard` contract. No instance of the interface is
  * constructed - the assertions run against interface metadata only.
  *
- * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a
- * bare interface; the interface's structural shape is asserted via reflection
- * rather than line execution.
+ * Marked `#[CoversNothing]` because PHPUnit cannot attribute coverage to a bare
+ * interface; the interface's structural shape is asserted via reflection rather
+ * than line execution.
  *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 #[CoversNothing]
 final class ContextualGuardTest extends TestCase

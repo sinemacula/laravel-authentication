@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Jwt;
 
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
@@ -16,7 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * token pair.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class ExchangedRefresh
 {
@@ -25,7 +25,7 @@ final class ExchangedRefresh
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
      */
     public function __construct(
@@ -37,7 +37,7 @@ final class ExchangedRefresh
         public Principal $principal,
 
         /** Device whose refresh credential was rotated. */
-        public Device&Model $device,
+        public EloquentDevice&Model $device,
 
         /** Newly issued access + refresh token pair. */
         public RefreshResult $tokens,

@@ -13,11 +13,11 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  * leaves the instance untouched during serialize.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-final class PlainDeviceFixture implements Device
+final readonly class PlainDeviceFixture implements Device
 {
     /**
      * Constructor.
@@ -28,10 +28,10 @@ final class PlainDeviceFixture implements Device
     public function __construct(
 
         /** Stable identifier used as the `did` claim. */
-        public readonly string $id,
+        public string $id,
 
         /** Operating-system string embedded in the device row. */
-        public readonly string $os = 'plain-os',
+        public string $os = 'plain-os',
 
     ) {}
 

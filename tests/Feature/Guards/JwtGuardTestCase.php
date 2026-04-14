@@ -18,14 +18,15 @@ use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use Tests\Unit\Stubs\InjectableDeviceStub;
 use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubInjectableDevice;
 
 /**
  * Shared base case for the JwtGuard split tests.
@@ -36,7 +37,7 @@ use Tests\Unit\Stubs\StubDevice;
  * JwtGuard so each class stays focused on a single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -170,11 +171,12 @@ abstract class JwtGuardTestCase extends TestCase
      * supplied request.
      *
      * @param  \Illuminate\Http\Request  $request
+     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    protected function makeGuard(Request $request): JwtGuard
+    protected function makeGuard(Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard
     {
         $app = $this->app;
 
@@ -197,6 +199,7 @@ abstract class JwtGuardTestCase extends TestCase
             $this->timebox,
             $this->tokens,
             $exchange,
+            $resolutionCache,
         );
     }
 
@@ -268,7 +271,7 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Swap the configured device model to `InjectableDeviceStub`, whose
+     * Swap the configured device model to `StubInjectableDevice`, whose
      * `newQuery()` yields a Builder mock that returns the supplied in-memory
      * device from `find()`. This lets the refresh tests keep their manually
      * preset `authenticatable` relation intact rather than re-fetching from
@@ -286,8 +289,8 @@ abstract class JwtGuardTestCase extends TestCase
         $builder->shouldReceive('find')
             ->andReturn(null);
 
-        InjectableDeviceStub::$injectedBuilder = $builder;
+        StubInjectableDevice::$injectedBuilder = $builder;
 
-        config()->set('authentication.device.model', InjectableDeviceStub::class);
+        config()->set('authentication.device.model', StubInjectableDevice::class);
     }
 }

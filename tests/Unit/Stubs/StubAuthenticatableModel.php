@@ -10,11 +10,11 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Eloquent model implementing Authenticatable directly via Laravel's trait.
- * Used by ModelProviderTest where Mockery against the contract does not
- * provide enough surface for retrieveById/retrieveByCredentials coverage.
+ * Used by ModelProviderTest where Mockery against the contract does not provide
+ * enough surface for retrieveById/retrieveByCredentials coverage.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

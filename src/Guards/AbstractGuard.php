@@ -34,7 +34,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * credential-validation primitives via `ValidatesGuardCredentials`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 abstract class AbstractGuard implements ContextualGuard
 {
@@ -135,6 +135,8 @@ abstract class AbstractGuard implements ContextualGuard
      *
      * @param  array<array-key, mixed>  $credentials
      * @return bool
+     *
+     * @throws \Throwable
      */
     #[\Override]
     public function validate(#[\SensitiveParameter] array $credentials = []): bool
@@ -192,6 +194,8 @@ abstract class AbstractGuard implements ContextualGuard
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return bool
+     *
+     * @throws \Throwable
      */
     #[\Override]
     public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool
@@ -210,8 +214,8 @@ abstract class AbstractGuard implements ContextualGuard
 
             [$identity, $resolvedPrincipal] = $resolved;
 
-            // hasValidCredentials() already fired Validated; bind directly
-            // and skip login() to avoid double-dispatching.
+            // hasValidCredentials() already fired Validated; bind directly and
+            // skip login() to avoid double-dispatching.
             $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $device);
 
             $timebox->returnEarly();
@@ -224,13 +228,13 @@ abstract class AbstractGuard implements ContextualGuard
      * Bind a fully resolved identity, principal, and optional device, firing
      * `Validated` and `Login` around the bind.
      *
-     * Public entry point for callers that validated the identity
-     * out-of-band (refresh, OAuth, SSO). Paths that already went through
+     * Public entry point for callers that validated the identity out-of-band
+     * (refresh, OAuth, SSO). Paths that already went through
      * `hasValidCredentials()` should call `bindAuthenticationLifecycle()`
      * directly to avoid double-firing `Validated`.
      *
-     * Previously bound state is cleared first so callers cannot inherit a
-     * stale device from a prior login on the same instance.
+     * Previously bound state is cleared first so callers cannot inherit a stale
+     * device from a prior login on the same instance.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -281,7 +285,9 @@ abstract class AbstractGuard implements ContextualGuard
      */
     public function setRequest(Request $request): static
     {
-        $this->request = $request;
+        $this->request           = $request;
+        $this->lastRetrievedUser = null;
+        $this->clearContextualState();
 
         return $this;
     }

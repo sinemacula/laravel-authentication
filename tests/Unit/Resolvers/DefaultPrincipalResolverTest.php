@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
@@ -18,7 +19,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * Unit tests for the DefaultPrincipalResolver.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -95,11 +96,36 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
+     * When the identity declares `ResolvesHintedPrincipal`, the resolver
+     * prefers that capability over the generic `principals()->find($hint)`
+     * path.
+     *
+     * @return void
+     */
+    public function testHintedLookupPrefersResolveHintedPrincipalCapability(): void
+    {
+        $principal = \Mockery::mock(Principal::class);
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal $identity */
+        $identity = \Mockery::mock(Identity::class, ResolvesHintedPrincipal::class, HasPrincipals::class);
+        $identity->shouldReceive('resolveHintedPrincipal')
+            ->once()
+            ->with('principal-id-9')
+            ->andReturn($principal);
+        $identity->shouldNotReceive('principals');
+        $identity->shouldNotReceive('resolveDefaultPrincipal');
+
+        $resolver = new DefaultPrincipalResolver;
+
+        self::assertSame($principal, $resolver->resolve($identity, 'principal-id-9'));
+    }
+
+    /**
      * When `principals()->find($hint)` returns a value that is NOT a
      * `Principal` (e.g. a bare Model or `null`), the resolver falls through to
      * the 2D/3D path instead of returning the non-Principal. Mutation guard:
-     * pins the `$hinted instanceof Principal` check in `resolve()` -
-     * removing it would cause the resolver to return a non-Principal object.
+     * pins the `$hinted instanceof Principal` check in `resolve()` - removing
+     * it would cause the resolver to return a non-Principal object.
      *
      * @return void
      */
@@ -125,6 +151,71 @@ final class DefaultPrincipalResolverTest extends TestCase
     }
 
     /**
+     * In 3D mode, a hinted miss falls through to `resolveDefaultPrincipal()`
+     * rather than returning `null`.
+     *
+     * @return void
+     */
+    public function testHintedMissFallsThroughToDefaultPrincipalIn3dMode(): void
+    {
+        $principal = \Mockery::mock(Principal::class);
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with('missing-principal')
+            ->andReturnNull();
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
+        $identity = \Mockery::mock(Identity::class, HasPrincipals::class);
+        $identity->shouldReceive('principals')
+            ->once()
+            ->andReturn($builder);
+        $identity->shouldReceive('resolveDefaultPrincipal')
+            ->once()
+            ->andReturn($principal);
+
+        $resolver = new DefaultPrincipalResolver;
+
+        self::assertSame($principal, $resolver->resolve($identity, 'missing-principal'));
+    }
+
+    /**
+     * A null result from `resolveHintedPrincipal()` must preserve the existing
+     * fallback behavior: try `principals()->find($hint)` and then the default
+     * 3D principal policy.
+     *
+     * @return void
+     */
+    public function testNullFromResolveHintedPrincipalFallsThroughToExisting2d3dBehavior(): void
+    {
+        $principal = \Mockery::mock(Principal::class);
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with('missing-principal')
+            ->andReturnNull();
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasPrincipals&\SineMacula\Laravel\Authentication\Contracts\Identity&\SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal $identity */
+        $identity = \Mockery::mock(Identity::class, ResolvesHintedPrincipal::class, HasPrincipals::class);
+        $identity->shouldReceive('resolveHintedPrincipal')
+            ->once()
+            ->with('missing-principal')
+            ->andReturnNull();
+        $identity->shouldReceive('principals')
+            ->once()
+            ->andReturn($builder);
+        $identity->shouldReceive('resolveDefaultPrincipal')
+            ->once()
+            ->andReturn($principal);
+
+        $resolver = new DefaultPrincipalResolver;
+
+        self::assertSame($principal, $resolver->resolve($identity, 'missing-principal'));
+    }
+
+    /**
      * Asserts a hint is silently ignored when the identity does not implement
      * HasPrincipals; the 2D path still resolves the identity itself without
      * ever touching a principals relation.
@@ -145,8 +236,8 @@ final class DefaultPrincipalResolverTest extends TestCase
      * Asserts a bare Identity mock that implements neither Principal nor
      * HasPrincipals throws the typed `UnresolvableIdentityException` (a
      * `\LogicException` subclass) whose message names the offending class.
-     * Guards catch this specific type and convert it to a `Failed` event so
-     * the request still surfaces as a 401 - but consumer error reporters can
+     * Guards catch this specific type and convert it to a `Failed` event so the
+     * request still surfaces as a 401 - but consumer error reporters can
      * attribute the misconfiguration via the typed class.
      *
      * @return void

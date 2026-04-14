@@ -9,24 +9,27 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
- * Feature tests for the credential `attempt()` flow on `AbstractGuard`, including
- * the timing-safe Timebox path and the standard auth event sequence.
+ * Feature tests for the credential `attempt()` event dispatch flow on
+ * `AbstractGuard`.
+ *
+ * Covers the Attempting/Validated/Login/Failed/Authenticated event
+ * sequence for success and failure paths, including inactive
+ * identity/principal rejection and unresolvable identity handling.
+ * Timebox and lifecycle tests live in
+ * `AbstractGuardAttemptLifecycleTest`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -37,6 +40,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * attempt() dispatches Attempting first, then Failed on failure.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesAttemptingEventBeforeValidation(): void
     {
@@ -61,6 +66,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A successful attempt dispatches Validated before Login and Authenticated.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesValidatedAfterSuccessfulHasherCheck(): void
     {
@@ -100,6 +107,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * false).
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesLoginEventOnSuccess(): void
     {
@@ -143,6 +152,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A wrong-password attempt dispatches Failed and returns false.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenCredentialsDoNotMatch(): void
     {
@@ -176,6 +187,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A non-resolving identifier dispatches Failed and returns false.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenIdentifierDoesNotResolve(): void
     {
@@ -209,6 +222,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * asserts `Timebox::call` is invoked once even on the null-user path.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptAlwaysInvokesTimeboxOnNullUserPath(): void
     {
@@ -238,6 +253,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * A successful hasher check but null principal dispatches Failed.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenPrincipalResolverReturnsNull(): void
     {
@@ -276,6 +293,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * fires.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenCanBeActiveIdentityIsInactive(): void
     {
@@ -310,6 +329,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * dispatched.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptDispatchesFailedWhenResolvedPrincipalIsInactive(): void
     {
@@ -354,6 +375,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * returns 401, not 500.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
     public function testAttemptConvertsUnresolvableIdentityExceptionToFailedEvent(): void
     {
@@ -387,221 +410,34 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
-     * hasValidCredentials() runs inside Timebox::call with then default
-     * 400,000us budget when the package config has not set a specific
-     * microsecond window.
+     * The `Attempting` event fires with `remember = false` so stateless guards
+     * never advertise remember-me capability. Mutation guard: pins the literal
+     * `false` in `fireAttemptingEvent()`.
      *
      * @return void
-     */
-    public function testHasValidCredentialsRunsInsideTimebox(): void
-    {
-        // Replace the default Timebox mock with one that asserts the 400,000
-        // microsecond budget and still invokes the callback
-        $this->timebox = \Mockery::mock(Timebox::class);
-        $this->timebox->shouldReceive('call')
-            ->once()
-            ->with(\Mockery::type('callable'), 400000)
-            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
-
-        $guard = $this->makeGuard();
-
-        $user = \Mockery::mock(Authenticatable::class);
-
-        $this->provider->shouldReceive('retrieveByCredentials')
-            ->once()
-            ->andReturn($user);
-        $this->provider->shouldReceive('validateCredentials')
-            ->once()
-            ->andReturnTrue();
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
-    }
-
-    /**
-     * The configured `timebox.credentials_microseconds` value is passed to
-     * `Timebox::call()` when the project overrides the default.
      *
-     * @return void
+     * @throws \Throwable
      */
-    public function testTimeboxBudgetReadsConfiguredOverride(): void
-    {
-        config()->set('authentication.timebox.credentials_microseconds', 750000);
-
-        $this->timebox = \Mockery::mock(Timebox::class);
-        $this->timebox->shouldReceive('call')
-            ->once()
-            ->with(\Mockery::type('callable'), 750000)
-            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
-
-        $guard = $this->makeGuard();
-
-        $user = \Mockery::mock(Authenticatable::class);
-
-        $this->provider->shouldReceive('retrieveByCredentials')
-            ->once()
-            ->andReturn($user);
-        $this->provider->shouldReceive('validateCredentials')
-            ->once()
-            ->andReturnTrue();
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
-    }
-
-    /**
-     * `attempt()` accepts an explicit `Principal` argument and uses it directly
-     * instead of invoking the resolver. Pins the `$principal ??
-     * $this->safeResolvePrincipal(...)` short-circuit - a mutation that swaps
-     * `??` for `?:` would still pass when the caller-provided principal is
-     * truthy, so we use a fresh mock the resolver MUST NOT touch.
-     *
-     * @return void
-     */
-    public function testAttemptUsesExplicitPrincipalArgumentWithoutInvokingResolver(): void
+    public function testAttemptingEventCarriesFalseRememberParameter(): void
     {
         $guard = $this->makeGuard();
 
-        $identity = $this->mockIdentity();
-        $explicit = $this->mockActivePrincipal();
-
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
-            ->andReturn($identity);
-        $this->provider->shouldReceive('validateCredentials')
-            ->once()
-            ->andReturnTrue();
+            ->andReturnNull();
 
-        // The resolver MUST NOT be called when an explicit principal is
-        // supplied.
-        $this->resolver->shouldNotReceive('resolve');
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        self::assertTrue(
-            $guard->attempt(
-                ['email' => 'x', 'password' => 'y'],
-                $explicit,
-            ),
-        );
-
-        self::assertSame($explicit, $guard->principal());
-    }
-
-    /**
-     * `attempt()` fires `DeviceAuthenticated` exactly once when an explicit
-     * `Device` argument is supplied. Pins the `setDevice` call inside
-     * `bindAuthenticationLifecycle` for the non-null device branch.
-     *
-     * @return void
-     */
-    public function testAttemptBindsDeviceAndFiresDeviceAuthenticatedEvent(): void
-    {
-        $guard = $this->makeGuard();
-
-        $identity  = $this->mockIdentity();
-        $principal = $this->mockActivePrincipal();
-        $device    = \Mockery::mock(Device::class);
-
-        $this->provider->shouldReceive('retrieveByCredentials')
-            ->once()
-            ->andReturn($identity);
-        $this->provider->shouldReceive('validateCredentials')
-            ->once()
-            ->andReturnTrue();
-
-        $this->resolver->shouldReceive('resolve')
-            ->once()
-            ->andReturn($principal);
-
-        $dispatched = [];
+        $attemptingEvent = null;
 
         $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
+            ->andReturnUsing(static function (object $event) use (&$attemptingEvent): void {
+                if ($event instanceof Attempting) {
+                    $attemptingEvent = $event;
+                }
             });
 
-        self::assertTrue(
-            $guard->attempt(
-                ['email' => 'x', 'password' => 'y'],
-                null,
-                $device,
-            ),
-        );
+        $guard->attempt(['email' => 'x']);
 
-        self::assertSame($device, $guard->device());
-        self::assertContains(DeviceAuthenticated::class, $dispatched);
-    }
-
-    /**
-     * `attempt()` does NOT fire `DeviceAuthenticated` when no device is
-     * supplied. Pins the `if ($device !== null)` guard  inside
-     * `bindAuthenticationLifecycle`.
-     *
-     * @return void
-     */
-    public function testAttemptDoesNotFireDeviceAuthenticatedWhenDeviceOmitted(): void
-    {
-        $guard = $this->makeGuard();
-
-        $identity  = $this->mockIdentity();
-        $principal = $this->mockActivePrincipal();
-
-        $this->provider->shouldReceive('retrieveByCredentials')
-            ->once()
-            ->andReturn($identity);
-        $this->provider->shouldReceive('validateCredentials')
-            ->once()
-            ->andReturnTrue();
-
-        $this->resolver->shouldReceive('resolve')
-            ->once()
-            ->andReturn($principal);
-
-        $dispatched = [];
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
-            });
-
-        self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
-
-        self::assertNull($guard->device());
-        self::assertNotContains(DeviceAuthenticated::class, $dispatched);
-    }
-
-    /**
-     * A non-positive `timebox.credentials_microseconds` config value falls back
-     * to the trait default budget.
-     *
-     * @return void
-     */
-    public function testTimeboxBudgetFallsBackToDefaultOnNonPositiveOverride(): void
-    {
-        config()->set('authentication.timebox.credentials_microseconds', 0);
-
-        $this->timebox = \Mockery::mock(Timebox::class);
-        $this->timebox->shouldReceive('call')
-            ->once()
-            ->with(\Mockery::type('callable'), 400000)
-            ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
-
-        $guard = $this->makeGuard();
-
-        $user = \Mockery::mock(Authenticatable::class);
-
-        $this->provider->shouldReceive('retrieveByCredentials')
-            ->once()
-            ->andReturn($user);
-        $this->provider->shouldReceive('validateCredentials')
-            ->once()
-            ->andReturnTrue();
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
+        self::assertInstanceOf(Attempting::class, $attemptingEvent);
+        self::assertFalse($attemptingEvent->remember);
     }
 }

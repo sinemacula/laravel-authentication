@@ -17,7 +17,6 @@ use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
@@ -26,17 +25,17 @@ use Tests\TestCase;
 
 /**
  * Integration test proving that two package guards - one in 2D mode
- * (identity-is-principal) and one in 3D mode (identity → distinct principal
- * via `HasPrincipals`) - can coexist in the same Laravel application without
+ * (identity-is-principal) and one in 3D mode (identity → distinct principal via
+ * `HasPrincipals`) - can coexist in the same Laravel application without
  * cross-contamination.
  *
  * Both guards run through the real `JwtGuard::user()` bearer-token resolution
- * path using tokens issued by the real `JwtTokenService` resolved from the
- * container, so the test exercises the full identity → provider → resolver →
- * principal wiring end-to-end.
+ * path using tokens issued through the guard-scoped `Auth::jwt(...)` surface,
+ * so the test exercises the full identity → provider → resolver → principal
+ * wiring end-to-end.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -122,18 +121,18 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      * End-to-end coexistence assertion.
      *
      * Seeds a 2D identity and a 3D identity + principal, issues a real JWT
-     * access token for each via the container's `JwtTokenService`, hands each
-     * token to the respective guard through a real Illuminate Request's
-     * `Bearer` header, and asserts:
+     * access token for each via the guard-scoped `Auth::jwt(...)` surface,
+     * hands each token to the respective guard through a real Illuminate
+     * Request's `Bearer` header, and asserts:
      *
      * 1. the 2D guard's `identity()` and `principal()` return the
      *    exact same model instance (2D adoption mode),
      * 2. the 3D guard's `identity()` and `principal()` return
      *    distinct model instances of distinct classes (3D mode),
-     * 3. after binding the 3D guard, the 2D guard still exposes
-     *    its own 2D identity - i.e. no cross-contamination,
-     * 4. and `Auth::id()` on each guard returns that guard's
-     *    identity key, not the other's.
+     * 3. after rebinding the request for the 3D guard, the old 2D guard has
+     *    been cleared rather than leaking request-local auth state,
+     * 4. and `Auth::id()` on the active guard returns that guard's
+     *    identity key.
      *
      * @return void
      */
@@ -141,26 +140,20 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     {
         [$twoD, $threeDIdentity, $threeDPrincipal] = $this->seedFixtures();
 
-        $tokens = $this->tokenService();
+        $twoDJwt   = PackageAuth::jwt(self::GUARD_2D);
+        $threeDJwt = PackageAuth::jwt(self::GUARD_3D);
 
-        $twoDToken   = $tokens->issueAccessToken($twoD, $twoD, null);
-        $threeDToken = $tokens->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+        assert($twoDJwt !== null);
+        assert($threeDJwt !== null);
 
-        // Resolve the 2D guard first under a request carrying the 2D bearer
-        // token. Assertions: the identity and principal are the exact same
-        // model instance (2D mode), and Auth::id() returns the 2D identity's
-        // key.
+        $twoDToken   = $twoDJwt->issueAccessToken($twoD, $twoD, null);
+        $threeDToken = $threeDJwt->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+
         $this->bindRequestWithBearer($twoDToken);
 
         $guard2d = PackageAuth::guard(self::GUARD_2D);
 
         self::assertInstanceOf(ContextualGuard::class, $guard2d);
-
-        // Trigger bearer-token resolution via `user()` - the resolved identity
-        // is asserted via the contextual `identity()` accessor below because
-        // the framework narrows `Guard::user()` to
-        // `Illuminate\Foundation\Auth\User`, which cannot be reconciled with
-        // our package-specific `Identity` implementations.
         self::assertNotNull($guard2d->user());
 
         $resolved2d = $guard2d->identity();
@@ -194,80 +187,91 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         self::assertNotInstanceOf(Coexist3dIdentity::class, $principal3d, 'The 3D principal must NOT be an instance of the identity model class.');
         self::assertSame($threeDPrincipal->getKey(), $principal3d->getPrincipalIdentifier());
 
-        // Cross-contamination checks. The previously-bound 2D guard must still
-        // expose its own 2D identity + principal, and the 3D guard must never
-        // expose the 2D model classes.
-        self::assertInstanceOf(Coexist2dIdentity::class, $guard2d->identity());
-        self::assertInstanceOf(Coexist2dIdentity::class, $guard2d->principal());
-        self::assertNotInstanceOf(Coexist3dIdentity::class, $guard2d->identity());
-        self::assertNotInstanceOf(Coexist3dPrincipal::class, $guard2d->principal());
+        // Request rebinding must clear the previously-bound 2D guard so no
+        // request-local auth state leaks across requests.
+        self::assertNull($guard2d->identity());
+        self::assertNull($guard2d->principal());
 
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->identity());
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->principal());
 
-        // Per-guard id() must reflect each guard's own identity key, not the
-        // other guard's.
-        self::assertSame($twoD->getKey(), $guard2d->id());
+        // The active guard exposes its own identity key; the rebound 2D guard
+        // has been cleared.
+        self::assertNull($guard2d->id());
         self::assertSame($threeDIdentity->getKey(), $guard3d->id());
     }
 
     /**
      * Flip `auth.defaults.guard` between `api_2d` and `api_3d` and assert that
      * the default-guard-dispatched `Auth::principal()` accessor routes to the
-     * correct guard each time, exposing the matching adoption mode's
-     * contextual triple.
+     * correct guard each time, exposing the matching adoption mode's contextual
+     * triple.
      *
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
-    public function testSwitchingDefaultGuardBetween2dAnd3dExposesCorrectContext(): void
+    public function testSwitchingDefaultGuardTo2dExposesCorrectContext(): void
     {
-        [$twoD, $threeDIdentity, $threeDPrincipal] = $this->seedFixtures();
+        [$twoD] = $this->seedFixtures();
 
-        $tokens = $this->tokenService();
+        $jwtService = PackageAuth::jwt(self::GUARD_2D);
 
-        $twoDToken   = $tokens->issueAccessToken($twoD, $twoD, null);
-        $threeDToken = $tokens->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+        assert($jwtService !== null);
 
-        // Default guard → api_2d: a call to Auth::principal() via the package
-        // manager must return the 2D identity itself.
+        $twoDToken = $jwtService->issueAccessToken($twoD, $twoD, null);
+
         $this->switchDefaultGuard(self::GUARD_2D);
         $this->bindRequestWithBearer($twoDToken);
 
-        $guard2d = PackageAuth::guard();
+        $guard = PackageAuth::guard();
 
-        self::assertInstanceOf(ContextualGuard::class, $guard2d);
+        self::assertInstanceOf(ContextualGuard::class, $guard);
+        self::assertNotNull($guard->user());
 
-        // Trigger resolution of the bearer token before reading the manager's
-        // contextual accessors - `Auth::identity()` returns the guard's
-        // already-bound identity rather than eagerly resolving the token
-        // itself.
-        self::assertNotNull($guard2d->user());
+        $identity  = PackageAuth::identity();
+        $principal = PackageAuth::principal();
 
-        $identity2d  = PackageAuth::identity();
-        $principal2d = PackageAuth::principal();
+        self::assertInstanceOf(Coexist2dIdentity::class, $identity);
+        self::assertInstanceOf(Coexist2dIdentity::class, $principal);
+        self::assertSame($identity, $principal);
+    }
 
-        self::assertInstanceOf(Coexist2dIdentity::class, $identity2d);
-        self::assertInstanceOf(Coexist2dIdentity::class, $principal2d);
-        self::assertSame($identity2d, $principal2d);
+    /**
+     * Flip `auth.defaults.guard` to `api_3d` and assert that the
+     * default-guard-dispatched `Auth::principal()` accessor routes to the 3D
+     * guard, exposing distinct identity and principal instances.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testSwitchingDefaultGuardTo3dExposesCorrectContext(): void
+    {
+        [, $threeDIdentity, $threeDPrincipal] = $this->seedFixtures();
 
-        // Default guard → api_3d: the same accessor pair must now route to the
-        // 3D guard and return a distinct principal.
+        $jwtService = PackageAuth::jwt(self::GUARD_3D);
+
+        assert($jwtService !== null);
+
+        $threeDToken = $jwtService->issueAccessToken($threeDIdentity, $threeDPrincipal, null);
+
         $this->switchDefaultGuard(self::GUARD_3D);
         $this->bindRequestWithBearer($threeDToken);
 
-        $guard3d = PackageAuth::guard();
+        $guard = PackageAuth::guard();
 
-        self::assertInstanceOf(ContextualGuard::class, $guard3d);
-        self::assertNotSame($guard2d, $guard3d);
+        self::assertInstanceOf(ContextualGuard::class, $guard);
+        self::assertNotNull($guard->user());
 
-        self::assertNotNull($guard3d->user());
+        $identity  = PackageAuth::identity();
+        $principal = PackageAuth::principal();
 
-        $identity3d  = PackageAuth::identity();
-        $principal3d = PackageAuth::principal();
-
-        self::assertInstanceOf(Coexist3dIdentity::class, $identity3d);
-        self::assertInstanceOf(Coexist3dPrincipal::class, $principal3d);
-        self::assertNotSame($identity3d, $principal3d);
+        self::assertInstanceOf(Coexist3dIdentity::class, $identity);
+        self::assertInstanceOf(Coexist3dPrincipal::class, $principal);
+        self::assertNotSame($identity, $principal);
     }
 
     /**
@@ -346,29 +350,11 @@ final class GuardCoexistenceIntegrationTest extends TestCase
     }
 
     /**
-     * Resolve the container's JwtTokenService. Centralised so each test reads
-     * the container-built instance rather than constructing a parallel service
-     * (which would miss the service provider's keyring and TTL wiring).
-     *
-     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function tokenService(): JwtTokenService
-    {
-        $app = $this->app;
-
-        assert($app !== null);
-
-        return $app->make(JwtTokenService::class);
-    }
-
-    /**
      * Bind a fresh Illuminate Request carrying the supplied JWT as a `Bearer`
      * token onto the container's `request` binding. The service provider's
      * `refresh('request', ...)` wiring propagates the new request onto every
-     * previously-constructed guard, so already-resolved guards pick up the
-     * swap automatically.
+     * previously-constructed guard, so already-resolved guards pick up the swap
+     * automatically.
      *
      * @param  string  $token
      * @return void

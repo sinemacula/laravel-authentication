@@ -14,11 +14,11 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  * leaves the instance untouched during serialize.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-final class PlainPrincipalFixture implements Principal
+final readonly class PlainPrincipalFixture implements Principal
 {
     /**
      * Constructor.
@@ -31,16 +31,16 @@ final class PlainPrincipalFixture implements Principal
     public function __construct(
 
         /** Stable identifier used as the `pid` claim. */
-        public readonly int|string $id,
+        public int|string $id,
 
         /** Owning identity, if the test wires one explicitly. */
-        public readonly ?Identity $identity = null,
+        public ?Identity $identity = null,
 
         /** Acting tenant, if the test wires one explicitly. */
-        public readonly ?Tenant $tenant = null,
+        public ?Tenant $tenant = null,
 
         /** Active flag. */
-        public readonly bool $active = true,
+        public bool $active = true,
 
     ) {}
 

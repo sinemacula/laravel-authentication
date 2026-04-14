@@ -28,7 +28,7 @@ use Tests\Unit\Stubs\StubIdentity;
  * single behavioural slice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -36,8 +36,8 @@ use Tests\Unit\Stubs\StubIdentity;
 final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 {
     /**
-     * A request with no Authorization header returns null from `user()`
-     * without firing Attempting or Failed (there is nothing to attempt).
+     * A request with no Authorization header returns null from `user()` without
+     * firing Attempting or Failed (there is nothing to attempt).
      *
      * @return void
      *
@@ -153,8 +153,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * When `retrieveById()` returns an Authenticatable that is not an
-     * Identity, `user()` returns null.
+     * When `retrieveById()` returns an Authenticatable that is not an Identity,
+     * `user()` returns null.
      *
      * @return void
      *
@@ -290,9 +290,54 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the resolver
-     * returns `null` (the hinted principal cannot be resolved), `user()`
-     * rejects the token rather than falling back to the default principal.
+     * When `sub` resolves to a real identity but a fail-closed `pid` branch
+     * rejects the token, the emitted `Failed` event is still attributed to the
+     * resolved identity.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserAttributesFailedEventToResolvedIdentityWhenPidHintRejectsToken(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-default');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturn($principal);
+
+        $failedEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
+                if ($event instanceof Failed) {
+                    $failedEvent = $event;
+                }
+            });
+
+        self::assertNull($guard->user());
+        self::assertInstanceOf(Failed::class, $failedEvent);
+        self::assertSame($identity, $failedEvent->user);
+    }
+
+    /**
+     * Fail-closed: when the token carries a `pid` hint but the resolver returns
+     * `null` (the hinted principal cannot be resolved), `user()` rejects the
+     * token rather than falling back to the default principal.
      *
      * @return void
      *
@@ -325,10 +370,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * Fail-closed: when the token carries a `pid` hint but the resolver
-     * returns a *different* principal (because it fell through to the
-     * default), `user()` returns null rather than silently downgrading the
-     * active principal.
+     * Fail-closed: when the token carries a `pid` hint but the resolver returns
+     * a *different* principal (because it fell through to the default),
+     * `user()` returns null rather than silently downgrading the active
+     * principal.
      *
      * @return void
      *
@@ -367,8 +412,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     /**
      * Fail-closed: when the resolver returns a principal whose identifier
      * stringifies to `null` (e.g. an unsaved Eloquent model returned from a
-     * misbehaving custom resolver), the guard MUST reject the token rather
-     * than bind a transient actor. Pins the `$resolvedId !== null` arm of
+     * misbehaving custom resolver), the guard MUST reject the token rather than
+     * bind a transient actor. Pins the `$resolvedId !== null` arm of
      * `matchesPidHint()`.
      *
      * @return void
@@ -458,8 +503,66 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A valid token whose claims include `sub`, `pid`, and `did` results in
-     * the guard binding the identity, principal, and device and dispatching
+     * When the `did` fail-closed branch rejects a token after `sub` already
+     * resolved, the `Failed` event carries that resolved identity for
+     * attribution.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-missing']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with('d-missing')
+            ->andReturnNull();
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $failedEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
+                if ($event instanceof Failed) {
+                    $failedEvent = $event;
+                }
+            });
+
+        self::assertNull($guard->user());
+        self::assertInstanceOf(Failed::class, $failedEvent);
+        self::assertSame($identity, $failedEvent->user);
+    }
+
+    /**
+     * A valid token whose claims include `sub`, `pid`, and `did` results in the
+     * guard binding the identity, principal, and device and dispatching
      * `Attempting`, `Authenticated`, `Validated`, `PrincipalAssigned`,
      * `DeviceAuthenticated`, and `Login`.
      *

@@ -15,7 +15,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
-use Tests\Unit\Stubs\BareDeviceModel;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -26,7 +25,7 @@ use Tests\Unit\Stubs\StubDevice;
  * persistence behaviour is exercised end-to-end without the package migration.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -35,7 +34,7 @@ final class UpdateDeviceTimestampTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    /** @var string Shared timestamp format used by the listener-state assertions. */
+    /** @var string Timestamp format for assertions. */
     private const string DATETIME_FORMAT = 'Y-m-d H:i:s';
 
     /**
@@ -43,24 +42,17 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
 
         Schema::create('stub_devices', static function (Blueprint $blueprint): void {
-
             $blueprint->uuid('id')->primary();
             $blueprint->string('os')->default('');
             $blueprint->string('refresh_key')->default('');
             $blueprint->timestamp('last_logged_in_at')->nullable();
             $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
-        });
-
-        Schema::create('bare_devices', static function (Blueprint $blueprint): void {
-
-            $blueprint->string('id')->primary();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
             $blueprint->timestamps();
         });
     }
@@ -71,12 +63,12 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Carbon::setTestNow();
 
         Schema::dropIfExists('stub_devices');
-        Schema::dropIfExists('bare_devices');
 
         parent::tearDown();
     }
@@ -105,20 +97,20 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener silently returns without invoking any model-side
-     * methods when the device is not an Eloquent model.
+     * Asserts the listener silently returns for a generic `Device` payload that
+     * does not satisfy the explicit Eloquent-backed persistence boundary.
      *
      * @return void
      */
     public function testHandleNoOpsForNonModelDevice(): void
     {
         $device = \Mockery::mock(Device::class);
-        $device->shouldNotReceive('forceFill');
-        $device->shouldNotReceive('save');
 
         (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
 
-        self::assertTrue(true, 'Listener returned silently for a non-Model device.');
+        // No exception thrown and no persistence attempted - the listener
+        // short-circuits for non-EloquentDevice payloads.
+        self::assertTrue(true);
     }
 
     /**
@@ -278,40 +270,6 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * The listener no-ops when the device is an Eloquent model that does NOT
-     * implement the package `Device` contract: the column resolver falls back
-     * to the default `last_logged_in_at` column, but the type guard at
-     * `resolveColumnName()` line 73 short- circuits when the model is not a
-     * `Device`. The assertion is indirect - the listener still updates the
-     * column, just not via the trait's accessor.
-     *
-     * @return void
-     */
-    public function testHandleUsesDefaultColumnForNonDeviceEloquentModel(): void
-    {
-        $now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($now);
-
-        // The bare `StubModelDevice` is an Eloquent model that implements
-        // `Device` but does NOT use the `ActsAsDevice` trait, so
-        // `getLastLoggedInName()` does not exist. The listener falls through
-        // to `self::DEFAULT_COLUMN` in `resolveColumnName()`.
-        $device = new BareDeviceModel;
-        $device->forceFill(['id' => 'bare-device-1'])->save();
-
-        (new UpdateDeviceTimestamp)(new DeviceAuthenticated('api', $device));
-
-        $fresh = BareDeviceModel::query()->findOrFail('bare-device-1');
-
-        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
-        self::assertSame(
-            $now->format(self::DATETIME_FORMAT),
-            $fresh->last_logged_in_at->format(self::DATETIME_FORMAT),
-        );
-    }
-
-    /**
      * The listener no-ops on an unpersisted Eloquent device (the `$exists`
      * flag is false), so the in-memory model is not touched and the database
      * is not written to. Pins the `!$device->exists` short-circuit in
@@ -329,30 +287,6 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener is invokable - registering it as a plain class name
-     * via `Event::listen` continues to work.
-     *
-     * @return void
-     */
-    public function testInvokeIsEquivalentToHandle(): void
-    {
-        $now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
-
-        Carbon::setTestNow($now);
-
-        $device = new StubDevice;
-        $device->save();
-
-        $listener = new UpdateDeviceTimestamp;
-        $listener(new DeviceAuthenticated('api', $device));
-
-        $fresh = StubDevice::query()->findOrFail($device->id);
-
-        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
-        self::assertTrue($now->equalTo($fresh->last_logged_in_at));
-    }
-
-    /**
      * Define the test environment: in-memory sqlite connection.
      *
      * @param  mixed  $app
@@ -360,6 +294,7 @@ final class UpdateDeviceTimestampTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);

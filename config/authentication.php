@@ -11,9 +11,13 @@ return [
     | Device tracking
     |---------------------------------------------------------------------------
     |
-    | Configures the shipped Device Eloquent model and its underlying table.
-    | Both are swappable so consumers may bring their own model class or
-    | rename the table to avoid collisions with existing schemas.
+    | Configures the package's default Eloquent device adapter. JWT refresh
+    | lookup and rotation require `device.model` to be an Eloquent model
+    | implementing the package `EloquentDevice` contract. The shipped migration
+    | and model use the conventional schema below; custom models may remap
+    | columns via their public column-name accessors. Bearer-path last-seen
+    | persistence is driven by the bound device instance itself, so it only runs
+    | when that resolved device is a persisted EloquentDevice.
     |
     */
 
@@ -30,8 +34,8 @@ return [
     |---------------------------------------------------------------------------
     |
     | Field name the BasicGuard passes to the identity provider when building
-    | credentials from HTTP Basic headers. Override when the identity model
-    | keys off `username`, `phone`, etc.
+    | credentials from HTTP Basic headers. Override when the identity model keys
+    | off `username`, `phone`, etc.
     |
     */
 
@@ -45,8 +49,8 @@ return [
     |---------------------------------------------------------------------------
     |
     | Microsecond budget passed to Illuminate\Support\Timebox on the
-    | credential-validation path. Must exceed the worst-case hasher cost
-    | (bcrypt cost 12 ≈ 150–250ms) or timing-safety breaks down.
+    | credential-validation path. Must exceed the worst-case hasher cost (bcrypt
+    | cost 12 ≈ 150–250ms) or timing-safety breaks down.
     |
     */
 
@@ -56,14 +60,40 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Resolution cache
+    |---------------------------------------------------------------------------
+    |
+    | Optional shared cache for live bearer identity rehydration on the JWT
+    | access-token path. Disabled by default. Basic credential lookups, bearer
+    | device resolution, and the entire refresh flow remain live-only.
+    |
+    | Safe enablement requires explicit invalidation wiring in the consumer app
+    | when identity auth identifiers or active-state flags change.
+    |
+    */
+
+    'resolution_cache' => [
+        'store' => env('AUTHENTICATION_RESOLUTION_CACHE_STORE'),
+        'jwt'   => [
+            'identity_ttl_seconds'  => (int) env('AUTHENTICATION_RESOLUTION_CACHE_JWT_IDENTITY_TTL_SECONDS', 0),
+            'principal_ttl_seconds' => (int) env('AUTHENTICATION_RESOLUTION_CACHE_JWT_PRINCIPAL_TTL_SECONDS', 0),
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | JWT
     |---------------------------------------------------------------------------
     |
-    | Stateless JWT defaults consumed by JwtTokenService and JwtGuard.
-    | Configure either `secret` (single-secret mode) or `keys` + `active_kid`
-    | (kid-based rotation). The package refuses to boot with no signing
-    | material. `issuer`/`audience` are optional; when set they are strictly
-    | verified on every parse.
+    | Sessionless JWT defaults consumed by JwtTokenService and JwtGuard. Access
+    | tokens are self-verifying and are not backed by a server-side access-token
+    | store, but JwtGuard still rehydrates identity, principal, and optional
+    | device state on bearer authentication. A resolved, persisted device may
+    | still trigger normal device-authenticated side effects such as debounced
+    | last-seen writes. Configure either `secret` (single-secret mode) or `keys`
+    | + `active_kid` (kid-based rotation). Invalid signing material fails
+    | closed when a JWT guard or token service is resolved. `issuer`/`audience`
+    | are optional; when set they are strictly verified on every parse.
     |
     */
 

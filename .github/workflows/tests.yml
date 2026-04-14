@@ -65,7 +65,7 @@ jobs:
                 uses: sinemacula/.github/.github/actions/setup-php@v1.0.1
                 with:
                     php-version: ${{ matrix.php }}
-                    extensions: dom
+                    extensions: dom, mbstring, openssl
 
             -   name: Pin Laravel version
                 env:
@@ -73,10 +73,10 @@ jobs:
                 run: composer update --with="laravel/framework:${LARAVEL_CONSTRAINT}" --prefer-dist --no-interaction --no-progress
 
             -   name: PHPUnit
-                run: composer test-coverage
+                run: composer test:coverage
 
             -   name: Publish code coverage
-                if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.laravel == '^13.3' }}
+                if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.laravel.label == '13' }}
                 uses: qltysh/qlty-action/coverage@v2
                 with:
                     token: ${{ secrets.QLTY_COVERAGE_TOKEN }}

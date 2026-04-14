@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Models\Device;
-use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Feature tests for the shipped Device Eloquent model.
@@ -25,7 +25,7 @@ use Tests\Unit\Stubs\StubDevice;
  * on the package migration file.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
@@ -34,18 +34,21 @@ final class DeviceTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
+    /** @var string Shared timestamp for device factory tests. */
+    private const FIXED_TIMESTAMP = '2026-04-06 12:00:00';
+
     /**
      * Set up the in-memory schema for the Device table after the Testbench
      * application is ready.
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
 
         Schema::create('devices', static function (Blueprint $blueprint): void {
-
             $blueprint->uuid('id')->primary();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
@@ -63,6 +66,7 @@ final class DeviceTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('devices');
@@ -114,7 +118,7 @@ final class DeviceTest extends TestCase
     public function testCastsLastLoggedInAtToCarbon(): void
     {
         $device = new Device;
-        $device->forceFill(['last_logged_in_at' => '2026-04-06 12:00:00'])->save();
+        $device->forceFill(['last_logged_in_at' => self::FIXED_TIMESTAMP])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 
@@ -129,7 +133,7 @@ final class DeviceTest extends TestCase
     public function testCastsLastMfaVerifiedAtToCarbon(): void
     {
         $device = new Device;
-        $device->forceFill(['last_mfa_verified_at' => '2026-04-06 12:00:00'])->save();
+        $device->forceFill(['last_mfa_verified_at' => self::FIXED_TIMESTAMP])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 
@@ -149,20 +153,14 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the `device.model` config key can be read back via `config(...)`.
-     * The actual runtime swap is exercised by the `DeviceModelOverrideTest`
-     * integration test.
+     * Asserts the shipped model satisfies the explicit Eloquent-backed device
+     * persistence boundary used by refresh rotation and last-seen writes.
      *
      * @return void
      */
-    public function testCustomDeviceClassResolvesViaConfig(): void
+    public function testImplementsEloquentDeviceContract(): void
     {
-        config()->set('authentication.device.model', StubDevice::class);
-
-        self::assertSame(
-            StubDevice::class,
-            config('authentication.device.model'),
-        );
+        self::assertInstanceOf(EloquentDevice::class, new Device);
     }
 
     /**
@@ -222,14 +220,123 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Define the test environment: in-memory sqlite and package config
-     * defaults that the Device model depends on.
+     * Asserts `getLastLoggedIn()` returns the Carbon instance when the
+     * attribute holds a datetime, and null when the attribute is null.
+     * Exercises the `ActsAsDevice::getLastLoggedIn()` accessor through the
+     * shipped Device model.
+     *
+     * @return void
+     */
+    public function testGetLastLoggedInReturnsCarbonOrNull(): void
+    {
+        $device = new Device;
+        $device->forceFill(['last_logged_in_at' => self::FIXED_TIMESTAMP])->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertInstanceOf(Carbon::class, $fresh->getLastLoggedIn());
+
+        $nilDevice = new Device;
+        $nilDevice->save();
+
+        $freshNil = Device::query()->findOrFail($nilDevice->id);
+
+        self::assertNull($freshNil->getLastLoggedIn());
+    }
+
+    /**
+     * Asserts `getLastMfaVerification()` returns the Carbon instance when set,
+     * and null when the attribute is null. Exercises the
+     * `ActsAsDevice::getLastMfaVerification()` accessor.
+     *
+     * @return void
+     */
+    public function testGetLastMfaVerificationReturnsCarbonOrNull(): void
+    {
+        $device = new Device;
+        $device->forceFill(['last_mfa_verified_at' => self::FIXED_TIMESTAMP])->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertInstanceOf(Carbon::class, $fresh->getLastMfaVerification());
+
+        $nilDevice = new Device;
+        $nilDevice->save();
+
+        $freshNil = Device::query()->findOrFail($nilDevice->id);
+
+        self::assertNull($freshNil->getLastMfaVerification());
+    }
+
+    /**
+     * Asserts `getLastMfaVerificationName()` returns the documented default
+     * column name. Exercises the
+     * `ActsAsDevice::getLastMfaVerificationName()` accessor.
+     *
+     * @return void
+     */
+    public function testGetLastMfaVerificationNameReturnsDefault(): void
+    {
+        $device = new Device;
+
+        self::assertSame('last_mfa_verified_at', $device->getLastMfaVerificationName());
+    }
+
+    /**
+     * Asserts `getOperatingSystem()` casts the underlying attribute to string.
+     * Exercises the `ActsAsDevice::getOperatingSystem()` accessor.
+     *
+     * @return void
+     */
+    public function testGetOperatingSystemCastsToString(): void
+    {
+        $device = new Device;
+        $device->forceFill(['os' => 'macOS 15'])->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertSame('macOS 15', $fresh->getOperatingSystem());
+    }
+
+    /**
+     * Asserts `getOperatingSystemName()` returns the documented default column
+     * name. Exercises the `ActsAsDevice::getOperatingSystemName()` accessor.
+     *
+     * @return void
+     */
+    public function testGetOperatingSystemNameReturnsDefault(): void
+    {
+        $device = new Device;
+
+        self::assertSame('os', $device->getOperatingSystemName());
+    }
+
+    /**
+     * Asserts `getRefreshKey()` returns null when the attribute is null.
+     * Exercises the null branch in `ActsAsDevice::getRefreshKey()`.
+     *
+     * @return void
+     */
+    public function testGetRefreshKeyReturnsNullWhenNotSet(): void
+    {
+        $device = new Device;
+        $device->save();
+
+        $fresh = Device::query()->findOrFail($device->id);
+
+        self::assertNull($fresh->getRefreshKey());
+    }
+
+    /**
+     * Define the test environment: in-memory sqlite and package config defaults
+     * that the Device model depends on.
      *
      * @param  mixed  $app
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         assert($app instanceof Application);

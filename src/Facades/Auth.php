@@ -10,6 +10,9 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+
+// phpcs:disable SlevomatCodingStandard.Namespaces.FullyQualifiedClassNameInAnnotation.NonFullyQualifiedClassName
 
 /**
  * Package `Auth` facade.
@@ -22,15 +25,16 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  *
  * @see \SineMacula\Laravel\Authentication\AuthManager
  *
- * @method static ?\SineMacula\Laravel\Authentication\Contracts\Identity identity()
- * @method static ?\SineMacula\Laravel\Authentication\Contracts\Principal principal()
- * @method static ?\SineMacula\Laravel\Authentication\Contracts\Device device()
- * @method static ?\SineMacula\Laravel\Authentication\Contracts\Tenant tenant()
- * @method static ?string type()
+ * @method static Identity|null identity()
+ * @method static Principal|null principal()
+ * @method static Device|null device()
+ * @method static Tenant|null tenant()
+ * @method static string|null type()
+ * @method static JwtTokenService|null jwt(?string $guard = null)
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class Auth extends IlluminateAuth
 {

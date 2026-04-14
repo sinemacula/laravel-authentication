@@ -21,7 +21,7 @@ use Firebase\JWT\Key;
  * `InvalidJwtConfigurationException` at construction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
 final class JwtKeyring
 {
@@ -203,6 +203,7 @@ final class JwtKeyring
         $built = [];
 
         foreach ($keys as $kid => $material) {
+
             if ($kid === '') {
 
                 $message = 'JWT key map contains an empty kid. Every entry under'

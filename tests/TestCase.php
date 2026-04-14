@@ -14,13 +14,12 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * Boots a minimal Testbench application with the package service provider
  * registered, an in-memory sqlite connection, the package's default
- * `laravel-authentication` config block seeded, and the shipped `devices`
- * table created. Subclasses may override `defineEnvironment` to add per-test
- * config and `defineDatabaseMigrations` (or use `setUp`) to create additional
- * tables.
+ * `laravel-authentication` config block seeded, and the shipped `devices` table
+ * created. Subclasses may override `defineEnvironment` to add per-test config
+ * and `defineDatabaseMigrations` (or use `setUp`) to create additional tables.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */

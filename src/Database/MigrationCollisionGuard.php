@@ -13,9 +13,9 @@ use Illuminate\Database\Schema\Builder;
  * schema mutation if the configured devices table already exists.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
- * @copyright   2026 Sine Macula Limited.
+ * @copyright   2026 Sine Macula Limited
  */
-final class MigrationCollisionGuard
+final readonly class MigrationCollisionGuard
 {
     /**
      * Constructor.
@@ -25,7 +25,7 @@ final class MigrationCollisionGuard
     public function __construct(
 
         /** Schema builder */
-        protected Builder $schema,
+        private Builder $schema,
 
     ) {}
 
