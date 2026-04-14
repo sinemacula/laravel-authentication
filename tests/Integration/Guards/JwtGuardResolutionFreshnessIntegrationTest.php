@@ -291,13 +291,16 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         assert($this->app !== null);
 
         $this->app->instance(
-            ResolutionCache::class, new class implements ResolutionCache {
+            ResolutionCache::class,
+            new class implements ResolutionCache {
                 /**
                  * @param  string  $guardName
                  * @param  string  $providerModelClass
                  * @param  mixed  $identifier
                  * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-                 * @return ?\Illuminate\Contracts\Auth\Authenticatable
+                 * @return never
+                 *
+                 * @throws \LogicException
                  */
                 #[\Override]
                 public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
