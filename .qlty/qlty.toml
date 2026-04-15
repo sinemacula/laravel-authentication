@@ -39,8 +39,6 @@ exclude_patterns = [
     "**/templates/**",
     "**/testdata/**",
     "**/vendor/**",
-    "**/tests/**",
-    "**/benchmarks/**",
     ".qlty/configs/**"
 ]
 
