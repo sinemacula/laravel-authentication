@@ -9,8 +9,8 @@ use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Contracts\Auth\UserProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
@@ -166,6 +166,6 @@ final class AuthManagerTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 }

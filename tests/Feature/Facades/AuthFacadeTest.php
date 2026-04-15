@@ -8,8 +8,8 @@ use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 
 /**
@@ -112,6 +112,6 @@ final class AuthFacadeTest extends TestCase
      */
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 }

@@ -128,7 +128,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "SineMacula\\Laravel\\Authentication\\AuthServiceProvider"
+                "SineMacula\\Laravel\\Authentication\\AuthenticationServiceProvider"
             ]
         }
     },

@@ -9,7 +9,7 @@ use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
@@ -21,7 +21,7 @@ use Tests\Unit\Stubs\StubIdentity;
 
 /**
  * Feature tests for JWT guard factory validation and shared
- * principal-resolver validation on `AuthServiceProvider`.
+ * principal-resolver validation on `AuthenticationServiceProvider`.
  *
  * Covers the JWT driver's device-model pre-checks and the
  * guard-local `principal_resolver` override validation path
@@ -32,8 +32,8 @@ use Tests\Unit\Stubs\StubIdentity;
  *
  * @internal
  */
-#[CoversClass(AuthServiceProvider::class)]
-final class AuthServiceProviderGuardValidationTest extends TestCase
+#[CoversClass(AuthenticationServiceProvider::class)]
+final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 {
     /**
      * A per-guard `principal_resolver` override on a JWT guard must be used by
@@ -71,7 +71,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
             'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
         ]);
 
-        $guard = AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        $guard = AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
@@ -115,7 +115,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
         $this->expectException(InvalidDeviceModelConfiguration::class);
         $this->expectExceptionMessage('authentication.device.model');
 
-        AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
@@ -137,7 +137,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
         $this->expectException(InvalidDeviceModelConfiguration::class);
         $this->expectExceptionMessage(StubBareDevice::class);
 
-        AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
@@ -158,7 +158,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
         $this->expectException(InvalidDeviceModelConfiguration::class);
         $this->expectExceptionMessage(PlainDeviceFixture::class);
 
-        AuthServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
@@ -178,7 +178,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('principal_resolver must be a non-empty string');
 
-        AuthServiceProvider::createBasicGuard($this->app, 'tenant_api', [
+        AuthenticationServiceProvider::createBasicGuard($this->app, 'tenant_api', [
             'driver'             => 'basic',
             'provider'           => 'identities',
             'principal_resolver' => '',
@@ -198,7 +198,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('principal_resolver must be a non-empty string');
 
-        AuthServiceProvider::createBasicGuard($this->app, 'tenant_api', [
+        AuthenticationServiceProvider::createBasicGuard($this->app, 'tenant_api', [
             'driver'             => 'basic',
             'provider'           => 'identities',
             'principal_resolver' => ['not-a-string'],
@@ -220,7 +220,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('resolved to [stdClass]');
 
-        AuthServiceProvider::createBasicGuard($this->app, 'tenant_api', [
+        AuthenticationServiceProvider::createBasicGuard($this->app, 'tenant_api', [
             'driver'             => 'basic',
             'provider'           => 'identities',
             'principal_resolver' => 'not-a-resolver',
@@ -245,7 +245,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
 
         $this->expectException(BindingResolutionException::class);
 
-        AuthServiceProvider::createJwtGuard($this->app, 'unresolvable_jwt', [
+        AuthenticationServiceProvider::createJwtGuard($this->app, 'unresolvable_jwt', [
             'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => 'missing-resolver-binding',
@@ -262,7 +262,7 @@ final class AuthServiceProviderGuardValidationTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 
     /**

@@ -10,7 +10,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -36,7 +36,7 @@ use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
  *
  * @internal
  */
-#[CoversClass(AuthServiceProvider::class)]
+#[CoversClass(AuthenticationServiceProvider::class)]
 #[CoversClass(Device::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 final class DeviceModelOverrideTest extends TestCase

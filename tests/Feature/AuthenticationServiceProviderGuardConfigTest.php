@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -23,7 +23,7 @@ use Tests\Unit\Stubs\StubIdentity;
 
 /**
  * Feature tests for the basic guard's config override layering on
- * `AuthServiceProvider`'s guard factories.
+ * `AuthenticationServiceProvider`'s guard factories.
  *
  * Covers the basic driver's `identifier_field` and
  * `principal_resolver` per-guard overrides plus their fallback to
@@ -34,8 +34,8 @@ use Tests\Unit\Stubs\StubIdentity;
  *
  * @internal
  */
-#[CoversClass(AuthServiceProvider::class)]
-final class AuthServiceProviderGuardConfigTest extends TestCase
+#[CoversClass(AuthenticationServiceProvider::class)]
+final class AuthenticationServiceProviderGuardConfigTest extends TestCase
 {
     /**
      * A per-guard `identifier_field` override on the basic guard's config block
@@ -54,7 +54,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     {
         config()->set('authentication.credentials.identifier_field', 'email');
 
-        $guard = AuthServiceProvider::createBasicGuard($this->app, 'tenant_api', [
+        $guard = AuthenticationServiceProvider::createBasicGuard($this->app, 'tenant_api', [
             'driver'           => 'basic',
             'provider'         => 'identities',
             'identifier_field' => 'key_id',
@@ -76,7 +76,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     {
         config()->set('authentication.credentials.identifier_field', 'email');
 
-        $guard = AuthServiceProvider::createBasicGuard($this->app, 'cli', [
+        $guard = AuthenticationServiceProvider::createBasicGuard($this->app, 'cli', [
             'driver'   => 'basic',
             'provider' => 'identities',
         ]);
@@ -150,7 +150,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 
     /**
@@ -313,7 +313,7 @@ final class AuthServiceProviderGuardConfigTest extends TestCase
     {
         $this->registerMockIdentityProvider();
 
-        $guard = AuthServiceProvider::createBasicGuard($this->app, $name, $config);
+        $guard = AuthenticationServiceProvider::createBasicGuard($this->app, $name, $config);
         $guard->setRequest(
             $this->createRequestWithBasicAuth('test-user', 'test-pass'),
         );

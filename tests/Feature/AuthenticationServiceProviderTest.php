@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
@@ -28,15 +28,15 @@ use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
 /**
- * Feature tests for the package AuthServiceProvider.
+ * Feature tests for the package AuthenticationServiceProvider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(AuthServiceProvider::class)]
-final class AuthServiceProviderTest extends TestCase
+#[CoversClass(AuthenticationServiceProvider::class)]
+final class AuthenticationServiceProviderTest extends TestCase
 {
     /** @var string Shared JWT secret for guard defaults. */
     private const string JWT_SECRET = 'service-provider-test-secret-32!!';
@@ -285,7 +285,7 @@ final class AuthServiceProviderTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 
     /**

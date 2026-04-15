@@ -11,8 +11,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
@@ -37,7 +37,7 @@ use Tests\Unit\Stubs\StubTenant;
  */
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(AuthManager::class)]
-#[CoversClass(AuthServiceProvider::class)]
+#[CoversClass(AuthenticationServiceProvider::class)]
 final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 {
     /** @var string Guard name for the staff JWT guard. */

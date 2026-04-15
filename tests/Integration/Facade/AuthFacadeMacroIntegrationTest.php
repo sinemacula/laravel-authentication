@@ -8,8 +8,8 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Auth\Factory as IlluminateAuthFactoryContract;
 use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth as IlluminateAuth;
 use Tests\TestCase;
@@ -31,7 +31,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * @internal
  */
 #[CoversClass(IlluminateAuth::class)]
-#[CoversClass(AuthServiceProvider::class)]
+#[CoversClass(AuthenticationServiceProvider::class)]
 #[CoversClass(AuthManager::class)]
 final class AuthFacadeMacroIntegrationTest extends TestCase
 {

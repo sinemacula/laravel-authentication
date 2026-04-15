@@ -13,7 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -33,7 +33,7 @@ use Tests\Integration\Fixtures\AccessOnlyIdentity;
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
-#[CoversClass(AuthServiceProvider::class)]
+#[CoversClass(AuthenticationServiceProvider::class)]
 final class AccessOnlyIntegrationTest extends TestCase
 {
     /** @var string Shared JWT secret used by the in-test guard. */
@@ -156,7 +156,7 @@ final class AccessOnlyIntegrationTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 
     /**

@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
  * (`identity`, `principal`, `device`, `tenant`, `type`) and guard-scoped
  * `jwt()` issuance directly on the manager. Each contextual accessor forwards
  * to the active guard when it implements `ContextualGuard`, otherwise returns
- * `null`. Bound to the `auth` container key by `AuthServiceProvider`. Not
+ * `null`. Bound to the `auth` container key by `AuthenticationServiceProvider`. Not
  * `final` so consumers may subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
