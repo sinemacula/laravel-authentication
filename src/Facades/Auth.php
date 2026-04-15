@@ -54,7 +54,7 @@ final class Auth extends IlluminateAuth
         if (!$manager instanceof AuthManager) {
 
             $message = 'The `auth` container binding did not resolve to an'
-                . ' AuthManager instance - check that AuthServiceProvider'
+                . ' AuthManager instance - check that AuthenticationServiceProvider'
                 . ' is registered.';
 
             throw new \LogicException($message);

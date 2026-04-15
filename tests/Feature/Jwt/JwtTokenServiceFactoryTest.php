@@ -12,8 +12,8 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Psr\Log\LoggerInterface;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -471,7 +471,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 
     /**

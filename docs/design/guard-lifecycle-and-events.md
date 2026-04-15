@@ -51,7 +51,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/JwtGuard.php`: `resolveBearerToken()`, `refresh()`.
 - `src/Cache/StoreBackedResolutionCache.php`: opt-in shared bearer identity cache.
 - `src/Cache/ResolutionCacheInvalidator.php`: explicit invalidation hook for identity writes.
-- `src/AuthServiceProvider.php`: listener registration for `DeviceAuthenticated`.
+- `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`.
 - `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
 
 ## Authoritative Tests

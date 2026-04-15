@@ -9,19 +9,19 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 
 /**
  * Feature tests for the small provider-only behaviours on
- * `AuthServiceProvider`.
+ * `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(AuthServiceProvider::class)]
-final class AuthServiceProviderHelpersTest extends TestCase
+#[CoversClass(AuthenticationServiceProvider::class)]
+final class AuthenticationServiceProviderHelpersTest extends TestCase
 {
     /**
      * `registerPublishing()` short-circuits when the application is not
@@ -37,11 +37,11 @@ final class AuthServiceProviderHelpersTest extends TestCase
         $app = \Mockery::mock(Application::class)->makePartial();
         $app->shouldReceive('runningInConsole')->andReturnFalse();
 
-        $provider = new AuthServiceProvider($app);
+        $provider = new AuthenticationServiceProvider($app);
 
         $previousGroups = ServiceProvider::publishableGroups();
 
-        $reflection = new \ReflectionClass(AuthServiceProvider::class);
+        $reflection = new \ReflectionClass(AuthenticationServiceProvider::class);
         $reflection->getMethod('registerPublishing')->invoke($provider);
 
         self::assertSame($previousGroups, ServiceProvider::publishableGroups());
@@ -119,7 +119,7 @@ final class AuthServiceProviderHelpersTest extends TestCase
     #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
-        return [AuthServiceProvider::class];
+        return [AuthenticationServiceProvider::class];
     }
 
     /**

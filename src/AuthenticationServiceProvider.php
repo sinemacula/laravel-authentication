@@ -44,7 +44,7 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class AuthServiceProvider extends ServiceProvider
+final class AuthenticationServiceProvider extends ServiceProvider
 {
     /**
      * Register container bindings.
@@ -249,8 +249,15 @@ final class AuthServiceProvider extends ServiceProvider
      */
     protected function registerGuardDrivers(): void
     {
-        IlluminateAuth::extend('jwt', static fn (Application $app, string $name, array $config): ContextualGuard => AuthServiceProvider::createJwtGuard($app, $name, $config));
-        IlluminateAuth::extend('basic', static fn (Application $app, string $name, array $config): ContextualGuard => AuthServiceProvider::createBasicGuard($app, $name, $config));
+        IlluminateAuth::extend(
+            'jwt',
+            static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createJwtGuard($app, $name, $config),
+        );
+
+        IlluminateAuth::extend(
+            'basic',
+            static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createBasicGuard($app, $name, $config),
+        );
     }
 
     /**

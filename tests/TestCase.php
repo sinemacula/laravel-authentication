@@ -7,7 +7,7 @@ namespace Tests;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
-use SineMacula\Laravel\Authentication\AuthServiceProvider;
+use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
@@ -35,7 +35,7 @@ abstract class TestCase extends OrchestraTestCase
     protected function getPackageProviders(mixed $app): array
     {
         return [
-            AuthServiceProvider::class,
+            AuthenticationServiceProvider::class,
         ];
     }
 
@@ -67,13 +67,37 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
+     * Run the package's shipped devices migration so the default `devices`
+     * table exists for tests that bind devices via the shipped `Device`
+     * Eloquent model.
+     *
+     * With persistent databases (MySQL, PostgreSQL) the table survives between
+     * test classes, so it must be dropped on teardown to prevent the migration
+     * collision guard from throwing on the next class.
+     *
+     * @return void
+     */
+    protected function defineDatabaseMigrations(): void
+    {
+        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+
+        if ((getenv('DB_CONNECTION') ?: 'sqlite') !== 'sqlite') {
+            $this->beforeApplicationDestroyed(function (): void {
+                Schema::dropIfExists(
+                    app(ConfigRepository::class)->string('authentication.device.table', 'devices'),
+                );
+            });
+        }
+    }
+
+    /**
      * Build the database connection config from environment variables.
      *
      * @return array<string, mixed>
      */
     private function databaseConnection(): array
     {
-        $driver = env('DB_CONNECTION', 'sqlite');
+        $driver = getenv('DB_CONNECTION') ?: 'sqlite';
 
         if ($driver === 'sqlite') {
             return [
@@ -84,39 +108,26 @@ abstract class TestCase extends OrchestraTestCase
         }
 
         return [
-            'driver'   => $driver,
-            'host'     => env('DB_HOST', '127.0.0.1'),
-            'port'     => env('DB_PORT', $driver === 'pgsql' ? '5432' : '3306'),
-            'database' => env('DB_DATABASE', 'laravel_authentication_test'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'prefix'   => '',
-            'charset'  => $driver === 'pgsql' ? 'utf8' : 'utf8mb4',
+            'driver'    => $driver,
+            'host'      => getenv('DB_HOST') ?: '127.0.0.1',
+            'port'      => getenv('DB_PORT') ?: $this->defaultPort($driver),
+            'database'  => getenv('DB_DATABASE') ?: 'laravel_authentication_test',
+            'username'  => getenv('DB_USERNAME') ?: 'root',
+            'password'  => getenv('DB_PASSWORD') ?: '',
+            'prefix'    => '',
+            'charset'   => $driver === 'pgsql' ? 'utf8' : 'utf8mb4',
             'collation' => $driver === 'pgsql' ? null : 'utf8mb4_unicode_ci',
         ];
     }
 
     /**
-     * Run the package's shipped devices migration so the default `devices`
-     * table exists for tests that bind devices via the shipped `Device`
-     * Eloquent model.
+     * Return the default database port for the given driver.
      *
-     * With persistent databases (MySQL, PostgreSQL) the table survives
-     * between test classes, so it must be dropped on teardown to prevent
-     * the migration collision guard from throwing on the next class.
-     *
-     * @return void
+     * @param  string  $driver
+     * @return string
      */
-    protected function defineDatabaseMigrations(): void
+    private function defaultPort(string $driver): string
     {
-        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
-
-        if (env('DB_CONNECTION', 'sqlite') !== 'sqlite') {
-            $this->beforeApplicationDestroyed(function (): void {
-                Schema::dropIfExists(
-                    app(ConfigRepository::class)->string('authentication.device.table', 'devices')
-                );
-            });
-        }
+        return $driver === 'pgsql' ? '5432' : '3306';
     }
 }

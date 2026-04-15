@@ -6,7 +6,7 @@
         ],
         excludes: [
             "AuthManager.php",
-            "AuthServiceProvider.php",
+            "AuthenticationServiceProvider.php",
             "Config",
             "Contracts",
             "Database",

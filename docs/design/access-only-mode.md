@@ -38,7 +38,7 @@ principal auth without device tracking or refresh rotation.
 - `src/Jwt/JwtTokenService.php`: `issueAccessToken()` and `issueRefreshToken()`.
 - `src/Guards/JwtGuard.php`: `resolveDeviceFromHint()` and `resolveContextFromToken()`.
 - `src/Guards/AbstractGuard.php`: `bindAuthenticationLifecycle()`.
-- `src/AuthServiceProvider.php`: `createJwtGuard()` and `assertValidDeviceModelConfiguration()`.
+- `src/AuthenticationServiceProvider.php`: `createJwtGuard()` and `assertValidDeviceModelConfiguration()`.
 
 ## Authoritative Tests
 
