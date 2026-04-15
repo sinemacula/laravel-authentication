@@ -71,9 +71,9 @@ abstract class TestCase extends OrchestraTestCase
      * table exists for tests that bind devices via the shipped `Device`
      * Eloquent model.
      *
-     * With persistent databases (MySQL, PostgreSQL) the table survives
-     * between test classes, so it must be dropped on teardown to prevent
-     * the migration collision guard from throwing on the next class.
+     * With persistent databases (MySQL, PostgreSQL) the table survives between
+     * test classes, so it must be dropped on teardown to prevent the migration
+     * collision guard from throwing on the next class.
      *
      * @return void
      */
