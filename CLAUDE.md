@@ -20,17 +20,27 @@ Core model: **Identity → Principal → Device**, with optional Tenant scope. B
 ## Commands
 
 ```bash
-composer install              # Install dependencies
-composer check                # Run qlty static analysis (PHPStan level 8, PHP-CS-Fixer, CodeSniffer, etc.)
-composer check -- --all --no-cache --fix  # Checks with auto-fix
-composer format               # Format code via qlty
-composer test                 # Run tests (Paratest, parallel execution)
-composer test-coverage        # Run tests with clover coverage report
+composer install                          # Install dependencies
+composer check                            # Static analysis via qlty (PHPStan 8, PHP-CS-Fixer, CodeSniffer)
+composer check -- --all --no-cache --fix  # Full check with auto-fix
+composer format                           # Format code via qlty
 
-# Single test file
+# Testing
+composer test                             # All suites in parallel (Paratest)
+composer test:coverage                    # All suites with clover coverage
+composer test:unit                        # Unit suite only
+composer test:feature                     # Feature suite only
+composer test:integration                 # Integration suite only
+composer test:performance                 # Performance budget suite (serial)
+composer test:mutation                    # Scoped mutation gate (85% MSI)
+composer test:mutation:full               # Full mutation suite (no thresholds)
+
+# Benchmarks
+composer bench                            # PHPBench hot-path benchmarks
+composer bench:ci                         # PHPBench with CI artifact dump
+
+# Single test file or method
 vendor/bin/phpunit tests/Unit/SomeTest.php
-
-# Single test method
 vendor/bin/phpunit --filter testMethodName tests/Unit/SomeTest.php
 ```
 
