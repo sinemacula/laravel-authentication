@@ -9,9 +9,9 @@
 Stateless contextual authentication for Laravel. Distinguishes the authenticated **Identity** from the acting
 **Principal** and the issuing **Device**, exposed through Laravel's standard `Auth` facade, middleware, and events.
 
-Drops into Laravel's existing auth machinery - no new API to learn. Same `Auth::check()`, `Auth::user()`,
-`auth()->guard('api')`, same middleware, same events. Adds contextual accessors (`Auth::identity()`,
-`Auth::principal()`, `Auth::device()`) and ships hardened JWT and HTTP Basic guards.
+Drops into Laravel's existing auth machinery - same `Auth::check()`, `Auth::user()`, `auth()->guard('api')`, same
+middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::device()`) and
+ships hardened JWT and HTTP Basic guards.
 
 ## Core Concept
 
@@ -25,38 +25,31 @@ Most auth packages collapse "who you are" and "who you're acting as" into a sing
 | **Tenant**    | The isolation boundary the principal acts within. Optional, for multi-tenant apps.         |
 | **Type**      | An optional categorical label on the tenant - e.g. `"staff"` vs `"customer"`.              |
 
-Both **2D** (identity-is-principal) and **3D** (identity → separate principal → tenant) adoption modes are
-supported by the same guards. Start 2D, grow into 3D without re-platforming.
+Both **2D** (identity-is-principal) and **3D** (identity → separate principal → tenant) adoption modes are supported
+by the same guards. Start 2D, grow into 3D without re-platforming.
 
-**Self-verifying for access, stateful for refresh.** Access tokens are validated as standalone JWTs: there is no
-session, remember-token, or server-side access-token store. On the bearer path, however, the guard still rehydrates
-the identity from the configured provider, resolves the active principal, and may reload the device record when the
-token carries a usable `did` hint. When a persisted device is rebound, normal device-authenticated side effects such
-as debounced `last_logged_in_at` updates can still occur. Refresh tokens are a different story: the rotation digest,
-device record, and last-login timestamp all live in the `devices` table. Refresh is therefore inherently stateful,
-and the package owns that state so replay attacks and stale credentials can be detected server-side.
+Access tokens are self-verifying JWTs with no server-side store. Refresh is stateful - the rotation digest and
+device record live in the `devices` table so replay and stale credentials can be detected server-side.
 
 ## Features
 
-- **Two guards**, both sessionless: `jwt` (Bearer token) and `basic` (HTTP Basic) - register via `auth.guards.*.driver`
+- **Two guards**, both sessionless: `jwt` (Bearer token) and `basic` (HTTP Basic).
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
-  `type()`
-- **Hardened JWT pipeline**: enforces `iss` / `aud` / `typ` / `exp` / leeway on every parse, embeds a per-token `jti`
-  on issue, fails closed on empty secrets, unsupported algorithms, type-confusion attacks, and mismatched `pid` /
-  `did` claims
-- **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and machine-readable
-  `RefreshFailed` events on every failure path for SIEM attribution
-- **Kid-based key rotation** - issue under one kid, verify against a `kid → secret` map, retire old kids once their
-  tokens expire
-- **Device tracking** with debounced `last_logged_in_at` writes to avoid per-request hot-spots
-- **First-class events** - fires Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
-  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`
-- **Pluggable everywhere**: identity model, device model, principal resolver, identifier field, table names
+  `type()`.
+- **Hardened JWT pipeline**: strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, per-token `jti`, and
+  fail-closed behaviour on empty secrets, unsupported algorithms, type confusion, and `pid` / `did` mismatches.
+- **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
+  machine-readable `RefreshFailed` events for SIEM attribution.
+- **Kid-based key rotation** - issue under one kid, verify against a `kid → secret` map.
+- **Device tracking** with debounced `last_logged_in_at` writes.
+- **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
+  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`.
+- **Pluggable everywhere**: identity model, device model, principal resolver, identifier field, table names.
 
 ## Design Notes
 
-The quick-start sections below focus on adoption. The maintainer-oriented security and lifecycle contracts live in
-`docs/design/` and cite the concrete implementation paths and tests that are meant to be authoritative:
+Adoption-focused quick-starts are below. Maintainer-oriented security and lifecycle contracts live in
+`docs/design/`:
 
 - `docs/design/guard-lifecycle-and-events.md`
 - `docs/design/refresh-rotation-and-replay.md`
@@ -69,7 +62,7 @@ The quick-start sections below focus on adoption. The maintainer-oriented securi
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the device migration, then migrate:
+Publish the config and device migration, then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -77,40 +70,33 @@ php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 ```
 
-Set the JWT secret in your environment:
+Set the JWT secret:
 
 ```dotenv
 AUTHENTICATION_JWT_SECRET="a-strong-random-value-of-at-least-32-bytes"
 ```
 
 The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with empty or invalid signing
-material - silent acceptance of forged tokens is never the default.
+material.
 
-### Minimal setup: access-only, no refresh, no devices
+### Access-only mode (no devices, no refresh)
 
-The device entity and refresh-token rotation are opt-in. If you only need access tokens without device binding or
-refresh (the common pattern for M2M APIs, simple backends, and short-lived session flows), you can skip the devices
-migration entirely:
+Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-lived session flows:
 
-1. Publish only the config: `php artisan vendor:publish --tag=authentication-config`. Skip the
-   `authentication-migrations` tag.
-2. Do not implement the `HasDevices` capability contract on your identity model.
-3. Issue access tokens through the guard-scoped issuer:
-   `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-   The token carries `did = null`, so there is no usable device hint on the bearer path.
-4. Do not call `$guard->refresh($refreshToken)`. Clients re-authenticate when their access token expires.
+1. Skip the `authentication-migrations` publish.
+2. Do not implement `HasDevices` on your identity model.
+3. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
+4. Do not call `$guard->refresh(...)`. Clients re-authenticate when the access token expires.
 
-In this mode the package never touches a `devices` table because the access token carries no usable device hint and
-refresh is unused. Bearer auth still rehydrates the identity and principal through the configured provider and
-resolver, `Auth::device()` returns `null`, and the full identity/principal contextual surface (`Auth::identity()`,
-`Auth::principal()`, `Auth::tenant()`, `Auth::type()`) still works normally. Add the migration and refresh flow later
-if the use case grows into it - it's additive, not a rewrite.
+`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. See
+`docs/design/access-only-mode.md`.
 
-Security note: access-token `jti` values are not consulted on the bearer path. Revoking a device blocks refresh for
-that device, but already-issued access tokens remain valid until expiry unless the underlying identity, principal, or
-device can no longer be rehydrated.
+Access-token `jti` values are not consulted on the bearer path. Revocation flows through the identity, principal,
+or device becoming unresolvable - not through a token blocklist.
 
 ## Configuration
+
+### Guards and providers
 
 Register guards and providers in `config/auth.php` exactly as you would with any first-party guard:
 
@@ -134,68 +120,11 @@ Register guards and providers in `config/auth.php` exactly as you would with any
 ],
 ```
 
-Your identity model implements `Identity` (and optionally `Principal`, `HasPrincipals`, `HasDevices`,
-`CanBeActive`) - most apps just `use Authenticatable` and `use ActsAsPrincipal` from the package traits.
-
-### Optional bearer identity cache
-
-Cross-request resolution caching is off by default. When enabled, it applies only to JWT bearer identity
-rehydration through model providers; basic-auth credential lookups, bearer device lookup, principal resolution,
-and the entire refresh path stay live.
-
-```php
-'resolution_cache' => [
-    'store' => env('AUTHENTICATION_RESOLUTION_CACHE_STORE'),
-    'jwt'   => [
-        'identity_ttl_seconds'  => env('AUTHENTICATION_JWT_IDENTITY_CACHE_TTL_SECONDS', 0),
-        'principal_ttl_seconds' => env('AUTHENTICATION_JWT_PRINCIPAL_CACHE_TTL_SECONDS', 0),
-    ],
-],
-```
-
-- `identity_ttl_seconds = 0` disables the shared cache.
-- `principal_ttl_seconds` is reserved for future use and should stay `0`.
-- Cache hits only short-circuit the bearer identity provider lookup. Active-state checks, `pid` matching, and
-  `did` device validation still run live on every request.
-- Refresh never uses this cache. Revocation and replay detection remain device-backed and immediate.
-
-If you opt in, wire explicit invalidation from your identity model observer or equivalent write path:
-
-```php
-use App\Models\User;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
-
-final class UserObserver
-{
-    public function saved(User $user): void
-    {
-        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-    }
-
-    public function deleted(User $user): void
-    {
-        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-    }
-}
-```
-
-If the auth identifier changes, invalidate the previous identifier explicitly as well:
-
-```php
-$previousIdentifier = $user->getOriginal($user->getAuthIdentifierName());
-
-app(ResolutionCacheInvalidator::class)->forgetIdentity($user, $previousIdentifier);
-app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-```
-
-Do not enable the shared cache unless that invalidation wiring is in place.
-
 ### Per-guard JWT configuration
 
 Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
-`authentication.jwt.*` defaults. Any guard may override these per-guard by adding a `jwt` sub-block to its
-`config/auth.php` entry - missing fields fall back to the package defaults. This lets you register multiple
-jwt guards with distinct trust boundaries in a single app:
+`authentication.jwt.*` defaults. Any guard may override them with a `jwt` sub-block on its `config/auth.php`
+entry; missing fields fall back to the defaults:
 
 ```php
 'guards' => [
@@ -218,30 +147,27 @@ jwt guards with distinct trust boundaries in a single app:
 ],
 ```
 
-Routes then opt into a specific boundary via `auth:staff` or `auth:customer` middleware, and the `aud` claim
-on every issued token matches the guard that issued it - tokens minted for one audience cannot authenticate
-against the other. Any field from the package `jwt` block is overridable (`secret`, `keys`, `active_kid`,
-`algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`), so each
-guard can also carry its own kid-rotation set if you want fully independent signing-key lifecycles.
+Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. The `aud` claim on each issued token
+matches the guard that issued it, so tokens minted for one audience cannot authenticate against the other. Every
+field in the package `jwt` block is overridable (`secret`, `keys`, `active_kid`, `algorithm`,
+`access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`).
 
-Issue tokens through that same guard context:
+Issue tokens through the matching guard context:
 
 ```php
-$staffAccessToken = Auth::jwt('staff')->issueAccessToken($identity, $principal, $device);
+$token = Auth::jwt('staff')->issueAccessToken($identity, $principal, $device);
 ```
 
 ### Per-guard basic-auth identifier field
 
-The same layering applies to the basic driver via `identifier_field`. Register multiple basic guards backed by
-different providers and looked up by different columns - e.g. an `email`-keyed web guard for users and a
-`key_id`-keyed tenant API guard for per-tenant service credentials:
+The `basic` driver accepts an `identifier_field` override - e.g. an `email`-keyed web guard alongside a `key_id`
+-keyed tenant API guard:
 
 ```php
 'guards' => [
     'cli' => [
         'driver'   => 'basic',
         'provider' => 'users',
-        // identifier_field omitted - falls back to `authentication.credentials.identifier_field` (default `email`)
     ],
     'tenant_api' => [
         'driver'           => 'basic',
@@ -258,14 +184,11 @@ different providers and looked up by different columns - e.g. an `email`-keyed w
 ],
 ```
 
-The `TenantApiKey` model implements `Identity` (and `Principal` in 2D mode), carries whatever tenant foreign
-key your domain uses, and is hashed/verified against the standard Laravel hasher just like a user password.
+Omitting `identifier_field` falls back to `authentication.credentials.identifier_field` (default `email`).
 
 ### Per-guard principal resolvers
 
-Principal resolution layers the same way. By default, every guard uses the app-wide
-`SineMacula\Laravel\Authentication\Contracts\PrincipalResolver` binding. Any individual guard may override that
-with a `principal_resolver` entry in `config/auth.php`:
+By default, every guard uses the app-wide `PrincipalResolver` binding. Any guard may override it locally:
 
 ```php
 'guards' => [
@@ -274,30 +197,19 @@ with a `principal_resolver` entry in `config/auth.php`:
         'provider'           => 'users',
         'principal_resolver' => App\Auth\Resolvers\StaffPrincipalResolver::class,
     ],
-    'customer' => [
-        'driver'             => 'jwt',
-        'provider'           => 'users',
-        'principal_resolver' => App\Auth\Resolvers\CustomerPrincipalResolver::class,
-    ],
 ],
 ```
 
-Precedence is:
+Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::class` binding → package default
+`DefaultPrincipalResolver`. The same resolver is used on bearer-token and refresh paths.
 
-1. `auth.guards.<name>.principal_resolver`
-2. the app-wide `PrincipalResolver::class` container binding
-3. the package default `DefaultPrincipalResolver`
+### Device
 
-This applies equally to bearer-token resolution and JWT refresh exchange: when a guard declares a local
-resolver, both paths use that same resolver instance.
-
-### Device configuration
-
-The published `authentication.php` config controls the device model, table name, and last-seen debounce:
+The published `authentication.php` config controls the device model, table, and last-seen debounce:
 
 ```php
 'device' => [
-    'model'                      => \SineMacula\Laravel\Authentication\Models\Device::class,
+    'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
     'table'                      => 'devices',
     'refresh_key_column'         => 'refresh_key',
     'last_seen_throttle_seconds' => 60,
@@ -313,14 +225,68 @@ The `basic` guard wraps credential checks in a constant-time `Timebox` to preven
 
 ```php
 'timebox' => [
-    'credentials_microseconds' => 400000, // must exceed worst-case hasher cost
+    'credentials_microseconds' => 400000,
 ],
 ```
 
+Must exceed the worst-case hasher cost.
+
+### Optional bearer identity cache
+
+Cross-request resolution caching is off by default. When enabled, it applies only to JWT bearer identity
+rehydration through model providers - basic-auth lookups, device lookups, principal resolution, and the refresh
+path stay live.
+
+```php
+'resolution_cache' => [
+    'store' => env('AUTHENTICATION_RESOLUTION_CACHE_STORE'),
+    'jwt'   => [
+        'identity_ttl_seconds'  => env('AUTHENTICATION_JWT_IDENTITY_CACHE_TTL_SECONDS', 0),
+        'principal_ttl_seconds' => env('AUTHENTICATION_JWT_PRINCIPAL_CACHE_TTL_SECONDS', 0),
+    ],
+],
+```
+
+- `identity_ttl_seconds = 0` disables the cache.
+- `principal_ttl_seconds` is reserved for future use; leave at `0`.
+- Active-state checks, `pid` matching, and `did` device validation still run live on every request.
+
+If you opt in, wire explicit invalidation from your identity model observer:
+
+```php
+use App\Models\User;
+use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
+
+final class UserObserver
+{
+    public function saved(User $user): void
+    {
+        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
+    }
+
+    public function deleted(User $user): void
+    {
+        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
+    }
+}
+```
+
+If the auth identifier changes, invalidate both the previous and new identifier:
+
+```php
+$previous = $user->getOriginal($user->getAuthIdentifierName());
+
+app(ResolutionCacheInvalidator::class)->forgetIdentity($user, $previous);
+app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
+```
+
+Do not enable the cache unless that invalidation wiring is in place.
+
+## Identity Models
+
 ### 2D adoption (identity is the principal)
 
-The simplest shape. One model implements both `Identity` and `Principal` - the user who logs in *is* the actor on
-whose behalf the request runs:
+One model implements both `Identity` and `Principal` - the user who logs in *is* the acting principal:
 
 ```php
 use Illuminate\Foundation\Auth\User;
@@ -335,14 +301,15 @@ class AppUser extends User implements Identity, Principal
 }
 ```
 
-Point `auth.providers.users.model` at `AppUser::class` and you're done. `Auth::identity()` and `Auth::principal()`
-both return the same `AppUser` instance.
+Point `auth.providers.users.model` at `AppUser::class`. `Auth::identity()` and `Auth::principal()` both return
+the same instance.
 
-To add device tracking and refresh-token rotation, implement `HasDevices` on the identity model:
+Add `HasDevices` for device tracking and refresh-token rotation:
 
 ```php
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Models\Device;
 
 class AppUser extends User implements Identity, Principal, HasDevices
 {
@@ -355,15 +322,14 @@ class AppUser extends User implements Identity, Principal, HasDevices
 }
 ```
 
-Without `HasDevices`, the guard skips device resolution and refresh is unavailable (see
-[access-only mode](#minimal-setup-access-only-no-refresh-no-devices)).
+### 3D adoption (separate identity, principal, tenant)
 
-### 3D adoption (separate identity, principal, and tenant)
-
-For multi-tenant apps where the logged-in human operates on behalf of a tenant-scoped actor, split identity and
-principal into two models. The identity implements `HasPrincipals` and returns its own `principals()` query:
+For multi-tenant apps where the logged-in human acts on behalf of a tenant-scoped actor, split identity and
+principal into two models. The identity implements `HasPrincipals` and returns its own principals query:
 
 ```php
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
@@ -380,18 +346,11 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
-// The human - implements Identity + HasPrincipals, NOT Principal.
-// Add HasDevices for device tracking and refresh-token rotation.
+// The human - Identity + HasPrincipals. Add HasDevices for refresh support.
 class AppIdentity extends User implements Identity, HasDevices, HasPrincipals, ResolvesHintedPrincipal
 {
     use Authenticatable;
 
-    /**
-     * Returns the principals this identity is permitted to act as.
-     * The package's default resolver calls `->find($hint)` when the
-     * access token carries a `pid` claim, and `resolveDefaultPrincipal()`
-     * otherwise.
-     */
     public function principals(): HasMany
     {
         return $this->hasMany(AppMembership::class, 'identity_id');
@@ -407,12 +366,6 @@ class AppIdentity extends User implements Identity, HasDevices, HasPrincipals, R
         return $this->principals()->where('is_active', true)->first();
     }
 
-    /**
-     * Optional: when a JWT carries a `pid`, resolve the hinted principal
-     * directly. This is the package's preferred 3D optimization seam when
-     * you want a custom joined lookup and/or manual relation hydration for
-     * the acting principal.
-     */
     public function resolveHintedPrincipal(mixed $hint): ?PrincipalContract
     {
         return AppMembership::query()
@@ -424,25 +377,21 @@ class AppIdentity extends User implements Identity, HasDevices, HasPrincipals, R
     }
 }
 
-// The acting principal - a per-tenant membership. Implements Principal
-// and belongs to a Tenant.
-class AppMembership extends \Illuminate\Database\Eloquent\Model implements PrincipalContract
+// The acting principal - a per-tenant membership.
+class AppMembership extends Model implements PrincipalContract
 {
     use ActsAsPrincipal;
 
     protected $fillable = ['identity_id', 'tenant_id', 'role', 'is_active'];
 
-    public function tenant(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function tenant(): BelongsTo
     {
         return $this->belongsTo(AppTenant::class);
     }
 }
 
-// The tenant - implements Tenant so `Auth::tenant()` can return it.
-// Also declares HasType so `Auth::type()` exposes the tenant's
-// category label (e.g. `'staff'` vs `'customer'`). The HasType
-// capability is optional - drop it if your app doesn't need it.
-class AppTenant extends \Illuminate\Database\Eloquent\Model implements HasType, TenantContract
+// The tenant. HasType is optional - drop it if the app has no tenant type.
+class AppTenant extends Model implements HasType, TenantContract
 {
     use ActsAsTenant, ProvidesTenantType;
 }
@@ -450,36 +399,26 @@ class AppTenant extends \Illuminate\Database\Eloquent\Model implements HasType, 
 
 With that shape:
 
-- `Auth::identity()` returns the `AppIdentity` (the human)
-- `Auth::principal()` returns the `AppMembership` (the tenant-scoped actor) - resolved via the `pid` claim in the
-  access token, or via `resolveDefaultPrincipal()` on first login
-- `Auth::tenant()` returns the `AppTenant` the membership belongs to
-- `Auth::type()` returns the tenant's type string (e.g. `'staff'`, `'customer'`) when the tenant implements
-  `HasType`, and `null` otherwise; compose your own predicates at the call site (`Auth::type() === 'staff'`)
+- `Auth::identity()` returns the `AppIdentity`.
+- `Auth::principal()` returns the `AppMembership` - resolved via the `pid` claim, or via
+  `resolveDefaultPrincipal()` on first login.
+- `Auth::tenant()` returns the `AppTenant` the membership belongs to.
+- `Auth::type()` returns the tenant's type string, or `null` when `HasType` is absent.
 
-For 3D apps, `resolveDefaultPrincipal()` and the optional
-`ResolvesHintedPrincipal::resolveHintedPrincipal()` method are the package's
-query-shaping seams. If tenant access is hot on your request path, use those
-hooks to return the principal in a request-ready state: perform the joined
-lookup you need, attach the tenant relation you want `Auth::tenant()` to read,
-and set the inverse identity relation when appropriate.
+`resolveDefaultPrincipal()` and `resolveHintedPrincipal()` are the package's query-shaping seams. Use them to
+perform joined lookups and attach the tenant relation you want `Auth::tenant()` to read.
 
-If you need a domain-specific resolution strategy (scoped by subdomain, header, session claim, etc.), implement
-`SineMacula\Laravel\Authentication\Contracts\PrincipalResolver` yourself and bind it in a service provider:
+For domain-specific resolution (subdomain, header, session claim), implement `PrincipalResolver` and bind it in
+a service provider:
 
 ```php
 $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 ```
 
-All guards without a local `principal_resolver` override will use that binding for bearer-token and refresh
-resolution. Guards that do declare `auth.guards.<name>.principal_resolver` take precedence over the app-wide
-binding. No guard subclassing required.
-
 ### Active-state enforcement
 
 When an identity model implements `CanBeActive`, both guards consult `isActive()` on every bearer and credential
-path and reject authentication when it returns `false`. Use this for banned, suspended, or soft-deleted identities
-without relying on short access-token lifetimes alone:
+path and reject authentication when it returns `false`:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -497,23 +436,22 @@ class AppUser extends User implements Identity, Principal, CanBeActive
 
 ### HTTP Basic behind PHP-FPM / nginx
 
-The `basic` guard reads credentials via `Request::getUser()` / `Request::getPassword()`, which in turn pull from
-PHP's `$_SERVER['PHP_AUTH_USER']` / `PHP_AUTH_PW`. Behind **PHP-FPM + nginx**, the `Authorization` header is **not**
-automatically forwarded into those superglobals - the guard will see no credentials and return `null` from
-`Auth::user()`. Forward the header explicitly in your nginx site config:
+The `basic` guard reads credentials via `Request::getUser()` / `Request::getPassword()`, which pull from
+`$_SERVER['PHP_AUTH_USER']` / `PHP_AUTH_PW`. Behind **PHP-FPM + nginx**, the `Authorization` header is **not**
+forwarded into those superglobals by default - forward it explicitly:
 
 ```nginx
 location ~ \.php$ {
     fastcgi_pass_header Authorization;
-    # …rest of the fastcgi block
+    # ...rest of the fastcgi block
 }
 ```
 
-Apache with `mod_php` populates these variables automatically; the gotcha is specific to FastCGI transports.
+Apache with `mod_php` populates these variables automatically.
 
 ## Usage
 
-The contextual accessors are exposed on the standard `Auth` facade:
+Contextual accessors on the standard `Auth` facade:
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -525,18 +463,18 @@ Auth::identity();       // Identity|null   - the authenticated subject
 Auth::principal();      // Principal|null  - the acting principal
 Auth::device();         // Device|null     - the issuing device
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
-Auth::type();           // string|null     - the tenant's type, when the tenant declares HasType
+Auth::type();           // string|null     - the tenant's type when HasType is declared
 ```
 
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 
 ```php
 $tokens = Auth::jwt('api');
-$guard = auth()->guard('api');
+$guard  = auth()->guard('api');
 
 $accessToken = $tokens->issueAccessToken($identity, $principal, $device);
 
-$rotated = $guard->refresh($refreshToken);   // RefreshResult|null
+$rotated = $guard->refresh($refreshToken);
 
 if ($rotated === null) {
     // RefreshFailed event already dispatched with a machine-readable reason
@@ -551,7 +489,7 @@ return [
 
 ## Key Rotation
 
-For production deployments that need graceful signing-key rotation, configure `jwt.keys` and `jwt.active_kid`:
+For graceful signing-key rotation, configure `jwt.keys` and `jwt.active_kid`:
 
 ```php
 'jwt' => [
@@ -563,7 +501,7 @@ For production deployments that need graceful signing-key rotation, configure `j
 ],
 ```
 
-New tokens are signed with the active kid and carry it in the JWT header. The verifier accepts any kid present in the
+New tokens are signed with the active kid and carry it in the JWT header. The verifier accepts any kid in the
 map - add a new kid, point `active_kid` at it, retire the old kid once every token signed under it has expired.
 
 ## Events
