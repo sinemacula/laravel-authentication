@@ -5,9 +5,11 @@ declare(strict_types = 1);
 namespace Tests\Unit\Traits;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\Stub3dPrincipalWithOwnerRelation;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -15,14 +17,12 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Unit tests for the ActsAsPrincipal trait.
  *
- * Exercises the public trait surface without relying on explicit PHPUnit
- * coverage metadata for traits.
- *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
+#[CoversTrait(ActsAsPrincipal::class)]
 final class ActsAsPrincipalTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
