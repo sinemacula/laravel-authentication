@@ -28,3 +28,4 @@ Initial release of stateless contextual authentication for Laravel.
 - Hot-path benchmarks for JWT guard, Basic guard, refresh exchange, and device timestamp updates
 - Quality gates with scoped mutation testing (85% MSI) and scheduled full mutation suite
 - 100% line and method coverage across all source files
+- DELETE ME
