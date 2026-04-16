@@ -22,7 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
@@ -154,7 +154,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => 'rotation-id',
         ]);
 
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
 
         $exchange->exchange($token);
     }
@@ -411,7 +411,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => 'rotation-id',
         ]);
 
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
         $this->expectExceptionMessage(StubBareDevice::class);
 
         $exchange->exchange($token);

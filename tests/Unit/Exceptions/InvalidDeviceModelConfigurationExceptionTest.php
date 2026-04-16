@@ -7,20 +7,20 @@ namespace Tests\Unit\Exceptions;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Unit tests for the InvalidDeviceModelConfiguration exception.
+ * Unit tests for the InvalidDeviceModelConfigurationException.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(InvalidDeviceModelConfiguration::class)]
-final class InvalidDeviceModelConfigurationTest extends TestCase
+#[CoversClass(InvalidDeviceModelConfigurationException::class)]
+final class InvalidDeviceModelConfigurationExceptionTest extends TestCase
 {
     /**
      * `validate()` passes silently for a valid EloquentDevice model.
@@ -29,7 +29,7 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testValidatePassesForValidEloquentDeviceModel(): void
     {
-        InvalidDeviceModelConfiguration::validate(StubDevice::class);
+        InvalidDeviceModelConfigurationException::validate(StubDevice::class);
 
         self::assertTrue(true, 'validate() did not throw for a valid device model.');
     }
@@ -41,10 +41,10 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testValidateThrowsForEmptyString(): void
     {
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
         $this->expectExceptionMessage('(empty string)');
 
-        InvalidDeviceModelConfiguration::validate('');
+        InvalidDeviceModelConfigurationException::validate('');
     }
 
     /**
@@ -54,10 +54,10 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testValidateThrowsForNonexistentClass(): void
     {
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
         $this->expectExceptionMessage('App\Models\FakeDevice');
 
-        InvalidDeviceModelConfiguration::validate('App\Models\FakeDevice');
+        InvalidDeviceModelConfigurationException::validate('App\Models\FakeDevice');
     }
 
     /**
@@ -67,9 +67,9 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testValidateThrowsForNonModelClass(): void
     {
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
 
-        InvalidDeviceModelConfiguration::validate(\stdClass::class);
+        InvalidDeviceModelConfigurationException::validate(\stdClass::class);
     }
 
     /**
@@ -79,9 +79,9 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testValidateThrowsForModelWithoutEloquentDevice(): void
     {
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
 
-        InvalidDeviceModelConfiguration::validate(StubBareDevice::class);
+        InvalidDeviceModelConfigurationException::validate(StubBareDevice::class);
     }
 
     /**
@@ -92,7 +92,7 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testUnsupportedIncludesConfiguredClassInMessage(): void
     {
-        $exception = InvalidDeviceModelConfiguration::unsupported('App\BadDevice');
+        $exception = InvalidDeviceModelConfigurationException::unsupported('App\BadDevice');
 
         self::assertStringContainsString('App\BadDevice', $exception->getMessage());
         self::assertStringContainsString(
@@ -109,7 +109,7 @@ final class InvalidDeviceModelConfigurationTest extends TestCase
      */
     public function testUnsupportedDisplaysEmptyStringPlaceholder(): void
     {
-        $exception = InvalidDeviceModelConfiguration::unsupported('');
+        $exception = InvalidDeviceModelConfigurationException::unsupported('');
 
         self::assertStringContainsString('(empty string)', $exception->getMessage());
     }

@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class InvalidDeviceModelConfiguration extends \RuntimeException
+final class InvalidDeviceModelConfigurationException extends \RuntimeException
 {
     /**
      * Validate that the class satisfies the Eloquent device boundary.

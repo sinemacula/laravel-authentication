@@ -23,7 +23,7 @@ use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -116,7 +116,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public static function createJwtGuard(Application $app, string $name, array $config): JwtGuard
     {
@@ -129,7 +129,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $resolver  = $selection['resolver'];
         $events    = $app->make(Dispatcher::class);
 
-        InvalidDeviceModelConfiguration::validate(
+        InvalidDeviceModelConfigurationException::validate(
             $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
         );
 
