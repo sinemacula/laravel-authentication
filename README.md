@@ -91,9 +91,6 @@ Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-
 `Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. See
 `docs/design/access-only-mode.md`.
 
-Access-token `jti` values are not consulted on the bearer path. Revocation flows through the identity, principal,
-or device becoming unresolvable - not through a token blocklist.
-
 ## Configuration
 
 ### Guards and providers
@@ -151,12 +148,6 @@ Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. The `
 matches the guard that issued it, so tokens minted for one audience cannot authenticate against the other. Every
 field in the package `jwt` block is overridable (`secret`, `keys`, `active_kid`, `algorithm`,
 `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`).
-
-Issue tokens through the matching guard context:
-
-```php
-$token = Auth::jwt('staff')->issueAccessToken($identity, $principal, $device);
-```
 
 ### Per-guard basic-auth identifier field
 
@@ -271,16 +262,8 @@ final class UserObserver
 }
 ```
 
-If the auth identifier changes, invalidate both the previous and new identifier:
-
-```php
-$previous = $user->getOriginal($user->getAuthIdentifierName());
-
-app(ResolutionCacheInvalidator::class)->forgetIdentity($user, $previous);
-app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-```
-
-Do not enable the cache unless that invalidation wiring is in place.
+Do not enable the cache unless that invalidation wiring is in place. If the auth identifier itself changes, pass
+the previous identifier to `forgetIdentity()` as well.
 
 ## Identity Models
 
@@ -338,7 +321,6 @@ use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
-use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
@@ -346,8 +328,7 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
-// The human - Identity + HasPrincipals. Add HasDevices for refresh support.
-class AppIdentity extends User implements Identity, HasDevices, HasPrincipals, ResolvesHintedPrincipal
+class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
 {
     use Authenticatable;
 
@@ -365,19 +346,8 @@ class AppIdentity extends User implements Identity, HasDevices, HasPrincipals, R
     {
         return $this->principals()->where('is_active', true)->first();
     }
-
-    public function resolveHintedPrincipal(mixed $hint): ?PrincipalContract
-    {
-        return AppMembership::query()
-            ->join('app_tenants', 'app_tenants.id', '=', 'app_memberships.tenant_id')
-            ->where('app_memberships.identity_id', $this->getKey())
-            ->where('app_memberships.id', $hint)
-            ->select('app_memberships.*')
-            ->first();
-    }
 }
 
-// The acting principal - a per-tenant membership.
 class AppMembership extends Model implements PrincipalContract
 {
     use ActsAsPrincipal;
@@ -390,7 +360,6 @@ class AppMembership extends Model implements PrincipalContract
     }
 }
 
-// The tenant. HasType is optional - drop it if the app has no tenant type.
 class AppTenant extends Model implements HasType, TenantContract
 {
     use ActsAsTenant, ProvidesTenantType;
@@ -400,13 +369,13 @@ class AppTenant extends Model implements HasType, TenantContract
 With that shape:
 
 - `Auth::identity()` returns the `AppIdentity`.
-- `Auth::principal()` returns the `AppMembership` - resolved via the `pid` claim, or via
-  `resolveDefaultPrincipal()` on first login.
+- `Auth::principal()` returns the `AppMembership` - resolved via `principals()->find($pid)` when the JWT carries
+  a `pid`, or via `resolveDefaultPrincipal()` otherwise.
 - `Auth::tenant()` returns the `AppTenant` the membership belongs to.
 - `Auth::type()` returns the tenant's type string, or `null` when `HasType` is absent.
 
-`resolveDefaultPrincipal()` and `resolveHintedPrincipal()` are the package's query-shaping seams. Use them to
-perform joined lookups and attach the tenant relation you want `Auth::tenant()` to read.
+Implement `ResolvesHintedPrincipal` on the identity to replace the default `principals()->find($hint)` lookup
+with a custom query - for example, joining the tenant row in one SQL so `Auth::tenant()` does not lazy-load.
 
 For domain-specific resolution (subdomain, header, session claim), implement `PrincipalResolver` and bind it in
 a service provider:
