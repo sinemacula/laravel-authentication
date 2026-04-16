@@ -4,21 +4,23 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
 use Tests\Unit\Stubs\StubTenant;
 use Tests\Unit\Stubs\StubTenantWithCustomIdentifier;
 
 /**
  * Unit tests for the package ActsAsTenant trait.
  *
- * Exercises the public trait surface through named Eloquent stubs without
- * relying on explicit PHPUnit coverage metadata for traits.
+ * Exercises the public trait surface through named Eloquent stubs.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
+#[CoversTrait(ActsAsTenant::class)]
 final class ActsAsTenantTest extends TestCase
 {
     /**

@@ -4,20 +4,22 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
+use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
  * Unit tests for the package Authenticatable trait.
  *
- * Exercises the public trait surface through a named Eloquent stub without
- * relying on explicit PHPUnit coverage metadata for traits.
+ * Exercises the public trait surface through a named Eloquent stub.
  *
  * @internal
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
+#[CoversTrait(Authenticatable::class)]
 final class AuthenticatableTest extends TestCase
 {
     /**
