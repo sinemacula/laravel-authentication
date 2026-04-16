@@ -619,7 +619,7 @@ All concrete classes in this package are `final`. Extension is through **composi
 
 ```bash
 composer test
-composer test-coverage
+composer test:coverage
 composer check
 ```
 
