@@ -15,10 +15,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * contextual surface so activity-log consumers can attribute the refresh
  * without a second round-trip through the guard.
  *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class Refreshed implements ShouldDispatchAfterCommit
+final readonly class Refreshed implements ShouldDispatchAfterCommit
 {
     use SerializesModels;
 

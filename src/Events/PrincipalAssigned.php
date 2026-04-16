@@ -10,10 +10,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 /**
  * Dispatched when a principal is bound to a guard during authentication.
  *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class PrincipalAssigned
+final readonly class PrincipalAssigned
 {
     use SerializesModels;
 

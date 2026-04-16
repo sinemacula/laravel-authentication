@@ -17,7 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
@@ -87,7 +87,7 @@ final class RefreshTokenExchange
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public function exchange(#[\SensitiveParameter] string $refreshToken): ?ExchangedRefresh
     {
@@ -258,7 +258,7 @@ final class RefreshTokenExchange
      * @param  mixed  $id
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     private function findDeviceById(mixed $id): (EloquentDevice&Model)|null
     {
@@ -290,13 +290,13 @@ final class RefreshTokenExchange
      *
      * @formatter:on
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     private function configuredDeviceModelClass(): string
     {
         $class = Config::string('authentication.device.model', '');
 
-        InvalidDeviceModelConfiguration::validate($class);
+        InvalidDeviceModelConfigurationException::validate($class);
 
         /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
         return $class;

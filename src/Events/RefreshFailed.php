@@ -10,10 +10,12 @@ use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
  * Dispatched when a refresh-token exchange fails. Carries a machine-readable
  * `reason` code for attribution.
  *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class RefreshFailed
+final readonly class RefreshFailed
 {
     /**
      * Constructor.

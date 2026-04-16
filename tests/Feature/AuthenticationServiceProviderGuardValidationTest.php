@@ -12,7 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\StubAlternateGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -112,7 +112,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     {
         config()->set('authentication.device.model', '');
 
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
         $this->expectExceptionMessage('authentication.device.model');
 
         AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
@@ -134,7 +134,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     {
         config()->set('authentication.device.model', StubBareDevice::class);
 
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
         $this->expectExceptionMessage(StubBareDevice::class);
 
         AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
@@ -155,7 +155,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
     {
         config()->set('authentication.device.model', PlainDeviceFixture::class);
 
-        $this->expectException(InvalidDeviceModelConfiguration::class);
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
         $this->expectExceptionMessage(PlainDeviceFixture::class);
 
         AuthenticationServiceProvider::createJwtGuard($this->app, 'custom_jwt', [
