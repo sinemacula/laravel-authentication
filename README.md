@@ -525,9 +525,16 @@ All concrete classes in this package are `final`. Extension is through **composi
 ## Testing
 
 ```bash
-composer test
-composer test:coverage
-composer check
+composer test               # all suites in parallel (Paratest)
+composer test:coverage      # all suites with clover coverage
+composer test:unit          # unit suite only
+composer test:feature       # feature suite only
+composer test:integration   # integration suite only
+composer test:performance   # performance budget suite (serial)
+composer test:mutation      # scoped mutation gate
+composer test:mutation:full # full mutation suite (no thresholds)
+composer bench              # PHPBench hot-path benchmarks
+composer check              # static analysis + style
 ```
 
 ## Changelog
