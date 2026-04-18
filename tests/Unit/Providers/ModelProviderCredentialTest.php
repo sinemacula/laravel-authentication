@@ -53,26 +53,6 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
-     * Data provider for
-     * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
-     *
-     * @return \Generator<string, array{0: mixed}>
-     */
-    public static function provideNonStringPasswords(): \Generator
-    {
-        yield from [
-            'integer'      => [123],
-            'float'        => [1.5],
-            'true'         => [true],
-            'false'        => [false],
-            'array'        => [['secret']],
-            'object'       => [new \stdClass],
-            'null'         => [null],
-            'empty-string' => [''],
-        ];
-    }
-
-    /**
      * Password-like keys are filtered case-insensitively and do not block
      * later valid credentials from reaching the query.
      *
@@ -252,6 +232,26 @@ final class ModelProviderCredentialTest extends TestCase
         $this->hasher->shouldNotReceive('check');
 
         self::assertFalse($provider->validateCredentials($user, []));
+    }
+
+    /**
+     * Data provider for
+     * `testValidateCredentialsReturnsFalseWhenPasswordNotString`.
+     *
+     * @return \Generator<string, array{0: mixed}>
+     */
+    public static function provideNonStringPasswords(): iterable
+    {
+        yield from [
+            'integer'      => [123],
+            'float'        => [1.5],
+            'true'         => [true],
+            'false'        => [false],
+            'array'        => [['secret']],
+            'object'       => [new \stdClass],
+            'null'         => [null],
+            'empty-string' => [''],
+        ];
     }
 
     /**

@@ -188,7 +188,7 @@ final class ModelProviderConstructorTest extends TestCase
      *
      * @return \Generator<string, array{0: string}>
      */
-    public static function providePasswordKeyVariants(): \Generator
+    public static function providePasswordKeyVariants(): iterable
     {
         yield from [
             'password'              => ['password'],
