@@ -190,7 +190,7 @@ final class JwtGuardBenchHarness
                 ) {}
 
                 /**
-                 * @param  string|null  $name
+                 * @param  string|\UnitEnum|null  $name
                  * @return \Illuminate\Contracts\Cache\Repository
                  */
                 #[\Override]
