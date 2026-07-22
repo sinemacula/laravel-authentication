@@ -50,6 +50,14 @@ jobs:
                         laravel:
                             constraint: ^12.40
                             label: 12
+                    -   php: 8.4
+                        laravel:
+                            constraint: ^12.40
+                            label: 12
+                    -   php: 8.5
+                        laravel:
+                            constraint: ^12.40
+                            label: 12
                     -   php: 8.3
                         laravel:
                             constraint: ^13.3
