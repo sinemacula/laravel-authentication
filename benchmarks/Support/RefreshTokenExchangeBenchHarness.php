@@ -10,12 +10,12 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -27,7 +27,6 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
-use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
@@ -216,62 +215,10 @@ final class RefreshTokenExchangeBenchHarness
      */
     private function createSchema(): void
     {
-        $schema = BenchDatabase::schema();
-
-        if (!$schema->hasTable('stub_principals')) {
-            $schema->create('stub_principals', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('email')->unique();
-                $blueprint->string('password');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('devices')) {
-            $schema->create('devices', static function (Blueprint $blueprint): void {
-                $blueprint->uuid('id')->primary();
-                $blueprint->string('authenticatable_type');
-                $blueprint->string('authenticatable_id');
-                $blueprint->index(['authenticatable_type', 'authenticatable_id']);
-                $blueprint->string('os');
-                $blueprint->string('refresh_key', 64)->nullable()->index();
-                $blueprint->timestamp('revoked_at')->nullable();
-                $blueprint->timestamp('last_logged_in_at')->nullable();
-                $blueprint->timestamp('last_mfa_verified_at')->nullable();
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('tenant_aware_3d_identities')) {
-            $schema->create('tenant_aware_3d_identities', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('email')->unique();
-                $blueprint->string('password');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('tenant_aware_3d_tenants')) {
-            $schema->create('tenant_aware_3d_tenants', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('name');
-                $blueprint->string('type');
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('tenant_aware_3d_principals')) {
-            $schema->create('tenant_aware_3d_principals', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->unsignedInteger('identity_id');
-                $blueprint->unsignedInteger('tenant_id');
-                $blueprint->string('name');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
+        BenchSchema::ensureIdentityTable('stub_principals');
+        BenchSchema::ensureIdentityTable('tenant_aware_3d_identities');
+        BenchSchema::ensureDeviceTable();
+        BenchSchema::ensureTenantTables();
     }
 
     /**
@@ -326,21 +273,44 @@ final class RefreshTokenExchangeBenchHarness
             return;
         }
 
+        $this->successTokens = $this->issueRefreshTokenPool(
+            'bench-refresh-success-',
+            StubPrincipal::class,
+            (string) $identity->getKey(), // @phpstan-ignore cast.string
+            $identity,
+        );
+    }
+
+    /**
+     * Pre-issue a pool of refresh tokens, each bound to its own device row.
+     *
+     * @param  string  $prefix
+     * @param  class-string  $ownerClass
+     * @param  string  $ownerId
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return list<string>
+     */
+    private function issueRefreshTokenPool(string $prefix, string $ownerClass, string $ownerId, Principal $principal): array
+    {
+        $pool = [];
+
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
 
-            $rotationId = 'bench-refresh-success-' . $index;
+            $rotationId = $prefix . $index;
 
             $device = new Device;
             $device->forceFill([
-                'authenticatable_type' => StubPrincipal::class,
-                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-                'os'                   => 'bench-refresh-success-' . $index,
+                'authenticatable_type' => $ownerClass,
+                'authenticatable_id'   => $ownerId,
+                'os'                   => $prefix . $index,
                 'refresh_key'          => RefreshTokenHasher::hash($rotationId),
                 'last_logged_in_at'    => Carbon::now(),
             ])->save();
 
-            $this->successTokens[] = $this->tokens->issueRefreshToken($device, $rotationId, $identity);
+            $pool[] = $this->tokens->issueRefreshToken($device, $rotationId, $principal);
         }
+
+        return $pool;
     }
 
     /**
@@ -370,69 +340,17 @@ final class RefreshTokenExchangeBenchHarness
             $tenantAwareIdentity->save();
         }
 
-        $tenant = TenantAware3dTenant::query()
-            ->where('name', 'Bench Refresh Staff')
-            ->first();
+        $tenantAwarePrincipal = TenantFixtures::seedTenantPrincipal(
+            $tenantAwareIdentity,
+            TenantFixtures::seedTenant('Bench Refresh Staff', 'staff'),
+            'bench-refresh-tenant-actor',
+        );
 
-        if (!$tenant instanceof TenantAware3dTenant) {
-
-            $tenant       = new TenantAware3dTenant;
-            $tenant->name = 'Bench Refresh Staff';
-            $tenant->type = 'staff';
-            $tenant->save();
-        }
-
-        $tenantAwarePrincipal = TenantAware3dPrincipal::query()
-            ->where('identity_id', $tenantAwareIdentity->getKey())
-            ->where('name', 'bench-refresh-tenant-actor')
-            ->first();
-
-        if (!$tenantAwarePrincipal instanceof TenantAware3dPrincipal) {
-
-            /** @var int $identityKey */
-            $identityKey = $tenantAwareIdentity->getKey();
-            /** @var int $tenantKey */
-            $tenantKey = $tenant->getKey();
-
-            $tenantAwarePrincipal              = new TenantAware3dPrincipal;
-            $tenantAwarePrincipal->identity_id = $identityKey;
-            $tenantAwarePrincipal->tenant_id   = $tenantKey;
-            $tenantAwarePrincipal->name        = 'bench-refresh-tenant-actor';
-            $tenantAwarePrincipal->is_active   = true;
-            $tenantAwarePrincipal->save();
-        }
-
-        $secondaryTenant = TenantAware3dTenant::query()
-            ->where('name', 'Bench Refresh Customer')
-            ->first();
-
-        if (!$secondaryTenant instanceof TenantAware3dTenant) {
-
-            $secondaryTenant       = new TenantAware3dTenant;
-            $secondaryTenant->name = 'Bench Refresh Customer';
-            $secondaryTenant->type = 'customer';
-            $secondaryTenant->save();
-        }
-
-        $secondaryPrincipal = TenantAware3dPrincipal::query()
-            ->where('identity_id', $tenantAwareIdentity->getKey())
-            ->where('name', 'bench-refresh-customer-actor')
-            ->first();
-
-        if (!$secondaryPrincipal instanceof TenantAware3dPrincipal) {
-
-            /** @var int $identityKey */
-            $identityKey = $tenantAwareIdentity->getKey();
-            /** @var int $secondaryTenantKey */
-            $secondaryTenantKey = $secondaryTenant->getKey();
-
-            $secondaryPrincipal              = new TenantAware3dPrincipal;
-            $secondaryPrincipal->identity_id = $identityKey;
-            $secondaryPrincipal->tenant_id   = $secondaryTenantKey;
-            $secondaryPrincipal->name        = 'bench-refresh-customer-actor';
-            $secondaryPrincipal->is_active   = true;
-            $secondaryPrincipal->save();
-        }
+        $secondaryPrincipal = TenantFixtures::seedTenantPrincipal(
+            $tenantAwareIdentity,
+            TenantFixtures::seedTenant('Bench Refresh Customer', 'customer'),
+            'bench-refresh-customer-actor',
+        );
 
         return [$tenantAwareIdentity, $tenantAwarePrincipal, $secondaryPrincipal];
     }
@@ -448,43 +366,24 @@ final class RefreshTokenExchangeBenchHarness
     private function seedTenantAwareSuccessTokens(TenantAware3dIdentity $identity, TenantAware3dPrincipal $tenantAwarePrincipal, TenantAware3dPrincipal $secondaryPrincipal): void
     {
         if ($this->tenantAwareSuccessTokens === []) {
-
-            for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
-
-                $rotationId = 'bench-refresh-tenant-success-' . $index;
-
-                $device = new Device;
-                $device->forceFill([
-                    'authenticatable_type' => TenantAware3dIdentity::class,
-                    'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-                    'os'                   => 'bench-refresh-tenant-success-' . $index,
-                    'refresh_key'          => RefreshTokenHasher::hash($rotationId),
-                    'last_logged_in_at'    => Carbon::now(),
-                ])->save();
-
-                $this->tenantAwareSuccessTokens[] = $this->tokens->issueRefreshToken($device, $rotationId, $tenantAwarePrincipal);
-            }
+            $this->tenantAwareSuccessTokens = $this->issueRefreshTokenPool(
+                'bench-refresh-tenant-success-',
+                TenantAware3dIdentity::class,
+                (string) $identity->getKey(), // @phpstan-ignore cast.string
+                $tenantAwarePrincipal,
+            );
         }
 
         if ($this->tenantAwareSecondarySuccessTokens !== []) {
             return;
         }
 
-        for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
-
-            $rotationId = 'bench-refresh-tenant-secondary-success-' . $index;
-
-            $device = new Device;
-            $device->forceFill([
-                'authenticatable_type' => TenantAware3dIdentity::class,
-                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-                'os'                   => 'bench-refresh-tenant-secondary-success-' . $index,
-                'refresh_key'          => RefreshTokenHasher::hash($rotationId),
-                'last_logged_in_at'    => Carbon::now(),
-            ])->save();
-
-            $this->tenantAwareSecondarySuccessTokens[] = $this->tokens->issueRefreshToken($device, $rotationId, $secondaryPrincipal);
-        }
+        $this->tenantAwareSecondarySuccessTokens = $this->issueRefreshTokenPool(
+            'bench-refresh-tenant-secondary-success-',
+            TenantAware3dIdentity::class,
+            (string) $identity->getKey(), // @phpstan-ignore cast.string
+            $secondaryPrincipal,
+        );
     }
 
     /**

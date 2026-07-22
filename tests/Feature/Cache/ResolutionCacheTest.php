@@ -11,15 +11,14 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
 use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Feature tests for the shared bearer-resolution cache store
- * operations.
+ * Feature tests for the shared bearer-resolution cache store operations.
  *
  * Covers `StoreBackedResolutionCache` read, write, TTL, clone, and
  * error-handling paths. Eviction and invalidator tests live in
@@ -38,6 +37,7 @@ final class ResolutionCacheTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -58,6 +58,7 @@ final class ResolutionCacheTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Cache::store()->clear();
@@ -174,8 +175,8 @@ final class ResolutionCacheTest extends TestCase
     /**
      * When the cache contains a non-Identity/Model value (e.g. a corrupted
      * entry), `loadCachedIdentity` forgets the key and falls back to the live
-     * resolver. Mutation guard: pins the `$cached !== null` cleanup branch
-     * and the `forgetKey()` call.
+     * resolver. Mutation guard: pins the `$cached !== null` cleanup branch and
+     * the `forgetKey()` call.
      *
      * The resolver returns `null` so `storeResolvedIdentity` skips writing,
      * making the cleanup the only operation that removes the corrupted entry.
@@ -221,8 +222,8 @@ final class ResolutionCacheTest extends TestCase
         self::assertSame(1, $calls);
         self::assertNull($result);
 
-        // The corrupted entry should have been removed by the cleanup
-        // branch, and null resolved means nothing was re-stored.
+        // The corrupted entry should have been removed by the cleanup branch,
+        // and null resolved means nothing was re-stored.
         self::assertNull(Cache::store()->get($cacheKey));
     }
 
@@ -442,6 +443,7 @@ final class ResolutionCacheTest extends TestCase
      * @param  mixed  $app
      * @return void
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

@@ -24,8 +24,8 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 final class AuthenticationServiceProviderHelpersTest extends TestCase
 {
     /**
-     * `registerPublishing()` short-circuits when the application is not
-     * running in the console: invoking the protected method directly with
+     * `registerPublishing()` short-circuits when the application is not running
+     * in the console: invoking the protected method directly with
      * `runningInConsole()` returning false must NOT register a publish group.
      *
      * @return void

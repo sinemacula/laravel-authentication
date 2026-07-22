@@ -23,13 +23,12 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 
 /**
- * Unit tests for the BasicGuard success path, state lifecycle, event
- * dispatch, and constructor configuration.
+ * Unit tests for the BasicGuard success path, state lifecycle, event dispatch,
+ * and constructor configuration.
  *
- * Covers the happy-path login flow, logout/state clearing, timebox
- * integration, identifier-field configuration, and event assertions.
- * Credential extraction and validation failure tests live in
- * BasicGuardTest.
+ * Covers the happy-path login flow, logout/state clearing, timebox integration,
+ * identifier-field configuration, and event assertions. Credential extraction
+ * and validation failure tests live in BasicGuardTest.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -64,6 +63,7 @@ final class BasicGuardLoginTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -171,8 +171,8 @@ final class BasicGuardLoginTest extends TestCase
     /**
      * `user()` short-circuits and returns the already-bound identity (set via
      * the parent `setUser()`) without invoking the identity provider, the
-     * resolver, or the dispatcher. Pins the `$this->identity !== null` guard
-     * in `user()`.
+     * resolver, or the dispatcher. Pins the `$this->identity !== null` guard in
+     * `user()`.
      *
      * @return void
      */
@@ -425,6 +425,7 @@ final class BasicGuardLoginTest extends TestCase
             /**
              * @return static
              */
+            #[\Override]
             public function returnEarly(): static
             {
                 $this->returnEarlyCalled = true;
@@ -486,9 +487,11 @@ final class BasicGuardLoginTest extends TestCase
 
         $this->events->shouldReceive('dispatch')
             ->andReturnUsing(static function (object $event) use (&$attemptingEvent): void {
-                if ($event instanceof Attempting) {
-                    $attemptingEvent = $event;
+                if (!$event instanceof Attempting) {
+                    return;
                 }
+
+                $attemptingEvent = $event;
             });
 
         $guard->user();
@@ -498,8 +501,8 @@ final class BasicGuardLoginTest extends TestCase
     }
 
     /**
-     * Instantiate BasicGuard with the current set of collaborator mocks and
-     * the supplied request. Uses the default `email` identifier field.
+     * Instantiate BasicGuard with the current set of collaborator mocks and the
+     * supplied request. Uses the default `email` identifier field.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard

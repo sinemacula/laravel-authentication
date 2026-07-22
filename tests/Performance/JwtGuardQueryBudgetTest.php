@@ -32,7 +32,8 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 {
-    private const TEST_PASSWORD = 'correct horse battery staple';
+    /** @var string Shared plaintext password for the seeded fixtures. */
+    private const string TEST_PASSWORD = 'correct horse battery staple';
 
     /** @var string Guard name for 2D access-only bearer tests. */
     private const string ACCESS_ONLY_GUARD = 'access_only';

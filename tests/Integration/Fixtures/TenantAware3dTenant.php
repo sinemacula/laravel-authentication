@@ -5,10 +5,10 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
-use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
 /**
  * Tenant fixture for the tenant-aware 3D resolution tests.

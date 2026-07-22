@@ -28,7 +28,6 @@ final class StubFixedPrincipalResolver implements PrincipalResolver
 
         /** Fixed principal returned by every resolution. */
         private readonly Principal $principal,
-
     ) {}
 
     /**

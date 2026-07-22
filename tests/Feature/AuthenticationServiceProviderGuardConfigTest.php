@@ -25,9 +25,8 @@ use Tests\Unit\Stubs\StubIdentity;
  * Feature tests for the basic guard's config override layering on
  * `AuthenticationServiceProvider`'s guard factories.
  *
- * Covers the basic driver's `identifier_field` and
- * `principal_resolver` per-guard overrides plus their fallback to
- * package-wide defaults.
+ * Covers the basic driver's `identifier_field` and `principal_resolver`
+ * per-guard overrides plus their fallback to package-wide defaults.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -232,10 +231,8 @@ final class AuthenticationServiceProviderGuardConfigTest extends TestCase
      * @param  string  $password
      * @return \Illuminate\Http\Request
      */
-    private function createRequestWithBasicAuth(
-        string $username,
-        string $password,
-    ): Request {
+    private function createRequestWithBasicAuth(string $username, string $password): Request
+    {
         return Request::create(
             '/',
             'GET',
@@ -289,10 +286,8 @@ final class AuthenticationServiceProviderGuardConfigTest extends TestCase
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return void
      */
-    private function bindMockGuardScopedResolver(
-        string $class,
-        Principal $principal,
-    ): void {
+    private function bindMockGuardScopedResolver(string $class, Principal $principal): void
+    {
         $resolver = \Mockery::mock(PrincipalResolver::class);
         $resolver->shouldReceive('resolve')->andReturn($principal);
 

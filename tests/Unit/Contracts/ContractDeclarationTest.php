@@ -42,8 +42,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 final class ContractDeclarationTest extends TestCase
 {
     /**
-     * `IdentityProvider` extends Laravel's framework `UserProvider` contract
-     * so the package provider drops into Laravel's `Auth::createUserProvider()`
+     * `IdentityProvider` extends Laravel's framework `UserProvider` contract so
+     * the package provider drops into Laravel's `Auth::createUserProvider()`
      * factory unchanged.
      *
      * @return void
@@ -288,9 +288,8 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `JwtGuard` implements Laravel's framework `Guard` contract so
-     * first-party `Auth::guard()->user()` calls return a framework- compatible
-     * guard.
+     * `JwtGuard` implements Laravel's framework `Guard` contract so first-party
+     * `Auth::guard()->user()` calls return a framework- compatible guard.
      *
      * @return void
      */

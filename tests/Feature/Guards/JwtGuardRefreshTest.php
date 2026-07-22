@@ -8,7 +8,6 @@ use Carbon\Carbon;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -250,8 +249,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     /**
      * A refresh attempt against a device whose `revoked_at` column is set
      * returns null and fires `RefreshFailed` with reason `device_revoked`,
-     * regardless of whether the rotation id verifies against the stored
-     * digest.
+     * regardless of whether the rotation id verifies against the stored digest.
      *
      * @return void
      *
@@ -292,9 +290,9 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     /**
      * Reuse-detection regression test.
      *
-     * When the refresh token verifies against the device's in-memory digest
-     * but the atomic CAS affects zero rows - meaning the database row's digest
-     * has been changed since the read, typically by a concurrent refresh or a
+     * When the refresh token verifies against the device's in-memory digest but
+     * the atomic CAS affects zero rows - meaning the database row's digest has
+     * been changed since the read, typically by a concurrent refresh or a
      * stolen-token replay - the exchange service revokes the entire device and
      * dispatches `RefreshFailed` with reason `rotation_reuse`. We simulate the
      * race by mutating the sqlite row directly between the setRelation() setup
@@ -460,9 +458,11 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $this->events->shouldReceive('dispatch')
             ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
-                if ($event instanceof Failed) {
-                    $failedEvent = $event;
+                if (!$event instanceof Failed) {
+                    return;
                 }
+
+                $failedEvent = $event;
             });
 
         $guard->refresh('not-a-jwt');
@@ -474,10 +474,10 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
     /**
      * Allow the standard `Attempting` + `Failed` events that every failed
-     * `JwtGuard::refresh()` call now dispatches (alongside the
-     * package-specific `RefreshFailed` event). Tests that assert a specific
-     * `RefreshFailed` reason call this helper first to permit the standard
-     * events without constraining them.
+     * `JwtGuard::refresh()` call now dispatches (alongside the package-specific
+     * `RefreshFailed` event). Tests that assert a specific `RefreshFailed`
+     * reason call this helper first to permit the standard events without
+     * constraining them.
      *
      * @return void
      */

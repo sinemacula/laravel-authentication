@@ -53,7 +53,8 @@ final class JwtTokenService
      */
     public function __construct(
 
-        // Pre-built keyring, or a single HMAC secret to wrap in a one-kid keyring.
+        // Pre-built keyring, or a single HMAC secret to wrap in a one-kid
+        // keyring.
         #[\SensitiveParameter] JwtKeyring|string $secretOrKeyring,
 
         /** JWS signing algorithm (e.g. `HS256`, `RS256`). */
@@ -74,9 +75,9 @@ final class JwtTokenService
         /** Optional `aud` claim; rejects tokens with a different audience. */
         private ?string $audience = null,
 
-        // Optional PSR-3 logger for parse-failure debug traces; defaults to NullLogger.
+        // Optional PSR-3 logger for parse-failure debug traces; defaults to
+        // NullLogger.
         ?LoggerInterface $logger = null,
-
     ) {
         $this->keyring = is_string($secretOrKeyring)
             ? JwtKeyring::fromSecret($secretOrKeyring, $algorithm)

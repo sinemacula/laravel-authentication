@@ -19,6 +19,7 @@ final class Stub3dPrincipalWithOwnerRelation extends Stub3dPrincipal
      *
      * @return string
      */
+    #[\Override]
     protected function getIdentityRelationName(): string
     {
         return 'owner';

@@ -14,8 +14,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
  * Unit tests for the `JwtKeyring` value object.
  *
  * Asserts the fail-closed validation surface (empty secrets, empty key maps,
- * unknown active kids, malformed entries) and the two shape contracts the
- * token service relies on: legacy mode returns a single `Key` from
+ * unknown active kids, malformed entries) and the two shape contracts the token
+ * service relies on: legacy mode returns a single `Key` from
  * `verificationKeys()` and emits no kid header, kid mode returns a `kid → Key`
  * map and emits the active kid.
  *
@@ -131,8 +131,8 @@ final class JwtKeyringTest extends TestCase
     /**
      * Asserts `fromKeyMap()` rejects a `kid -> secret` map containing an
      * empty-string kid alongside a valid one. The active-kid presence check at
-     * the top of the factory passes (the active kid is the non-empty entry),
-     * so the iteration in `buildKeyMap()` surfaces the empty-kid guard.
+     * the top of the factory passes (the active kid is the non-empty entry), so
+     * the iteration in `buildKeyMap()` surfaces the empty-kid guard.
      *
      * @return void
      */

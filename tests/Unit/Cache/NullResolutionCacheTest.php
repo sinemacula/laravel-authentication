@@ -24,7 +24,7 @@ final class NullResolutionCacheTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /** @var string Stub provider model class for all cache tests. */
-    private const PROVIDER_MODEL = 'App\Models\User';
+    private const string PROVIDER_MODEL = 'App\Models\User';
 
     /**
      * `rememberJwtIdentity()` delegates to the resolver and returns its result

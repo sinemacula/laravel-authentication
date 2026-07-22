@@ -5,10 +5,10 @@ declare(strict_types = 1);
 namespace Tests\Unit\Stubs;
 
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
-use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
 
 /**
  * Eloquent stub implementing the `Tenant` contract plus the optional `HasType`
@@ -18,6 +18,8 @@ use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
+ *
+ * @inheritable
  */
 class StubTenant extends Model implements HasType, Tenant
 {

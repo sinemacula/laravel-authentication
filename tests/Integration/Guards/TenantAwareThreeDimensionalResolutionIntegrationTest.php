@@ -34,7 +34,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(DefaultPrincipalResolver::class)]
 final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCase
 {
-    private const TEST_PASSWORD = 'correct horse battery staple';
+    /** @var string Shared plaintext password for the seeded fixtures. */
+    private const string TEST_PASSWORD = 'correct horse battery staple';
 
     /** @var string JWT guard name for 3D bearer tests. */
     private const string JWT_GUARD = 'api_3d';
@@ -50,6 +51,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -92,6 +94,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -204,6 +207,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

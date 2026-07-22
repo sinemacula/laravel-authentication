@@ -29,6 +29,8 @@ interface ContextualGuard extends Guard
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return bool
+     *
+     * @imperative
      */
     public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool;
 

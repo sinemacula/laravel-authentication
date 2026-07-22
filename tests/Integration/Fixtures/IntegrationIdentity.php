@@ -6,12 +6,12 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Minimal Eloquent fixture used by the integration tests.
@@ -42,11 +42,6 @@ final class IntegrationIdentity extends Model implements HasDevices, Identity, P
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
 
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'is_active' => 'boolean',
-    ];
-
     /**
      * Eloquent relation builder for the identity's devices.
      *
@@ -56,10 +51,24 @@ final class IntegrationIdentity extends Model implements HasDevices, Identity, P
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
+    #[\Override]
     public function devices(): Builder
     {
         return Device::query()
             ->where('authenticatable_type', self::class)
             ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+        ];
     }
 }

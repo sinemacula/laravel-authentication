@@ -18,9 +18,9 @@ use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -171,7 +171,7 @@ abstract class JwtGuardTestCase extends TestCase
      * supplied request.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -274,8 +274,8 @@ abstract class JwtGuardTestCase extends TestCase
      * Swap the configured device model to `StubInjectableDevice`, whose
      * `newQuery()` yields a Builder mock that returns the supplied in-memory
      * device from `find()`. This lets the refresh tests keep their manually
-     * preset `authenticatable` relation intact rather than re-fetching from
-     * the DB (which would clear the relation).
+     * preset `authenticatable` relation intact rather than re-fetching from the
+     * DB (which would clear the relation).
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
      * @return void

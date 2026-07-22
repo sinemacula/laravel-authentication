@@ -14,12 +14,14 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
  * Eloquent-backed identity provider.
  *
  * Mirrors the surface of Laravel's `EloquentUserProvider` minus the remember-me
- * token methods, which are inert for this stateless package. Non-`final` so
- * consumers may subclass `createModel()` or `retrieveByCredentials()` for
- * tenant scoping, soft-delete exclusion, or other domain-specific lookups.
+ * token methods, which are inert for this stateless package. Consumers may
+ * subclass `createModel()` or `retrieveByCredentials()` for tenant scoping,
+ * soft-delete exclusion, or other domain-specific lookups.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
+ *
+ * @inheritable
  */
 class ModelProvider implements IdentityProvider
 {
@@ -38,7 +40,6 @@ class ModelProvider implements IdentityProvider
 
         /** Fully-qualified Eloquent model class name to authenticate against. */
         protected string $model,
-
     ) {
         if ($model === '') {
 

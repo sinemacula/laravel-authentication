@@ -48,8 +48,8 @@ final class AuthManagerTest extends TestCase
     }
 
     /**
-     * The package `AuthManager` exposes a concrete `jwt()` instance method
-     * that resolves a guard-scoped `JwtTokenService`.
+     * The package `AuthManager` exposes a concrete `jwt()` instance method that
+     * resolves a guard-scoped `JwtTokenService`.
      *
      * @return void
      *
@@ -78,8 +78,7 @@ final class AuthManagerTest extends TestCase
      * driver maps onto the receiver so guards and providers registered before
      * the package boot survive the container swap. Verified observably: after
      * inheritance, the receiver resolves the donor's `inherited-guard` and
-     * `inherited-provider` driver names to the donor-supplied factory
-     * closures.
+     * `inherited-provider` driver names to the donor-supplied factory closures.
      *
      * @return void
      */
@@ -134,8 +133,8 @@ final class AuthManagerTest extends TestCase
      * when the donor has no custom creators registered. Pins the empty-array
      * short-circuit in `inheritDriversFrom()`: a freshly bound provider that
      * points at an unregistered custom driver still raises
-     * `InvalidArgumentException`, proving the empty donor did not silently
-     * leak driver registrations.
+     * `InvalidArgumentException`, proving the empty donor did not silently leak
+     * driver registrations.
      *
      * @return void
      */
