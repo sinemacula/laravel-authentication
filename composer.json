@@ -94,10 +94,10 @@
             "@php vendor/bin/phpunit --testsuite Performance --coverage-clover=clover.xml"
         ],
         "test:mutation": [
-            "@php vendor/bin/infection --configuration=infection.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases --min-msi=85 --min-covered-msi=90"
+            "@php vendor/bin/infection --configuration=infection.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases --threads=max --min-msi=85 --min-covered-msi=90 --ignore-msi-with-no-mutations"
         ],
         "test:mutation:full": [
-            "@php vendor/bin/infection --configuration=infection.full.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases"
+            "@php vendor/bin/infection --configuration=infection.full.json5 --test-framework-options=\"--do-not-fail-on-warning --do-not-fail-on-phpunit-warning\" --only-covering-test-cases --threads=max"
         ],
         "bench": [
             "@php vendor/bin/phpbench run benchmarks --config=phpbench.json --progress=plain --report=aggregate"
