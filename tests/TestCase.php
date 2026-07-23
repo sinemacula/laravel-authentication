@@ -32,6 +32,7 @@ abstract class TestCase extends OrchestraTestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [
@@ -42,13 +43,14 @@ abstract class TestCase extends OrchestraTestCase
     /**
      * Seed the database connection and package config defaults.
      *
-     * Reads `DB_CONNECTION` from the environment to select the driver.
-     * Defaults to in-memory SQLite when unset, so local development needs
-     * no extra configuration.
+     * Reads `DB_CONNECTION` from the environment to select the driver. Defaults
+     * to in-memory SQLite when unset, so local development needs no extra
+     * configuration.
      *
      * @param  mixed  $app
      * @return void
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         /** @var \Illuminate\Config\Repository $config */
@@ -77,17 +79,20 @@ abstract class TestCase extends OrchestraTestCase
      *
      * @return void
      */
+    #[\Override]
     protected function defineDatabaseMigrations(): void
     {
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
 
-        if ((getenv('DB_CONNECTION') ?: 'sqlite') !== 'sqlite') {
-            $this->beforeApplicationDestroyed(function (): void {
-                Schema::dropIfExists(
-                    app(ConfigRepository::class)->string('authentication.device.table', 'devices'),
-                );
-            });
+        if ((getenv('DB_CONNECTION') ?: 'sqlite') === 'sqlite') {
+            return;
         }
+
+        $this->beforeApplicationDestroyed(function (): void {
+            Schema::dropIfExists(
+                app(ConfigRepository::class)->string('authentication.device.table', 'devices'),
+            );
+        });
     }
 
     /**

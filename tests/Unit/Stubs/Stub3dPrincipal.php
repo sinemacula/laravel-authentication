@@ -5,8 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Unit\Stubs;
 
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 
 /**
  * Eloquent stub implementing Principal via the ActsAsPrincipal trait without
@@ -17,6 +17,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
+ *
+ * @inheritable
  */
 class Stub3dPrincipal extends Model implements Principal
 {

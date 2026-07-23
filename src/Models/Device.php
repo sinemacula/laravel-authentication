@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Config;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
 /**
  * Default shipped Device Eloquent model.
@@ -32,6 +32,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * @property ?\Carbon\CarbonInterface $revoked_at
  * @property ?\Carbon\CarbonInterface $last_logged_in_at
  * @property ?\Carbon\CarbonInterface $last_mfa_verified_at
+ *
+ * @inheritable
  */
 class Device extends Model implements EloquentDevice
 {
@@ -46,13 +48,6 @@ class Device extends Model implements EloquentDevice
         'revoked_at',
         'last_logged_in_at',
         'last_mfa_verified_at',
-    ];
-
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'revoked_at'           => 'datetime',
-        'last_logged_in_at'    => 'datetime',
-        'last_mfa_verified_at' => 'datetime',
     ];
 
     /**
@@ -93,6 +88,21 @@ class Device extends Model implements EloquentDevice
     public function uniqueIds(): array
     {
         return ['id'];
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'revoked_at'           => 'datetime',
+            'last_logged_in_at'    => 'datetime',
+            'last_mfa_verified_at' => 'datetime',
+        ];
     }
 
     /**

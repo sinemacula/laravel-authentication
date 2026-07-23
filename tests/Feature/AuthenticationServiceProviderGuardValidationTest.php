@@ -20,12 +20,11 @@ use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Feature tests for JWT guard factory validation and shared
- * principal-resolver validation on `AuthenticationServiceProvider`.
+ * Feature tests for JWT guard factory validation and shared principal-resolver
+ * validation on `AuthenticationServiceProvider`.
  *
- * Covers the JWT driver's device-model pre-checks and the
- * guard-local `principal_resolver` override validation path
- * used by both shipped guards.
+ * Covers the JWT driver's device-model pre-checks and the guard-local
+ * `principal_resolver` override validation path used by both shipped guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

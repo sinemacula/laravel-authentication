@@ -6,13 +6,6 @@ namespace SineMacula\Laravel\Authentication\Facades;
 
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
-
-// phpcs:disable SlevomatCodingStandard.Namespaces.FullyQualifiedClassNameInAnnotation.NonFullyQualifiedClassName
 
 /**
  * Package `Auth` facade.
@@ -23,18 +16,18 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
  * key, which the package service provider has already replaced with the
  * `AuthManager` subclass.
  *
- * @see \SineMacula\Laravel\Authentication\AuthManager
- *
- * @method static Identity|null identity()
- * @method static Principal|null principal()
- * @method static Device|null device()
- * @method static Tenant|null tenant()
- * @method static string|null type()
- * @method static JwtTokenService|null jwt(?string $guard = null)
- * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
- *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
+ *
+ * @see \SineMacula\Laravel\Authentication\AuthManager
+ *
+ * @method static \SineMacula\Laravel\Authentication\Contracts\Identity|null identity()
+ * @method static \SineMacula\Laravel\Authentication\Contracts\Principal|null principal()
+ * @method static \SineMacula\Laravel\Authentication\Contracts\Device|null device()
+ * @method static \SineMacula\Laravel\Authentication\Contracts\Tenant|null tenant()
+ * @method static string|null type()
+ * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService|null jwt(?string $guard = null)
+ * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  */
 final class Auth extends IlluminateAuth
 {
@@ -45,7 +38,6 @@ final class Auth extends IlluminateAuth
      * @return \SineMacula\Laravel\Authentication\AuthManager
      *
      * @throws \LogicException
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public static function manager(): AuthManager
     {

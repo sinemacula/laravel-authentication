@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Cache;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 
 /**
  * No-op resolution cache.

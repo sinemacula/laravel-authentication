@@ -32,6 +32,5 @@ final readonly class DeviceAuthenticated
 
         /** Device that was bound to the guard. */
         public Device $device,
-
     ) {}
 }

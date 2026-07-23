@@ -15,13 +15,13 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
 use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
 use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
@@ -303,7 +303,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @param  array<string, mixed>  $config
      * @return array{resolver: \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver, tracks_global: bool}
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      */
     private static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
     {
@@ -355,8 +355,10 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $app->refresh('request', $guard, 'setRequest');
         $app->refresh('events', $guard, 'setDispatcher');
 
-        if ($tracksGlobalPrincipalResolver) {
-            $app->refresh(PrincipalResolver::class, $guard, 'setPrincipalResolver');
+        if (!$tracksGlobalPrincipalResolver) {
+            return;
         }
+
+        $app->refresh(PrincipalResolver::class, $guard, 'setPrincipalResolver');
     }
 }

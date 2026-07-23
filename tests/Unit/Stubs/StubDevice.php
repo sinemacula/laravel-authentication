@@ -7,8 +7,8 @@ namespace Tests\Unit\Stubs;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
 
 /**
  * Eloquent stub implementing the package's explicit Eloquent device boundary.
@@ -27,6 +27,8 @@ use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
  * @property \Carbon\CarbonInterface|null $last_mfa_verified_at
  *
  * @internal
+ *
+ * @inheritable
  */
 class StubDevice extends Model implements EloquentDevice
 {
@@ -37,13 +39,6 @@ class StubDevice extends Model implements EloquentDevice
 
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
-
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'revoked_at'           => 'datetime',
-        'last_logged_in_at'    => 'datetime',
-        'last_mfa_verified_at' => 'datetime',
-    ];
 
     /**
      * Polymorphic relation to the owning authenticatable identity.
@@ -58,5 +53,20 @@ class StubDevice extends Model implements EloquentDevice
     public function authenticatable(): MorphTo
     {
         return $this->morphTo(); // @phpstan-ignore return.type
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'revoked_at'           => 'datetime',
+            'last_logged_in_at'    => 'datetime',
+            'last_mfa_verified_at' => 'datetime',
+        ];
     }
 }

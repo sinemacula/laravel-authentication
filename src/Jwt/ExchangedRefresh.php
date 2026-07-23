@@ -31,16 +31,15 @@ final class ExchangedRefresh
     public function __construct(
 
         /** Authenticated identity resolved from the refreshed device. */
-        public Identity $identity,
+        public readonly Identity $identity,
 
         /** Principal bound to the refreshed session. */
-        public Principal $principal,
+        public readonly Principal $principal,
 
         /** Device whose refresh credential was rotated. */
-        public EloquentDevice&Model $device,
+        public readonly EloquentDevice&Model $device,
 
         /** Newly issued access + refresh token pair. */
-        public RefreshResult $tokens,
-
+        public readonly RefreshResult $tokens,
     ) {}
 }

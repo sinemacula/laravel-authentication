@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
@@ -212,7 +213,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($device, $rotationId, $principal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token) {
+        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token): ?RefreshResult {
             $tokens = $guard->refresh($token);
             $guard->principal()?->getIdentity();
             $guard->tenant();
@@ -253,7 +254,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($device, $rotationId, $secondaryPrincipal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token) {
+        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token): ?RefreshResult {
             $tokens = $guard->refresh($token);
             $guard->principal()?->getIdentity();
             $guard->tenant();
@@ -297,7 +298,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($device, $rotationId, $principal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(3, 0, static function () use ($guard, $token) {
+        $result = $this->assertQueryBudget(3, 0, static function () use ($guard, $token): ?RefreshResult {
             $tokens = $guard->refresh($token);
             $guard->tenant();
 

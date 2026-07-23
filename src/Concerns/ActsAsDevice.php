@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Traits;
+namespace SineMacula\Laravel\Authentication\Concerns;
 
 use Carbon\CarbonInterface;
 

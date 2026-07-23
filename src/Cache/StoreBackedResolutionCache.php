@@ -10,6 +10,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 
 /**
@@ -36,7 +37,6 @@ final readonly class StoreBackedResolutionCache implements ResolutionCache
 
         /** Package resolution cache configuration. */
         private ResolutionCacheConfig $config,
-
     ) {}
 
     /**

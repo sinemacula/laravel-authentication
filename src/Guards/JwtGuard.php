@@ -9,13 +9,13 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Cache\NullResolutionCache;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -29,9 +29,8 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
  * Sessionless JWT bearer-token guard.
  *
  * Reads `Authorization: Bearer <token>` from the active request, decodes via
- * `JwtTokenService`, then rehydrates the live identity, principal, and
- * optional device from the configured provider/resolver/model state before
- * binding them.
+ * `JwtTokenService`, then rehydrates the live identity, principal, and optional
+ * device from the configured provider/resolver/model state before binding them.
  *
  * Exposes `refresh()` for refresh-credential exchange; the round trip is
  * delegated to `RefreshTokenExchange`.
@@ -41,7 +40,7 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
  */
 final class JwtGuard extends AbstractGuard
 {
-    /** @var \SineMacula\Laravel\Authentication\Cache\ResolutionCache Shared bearer-identity cache. */
+    /** @var \SineMacula\Laravel\Authentication\Contracts\ResolutionCache Shared bearer-identity cache. */
     private ResolutionCache $resolutionCache;
 
     /**
@@ -55,15 +54,26 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
-     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\ResolutionCache  $resolutionCache
      */
     public function __construct(
 
+        // Guard name from the auth config.
         string $name,
+
+        // Identity provider backing the guard.
         IdentityProvider $provider,
+
+        // Principal resolver for contextual resolution.
         PrincipalResolver $resolver,
+
+        // Event dispatcher for guard lifecycle events.
         Dispatcher $events,
+
+        // Current HTTP request used to extract credentials.
         Request $request,
+
+        // Timebox enforcing uniform elapsed time on the credential path.
         Timebox $timebox,
 
         /** JWT token service for access and refresh tokens. */
@@ -72,8 +82,8 @@ final class JwtGuard extends AbstractGuard
         /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
 
+        // Shared bearer-identity cache, defaulting to the no-op cache.
         ?ResolutionCache $resolutionCache = null,
-
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
 

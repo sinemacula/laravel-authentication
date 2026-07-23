@@ -57,7 +57,6 @@ final class JwtKeyring
 
         /** Whether the keyring operates in kid mode (true) or legacy single-secret mode (false). */
         private readonly bool $kidMode,
-
     ) {}
 
     /**
@@ -155,8 +154,8 @@ final class JwtKeyring
     }
 
     /**
-     * Return the verification key set in the form `firebase/php-jwt` expects:
-     * a single `Key` in single-secret mode, or a `kid -> Key` map in kid mode.
+     * Return the verification key set in the form `firebase/php-jwt` expects: a
+     * single `Key` in single-secret mode, or a `kid -> Key` map in kid mode.
      *
      * @return array<string, \Firebase\JWT\Key>|\Firebase\JWT\Key
      */

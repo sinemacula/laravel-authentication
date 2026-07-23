@@ -16,7 +16,7 @@ use Illuminate\Database\Schema\Builder as SchemaBuilder;
  */
 final class BenchDatabase
 {
-    /** @var ?\Illuminate\Database\Capsule\Manager Shared database capsule. */
+    /** @var ?\Illuminate\Database\Capsule\Manager Shared database capsule. @managed-static Reused across phpbench iterations. */
     private static ?Capsule $capsule = null;
 
     /**
@@ -66,6 +66,8 @@ final class BenchDatabase
      * Return the booted database capsule.
      *
      * @return \Illuminate\Database\Capsule\Manager
+     *
+     * @throws \LogicException
      */
     private static function capsule(): Capsule
     {

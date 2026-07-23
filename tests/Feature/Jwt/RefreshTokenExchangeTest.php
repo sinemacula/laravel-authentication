@@ -299,8 +299,8 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Fail-closed: a hinted principal whose identifier stringifies to `null`
-     * is treated as unresolved and attributed to the device id carried by the
+     * Fail-closed: a hinted principal whose identifier stringifies to `null` is
+     * treated as unresolved and attributed to the device id carried by the
      * refresh token.
      *
      * @return void

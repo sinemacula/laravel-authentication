@@ -6,10 +6,10 @@ namespace Tests\Unit\Traits;
 
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
 use Tests\Unit\Stubs\StubTenant;
-use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestBackedType;
-use Tests\Unit\Traits\Fixtures\ProvidesTenantTypeTestUnitType;
+use Tests\Unit\Traits\Fixtures\Enums\ProvidesTenantTypeTestBackedType;
+use Tests\Unit\Traits\Fixtures\Enums\ProvidesTenantTypeTestUnitType;
 
 /**
  * Unit tests for the package ProvidesTenantType trait.
@@ -81,6 +81,7 @@ final class ProvidesTenantTypeTest extends TestCase
              *
              * @return string
              */
+            #[\Override]
             public function __toString(): string
             {
                 return 'stringable-type';

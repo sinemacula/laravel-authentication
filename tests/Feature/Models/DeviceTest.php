@@ -21,8 +21,8 @@ use SineMacula\Laravel\Authentication\Models\Device;
  * Feature tests for the shipped Device Eloquent model.
  *
  * Uses Orchestra Testbench with an in-memory sqlite connection and a
- * manually-created `devices` table, so the test does not transitively depend
- * on the package migration file.
+ * manually-created `devices` table, so the test does not transitively depend on
+ * the package migration file.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -35,7 +35,7 @@ final class DeviceTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /** @var string Shared timestamp for device factory tests. */
-    private const FIXED_TIMESTAMP = '2026-04-06 12:00:00';
+    private const string FIXED_TIMESTAMP = '2026-04-06 12:00:00';
 
     /**
      * Set up the in-memory schema for the Device table after the Testbench
@@ -165,9 +165,9 @@ final class DeviceTest extends TestCase
 
     /**
      * Asserts the model falls back to the literal `'devices'` table when the
-     * configured table value is the empty string. The conditional collapses
-     * the empty value to the default rather than letting Eloquent issue
-     * queries against the empty table name.
+     * configured table value is the empty string. The conditional collapses the
+     * empty value to the default rather than letting Eloquent issue queries
+     * against the empty table name.
      *
      * @return void
      */
@@ -185,10 +185,10 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts the model falls back to `'devices'` when the Config facade
-     * throws while reading `device.table`. We swap the bound config repository
-     * for a Mockery stub whose `string()` method raises so the constructor's
-     * catch branch is exercised. Pins the catch path in
+     * Asserts the model falls back to `'devices'` when the Config facade throws
+     * while reading `device.table`. We swap the bound config repository for a
+     * Mockery stub whose `string()` method raises so the constructor's catch
+     * branch is exercised. Pins the catch path in
      * `Device::resolveConfiguredTable()`.
      *
      * @return void
@@ -270,8 +270,8 @@ final class DeviceTest extends TestCase
 
     /**
      * Asserts `getLastMfaVerificationName()` returns the documented default
-     * column name. Exercises the
-     * `ActsAsDevice::getLastMfaVerificationName()` accessor.
+     * column name. Exercises the `ActsAsDevice::getLastMfaVerificationName()`
+     * accessor.
      *
      * @return void
      */

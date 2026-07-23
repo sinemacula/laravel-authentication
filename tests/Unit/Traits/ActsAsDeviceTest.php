@@ -8,7 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Traits\ActsAsDevice;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
 
 /**
  * Unit tests for the package ActsAsDevice trait.
@@ -32,6 +32,7 @@ final class ActsAsDeviceTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -46,6 +47,7 @@ final class ActsAsDeviceTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Carbon::setTestNow();
@@ -234,8 +236,8 @@ final class ActsAsDeviceTest extends TestCase
      * Asserts the public column-name accessors return the documented defaults
      * so consumer listeners (e.g. `UpdateDeviceTimestamp`) and the
      * refresh-token exchange resolve the correct columns without reflection.
-     * Pinning the default values defends against accidental rename mutations
-     * of the trait constants.
+     * Pinning the default values defends against accidental rename mutations of
+     * the trait constants.
      *
      * @return void
      */

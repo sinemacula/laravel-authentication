@@ -32,7 +32,6 @@ final class StubMappedPrincipalResolver implements PrincipalResolver
 
         /** Map of principal id to principal instance. */
         private readonly array $hintedPrincipals,
-
     ) {}
 
     /**

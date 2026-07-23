@@ -46,6 +46,7 @@ final class ModelProviderConstructorTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -339,6 +340,7 @@ final class ModelProviderConstructorTest extends TestCase
              *
              * @return string
              */
+            #[\Override]
             public function __toString(): string
             {
                 return 'stringable-value';
@@ -396,8 +398,13 @@ final class ModelProviderConstructorTest extends TestCase
              * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $instance
              */
             public function __construct(
+
+                // Password hasher forwarded to the parent provider.
                 Hasher $hasher,
+
+                // Model class name forwarded to the parent provider.
                 string $modelClass,
+
                 /** Pre-built model instance returned from createModel(). */
                 private readonly Authenticatable&Model $instance,
             ) {
@@ -445,8 +452,13 @@ final class ModelProviderConstructorTest extends TestCase
              * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $instance
              */
             public function __construct(
+
+                // Password hasher forwarded to the parent provider.
                 Hasher $hasher,
+
+                // Model class name forwarded to the parent provider.
                 string $modelClass,
+
                 /** Pre-built model instance returned from createModel(). */
                 private readonly Authenticatable&Model $instance,
             ) {

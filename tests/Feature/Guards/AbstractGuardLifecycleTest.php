@@ -265,8 +265,8 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
      * Calling `login()` directly (e.g. from a refresh exchange or an OAuth
      * callback) fires the standard `Validated` event before the bind, even
      * though no `hasValidCredentials()` call happened. This is the M14 design
-     * call: `login()` is the public entry point that asserts "this identity
-     * has been validated", and the standard event sequence reflects that.
+     * call: `login()` is the public entry point that asserts "this identity has
+     * been validated", and the standard event sequence reflects that.
      *
      * @return void
      */
