@@ -5,9 +5,9 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 
 /**
  * Eloquent fixture for the 3D guard coexistence test.
@@ -44,12 +44,6 @@ final class Coexist3dPrincipal extends Model implements Principal
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
 
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'is_active'   => 'boolean',
-        'identity_id' => 'integer',
-    ];
-
     /**
      * Return the owning identity for this principal.
      *
@@ -71,5 +65,19 @@ final class Coexist3dPrincipal extends Model implements Principal
         }
 
         return $identity;
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'is_active'   => 'boolean',
+            'identity_id' => 'integer',
+        ];
     }
 }

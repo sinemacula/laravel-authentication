@@ -25,10 +25,9 @@ final class RefreshResult
     public function __construct(
 
         /** Newly issued access token returned to the client. */
-        #[\SensitiveParameter] public string $accessToken,
+        #[\SensitiveParameter] public readonly string $accessToken,
 
         /** Newly issued refresh token that rotates the device's stored digest. */
-        #[\SensitiveParameter] public string $refreshToken,
-
+        #[\SensitiveParameter] public readonly string $refreshToken,
     ) {}
 }

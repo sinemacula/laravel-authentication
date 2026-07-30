@@ -47,6 +47,7 @@ final class ModelProviderTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -256,7 +257,6 @@ final class ModelProviderTest extends TestCase
 
                 /** Pre-built model instance returned from createModel(). */
                 private readonly Authenticatable&Model $instance,
-
             ) {
                 parent::__construct($hasher, $modelClass);
             }
@@ -266,6 +266,7 @@ final class ModelProviderTest extends TestCase
              *
              * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
              */
+            #[\Override]
             protected function createModel(): Authenticatable&Model
             {
                 return $this->instance;

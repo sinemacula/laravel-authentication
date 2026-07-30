@@ -45,6 +45,5 @@ final readonly class Refreshed implements ShouldDispatchAfterCommit
 
         /** Device whose rotation-id was rotated during the exchange. */
         public Device $device,
-
     ) {}
 }

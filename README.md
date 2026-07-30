@@ -275,8 +275,8 @@ One model implements both `Identity` and `Principal` - the user who logs in *is*
 use Illuminate\Foundation\Auth\User;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 
 class AppUser extends User implements Identity, Principal
 {
@@ -323,10 +323,10 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
 use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
-use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
 
 class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
 {

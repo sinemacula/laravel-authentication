@@ -21,7 +21,7 @@ use PhpBench\Attributes\Warmup;
 #[Warmup(1)]
 final class RefreshTokenExchangeBench
 {
-    /** @var ?\Benchmarks\Support\RefreshTokenExchangeBenchHarness */
+    /** @var ?\Benchmarks\Support\RefreshTokenExchangeBenchHarness @managed-static Reused across phpbench iterations. */
     private static ?RefreshTokenExchangeBenchHarness $harness = null;
 
     /**

@@ -6,7 +6,7 @@ namespace Tests\Unit\Traits;
 
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use Tests\Unit\Stubs\StubTenant;
 use Tests\Unit\Stubs\StubTenantWithCustomIdentifier;
 

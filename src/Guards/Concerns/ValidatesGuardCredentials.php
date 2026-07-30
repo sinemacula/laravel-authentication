@@ -11,18 +11,19 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Config;
 
 /**
- * Credential-validation primitive plus the standard Laravel
- * `Attempting` / `Validated` / `Failed` event-firing helpers.
+ * Credential-validation primitive plus the standard Laravel `Attempting` /
+ * `Validated` / `Failed` event-firing helpers.
  *
  * Timing safety is the caller's responsibility: the enclosing guard flow wraps
- * the retrieve -> validate -> dispatch pipeline in a single  top-level timebox.
+ * the retrieve -> validate -> dispatch pipeline in a single top-level timebox.
  * Do not nest another timebox here.
  *
  * Expects the using class to declare:
  * - `protected string $name`
  * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
  * - `protected \Illuminate\Support\Timebox $timebox`
- * - `protected \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider`
+ * - `protected \SineMacula\Laravel\Authentication\Contracts\IdentityProvider
+ *   $provider`
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

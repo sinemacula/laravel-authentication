@@ -6,12 +6,12 @@ namespace Tests\Unit\Stubs;
 
 use Illuminate\Contracts\Database\Eloquent\Builder as BuilderContract;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Eloquent stub implementing Principal (and Identity for 2D mode) via the
@@ -29,6 +29,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @property bool $is_active
  *
  * @internal
+ *
+ * @inheritable
  */
 class StubPrincipal extends Model implements HasDevices, Identity, Principal
 {
@@ -46,6 +48,7 @@ class StubPrincipal extends Model implements HasDevices, Identity, Principal
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
+    #[\Override]
     public function devices(): BuilderContract
     {
         return Device::query()

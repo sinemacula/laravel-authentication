@@ -31,7 +31,10 @@ final class StubInjectableDevice extends StubDevice
      * Eloquent's default query builder.
      *
      * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubInjectableDevice>
+     *
+     * @throws \LogicException
      */
+    #[\Override]
     public function newQuery(): Builder
     {
         if (self::$injectedBuilder === null) {

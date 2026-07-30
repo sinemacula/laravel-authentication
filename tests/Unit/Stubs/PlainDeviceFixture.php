@@ -32,7 +32,6 @@ final readonly class PlainDeviceFixture implements Device
 
         /** Operating-system string embedded in the device row. */
         public string $os = 'plain-os',
-
     ) {}
 
     /**

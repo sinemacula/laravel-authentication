@@ -130,6 +130,7 @@ final class IdentifierCoercionTest extends TestCase
              *
              * @return string
              */
+            #[\Override]
             public function __toString(): string
             {
                 return 'stringable-id';

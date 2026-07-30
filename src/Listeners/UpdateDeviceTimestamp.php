@@ -56,8 +56,8 @@ final class UpdateDeviceTimestamp
     }
 
     /**
-     * Resolve the column name holding the last-logged-in timestamp. Honours
-     * the explicit `EloquentDevice` column-name contract and falls back to the
+     * Resolve the column name holding the last-logged-in timestamp. Honours the
+     * explicit `EloquentDevice` column-name contract and falls back to the
      * package default only for defensive empty-string overrides.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
