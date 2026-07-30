@@ -86,7 +86,7 @@ name = "osv-scanner"
 name = "php-codesniffer"
 version = "4.0.1"
 mode = "comment"
-package_file = "composer.json"
+package_file = ".qlty/configs/composer.json"
 package_filters = ["slevomat", "dealerdirect", "sinemacula"]
 
 # phpcs 4.x returns exit code 3 when it finds issues; qlty's default
@@ -103,7 +103,7 @@ success_codes = [0, 1, 2, 3]
 # PHP 8.4.
 [[plugin]]
 name = "php-cs-fixer"
-package_file = "composer.json"
+package_file = ".qlty/configs/composer.json"
 package_filters = ["sinemacula"]
 version = "3.89.0"
 
