@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## 1.0.0 (2026-08-24)
+
+
+### Bug Fixes
+
+* **benchmarks:** widen anonymous CacheFactory::store() phpdoc ([#34](https://github.com/sinemacula/laravel-authentication/issues/34)) ([9c5b6f0](https://github.com/sinemacula/laravel-authentication/commit/9c5b6f0c357d422fee40b47a6af3639411637027))
+
 ## [1.0.0] - Unreleased
 
 Initial release of stateless contextual authentication for Laravel.
