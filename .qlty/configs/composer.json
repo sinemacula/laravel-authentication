@@ -9,7 +9,7 @@
         "phpstan/phpstan-mockery": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0",
         "phpstan/phpstan-strict-rules": "^2.0",
-        "sinemacula/coding-standards-laravel": "^1.5.0",
+        "sinemacula/coding-standards-laravel": "^1.6.0",
         "slevomat/coding-standard": "^8.28"
     },
     "conflict": {
