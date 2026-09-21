@@ -84,7 +84,7 @@ name = "osv-scanner"
 
 [[plugin]]
 name = "php-codesniffer"
-version = "4.0.1"
+version = "4.0.4"
 mode = "comment"
 package_file = ".qlty/configs/composer.json"
 package_filters = ["slevomat", "dealerdirect", "sinemacula"]
@@ -97,15 +97,24 @@ package_filters = ["slevomat", "dealerdirect", "sinemacula"]
 [plugins.definitions.php-codesniffer.drivers.lint]
 success_codes = [0, 1, 2, 3]
 
-# Pinned to the last php-cs-fixer release whose symfony/console stays on the 7.x
-# line. 3.90+ pulls symfony/console 8 (requires PHP 8.4.1 and uses 8.4-only
-# syntax), which qlty's PHP 8.3 runner cannot parse. Bump once the runner ships
-# PHP 8.4.
+# The symfony pins hold the fixer's dependencies on the 7.x line: 3.90+ accepts
+# symfony 8, which requires PHP 8.4.1 and uses 8.4-only syntax that the PHP 8.3
+# runner cannot parse. They have to be extra_packages because package_file and
+# extra_packages are mutually exclusive on a plugin.
 [[plugin]]
 name = "php-cs-fixer"
-package_file = ".qlty/configs/composer.json"
-package_filters = ["sinemacula"]
-version = "3.89.0"
+version = "3.95.25"
+extra_packages = [
+    "sinemacula/coding-standards@1.23.2",
+    "symfony/console@^7.4",
+    "symfony/event-dispatcher@^7.4",
+    "symfony/filesystem@^7.4",
+    "symfony/finder@^7.4",
+    "symfony/options-resolver@^7.4",
+    "symfony/process@^7.4",
+    "symfony/stopwatch@^7.4",
+    "symfony/string@^7.4",
+]
 
 [[plugin]]
 name = "radarlint-php"
