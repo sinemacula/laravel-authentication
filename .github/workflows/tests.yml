@@ -54,7 +54,7 @@ jobs:
                     persist-credentials: false
 
             -   name: Setup PHP
-                uses: sinemacula/.github/.github/actions/setup-php@v1.1.1
+                uses: sinemacula/.github/.github/actions/setup-php@v1.9.1
                 with:
                     php-version: ${{ matrix.php }}
                     extensions: dom, mbstring, openssl
@@ -64,7 +64,7 @@ jobs:
 
             -   name: Publish code coverage
                 if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.php == '8.3' }}
-                uses: qltysh/qlty-action/coverage@v2
+                uses: qltysh/qlty-action/coverage@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2
                 with:
                     token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
                     files: clover.xml
@@ -92,7 +92,7 @@ jobs:
                     persist-credentials: false
 
             -   name: Setup PHP
-                uses: sinemacula/.github/.github/actions/setup-php@v1.1.1
+                uses: sinemacula/.github/.github/actions/setup-php@v1.9.1
                 with:
                     php-version: 8.3
                     extensions: dom, mbstring, openssl
@@ -145,20 +145,20 @@ jobs:
 
             -   name: Setup MySQL
                 if: matrix.database.driver == 'mysql'
-                uses: sinemacula/.github/.github/actions/setup-mysql@v1.1.0
+                uses: sinemacula/.github/.github/actions/setup-mysql@v1.9.1
                 with:
                     db-password: ${{ matrix.database.password }}
                     db-name: laravel_authentication_test
 
             -   name: Setup PostgreSQL
                 if: matrix.database.driver == 'pgsql'
-                uses: sinemacula/.github/.github/actions/setup-postgres@v1.1.0
+                uses: sinemacula/.github/.github/actions/setup-postgres@v1.9.1
                 with:
                     db-password: ${{ matrix.database.password }}
                     db-name: laravel_authentication_test
 
             -   name: Setup PHP
-                uses: sinemacula/.github/.github/actions/setup-php@v1.1.0
+                uses: sinemacula/.github/.github/actions/setup-php@v1.9.1
                 with:
                     php-version: 8.3
                     extensions: dom, mbstring, openssl, pdo_${{ matrix.database.driver == 'pgsql' && 'pgsql' || 'mysql' }}
