@@ -47,7 +47,7 @@ jobs:
 
         steps:
             -   name: Checkout
-                uses: actions/checkout@v5
+                uses: actions/checkout@v7
                 with:
                     persist-credentials: false
 
@@ -74,7 +74,7 @@ jobs:
 
         steps:
             -   name: Checkout
-                uses: actions/checkout@v5
+                uses: actions/checkout@v7
                 with:
                     persist-credentials: false
 
@@ -101,7 +101,7 @@ jobs:
 
         steps:
             -   name: Checkout
-                uses: actions/checkout@v5
+                uses: actions/checkout@v7
                 with:
                     persist-credentials: false
 
@@ -127,7 +127,7 @@ jobs:
 
             -   name: Upload benchmark artifact
                 if: always()
-                uses: actions/upload-artifact@v4
+                uses: actions/upload-artifact@v7
                 with:
                     name: phpbench-report
                     path: build/phpbench.xml
