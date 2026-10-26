@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
  * Kid behavioural tests for `JwtTokenService`.
@@ -28,6 +29,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 #[CoversClass(JwtTokenService::class)]
 final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 {
+    use InteractsWithJwtTokens;
+
     /** @var string Secret material for the previous-generation kid. */
     private const string OLD_SECRET = 'old-rotation-secret-with-32-bytes!!';
 
@@ -61,7 +64,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
         $token = $service->issueAccessToken($identity, $principal, null);
 
-        self::assertSame(self::NEW_KID, $this->headerKid($token));
+        self::assertSame(self::NEW_KID, $this->jwtHeader($token)['kid'] ?? null);
     }
 
     /**
@@ -146,7 +149,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
         $token = $service->issueAccessToken($identity, $principal, null);
 
-        self::assertSame(self::KID, $this->headerKid($token));
+        self::assertSame(self::KID, $this->jwtHeader($token)['kid'] ?? null);
     }
 
     /**
@@ -186,30 +189,5 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );
-    }
-
-    /**
-     * Decode the JWT header segment of the supplied token and return its `kid`
-     * value (or `null` when the header omits it). Used by the rotation tests to
-     * assert what the issuer wrote into the header without depending on the
-     * verifier path.
-     *
-     * @param  string  $token
-     * @return ?string
-     */
-    private function headerKid(string $token): ?string
-    {
-        $segments = explode('.', $token);
-
-        self::assertCount(3, $segments);
-
-        $headerJson = JWT::urlsafeB64Decode($segments[0]);
-        $header     = json_decode($headerJson, true);
-
-        self::assertIsArray($header);
-
-        $kid = $header['kid'] ?? null;
-
-        return is_string($kid) ? $kid : null;
     }
 }

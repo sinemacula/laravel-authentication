@@ -4,15 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Integration\Config;
 
-use Firebase\JWT\JWT;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use Tests\Concerns\InteractsWithJwtTokens;
 use Tests\TestCase;
 
 /**
@@ -32,6 +30,8 @@ use Tests\TestCase;
 #[CoversClass(JwtTokenServiceFactory::class)]
 final class ShippedJwtKeyConfigTest extends TestCase
 {
+    use InteractsWithJwtTokens;
+
     /** @var string Env var backing the shipped `default` kid. */
     private const string KEY_ENV = 'AUTHENTICATION_JWT_KEY';
 
@@ -125,7 +125,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
 
         $token = $this->issueAccessToken($service);
 
-        self::assertSame('default', $this->headerKid($token));
+        self::assertSame('default', $this->jwtHeader($token)['kid'] ?? null);
         self::assertNotNull($service->parse($token, TokenType::ACCESS));
     }
 
@@ -173,44 +173,5 @@ final class ShippedJwtKeyConfigTest extends TestCase
     {
         putenv(self::KEY_ENV);
         putenv(self::ACTIVE_KID_ENV);
-    }
-
-    /**
-     * Issue an access token using mock context objects.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
-     * @return string
-     *
-     * @throws \Random\RandomException
-     */
-    private function issueAccessToken(JwtTokenService $service): string
-    {
-        $identity = \Mockery::mock(Identity::class);
-        $identity->shouldReceive('getAuthIdentifier')->andReturn('id-1');
-
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
-
-        return $service->issueAccessToken($identity, $principal, null);
-    }
-
-    /**
-     * Decode the JWT header segment of the supplied token and return its `kid`
-     * value.
-     *
-     * @param  string  $token
-     * @return mixed
-     */
-    private function headerKid(string $token): mixed
-    {
-        $segments = explode('.', $token);
-
-        self::assertCount(3, $segments, 'JWT must have three segments');
-
-        $header = json_decode(JWT::urlsafeB64Decode($segments[0]), true);
-
-        self::assertIsArray($header);
-
-        return $header['kid'] ?? null;
     }
 }

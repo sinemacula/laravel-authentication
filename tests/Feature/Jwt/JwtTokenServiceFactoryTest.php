@@ -14,9 +14,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -24,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use Tests\Concerns\InteractsWithJwtTokens;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
@@ -39,7 +37,7 @@ use Tests\Unit\Stubs\StubAuthenticatableModel;
 #[CoversClass(JwtTokenServiceFactory::class)]
 final class JwtTokenServiceFactoryTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
+    use InteractsWithJwtTokens, MockeryPHPUnitIntegration;
 
     /** @var string Shared package-default secret used across the test cases. */
     private const string PACKAGE_SECRET = 'package-default-secret-with-32-bytes!';
@@ -59,10 +57,10 @@ final class JwtTokenServiceFactoryTest extends TestCase
     /** @var string Guard-scoped secret for the customer guard. */
     private const string CUSTOMER_SECRET = 'customer-secret-with-32-bytes!!!!';
 
-    /** @var string Kid used by the current-generation key in kid-mode tests. */
+    /** @var string Kid used by the current-generation key in rotation tests. */
     private const string KID_NEW = '2026-04';
 
-    /** @var string Kid used by the previous-generation key in kid-mode tests. */
+    /** @var string Kid used by the previous-generation key in rotation tests. */
     private const string KID_OLD = '2026-03';
 
     /** @var string Secret material for the current-generation kid key. */
@@ -365,14 +363,14 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken($service);
 
-        self::assertSame(self::NUMERIC_KID_NEW, $this->headerField($token, 'kid'));
+        self::assertSame(self::NUMERIC_KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
         self::assertNotNull($service->parse($token, TokenType::ACCESS));
 
         $oldToken = $this->issueAccessToken(
             $this->makeVerifier([self::NUMERIC_KID_OLD => self::KID_OLD_SECRET], 'package-default-audience'),
         );
 
-        self::assertSame(self::NUMERIC_KID_OLD, $this->headerField($oldToken, 'kid'));
+        self::assertSame(self::NUMERIC_KID_OLD, $this->jwtHeader($oldToken)['kid'] ?? null);
         self::assertNotNull($service->parse($oldToken, TokenType::ACCESS));
     }
 
@@ -550,7 +548,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken($service);
 
-        self::assertSame('HS384', $this->headerField($token, 'alg'));
+        self::assertSame('HS384', $this->jwtHeader($token)['alg'] ?? null);
         self::assertNotNull($service->parse($token, TokenType::ACCESS));
     }
 
@@ -769,48 +767,5 @@ final class JwtTokenServiceFactoryTest extends TestCase
             null,
             $audience,
         );
-    }
-
-    /**
-     * Decode the JWT header segment of the supplied token and return one of its
-     * fields.
-     *
-     * @param  string  $token
-     * @param  string  $field
-     * @return mixed
-     */
-    private function headerField(string $token, string $field): mixed
-    {
-        $segments = explode('.', $token);
-
-        self::assertCount(3, $segments, 'JWT must have three segments');
-
-        $header = json_decode(JWT::urlsafeB64Decode($segments[0]), true);
-
-        self::assertIsArray($header);
-
-        return $header[$field] ?? null;
-    }
-
-    /**
-     * Issue an access token using mock context objects.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
-     * @return string
-     *
-     * @throws \Random\RandomException
-     */
-    private function issueAccessToken(JwtTokenService $service): string
-    {
-        $identity = \Mockery::mock(Identity::class);
-        $identity->shouldReceive('getAuthIdentifier')->andReturn('id-1');
-
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
-
-        $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getDeviceIdentifier')->andReturn('did-1');
-
-        return $service->issueAccessToken($identity, $principal, $device);
     }
 }

@@ -4,13 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Jwt;
 
-use Firebase\JWT\JWT;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
  * Algorithm allow-list tests for `JwtTokenService`.
@@ -29,6 +29,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 #[CoversClass(JwtTokenService::class)]
 final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
 {
+    use InteractsWithJwtTokens;
+
     /** @var string Key material long enough for every allow-listed algorithm. */
     private const string LONG_SECRET = 'algorithm-round-trip-secret-with-at-least-sixty-four-bytes-of-key';
 
@@ -70,34 +72,12 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
             null,
         );
 
-        self::assertSame($algorithm, $this->headerAlgorithm($token));
+        self::assertSame($algorithm, $this->jwtHeader($token)['alg'] ?? null);
 
         $claims = $service->parse($token, TokenType::ACCESS);
 
         self::assertIsArray($claims);
         self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
         self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
-    }
-
-    /**
-     * Decode the JWT header segment of the supplied token and return its `alg`
-     * value.
-     *
-     * @param  string  $token
-     * @return ?string
-     */
-    private function headerAlgorithm(string $token): ?string
-    {
-        $segments = explode('.', $token);
-
-        self::assertCount(3, $segments);
-
-        $header = json_decode(JWT::urlsafeB64Decode($segments[0]), true);
-
-        self::assertIsArray($header);
-
-        $algorithm = $header['alg'] ?? null;
-
-        return is_string($algorithm) ? $algorithm : null;
     }
 }
