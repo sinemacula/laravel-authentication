@@ -64,7 +64,7 @@ context_refresh = true
 [build.standards]
 # Override language pack thresholds per-project.
 # Uncomment and adjust as needed.
-# min_coverage = 80
+min_coverage = 100
 # max_cyclomatic_complexity = 10
 # max_method_lines = 30
 # max_class_lines = 500
@@ -77,7 +77,7 @@ context_refresh = true
 [build.checks]
 # CLI commands that must pass before workflow completion.
 # Each entry is run via Bash; non-zero exit blocks the gate.
-required = []
+required = ['composer check', 'composer test']
 
 [build.completion]
 # Action to execute automatically after workflow completion.

@@ -4,6 +4,7 @@
 
 [![Latest Stable Version](https://img.shields.io/packagist/v/sinemacula/laravel-authentication.svg)](https://packagist.org/packages/sinemacula/laravel-authentication)
 [![Build Status](https://github.com/sinemacula/laravel-authentication/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/sinemacula/laravel-authentication/actions/workflows/tests.yml)
+[![Quality Gates](https://github.com/sinemacula/laravel-authentication/actions/workflows/quality-gates.yml/badge.svg?branch=master)](https://github.com/sinemacula/laravel-authentication/actions/workflows/quality-gates.yml)
 [![Maintainability](https://qlty.sh/gh/sinemacula/projects/laravel-authentication/maintainability.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-authentication)
 [![Code Coverage](https://qlty.sh/gh/sinemacula/projects/laravel-authentication/coverage.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-authentication)
 [![Total Downloads](https://img.shields.io/packagist/dt/sinemacula/laravel-authentication.svg)](https://packagist.org/packages/sinemacula/laravel-authentication)
@@ -539,6 +540,8 @@ composer test:mutation      # scoped mutation gate
 composer test:mutation:full # full mutation suite (no thresholds)
 composer bench              # PHPBench hot-path benchmarks
 composer check              # static analysis + style
+composer format             # format the codebase
+composer smells             # advisory code smells (duplication, complexity)
 ```
 
 ## Changelog
@@ -547,14 +550,13 @@ See [CHANGELOG.md](CHANGELOG.md) for a list of notable changes.
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
-for guidelines on branching, commits, code quality, and pull requests.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on branching, commits, code
+quality, and pull requests.
 
 ## Security
 
-If you discover a security vulnerability, please report it responsibly.
-See [SECURITY.md](SECURITY.md) for the disclosure policy and contact
-details.
+If you discover a security vulnerability, please report it responsibly. See [SECURITY.md](SECURITY.md) for the
+disclosure policy and contact details.
 
 ## License
 

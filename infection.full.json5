@@ -13,7 +13,8 @@
         configDir: ".",
         customPath: "vendor/bin/phpunit"
     },
-    timeout: 15,
+    initialTestsPhpOptions: "-d memory_limit=1G",
+    timeout: 30,
     mutators: {
         "@default": true
     }

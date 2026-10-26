@@ -25,6 +25,7 @@ concurrency:
 # ==============================================================================
 permissions:
     contents: read
+    id-token: write
 
 # ==============================================================================
 # DEFAULTS
@@ -57,7 +58,6 @@ jobs:
                 uses: sinemacula/.github/.github/actions/setup-php@v1.13.0
                 with:
                     php-version: ${{ matrix.php }}
-                    extensions: dom, mbstring, openssl
 
             -   name: PHPUnit
                 run: composer test:coverage
@@ -66,7 +66,7 @@ jobs:
                 if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.php == '8.3' }}
                 uses: qltysh/qlty-action/coverage@ebcd284bf32e36a030afe15f1e136c7be08b9506 # v2
                 with:
-                    token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+                    oidc: true
                     files: clover.xml
 
     # ==========================================================================
@@ -95,7 +95,6 @@ jobs:
                 uses: sinemacula/.github/.github/actions/setup-php@v1.13.0
                 with:
                     php-version: 8.3
-                    extensions: dom, mbstring, openssl
 
             -   name: Pin Laravel version
                 env:
@@ -106,36 +105,55 @@ jobs:
                 run: composer test
 
     # ==========================================================================
-    # JOB: DATABASE TESTS
+    # JOB: DATABASE TESTS (MySQL + PostgreSQL)
     # ==========================================================================
-    database-tests:
-        name: Test / ${{ matrix.database.label }}
+    integration:
+        name: Integration / ${{ matrix.database }}
         runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
-                database:
-                    -   driver: mysql
-                        label: MySQL
-                        host: 127.0.0.1
-                        port: 3306
-                        username: root
-                        password: root
-                    -   driver: pgsql
-                        label: PostgreSQL
-                        host: 127.0.0.1
-                        port: 5432
-                        username: postgres
-                        password: postgres
+                include:
+                    -   database: mysql
+                        image: mysql:8.4
+                        db_driver: mysql
+                        db_port: 3306
+                        db_username: root
+                        db_password: password
+                        health_cmd: mysqladmin ping -h 127.0.0.1
+                    -   database: pgsql
+                        image: postgres:17
+                        db_driver: pgsql
+                        db_port: 5432
+                        db_username: postgres
+                        db_password: password
+                        health_cmd: pg_isready -h 127.0.0.1 -U postgres -d laravel_authentication_test
 
-        env:
-            DB_CONNECTION: ${{ matrix.database.driver }}
-            DB_HOST: ${{ matrix.database.host }}
-            DB_PORT: ${{ matrix.database.port }}
-            DB_DATABASE: laravel_authentication_test
-            DB_USERNAME: ${{ matrix.database.username }}
-            DB_PASSWORD: ${{ matrix.database.password }}
+        # One service per leg. Declaring both starts both on every leg, so each
+        # was pulling and booting an engine it never connects to. Each image
+        # ignores the other's variables, so one block configures either. Both
+        # probes go over the loopback address rather than a socket, since an
+        # engine that initialises behind a temporary local server answers a
+        # socket probe before the server the tests will actually reach is up.
+        services:
+            database:
+                image: ${{ matrix.image }}
+                env:
+                    MYSQL_ROOT_PASSWORD: password
+                    MYSQL_DATABASE: laravel_authentication_test
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: password
+                    POSTGRES_DB: laravel_authentication_test
+                ports:
+                    - ${{ matrix.db_port }}:${{ matrix.db_port }}
+                options: >-
+                    --health-cmd="${{ matrix.health_cmd }}"
+                    --health-interval=10s
+                    --health-timeout=5s
+                    --health-retries=5
+                    --health-start-period=30s
+                    --health-start-interval=5s
 
         steps:
             -   name: Checkout
@@ -143,28 +161,22 @@ jobs:
                 with:
                     persist-credentials: false
 
-            -   name: Setup MySQL
-                if: matrix.database.driver == 'mysql'
-                uses: sinemacula/.github/.github/actions/setup-mysql@v1.13.0
-                with:
-                    db-password: ${{ matrix.database.password }}
-                    db-name: laravel_authentication_test
-
-            -   name: Setup PostgreSQL
-                if: matrix.database.driver == 'pgsql'
-                uses: sinemacula/.github/.github/actions/setup-postgres@v1.13.0
-                with:
-                    db-password: ${{ matrix.database.password }}
-                    db-name: laravel_authentication_test
-
             -   name: Setup PHP
                 uses: sinemacula/.github/.github/actions/setup-php@v1.13.0
                 with:
                     php-version: 8.3
-                    extensions: dom, mbstring, openssl, pdo_${{ matrix.database.driver == 'pgsql' && 'pgsql' || 'mysql' }}
+                    extensions: pdo_mysql, pdo_pgsql
 
-            -   name: Install dependencies
-                run: composer install --prefer-dist --no-interaction --no-progress
-
-            -   name: PHPUnit (serial)
+            # Serial on purpose. The jobs above run under paratest, but against a
+            # persistent database every test class migrates and drops the same
+            # devices table, so parallel workers collide on it.
+            -   name: Database Tests
+                env:
+                    DB_CONNECTION: ${{ matrix.db_driver }}
+                    DB_HOST: 127.0.0.1
+                    DB_PORT: ${{ matrix.db_port }}
+                    DB_DATABASE: laravel_authentication_test
+                    DB_USERNAME: ${{ matrix.db_username }}
+                    DB_PASSWORD: ${{ matrix.db_password }}
                 run: vendor/bin/phpunit
+
