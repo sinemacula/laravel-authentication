@@ -44,9 +44,30 @@ final class ShippedJwtKeyConfigTest extends TestCase
     /** @var string Guard that resolves the package-wide JWT config. */
     private const string GUARD = 'shipped';
 
+    /** @var list<string> Every env var the shipped `jwt` block reads. */
+    private const array JWT_ENV = [
+        self::KEY_ENV,
+        self::ACTIVE_KID_ENV,
+        'AUTHENTICATION_JWT_ALGORITHM',
+        'AUTHENTICATION_JWT_ACCESS_TTL_MINUTES',
+        'AUTHENTICATION_JWT_REFRESH_TTL_MINUTES',
+        'AUTHENTICATION_JWT_LEEWAY_SECONDS',
+        'AUTHENTICATION_JWT_ISSUER',
+        'AUTHENTICATION_JWT_AUDIENCE',
+    ];
+
+    /** @var array<string, false|string> Ambient process-environment values of the JWT env vars, restored on teardown. */
+    private array $ambientProcessEnvironment = [];
+
+    /** @var array<array-key, mixed> Ambient `$_SERVER`, restored on teardown. */
+    private array $ambientServer = [];
+
+    /** @var array<array-key, mixed> Ambient `$_ENV`, restored on teardown. */
+    private array $ambientEnv = [];
+
     /**
-     * Clear the signing-key env vars so each test starts from an unset
-     * environment.
+     * Save and clear every env var the shipped `jwt` block reads, so each test
+     * starts from an unset environment whatever the shell or CI exports.
      *
      * @return void
      */
@@ -55,7 +76,13 @@ final class ShippedJwtKeyConfigTest extends TestCase
     {
         parent::setUp();
 
-        $this->clearEnvironment();
+        $this->ambientServer = $_SERVER;
+        $this->ambientEnv    = $_ENV;
+
+        foreach (self::JWT_ENV as $name) {
+            $this->ambientProcessEnvironment[$name] = getenv($name);
+            $this->clearEnvironment($name);
+        }
 
         config()->set('auth.guards.' . self::GUARD, [
             'driver'   => 'jwt',
@@ -64,14 +91,20 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * Clear the signing-key env vars so nothing leaks into later tests.
+     * Clear the values set by the test and restore the ambient environment so
+     * nothing leaks into later tests.
      *
      * @return void
      */
     #[\Override]
     protected function tearDown(): void
     {
-        $this->clearEnvironment();
+        foreach ($this->ambientProcessEnvironment as $name => $value) {
+            putenv($value === false ? $name : "{$name}={$value}");
+        }
+
+        $_SERVER = $this->ambientServer;
+        $_ENV    = $this->ambientEnv;
 
         parent::tearDown();
     }
@@ -165,13 +198,16 @@ final class ShippedJwtKeyConfigTest extends TestCase
     }
 
     /**
-     * Unset the signing-key env vars.
+     * Unset the named env var in every store Laravel's env repository reads:
+     * `$_SERVER`, `$_ENV`, and the process environment.
      *
+     * @param  string  $name
      * @return void
      */
-    private function clearEnvironment(): void
+    private function clearEnvironment(string $name): void
     {
-        putenv(self::KEY_ENV);
-        putenv(self::ACTIVE_KID_ENV);
+        unset($_SERVER[$name], $_ENV[$name]);
+
+        putenv($name);
     }
 }

@@ -745,6 +745,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $config->set('authentication.jwt.keys', [self::PACKAGE_KID => self::PACKAGE_SECRET]);
         $config->set('authentication.jwt.active_kid', self::PACKAGE_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
+        $config->set('authentication.jwt.issuer', null);
         $config->set('authentication.jwt.audience', 'package-default-audience');
         $config->set('authentication.jwt.access_ttl_minutes', 45);
     }
