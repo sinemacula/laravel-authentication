@@ -5,6 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Feature;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
@@ -211,6 +213,33 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertSame($resolver, $this->readObjectProperty($guard, 'resolver'));
         self::assertSame($resolver, $this->readObjectProperty($exchange, 'resolver'));
         self::assertNotSame($replacement, $this->readObjectProperty($guard, 'resolver'));
+    }
+
+    /**
+     * Package guards follow later rebinds of the `events` dispatcher, so an
+     * `Event::fake()` (or any dispatcher swap) made after a guard resolves
+     * still receives that guard's events.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     * @throws \Throwable
+     */
+    public function testJwtGuardTracksLaterEventDispatcherRebind(): void
+    {
+        config()->set('authentication.timebox.credentials_microseconds', 1);
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        Event::fake([Attempting::class, Failed::class]);
+
+        self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
+        self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
+
+        Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
+        Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
     }
 
     /**
