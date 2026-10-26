@@ -69,9 +69,9 @@ final class RefreshTokenExchange
      * Rebind the principal resolver used by refresh exchanges.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
-     * @return static
+     * @return self
      */
-    public function setPrincipalResolver(PrincipalResolver $resolver): static
+    public function setPrincipalResolver(PrincipalResolver $resolver): self
     {
         $this->resolver = $resolver;
 
@@ -87,6 +87,7 @@ final class RefreshTokenExchange
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \Random\RandomException
      */
     public function exchange(#[\SensitiveParameter] string $refreshToken): ?ExchangedRefresh
     {
@@ -143,6 +144,8 @@ final class RefreshTokenExchange
      * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice, 1: string, 2: mixed}|null
      *
      * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     private function decodeRefreshToken(#[\SensitiveParameter] string $refreshToken): ?array
     {
@@ -219,6 +222,8 @@ final class RefreshTokenExchange
      * @param  mixed  $rawDeviceId
      * @param  string  $rotationId
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     private function loadDeviceForRefresh(mixed $rawDeviceId, #[\SensitiveParameter] string $rotationId): (EloquentDevice&Model)|null
     {
@@ -268,11 +273,11 @@ final class RefreshTokenExchange
 
         try {
             $device = $model->newQuery()->find($id);
-        } catch (QueryException) {
+        } catch (QueryException) { // @phpstan-ignore catch.neverThrown
             return null;
         }
 
-        if (!$device instanceof Model || !$device instanceof EloquentDevice) {
+        if (!$device instanceof Model) {
             return null;
         }
 

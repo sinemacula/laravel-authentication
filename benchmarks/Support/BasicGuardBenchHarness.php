@@ -24,7 +24,7 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class BasicGuardBenchHarness
+final readonly class BasicGuardBenchHarness
 {
     /** @var string Valid benchmark identity email. */
     private const string EMAIL = 'bench-basic@example.test';
@@ -36,16 +36,16 @@ final class BasicGuardBenchHarness
     private const string PASSWORD = 'correct horse battery staple';
 
     /** @var \SineMacula\Laravel\Authentication\Providers\ModelProvider */
-    private readonly ModelProvider $provider;
+    private ModelProvider $provider;
 
     /** @var \SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver */
-    private readonly DefaultPrincipalResolver $resolver;
+    private DefaultPrincipalResolver $resolver;
 
     /** @var \Illuminate\Contracts\Events\Dispatcher */
-    private readonly DispatcherContract $events;
+    private DispatcherContract $events;
 
     /** @var \Benchmarks\Support\ImmediateTimebox */
-    private readonly ImmediateTimebox $timebox;
+    private ImmediateTimebox $timebox;
 
     /**
      * Seed the BasicGuard benchmark fixtures.

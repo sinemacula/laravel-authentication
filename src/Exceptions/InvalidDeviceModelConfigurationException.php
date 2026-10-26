@@ -41,9 +41,9 @@ final class InvalidDeviceModelConfigurationException extends \RuntimeException
      * Build an exception for an unsupported device model.
      *
      * @param  string  $configured
-     * @return static
+     * @return self
      */
-    public static function unsupported(string $configured): static
+    public static function unsupported(string $configured): self
     {
         $display = $configured === '' ? '(empty string)' : $configured;
 

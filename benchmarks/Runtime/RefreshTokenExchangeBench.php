@@ -28,6 +28,8 @@ final class RefreshTokenExchangeBench
      * Benchmark a successful refresh rotation.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(10)]
@@ -40,6 +42,8 @@ final class RefreshTokenExchangeBench
      * Benchmark the unknown-device failure path.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -52,6 +56,8 @@ final class RefreshTokenExchangeBench
      * Benchmark the rotation-mismatch failure path.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -64,6 +70,8 @@ final class RefreshTokenExchangeBench
      * Benchmark tenant-aware 3D refresh exchange.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(10)]
@@ -76,6 +84,8 @@ final class RefreshTokenExchangeBench
      * Benchmark tenant-aware 3D refresh with a secondary tenant principal.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(10)]

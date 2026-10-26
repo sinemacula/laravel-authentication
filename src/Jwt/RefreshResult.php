@@ -14,7 +14,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class RefreshResult
+final readonly class RefreshResult
 {
     /**
      * Constructor.
@@ -25,9 +25,9 @@ final class RefreshResult
     public function __construct(
 
         /** Newly issued access token returned to the client. */
-        #[\SensitiveParameter] public readonly string $accessToken,
+        #[\SensitiveParameter] public string $accessToken,
 
         /** Newly issued refresh token that rotates the device's stored digest. */
-        #[\SensitiveParameter] public readonly string $refreshToken,
+        #[\SensitiveParameter] public string $refreshToken,
     ) {}
 }

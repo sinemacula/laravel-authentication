@@ -124,6 +124,8 @@ final class JwtGuardBenchHarness
 
     /**
      * Seed the bearer-auth benchmark fixtures.
+     *
+     * @throws \Random\RandomException
      */
     public function __construct()
     {
@@ -365,6 +367,8 @@ final class JwtGuardBenchHarness
      *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     private function seedAccessOnlyFixture(Hasher $hasher): void
     {
@@ -388,6 +392,8 @@ final class JwtGuardBenchHarness
      *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     private function seedCoexistenceTwoDimensionalFixture(Hasher $hasher): void
     {
@@ -412,6 +418,8 @@ final class JwtGuardBenchHarness
      *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     private function seedDeviceFixtures(Hasher $hasher): void
     {
@@ -467,7 +475,7 @@ final class JwtGuardBenchHarness
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
      *
-     * @throws \LogicException
+     * @throws \Random\RandomException
      */
     private function seedThreeDimensionalFixtures(Hasher $hasher): void
     {
@@ -486,11 +494,8 @@ final class JwtGuardBenchHarness
 
         if (!$principal instanceof Coexist3dPrincipal) {
 
+            /** @var int $identityKey */
             $identityKey = $identity->getKey();
-
-            if (!is_int($identityKey)) {
-                throw new \LogicException('Expected Coexist3dIdentity primary key to be an integer.');
-            }
 
             $principal              = new Coexist3dPrincipal;
             $principal->identity_id = $identityKey;
@@ -507,6 +512,8 @@ final class JwtGuardBenchHarness
      *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     private function seedTenantAwareThreeDimensionalFixtures(Hasher $hasher): void
     {

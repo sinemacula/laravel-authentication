@@ -53,9 +53,13 @@ class Device extends Model implements EloquentDevice
     /**
      * Create a new Device bound to the package-configured table name. Reads the
      * table name lazily on each instantiation so runtime config swaps (tests,
-     * tenancy) take effect immediately.
+     * tenancy) take effect immediately. The table has to be applied here,
+     * before Eloquent reads it, so this is construction rather than model
+     * behaviour.
      *
      * @param  array<string, mixed>  $attributes
+     *
+     * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
@@ -99,6 +103,10 @@ class Device extends Model implements EloquentDevice
     protected function casts(): array
     {
         return [
+            'authenticatable_type' => 'string',
+            'authenticatable_id'   => 'string',
+            'os'                   => 'string',
+            'refresh_key'          => 'string',
             'revoked_at'           => 'datetime',
             'last_logged_in_at'    => 'datetime',
             'last_mfa_verified_at' => 'datetime',

@@ -71,8 +71,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * identity so subsequent reads fall back to the live provider.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityRemovesCachedEntriesForMatchingJwtGuards(): void
     {
@@ -142,8 +140,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * pins the coalesce order `$identifier ?? $identity->getAuthIdentifier()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityUsesExplicitIdentifierOverDefault(): void
     {
@@ -300,8 +296,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * $providerName === ''` arms in `providerModelClassForJwtGuard()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentitySkipsGuardWithMissingOrEmptyProvider(): void
     {
@@ -332,8 +326,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * `providerModelClassForJwtGuard()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentitySkipsGuardWithEmptyModelClass(): void
     {
@@ -391,8 +383,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * `ResolutionCacheInvalidator::forgetIdentityForGuard()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityForGuardRemovesSingleGuardEntry(): void
     {
@@ -465,8 +455,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * Pins the `$providerModelClass === null` early-return path.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityForGuardSkipsNonJwtGuard(): void
     {
@@ -485,8 +473,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * `forgetIdentityForGuard()` honours an explicit identifier parameter.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentityForGuardUsesExplicitIdentifier(): void
     {
@@ -534,8 +520,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * `matchingJwtGuardProviderModels()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentitySkipsNonStringGuardKeys(): void
     {
@@ -562,8 +546,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      * `matchingJwtGuardProviderModels()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetIdentitySkipsNonArrayGuardConfig(): void
     {
@@ -622,8 +604,6 @@ final class ResolutionCacheEvictionTest extends TestCase
      *
      * @param  string  $email
      * @return \Tests\Unit\Stubs\StubPrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(string $email = 'cache@example.test'): StubPrincipal
     {

@@ -423,7 +423,12 @@ final class BasicGuardLoginTest extends TestCase
             public bool $returnEarlyCalled = false;
 
             /**
+             * Timebox::returnEarly() returns static, which an override cannot narrow to
+             * self.
+             *
              * @return static
+             *
+             * @phpstan-ignore sineMacula.redundantStaticReturnType
              */
             #[\Override]
             public function returnEarly(): static
@@ -496,8 +501,8 @@ final class BasicGuardLoginTest extends TestCase
 
         $guard->user();
 
-        static::assertInstanceOf(Attempting::class, $attemptingEvent);
-        static::assertFalse($attemptingEvent->remember);
+        self::assertInstanceOf(Attempting::class, $attemptingEvent);
+        self::assertFalse($attemptingEvent->remember);
     }
 
     /**

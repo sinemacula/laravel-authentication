@@ -29,6 +29,8 @@ final class JwtGuardBench
      * Benchmark 2D bearer path with no device hint.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -41,6 +43,8 @@ final class JwtGuardBench
      * Benchmark 2D bearer path with a warm identity cache.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -54,6 +58,8 @@ final class JwtGuardBench
      * the write.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -67,6 +73,8 @@ final class JwtGuardBench
      * `last_logged_in_at`.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(10)]
@@ -79,6 +87,8 @@ final class JwtGuardBench
      * Benchmark 3D principal-resolution bearer path.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -91,6 +101,8 @@ final class JwtGuardBench
      * Benchmark tenant-aware 3D bearer path.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -103,6 +115,8 @@ final class JwtGuardBench
      * Benchmark tenant-aware 3D bearer path with a secondary tenant principal.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -115,6 +129,8 @@ final class JwtGuardBench
      * Benchmark tenant-aware 3D bearer path with a warm identity cache.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(25)]
@@ -127,6 +143,8 @@ final class JwtGuardBench
      * Benchmark sequential 2D + 3D guard coexistence in one process.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(10)]
@@ -139,6 +157,8 @@ final class JwtGuardBench
      * Lazily initialize the shared harness.
      *
      * @return \Benchmarks\Support\JwtGuardBenchHarness
+     *
+     * @throws \Random\RandomException
      */
     private function harness(): JwtGuardBenchHarness
     {

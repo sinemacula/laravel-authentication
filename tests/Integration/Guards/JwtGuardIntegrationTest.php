@@ -256,7 +256,7 @@ final class JwtGuardIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRevokingDeviceBlocksRefreshButNotExistingAccessToken(): void
     {
@@ -346,8 +346,6 @@ final class JwtGuardIntegrationTest extends TestCase
      * Persist and return a hashed-password identity row.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedUser(): StubPrincipal
     {

@@ -55,6 +55,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenIdentityIsInactive(): void
     {
@@ -97,6 +98,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenPrincipalIsUnresolved(): void
     {
@@ -147,6 +149,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenPidHintDoesNotMatchResolvedPrincipal(): void
     {
@@ -202,6 +205,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenResolvedPrincipalIdentifierIsNull(): void
     {
@@ -257,6 +261,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenPrincipalIsInactive(): void
     {
@@ -312,6 +317,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshRejectsTokenWhenNullPrincipalResolvesForPidHint(): void
     {
@@ -362,6 +368,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshRotatesAndIssuesNewTokenPairOnSuccess(): void
     {
@@ -454,6 +461,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshDispatchesSuccessfulLifecycleEventsBeforeRefreshed(): void
     {
@@ -520,6 +528,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshBindsIdentityPrincipalAndDeviceOnSuccess(): void
     {
@@ -574,6 +583,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshUsesReplacementResolverAfterGuardResolverRebind(): void
     {
@@ -631,6 +641,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshPathNeverUsesResolutionCache(): void
     {

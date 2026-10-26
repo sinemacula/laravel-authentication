@@ -18,7 +18,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class ExchangedRefresh
+final readonly class ExchangedRefresh
 {
     /**
      * Constructor.
@@ -31,15 +31,15 @@ final class ExchangedRefresh
     public function __construct(
 
         /** Authenticated identity resolved from the refreshed device. */
-        public readonly Identity $identity,
+        public Identity $identity,
 
         /** Principal bound to the refreshed session. */
-        public readonly Principal $principal,
+        public Principal $principal,
 
         /** Device whose refresh credential was rotated. */
-        public readonly EloquentDevice&Model $device,
+        public EloquentDevice&Model $device,
 
         /** Newly issued access + refresh token pair. */
-        public readonly RefreshResult $tokens,
+        public RefreshResult $tokens,
     ) {}
 }

@@ -143,6 +143,8 @@ final class RefreshTokenExchangeBenchHarness
      * Benchmark refresh success.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function runRefreshSuccess(): void
     {
@@ -156,6 +158,8 @@ final class RefreshTokenExchangeBenchHarness
      * Benchmark the unknown-device failure path.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function runUnknownDeviceFailure(): void
     {
@@ -166,6 +170,8 @@ final class RefreshTokenExchangeBenchHarness
      * Benchmark the rotation-mismatch failure path.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function runRotationMismatchFailure(): void
     {
@@ -176,6 +182,8 @@ final class RefreshTokenExchangeBenchHarness
      * Benchmark tenant-aware 3D refresh success including tenant access.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function runThreeDimensionalRefreshTenantAccess(): void
     {
@@ -194,6 +202,8 @@ final class RefreshTokenExchangeBenchHarness
      * Benchmark tenant-aware 3D refresh success for a secondary tenant hint.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function runThreeDimensionalRefreshSecondaryTenantAccess(): void
     {

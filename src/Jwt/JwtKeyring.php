@@ -23,7 +23,7 @@ use Firebase\JWT\Key;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class JwtKeyring
+final readonly class JwtKeyring
 {
     /** @var string Sentinel kid for single-secret mode (never in headers). */
     private const string LEGACY_KID = '__legacy__';
@@ -50,13 +50,13 @@ final class JwtKeyring
     private function __construct(
 
         /** Map of `kid -> Firebase\JWT\Key` used for verification. */
-        private readonly array $keys,
+        private array $keys,
 
         /** Kid stamped into every issued token; empty string when kid mode is off. */
-        private readonly string $activeKid,
+        private string $activeKid,
 
         /** Whether the keyring operates in kid mode (true) or legacy single-secret mode (false). */
-        private readonly bool $kidMode,
+        private bool $kidMode,
     ) {}
 
     /**

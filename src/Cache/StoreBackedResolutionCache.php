@@ -187,7 +187,7 @@ final readonly class StoreBackedResolutionCache implements ResolutionCache
     {
         try {
             $this->store()->forget($key);
-        } catch (\Throwable) {
+        } catch (\Throwable) { // @phpstan-ignore catch.neverThrown
             // Fail open: an invalidation miss must not break auth flows.
         }
     }
@@ -227,7 +227,7 @@ final readonly class StoreBackedResolutionCache implements ResolutionCache
                 $this->cloneIdentity($resolved),
                 $ttlSeconds,
             );
-        } catch (\Throwable) {
+        } catch (\Throwable) { // @phpstan-ignore catch.neverThrown
             // Fail open: auth must not depend on cache writes succeeding.
         }
     }

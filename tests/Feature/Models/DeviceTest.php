@@ -213,7 +213,7 @@ final class DeviceTest extends TestCase
             self::assertSame('devices', $device->getTable());
         } finally {
             if ($previous !== null) {
-                $this->app?->instance('config', $previous);
+                $this->app->instance('config', $previous);
             }
             Config::clearResolvedInstance('config');
         }

@@ -62,8 +62,6 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      * successful-attempt tests authenticate against.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[\Override]
     protected function setUp(): void

@@ -114,7 +114,12 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             public bool $returnEarlyCalled = false;
 
             /**
+             * Timebox::returnEarly() returns static, which an override cannot narrow to
+             * self.
+             *
              * @return static
+             *
+             * @phpstan-ignore sineMacula.redundantStaticReturnType
              */
             #[\Override]
             public function returnEarly(): static
@@ -171,7 +176,12 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             public bool $returnEarlyCalled = false;
 
             /**
+             * Timebox::returnEarly() returns static, which an override cannot narrow to
+             * self.
+             *
              * @return static
+             *
+             * @phpstan-ignore sineMacula.redundantStaticReturnType
              */
             #[\Override]
             public function returnEarly(): static
@@ -210,8 +220,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        static::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
-        static::assertTrue($returnEarlyCalled);
+        self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
+        self::assertTrue($returnEarlyCalled);
     }
 
     /**
@@ -236,7 +246,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         // First login binds identity, principal, and device.
         $guard->login($identity1, $principal1, $device1);
 
-        static::assertSame($device1, $guard->device());
+        self::assertSame($device1, $guard->device());
 
         $identity2  = $this->mockIdentity();
         $principal2 = $this->mockActivePrincipal();
@@ -244,9 +254,9 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         // Second login without a device must NOT carry over device1.
         $guard->login($identity2, $principal2);
 
-        static::assertNull($guard->device());
-        static::assertSame($identity2, $guard->user());
-        static::assertSame($principal2, $guard->principal());
+        self::assertNull($guard->device());
+        self::assertSame($identity2, $guard->user());
+        self::assertSame($principal2, $guard->principal());
     }
 
     /**
@@ -285,7 +295,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        static::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
+        self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
     }
 
     /**
@@ -319,14 +329,14 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        static::assertTrue(
+        self::assertTrue(
             $guard->attempt(
                 ['email' => 'x', 'password' => 'y'],
                 $explicit,
             ),
         );
 
-        static::assertSame($explicit, $guard->principal());
+        self::assertSame($explicit, $guard->principal());
     }
 
     /**
@@ -364,7 +374,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
                 $dispatched[] = $event::class;
             });
 
-        static::assertTrue(
+        self::assertTrue(
             $guard->attempt(
                 ['email' => 'x', 'password' => 'y'],
                 null,
@@ -372,8 +382,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             ),
         );
 
-        static::assertSame($device, $guard->device());
-        static::assertContains(DeviceAuthenticated::class, $dispatched);
+        self::assertSame($device, $guard->device());
+        self::assertContains(DeviceAuthenticated::class, $dispatched);
     }
 
     /**
@@ -410,10 +420,10 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
                 $dispatched[] = $event::class;
             });
 
-        static::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
+        self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
 
-        static::assertNull($guard->device());
-        static::assertNotContains(DeviceAuthenticated::class, $dispatched);
+        self::assertNull($guard->device());
+        self::assertNotContains(DeviceAuthenticated::class, $dispatched);
     }
 
     /**
@@ -447,6 +457,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        static::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
+        self::assertTrue($guard->validate(['email' => 'x', 'password' => 'y']));
     }
 }

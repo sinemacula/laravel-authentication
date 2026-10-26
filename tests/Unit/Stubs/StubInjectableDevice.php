@@ -28,11 +28,14 @@ final class StubInjectableDevice extends StubDevice
 
     /**
      * Return the injected Builder mock if present, otherwise fall back to
-     * Eloquent's default query builder.
+     * Eloquent's default query builder. A test double overriding the framework
+     * query entry point, not model behaviour.
      *
      * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubInjectableDevice>
      *
      * @throws \LogicException
+     *
+     * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     #[\Override]
     public function newQuery(): Builder

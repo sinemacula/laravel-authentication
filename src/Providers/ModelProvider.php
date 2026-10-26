@@ -210,7 +210,7 @@ class ModelProvider implements IdentityProvider
      * suppressions live in one place.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
-     * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>
+     * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>
      */
     private function freshQuery(Authenticatable&Model $model): Builder
     {

@@ -45,6 +45,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenTokenCannotBeParsed(): void
     {
@@ -68,6 +69,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenDeviceIdMissingFromClaims(): void
     {
@@ -93,6 +95,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenDeviceLookupFails(): void
     {
@@ -123,6 +126,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenRefreshKeyDoesNotMatch(): void
     {
@@ -155,6 +159,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenAuthenticatableRelationIsNotIdentity(): void
     {
@@ -195,6 +200,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenRotationIdClaimIsEmptyString(): void
     {
@@ -224,6 +230,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenRotationIdClaimIsNotString(): void
     {
@@ -254,6 +261,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshReturnsNullWhenDeviceHasBeenRevoked(): void
     {
@@ -301,6 +309,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshRevokesDeviceOnRotationReuseWhenCasAffectsZeroRows(): void
     {
@@ -373,6 +382,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshRejectsOldRefreshTokenAfterSuccessfulRotationWithoutRevokingDevice(): void
     {
@@ -449,6 +459,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshDispatchesFailedEventOnFailure(): void
     {

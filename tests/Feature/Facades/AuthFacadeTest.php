@@ -72,8 +72,6 @@ final class AuthFacadeTest extends TestCase
      * can call `inheritDriversFrom()` and the contextual accessors directly.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testManagerResolvesPackageAuthManagerFromContainer(): void
     {
@@ -89,8 +87,6 @@ final class AuthFacadeTest extends TestCase
      * net for consumers who forgot to register the package service provider.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testManagerThrowsWhenAuthBindingIsNotPackageManager(): void
     {

@@ -135,6 +135,8 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *    key.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testBothGuardsAuthenticateInSameRunWithoutCrossContamination(): void
     {
@@ -209,7 +211,6 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     public function testSwitchingDefaultGuardTo2dExposesCorrectContext(): void
@@ -245,7 +246,6 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     public function testSwitchingDefaultGuardTo3dExposesCorrectContext(): void
@@ -379,8 +379,6 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      *
      * @param  string  $name
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function switchDefaultGuard(string $name): void
     {
