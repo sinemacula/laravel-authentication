@@ -149,9 +149,43 @@ final class JwtTokenServiceFactory
 
         return JwtKeyring::fromKeyMap(
             $this->coerceKeysConfig($rawKeys),
-            $this->resolveJwtString($guardJwtConfig, 'active_kid', ''),
+            $this->resolveActiveKid($guardJwtConfig),
             $algorithm,
         );
+    }
+
+    /**
+     * Resolve the active kid, preferring the per-guard override and falling
+     * back to the package-wide default.
+     *
+     * A purely numeric kid written as an integer (e.g. `'active_kid' => 2026`)
+     * resolves to its string form, matching how `JwtKeyring` looks up numeric
+     * kids. Any other non-string value fails closed here rather than falling
+     * back to the package-wide kid.
+     *
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @return string
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private function resolveActiveKid(#[\SensitiveParameter] array $guardJwtConfig): string
+    {
+        $activeKid = $guardJwtConfig['active_kid'] ?? $this->config->get('authentication.jwt.active_kid');
+
+        if (is_int($activeKid)) {
+            return (string) $activeKid;
+        }
+
+        if (!is_string($activeKid)) {
+
+            $message = 'JWT active kid is missing or not a string. Set'
+                . ' `authentication.jwt.active_kid` (or the guard\'s'
+                . ' `jwt.active_kid` override) to a kid in the key map.';
+
+            throw new InvalidJwtConfigurationException($message);
+        }
+
+        return $activeKid;
     }
 
     /**

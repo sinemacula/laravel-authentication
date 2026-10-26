@@ -498,6 +498,98 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * A guard that overrides only `active_kid` with a purely numeric kid
+     * written as an integer signs with that kid from the package-wide key map
+     * instead of falling back to the package-wide active kid.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAuthFacadeJwtResolvesIntegerGuardActiveKidAgainstPackageKeys(): void
+    {
+        config()->set('authentication.jwt.keys', [
+            self::PACKAGE_KID     => self::PACKAGE_SECRET,
+            self::NUMERIC_KID_NEW => self::KID_NEW_SECRET,
+        ]);
+
+        config()->set('auth.guards.integer_active_kid', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'active_kid' => (int) self::NUMERIC_KID_NEW,
+            ],
+        ]);
+
+        $token = $this->issueAccessToken(PackageAuth::jwt('integer_active_kid'));
+
+        $verifier = $this->makeVerifier([self::NUMERIC_KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
+
+        self::assertSame(self::NUMERIC_KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
+        self::assertNotNull($verifier->parse($token, TokenType::ACCESS));
+    }
+
+    /**
+     * A package-wide `active_kid` written as an integer resolves to its string
+     * form rather than failing on the config repository's string accessor.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAuthFacadeJwtResolvesIntegerPackageActiveKid(): void
+    {
+        config()->set('authentication.jwt.keys', [self::NUMERIC_KID_NEW => self::KID_NEW_SECRET]);
+        config()->set('authentication.jwt.active_kid', (int) self::NUMERIC_KID_NEW);
+
+        $token = $this->issueAccessToken(PackageAuth::jwt('package_default'));
+
+        self::assertSame(self::NUMERIC_KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
+    }
+
+    /**
+     * A guard `active_kid` that is neither a string nor an integer fails closed
+     * with the typed configuration exception instead of silently falling back
+     * to the package-wide active kid.
+     *
+     * @return void
+     */
+    public function testAuthFacadeJwtRejectsNonStringGuardActiveKid(): void
+    {
+        config()->set('auth.guards.boolean_active_kid', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'active_kid' => true,
+            ],
+        ]);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            'JWT active kid is missing or not a string. Set `authentication.jwt.active_kid` (or the guard\'s'
+            . ' `jwt.active_kid` override) to a kid in the key map.',
+        );
+
+        PackageAuth::jwt('boolean_active_kid');
+    }
+
+    /**
+     * A missing package-wide `active_kid` fails closed with the typed
+     * configuration exception.
+     *
+     * @return void
+     */
+    public function testAuthFacadeJwtRejectsMissingPackageActiveKid(): void
+    {
+        config()->set('authentication.jwt.active_kid', null);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage('JWT active kid is missing or not a string.');
+
+        PackageAuth::jwt('package_default');
+    }
+
+    /**
      * A key shorter than the algorithm's minimum fails guard resolution with
      * the typed configuration exception instead of failing on first use.
      *
