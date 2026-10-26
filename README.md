@@ -42,8 +42,8 @@ device record live in the `devices` table so replay and stale credentials can be
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), strict `iss` / `aud` / `typ` / `exp` /
-  leeway enforcement, per-token `jti`, and fail-closed behaviour on empty keys, unsupported algorithms, type
-  confusion, and `pid` / `did` mismatches.
+  leeway enforcement, per-token `jti`, and fail-closed behaviour on empty or short keys, unsupported algorithms,
+  type confusion, and `pid` / `did` mismatches.
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
   machine-readable `RefreshFailed` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
@@ -87,8 +87,11 @@ Signing keys are always configured as a `kid → secret` map. Out of the box the
 `AUTHENTICATION_JWT_KEY`, and `AUTHENTICATION_JWT_ACTIVE_KID` (default `default`) selects the key that signs new
 tokens. Every token carries its kid in the JWT header. See [Key Rotation](#key-rotation) for adding keys.
 
-The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with an empty key map, a missing
-or empty key, or an `active_kid` that is not in the map.
+Every key must be at least as long as the algorithm's digest: 32 bytes for `HS256` (the default), 48 for `HS384`,
+and 64 for `HS512`. `openssl rand -base64 48` prints a 64-character value that satisfies all three.
+
+The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with an empty key map, a missing,
+empty, or too-short key, or an `active_kid` that is not in the map.
 
 ### Access-only mode (no devices, no refresh)
 

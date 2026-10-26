@@ -451,6 +451,30 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * A key shorter than the algorithm's minimum fails guard resolution with
+     * the typed configuration exception instead of failing on first use.
+     *
+     * @return void
+     */
+    public function testAuthFacadeJwtRejectsKeyShorterThanAlgorithmMinimum(): void
+    {
+        config()->set('auth.guards.short_key', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'keys'       => [self::STAFF_KID => self::STAFF_SECRET],
+                'active_kid' => self::STAFF_KID,
+                'algorithm'  => 'HS512',
+            ],
+        ]);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(sprintf('JWT key \'%s\' is too short for HS512: it must be at least 64 bytes.', self::STAFF_KID));
+
+        PackageAuth::jwt('short_key');
+    }
+
+    /**
      * `forGuard()` rejects an empty guard name with an
      * `InvalidArgumentException`. Pins the `$guard === ''` early-throw.
      *

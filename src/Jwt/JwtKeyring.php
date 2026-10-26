@@ -14,19 +14,19 @@ use Firebase\JWT\Key;
  * kid present in the map, which is what makes graceful key rotation possible. A
  * map with a single entry is the minimal configuration.
  *
- * Fails closed: empty maps, empty secrets, and unknown active kids raise
- * `InvalidJwtConfigurationException` at construction.
+ * Fails closed: empty maps, empty or short secrets, and unknown active kids
+ * raise `InvalidJwtConfigurationException` at construction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final readonly class JwtKeyring
 {
-    /** @var array<int, string> Allow-listed JWT signing algorithms (HMAC only). */
+    /** @var array<string, int> Allow-listed JWT signing algorithms (HMAC only), mapped to their minimum key length in bytes. */
     private const array SUPPORTED_ALGORITHMS = [
-        'HS256',
-        'HS384',
-        'HS512',
+        'HS256' => 32,
+        'HS384' => 48,
+        'HS512' => 64,
     ];
 
     /**
@@ -128,21 +128,22 @@ final readonly class JwtKeyring
      */
     private static function assertAlgorithmSupported(string $algorithm): void
     {
-        if (in_array($algorithm, self::SUPPORTED_ALGORITHMS, true)) {
+        if (array_key_exists($algorithm, self::SUPPORTED_ALGORITHMS)) {
             return;
         }
 
         $message = "JWT algorithm '{$algorithm}' is not supported."
             . ' Set `authentication.jwt.algorithm` to one of: '
-            . implode(', ', self::SUPPORTED_ALGORITHMS) . '.';
+            . implode(', ', array_keys(self::SUPPORTED_ALGORITHMS)) . '.';
 
         throw new InvalidJwtConfigurationException($message);
     }
 
     /**
      * Validate the supplied kid -> secret map and convert it into a kid -> Key
-     * map. Both kid and secret must be non-empty strings; fail-closed
-     * regardless of the caller's static type hint.
+     * map. Both kid and secret must be non-empty strings, and every secret must
+     * meet the algorithm's minimum length; fail-closed regardless of the
+     * caller's static type hint.
      *
      * @param  array<string, mixed>  $keys
      * @param  string  $algorithm
@@ -173,9 +174,38 @@ final readonly class JwtKeyring
                 throw new InvalidJwtConfigurationException($message);
             }
 
+            self::assertKeyLength($kid, $material, $algorithm);
+
             $built[$kid] = new Key($material, $algorithm);
         }
 
         return $built;
+    }
+
+    /**
+     * Reject secret material shorter than the algorithm's minimum key length
+     * (the HMAC digest size: 32, 48, or 64 bytes), so a weak key fails at boot
+     * rather than on the first encode or decode.
+     *
+     * @param  int|string  $kid
+     * @param  string  $material
+     * @param  string  $algorithm
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private static function assertKeyLength(int|string $kid, #[\SensitiveParameter] string $material, string $algorithm): void
+    {
+        $minimumBytes = self::SUPPORTED_ALGORITHMS[$algorithm];
+
+        if (strlen($material) >= $minimumBytes) {
+            return;
+        }
+
+        $message = "JWT key '{$kid}' is too short for {$algorithm}: it must be at"
+            . " least {$minimumBytes} bytes. Set every kid in"
+            . " `authentication.jwt.keys` to a random value of at least {$minimumBytes} bytes.";
+
+        throw new InvalidJwtConfigurationException($message);
     }
 }

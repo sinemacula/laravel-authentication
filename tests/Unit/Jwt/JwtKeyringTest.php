@@ -15,9 +15,10 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
  * Unit tests for the `JwtKeyring` value object.
  *
  * Asserts the fail-closed validation surface (empty key maps, unknown active
- * kids, malformed entries, unsupported algorithms) and the shape contracts the
- * token service relies on: `verificationKeys()` returns a `kid → Key` map and
- * `activeKid()` returns the kid embedded in every issued token.
+ * kids, malformed entries, short keys, unsupported algorithms) and the shape
+ * contracts the token service relies on: `verificationKeys()` returns a
+ * `kid → Key` map and `activeKid()` returns the kid embedded in every issued
+ * token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -202,6 +203,97 @@ final class JwtKeyringTest extends TestCase
         $this->expectExceptionMessage("JWT algorithm '{$algorithm}' is not supported. Set `authentication.jwt.algorithm` to one of: HS256, HS384, HS512.");
 
         JwtKeyring::fromKeyMap([self::NEW_KID => self::SECRET], self::NEW_KID, $algorithm);
+    }
+
+    /**
+     * Data provider pairing each allow-listed algorithm with its minimum key
+     * length in bytes (the HMAC digest size).
+     *
+     * @return iterable<string, array{0: string, 1: int}>
+     */
+    public static function provideAlgorithmMinimumKeyLengths(): iterable
+    {
+        yield from [
+            'HS256' => ['HS256', 32],
+            'HS384' => ['HS384', 48],
+            'HS512' => ['HS512', 64],
+        ];
+    }
+
+    /**
+     * Asserts a key exactly at the algorithm's minimum length is accepted.
+     *
+     * @param  string  $algorithm
+     * @param  int  $minimumBytes
+     * @return void
+     */
+    #[DataProvider('provideAlgorithmMinimumKeyLengths')]
+    public function testFromKeyMapAcceptsKeyAtAlgorithmMinimumLength(string $algorithm, int $minimumBytes): void
+    {
+        $material = str_repeat('k', $minimumBytes);
+
+        $keyring = JwtKeyring::fromKeyMap([self::NEW_KID => $material], self::NEW_KID, $algorithm);
+
+        self::assertSame($material, $keyring->activeKey()->getKeyMaterial());
+    }
+
+    /**
+     * Asserts a key one byte shorter than the algorithm's minimum is rejected
+     * with a message naming the kid, the algorithm, and the minimum length.
+     *
+     * @param  string  $algorithm
+     * @param  int  $minimumBytes
+     * @return void
+     */
+    #[DataProvider('provideAlgorithmMinimumKeyLengths')]
+    public function testFromKeyMapRejectsKeyShorterThanAlgorithmMinimum(string $algorithm, int $minimumBytes): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(sprintf(
+            'JWT key \'%s\' is too short for %s: it must be at least %d bytes. Set every kid in `authentication.jwt.keys` to a random value of at least %d bytes.',
+            self::NEW_KID,
+            $algorithm,
+            $minimumBytes,
+            $minimumBytes,
+        ));
+
+        JwtKeyring::fromKeyMap([self::NEW_KID => str_repeat('k', $minimumBytes - 1)], self::NEW_KID, $algorithm);
+    }
+
+    /**
+     * Asserts every kid is held to the minimum length, not just the active one,
+     * so a short retired key cannot linger in the verification map.
+     *
+     * @return void
+     */
+    public function testFromKeyMapRejectsShortKeyForInactiveKid(): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(sprintf('JWT key \'%s\' is too short for HS256', self::OLD_KID));
+
+        JwtKeyring::fromKeyMap(
+            [
+                self::NEW_KID => self::SECRET,
+                self::OLD_KID => 'short-old-key',
+            ],
+            self::NEW_KID,
+            self::ALGORITHM,
+        );
+    }
+
+    /**
+     * Asserts key length is measured in bytes, matching the HMAC key size: 16
+     * two-byte characters make a 32-byte key, which HS256 accepts.
+     *
+     * @return void
+     */
+    public function testFromKeyMapMeasuresKeyLengthInBytes(): void
+    {
+        $material = str_repeat('é', 16);
+
+        $keyring = JwtKeyring::fromKeyMap([self::NEW_KID => $material], self::NEW_KID, self::ALGORITHM);
+
+        self::assertSame($material, $keyring->activeKey()->getKeyMaterial());
     }
 
     /**
