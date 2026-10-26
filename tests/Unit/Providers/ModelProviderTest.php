@@ -22,9 +22,9 @@ use Tests\Unit\Stubs\StubModel;
  * and basic credential query building.
  *
  * Covers constructor type checks, retrieveById, retrieveByToken,
- * updateRememberToken, simple credential-to-query mapping, and modelClass().
- * Credential filtering edge cases, validateCredentials, and
- * rehashPasswordIfRequired tests live in ModelProviderCredentialTest.
+ * updateRememberToken, and simple credential-to-query mapping. Credential
+ * filtering edge cases, validateCredentials, and rehashPasswordIfRequired tests
+ * live in ModelProviderCredentialTest.
  *
  * @internal
  *
@@ -208,18 +208,6 @@ final class ModelProviderTest extends TestCase
         // After dropping numeric keys the credentials array is empty - the
         // provider returns null without composing a query.
         self::assertNull($provider->retrieveByCredentials([self::ALICE_EMAIL]));
-    }
-
-    /**
-     * `modelClass()` returns the configured Eloquent model class name.
-     *
-     * @return void
-     */
-    public function testModelClassReturnsConfiguredClassName(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        self::assertSame(StubAuthenticatableModel::class, $provider->modelClass());
     }
 
     /**

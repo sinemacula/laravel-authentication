@@ -13,8 +13,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - Unsupported or transient identifiers stringify to `null` and therefore fail matching rather than being tolerated.
 - Failure attribution should still point at the already resolved identity when `pid` or `did` rejection happens late in
   the bearer flow.
-- An optional shared bearer identity cache does not relax `pid`, `did`, or active-state checks; those remain live on
-  every request.
+- `pid`, `did`, and active-state checks run live on every request; nothing is cached across requests.
 
 ## Success Path
 
@@ -38,8 +37,6 @@ specific principal or device and the runtime cannot prove that claim, authentica
   relation.
 - When bearer auth rejects a token after the identity has already been loaded, the emitted `Failed` event still carries
   that resolved identity for attribution.
-- A warm bearer identity cache entry does not bypass principal re-resolution, principal activity checks, or live device
-  lookup for hinted `did` values.
 
 ## Implementation Anchors
 
@@ -94,4 +91,3 @@ Update this note when any of the following change:
 - whether refresh `did` remains backed by the configured device model
 - how late-path bearer failures are attributed on the `Failed` event
 - how guard-local or rebound principal resolvers are propagated into refresh
-- whether shared caching ever expands beyond bearer identity lookups

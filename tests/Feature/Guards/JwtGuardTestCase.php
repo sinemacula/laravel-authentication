@@ -20,7 +20,6 @@ use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -171,12 +170,11 @@ abstract class JwtGuardTestCase extends TestCase
      * supplied request.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    protected function makeGuard(Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard
+    protected function makeGuard(Request $request): JwtGuard
     {
         $app = $this->app;
 
@@ -199,7 +197,6 @@ abstract class JwtGuardTestCase extends TestCase
             $this->timebox,
             $this->tokens,
             $exchange,
-            $resolutionCache,
         );
     }
 

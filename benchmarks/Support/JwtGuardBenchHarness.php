@@ -14,7 +14,6 @@ use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -89,9 +88,6 @@ final class JwtGuardBenchHarness
     /** @var \Illuminate\Support\Timebox */
     private readonly Timebox $timebox;
 
-    /** @var \SineMacula\Laravel\Authentication\Contracts\ResolutionCache */
-    private readonly ResolutionCache $warmResolutionCache;
-
     /** @var string 2D access-only bearer token. */
     private string $accessOnlyToken;
 
@@ -115,12 +111,6 @@ final class JwtGuardBenchHarness
 
     /** @var int Current index into the write-token pool. */
     private int $deviceWriteIndex = 0;
-
-    /** @var bool */
-    private bool $accessOnlyWarmCachePrimed = false;
-
-    /** @var bool */
-    private bool $tenantAwareWarmCachePrimed = false;
 
     /**
      * Seed the bearer-auth benchmark fixtures.
@@ -151,9 +141,8 @@ final class JwtGuardBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens              = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
-        $this->timebox             = new Timebox;
-        $this->warmResolutionCache = JwtBenchSetup::warmResolutionCache($config);
+        $this->tokens  = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
+        $this->timebox = new Timebox;
 
         $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
         $this->coexistTwoDProvider       = new ModelProvider($hasher, Coexist2dIdentity::class);
@@ -180,26 +169,6 @@ final class JwtGuardBenchHarness
             'access_only',
             $this->accessOnlyProvider,
             $this->makeBearerRequest('/bench/jwt/access-only', $this->accessOnlyToken),
-        );
-
-        $guard->user();
-    }
-
-    /**
-     * Benchmark the warm access-only bearer path with the shared identity cache
-     * already primed.
-     *
-     * @return void
-     */
-    public function runAccessOnlyBearerWarmIdentityCache(): void
-    {
-        $this->primeAccessOnlyWarmCache();
-
-        $guard = $this->makeGuard(
-            'access_only',
-            $this->accessOnlyProvider,
-            $this->makeBearerRequest('/bench/jwt/access-only-warm', $this->accessOnlyToken),
-            $this->warmResolutionCache,
         );
 
         $guard->user();
@@ -288,28 +257,6 @@ final class JwtGuardBenchHarness
             'tenant_api_3d',
             $this->tenantAwareThreeDProvider,
             $this->makeBearerRequest('/bench/jwt/tenant-3d-secondary', $this->tenantAwareSecondaryToken),
-        );
-
-        $guard->user();
-        $guard->principal()?->getIdentity();
-        $guard->tenant();
-        $guard->type();
-    }
-
-    /**
-     * Benchmark the warm tenant-aware 3D bearer path including tenant access.
-     *
-     * @return void
-     */
-    public function runThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
-    {
-        $this->primeTenantAwareWarmCache();
-
-        $guard = $this->makeGuard(
-            'tenant_api_3d',
-            $this->tenantAwareThreeDProvider,
-            $this->makeBearerRequest('/bench/jwt/tenant-3d-warm', $this->tenantAwareThreeDToken),
-            $this->warmResolutionCache,
         );
 
         $guard->user();
@@ -550,10 +497,9 @@ final class JwtGuardBenchHarness
      * @param  string  $name
      * @param  \SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
      * @param  \Illuminate\Http\Request  $request
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function makeGuard(string $name, ModelProvider $provider, Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard
+    private function makeGuard(string $name, ModelProvider $provider, Request $request): JwtGuard
     {
         $exchange = new RefreshTokenExchange(
             $this->tokens,
@@ -572,7 +518,6 @@ final class JwtGuardBenchHarness
             $this->timebox,
             $this->tokens,
             $exchange,
-            $resolutionCache,
         );
     }
 
@@ -588,47 +533,5 @@ final class JwtGuardBenchHarness
         return Request::create($path, 'GET', [], [], [], [
             'HTTP_AUTHORIZATION' => 'Bearer ' . $token,
         ]);
-    }
-
-    /**
-     * Prime the warm cache used by the access-only bearer benchmark.
-     *
-     * @return void
-     */
-    private function primeAccessOnlyWarmCache(): void
-    {
-        if ($this->accessOnlyWarmCachePrimed) {
-            return;
-        }
-
-        $this->makeGuard(
-            'access_only',
-            $this->accessOnlyProvider,
-            $this->makeBearerRequest('/bench/jwt/access-only-cache-prime', $this->accessOnlyToken),
-            $this->warmResolutionCache,
-        )->user();
-
-        $this->accessOnlyWarmCachePrimed = true;
-    }
-
-    /**
-     * Prime the warm cache used by the tenant-aware bearer benchmark.
-     *
-     * @return void
-     */
-    private function primeTenantAwareWarmCache(): void
-    {
-        if ($this->tenantAwareWarmCachePrimed) {
-            return;
-        }
-
-        $this->makeGuard(
-            'tenant_api_3d',
-            $this->tenantAwareThreeDProvider,
-            $this->makeBearerRequest('/bench/jwt/tenant-3d-cache-prime', $this->tenantAwareThreeDToken),
-            $this->warmResolutionCache,
-        )->user();
-
-        $this->tenantAwareWarmCachePrimed = true;
     }
 }

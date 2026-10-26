@@ -166,42 +166,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Once the shared bearer identity cache is warm, the access-only path
-     * should avoid all SQL reads and writes on a fresh guard instance.
-     *
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \Random\RandomException
-     */
-    public function testAccessOnlyBearerPathWithWarmIdentityCacheUsesZeroReadsAndNoWrites(): void
-    {
-        $identity = $this->seedAccessOnlyIdentity();
-        $jwt      = PackageAuth::jwt(self::ACCESS_ONLY_GUARD);
-        self::assertNotNull($jwt);
-
-        $token = $jwt->issueAccessToken($identity, $identity, null);
-
-        config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
-
-        $this->bindRequestWithBearer('/perf/access-only-cache-prime', $token);
-        self::assertTrue($this->freshJwtGuard(self::ACCESS_ONLY_GUARD)->check());
-
-        $this->bindRequestWithBearer('/perf/access-only-cache-warm', $token);
-
-        $guard = $this->freshJwtGuard(self::ACCESS_ONLY_GUARD);
-
-        $result = $this->assertQueryBudget(0, 0, static function () use ($guard): bool {
-            $authenticated = $guard->check();
-            $guard->principal(); // @phpstan-ignore method.resultUnused
-
-            return $authenticated;
-        });
-
-        self::assertTrue($result);
-    }
-
-    /**
      * A bearer token with a valid device hint and a fresh last-seen timestamp
      * should do the identity read plus the device read, but no update.
      *
@@ -233,52 +197,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
         $guard = $this->freshJwtGuard(self::DEVICE_GUARD);
 
         $result = $this->assertQueryBudget(2, 0, static function () use ($guard): bool {
-            $authenticated = $guard->check();
-            $guard->device(); // @phpstan-ignore method.resultUnused
-
-            return $authenticated;
-        });
-
-        self::assertTrue($result);
-    }
-
-    /**
-     * With a warm shared identity cache, the device-bearing 2D path should do
-     * only the live device lookup and no writes when the timestamp is fresh.
-     *
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \Random\RandomException
-     */
-    public function testBearerPathWithDeviceHintAndWarmIdentityCacheUsesOneReadAndNoWrites(): void
-    {
-        $identity = $this->seedIntegrationIdentity('device-cache-fresh@example.test');
-
-        $device = new Device;
-        $device->forceFill([
-            'authenticatable_type' => IntegrationIdentity::class,
-            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
-            'refresh_key'          => null,
-            'last_logged_in_at'    => $this->now,
-        ])->save();
-
-        $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
-        self::assertNotNull($jwt);
-
-        $token = $jwt->issueAccessToken($identity, $identity, $device);
-
-        config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
-
-        $this->bindRequestWithBearer('/perf/device-cache-prime', $token);
-        self::assertTrue($this->freshJwtGuard(self::DEVICE_GUARD)->check());
-
-        $this->bindRequestWithBearer('/perf/device-cache-warm', $token);
-
-        $guard = $this->freshJwtGuard(self::DEVICE_GUARD);
-
-        $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
             $authenticated = $guard->check();
             $guard->device(); // @phpstan-ignore method.resultUnused
 
@@ -435,46 +353,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * With a warm identity cache, tenant-aware 3D bearer auth should only pay
-     * the joined principal+tenant read.
-     *
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \Random\RandomException
-     */
-    public function testThreeDimensionalBearerPathWithWarmIdentityCacheAndTenantAccessUsesOneReadAndNoWrites(): void
-    {
-        [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures('three-dimensional-warm@example.test');
-
-        $jwt = PackageAuth::jwt(self::TENANT_AWARE_THREE_D_GUARD);
-        self::assertNotNull($jwt);
-
-        $token = $jwt->issueAccessToken($identity, $principal, null);
-
-        config()->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
-
-        $this->bindRequestWithBearer('/perf/3d-tenant-aware-prime', $token);
-        self::assertTrue($this->freshJwtGuard(self::TENANT_AWARE_THREE_D_GUARD)->check());
-
-        $this->bindRequestWithBearer('/perf/3d-tenant-aware-warm', $token);
-
-        $guard = $this->freshJwtGuard(self::TENANT_AWARE_THREE_D_GUARD);
-
-        $result = $this->assertQueryBudget(1, 0, static function () use ($guard): bool {
-            $authenticated = $guard->check();
-            $guard->principal(); // @phpstan-ignore method.resultUnused
-            $guard->tenant(); // @phpstan-ignore method.resultUnused
-            $guard->type(); // @phpstan-ignore method.resultUnused
-            $guard->principal()?->getIdentity();
-
-            return $authenticated;
-        });
-
-        self::assertTrue($result);
-    }
-
-    /**
      * Configure the three JWT guards used by this test.
      *
      * @param  mixed  $app
@@ -534,7 +412,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'model'  => TenantAware3dIdentity::class,
         ]);
 
-        $config->set('cache.default', 'array');
         $config->set('authentication.device.last_seen_throttle_seconds', 60);
     }
 

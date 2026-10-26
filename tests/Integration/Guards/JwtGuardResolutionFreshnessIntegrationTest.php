@@ -6,15 +6,12 @@ namespace Tests\Integration\Guards;
 
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
-use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -27,8 +24,8 @@ use Tests\Unit\Stubs\StubActiveAwarePrincipal;
 use Tests\Unit\Stubs\StubMutablePrincipalResolver;
 
 /**
- * Integration tests for cross-request freshness on the JWT bearer/refresh paths
- * when bearer identity caching is enabled.
+ * Integration tests for cross-request freshness on the JWT bearer and refresh
+ * paths: identity, principal, and device state are read live on every request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -85,7 +82,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
     /**
      * Bearer auth must reject the next request once the identity becomes
-     * inactive and the shared identity cache entry is explicitly invalidated.
+     * inactive.
      *
      * @return void
      *
@@ -109,14 +106,11 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $identity->is_active = false;
         $identity->save();
 
-        app(ResolutionCacheInvalidator::class)->forgetIdentity($identity);
-
         self::assertFalse($this->guardForBearer($token)->check());
     }
 
     /**
-     * Principals stay live-resolved on every bearer request even when the
-     * identity itself comes from the shared cache.
+     * Principals stay live-resolved on every bearer request.
      *
      * @return void
      *
@@ -246,7 +240,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
     /**
      * The bearer path must resolve principals against the current resolver
-     * policy on a fresh request even when the identity hits the shared cache.
+     * policy on a fresh request.
      *
      * @return void
      *
@@ -278,69 +272,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     }
 
     /**
-     * Refresh must not consult the shared bearer identity cache at all.
-     *
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \Random\RandomException
-     */
-    public function testRefreshPathNeverUsesResolutionCache(): void
-    {
-        $identity = $this->seedIdentity('refresh-cache-bypass@example.test');
-        $device   = $this->seedDevice($identity, 'refresh-cache-bypass');
-
-        $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity); // @phpstan-ignore cast.string
-
-        assert($this->app !== null);
-
-        $this->app->instance(
-            ResolutionCache::class,
-            new class implements ResolutionCache {
-                /**
-                 * @param  string  $guardName
-                 * @param  string  $providerModelClass
-                 * @param  mixed  $identifier
-                 * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-                 * @return never
-                 *
-                 * @throws \LogicException
-                 */
-                #[\Override]
-                public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
-                {
-                    unset($guardName, $providerModelClass, $identifier, $resolver);
-
-                    throw new \LogicException('Refresh must not use the shared resolution cache.');
-                }
-
-                /**
-                 * @param  string  $guardName
-                 * @param  string  $providerModelClass
-                 * @param  mixed  $identifier
-                 * @return void
-                 *
-                 * @throws \LogicException
-                 */
-                #[\Override]
-                public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
-                {
-                    unset($guardName, $providerModelClass, $identifier);
-
-                    throw new \LogicException('Refresh must not invalidate the shared resolution cache.');
-                }
-            },
-        );
-
-        $jwt = PackageAuth::jwt(self::GUARD);
-        assert($jwt !== null);
-
-        $token = $jwt->issueRefreshToken($device, 'refresh-cache-bypass', $identity);
-
-        self::assertNotNull($this->freshGuard()->refresh($token));
-    }
-
-    /**
      * Configure the single JWT guard used by this suite.
      *
      * @param  mixed  $app
@@ -358,7 +289,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('cache.default', 'array');
         $config->set('auth.defaults.guard', self::GUARD);
 
         $config->set('auth.guards.' . self::GUARD, [
@@ -374,7 +304,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
         $config->set('authentication.jwt.secret', self::JWT_SECRET);
         $config->set('authentication.jwt.algorithm', 'HS256');
-        $config->set('authentication.resolution_cache.jwt.identity_ttl_seconds', 15);
     }
 
     /**

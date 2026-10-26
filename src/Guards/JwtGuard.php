@@ -4,18 +4,15 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Cache\NullResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -23,7 +20,6 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 
 /**
  * Sessionless JWT bearer-token guard.
@@ -40,9 +36,6 @@ use SineMacula\Laravel\Authentication\Providers\ModelProvider;
  */
 final class JwtGuard extends AbstractGuard
 {
-    /** @var \SineMacula\Laravel\Authentication\Contracts\ResolutionCache Shared bearer-identity cache. */
-    private ResolutionCache $resolutionCache;
-
     /**
      * Constructor.
      *
@@ -54,7 +47,6 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\ResolutionCache  $resolutionCache
      */
     public function __construct(
 
@@ -81,13 +73,8 @@ final class JwtGuard extends AbstractGuard
 
         /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
-
-        // Shared bearer-identity cache, defaulting to the no-op cache.
-        ?ResolutionCache $resolutionCache = null,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
-
-        $this->resolutionCache = $resolutionCache ?? new NullResolutionCache;
     }
 
     /**
@@ -282,7 +269,7 @@ final class JwtGuard extends AbstractGuard
             return null;
         }
 
-        $user = $this->loadUserBySubject($claims[Claims::SUBJECT->value]);
+        $user = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
 
         // Track the retrieved user for Failed-event attribution even on the
         // inactive/non-Identity branches.
@@ -295,30 +282,6 @@ final class JwtGuard extends AbstractGuard
         }
 
         return $user;
-    }
-
-    /**
-     * Load the bearer-token subject through the shared identity cache when the
-     * configured provider is the package's Eloquent ModelProvider.
-     *
-     * Non-Eloquent and non-Identity results stay live-only so the cache does
-     * not silently broaden the package's supported provider surface.
-     *
-     * @param  mixed  $subject
-     * @return ?\Illuminate\Contracts\Auth\Authenticatable
-     */
-    private function loadUserBySubject(mixed $subject): ?Authenticatable
-    {
-        if (!$this->provider instanceof ModelProvider) {
-            return $this->provider->retrieveById($subject);
-        }
-
-        return $this->resolutionCache->rememberJwtIdentity(
-            $this->name,
-            $this->provider->modelClass(),
-            $subject,
-            fn (): ?Authenticatable => $this->provider->retrieveById($subject),
-        );
     }
 
     /**

@@ -227,49 +227,6 @@ The `basic` guard wraps credential checks in a constant-time `Timebox` to preven
 
 Must exceed the worst-case hasher cost.
 
-### Optional bearer identity cache
-
-Cross-request resolution caching is off by default. When enabled, it applies only to JWT bearer identity
-rehydration through model providers - basic-auth lookups, device lookups, principal resolution, and the refresh
-path stay live.
-
-```php
-'resolution_cache' => [
-    'store' => env('AUTHENTICATION_RESOLUTION_CACHE_STORE'),
-    'jwt'   => [
-        'identity_ttl_seconds'  => env('AUTHENTICATION_JWT_IDENTITY_CACHE_TTL_SECONDS', 0),
-        'principal_ttl_seconds' => env('AUTHENTICATION_JWT_PRINCIPAL_CACHE_TTL_SECONDS', 0),
-    ],
-],
-```
-
-- `identity_ttl_seconds = 0` disables the cache.
-- `principal_ttl_seconds` is reserved for future use; leave at `0`.
-- Active-state checks, `pid` matching, and `did` device validation still run live on every request.
-
-If you opt in, wire explicit invalidation from your identity model observer:
-
-```php
-use App\Models\User;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
-
-final class UserObserver
-{
-    public function saved(User $user): void
-    {
-        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-    }
-
-    public function deleted(User $user): void
-    {
-        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-    }
-}
-```
-
-Do not enable the cache unless that invalidation wiring is in place. If the auth identifier itself changes, pass
-the previous identifier to `forgetIdentity()` as well.
-
 ## Identity Models
 
 ### 2D adoption (identity is the principal)
@@ -518,7 +475,6 @@ All concrete classes in this package are `final`. Extension is through **composi
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally              |
 | Custom identity retrieval         | Subclass `ModelProvider` (the one non-final service)                   |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
-| Resolution caching                | Bind your own `ResolutionCache` implementation                         |
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
