@@ -22,16 +22,11 @@ use Firebase\JWT\Key;
  */
 final readonly class JwtKeyring
 {
-    /** @var array<int, string> Allow-listed JWT signing algorithms. */
+    /** @var array<int, string> Allow-listed JWT signing algorithms (HMAC only). */
     private const array SUPPORTED_ALGORITHMS = [
         'HS256',
         'HS384',
         'HS512',
-        'RS256',
-        'RS384',
-        'RS512',
-        'ES256',
-        'ES384',
     ];
 
     /**

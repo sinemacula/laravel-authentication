@@ -6,6 +6,7 @@ namespace Tests\Unit\Jwt;
 
 use Firebase\JWT\Key;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
@@ -164,6 +165,43 @@ final class JwtKeyringTest extends TestCase
         $this->expectExceptionMessage('JWT algorithm \'HS526\' is not supported');
 
         JwtKeyring::fromKeyMap([self::NEW_KID => self::SECRET], self::NEW_KID, 'HS526');
+    }
+
+    /**
+     * Data provider listing signing algorithms outside the HMAC allow-list,
+     * including the asymmetric families that were previously accepted.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideRejectedAlgorithms(): iterable
+    {
+        yield from [
+            'RS256'          => ['RS256'],
+            'RS384'          => ['RS384'],
+            'RS512'          => ['RS512'],
+            'ES256'          => ['ES256'],
+            'ES384'          => ['ES384'],
+            'EdDSA'          => ['EdDSA'],
+            'none'           => ['none'],
+            'lowercase-hmac' => ['hs256'],
+        ];
+    }
+
+    /**
+     * Asserts `fromKeyMap()` accepts only HMAC algorithms: one key per kid both
+     * signs and verifies, which an asymmetric key pair cannot do, so every
+     * other algorithm is rejected with the allow-list in the message.
+     *
+     * @param  string  $algorithm
+     * @return void
+     */
+    #[DataProvider('provideRejectedAlgorithms')]
+    public function testFromKeyMapRejectsAlgorithmOutsideHmacAllowList(string $algorithm): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage("JWT algorithm '{$algorithm}' is not supported. Set `authentication.jwt.algorithm` to one of: HS256, HS384, HS512.");
+
+        JwtKeyring::fromKeyMap([self::NEW_KID => self::SECRET], self::NEW_KID, $algorithm);
     }
 
     /**

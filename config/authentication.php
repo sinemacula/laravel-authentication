@@ -56,7 +56,8 @@ return [
     | still trigger normal device-authenticated side effects such as debounced
     | last-seen writes. Signing material is always a `kid => secret` map in
     | `keys` plus the `active_kid` that signs new tokens; every token carries
-    | its kid, and any kid in the map verifies. Invalid signing material fails
+    | its kid, and any kid in the map verifies. Signing is HMAC only:
+    | `algorithm` must be HS256, HS384, or HS512. Invalid signing material fails
     | closed when a JWT guard or token service is resolved. `issuer`/`audience`
     | are optional; when set they are strictly verified on every parse.
     |

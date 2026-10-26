@@ -51,7 +51,7 @@ final class JwtTokenService
         /** Signing and verification material, keyed by kid. */
         private JwtKeyring $keyring,
 
-        /** JWS signing algorithm (e.g. `HS256`, `RS256`). */
+        /** JWS signing algorithm (`HS256`, `HS384`, or `HS512`). */
         private string $algorithm,
 
         /** Access-token lifetime in minutes, written into the `exp` claim. */

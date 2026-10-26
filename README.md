@@ -41,8 +41,9 @@ device record live in the `devices` table so replay and stale credentials can be
 - **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
-- **Hardened JWT pipeline**: strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, per-token `jti`, and
-  fail-closed behaviour on empty secrets, unsupported algorithms, type confusion, and `pid` / `did` mismatches.
+- **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), strict `iss` / `aud` / `typ` / `exp` /
+  leeway enforcement, per-token `jti`, and fail-closed behaviour on empty keys, unsupported algorithms, type
+  confusion, and `pid` / `did` mismatches.
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
   machine-readable `RefreshFailed` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
