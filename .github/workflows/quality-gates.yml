@@ -40,11 +40,11 @@ defaults:
 jobs:
 
     # ==========================================================================
-    # JOB: SCOPED MUTATION GATE (PR)
+    # JOB: SCOPED MUTATION GATE (PR + PUSH)
     # ==========================================================================
     mutation:
-        if: ${{ github.event_name == 'pull_request' }}
-        name: Mutation / PHP 8.3 / Laravel 13
+        if: ${{ github.event_name != 'schedule' }}
+        name: Mutation / PHP 8.3
         runs-on: ubuntu-latest
 
         steps:
@@ -61,11 +61,7 @@ jobs:
                 uses: sinemacula/.github/.github/actions/setup-php@v1.13.0
                 with:
                     php-version: 8.3
-                    extensions: mbstring, openssl
                     coverage: pcov
-
-            -   name: Pin Laravel version
-                run: composer update --with="laravel/framework:^13.3" --prefer-dist --no-interaction --no-progress
 
             -   name: Scoped mutation gate
                 run: composer test:mutation
@@ -75,7 +71,7 @@ jobs:
     # ==========================================================================
     mutation-full:
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-        name: Mutation Full / PHP 8.3 / Laravel 13
+        name: Mutation Full / PHP 8.3
         runs-on: ubuntu-latest
         timeout-minutes: 60
 
@@ -89,11 +85,7 @@ jobs:
                 uses: sinemacula/.github/.github/actions/setup-php@v1.13.0
                 with:
                     php-version: 8.3
-                    extensions: mbstring, openssl
                     coverage: pcov
-
-            -   name: Pin Laravel version
-                run: composer update --with="laravel/framework:^13.3" --prefer-dist --no-interaction --no-progress
 
             -   name: Full mutation suite
                 run: composer test:mutation:full
@@ -104,7 +96,7 @@ jobs:
     benchmarks:
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         continue-on-error: true
-        name: Benchmarks / PHP 8.3 / Laravel 13
+        name: Benchmarks / PHP 8.3
         runs-on: ubuntu-latest
 
         steps:
@@ -117,10 +109,6 @@ jobs:
                 uses: sinemacula/.github/.github/actions/setup-php@v1.13.0
                 with:
                     php-version: 8.3
-                    extensions: mbstring, openssl
-
-            -   name: Pin Laravel version
-                run: composer update --with="laravel/framework:^13.3" --prefer-dist --no-interaction --no-progress
 
             -   name: Run PHPBench suite
                 run: XDEBUG_MODE=off composer bench:ci 2>&1 | tee build/phpbench-console.txt

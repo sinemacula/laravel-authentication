@@ -44,6 +44,8 @@ final readonly class JwtTokenServiceBench
 
     /**
      * Seed the JWT benchmark fixtures.
+     *
+     * @throws \Random\RandomException
      */
     public function __construct()
     {
@@ -68,6 +70,8 @@ final readonly class JwtTokenServiceBench
      * Benchmark access token issuance (HS256 sign).
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     #[Iterations(5)]
     #[Revs(100)]

@@ -70,7 +70,6 @@ final class AccessOnlyIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     public function testAccessTokenFlowSucceedsWithoutDevice(): void
@@ -109,8 +108,6 @@ final class AccessOnlyIntegrationTest extends TestCase
      * fail closed even though the deployment has no `devices` table.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgedDeviceHintFailsClosedWithoutDevicesTable(): void
     {
@@ -217,8 +214,6 @@ final class AccessOnlyIntegrationTest extends TestCase
      * subject and the acting principal in 2D mode.
      *
      * @return \Tests\Integration\Fixtures\AccessOnlyIdentity
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedUser(): AccessOnlyIdentity
     {

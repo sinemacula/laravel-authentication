@@ -138,7 +138,7 @@ final class DeviceModelOverrideTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testGuardResolvesDeviceThroughCustomModelClass(): void
     {
@@ -222,8 +222,6 @@ final class DeviceModelOverrideTest extends TestCase
      * treats the identity as its own principal (2D mode).
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function makeJwtGuard(): JwtGuard
     {

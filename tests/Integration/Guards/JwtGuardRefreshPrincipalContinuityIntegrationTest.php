@@ -83,7 +83,7 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshPreservesOriginalPrincipalTenantAndTypeWhenDefaultDiffers(): void
     {
@@ -183,8 +183,6 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      * Persist and return an active identity row.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(): StubPrincipal
     {
@@ -221,8 +219,6 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      * Resolve a fresh guard for the current request.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function freshGuard(): JwtGuard
     {
@@ -242,8 +238,6 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function guardForBearer(#[\SensitiveParameter] string $token): JwtGuard
     {

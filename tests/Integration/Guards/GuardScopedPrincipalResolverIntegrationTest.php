@@ -92,7 +92,6 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     public function testGuardsResolveDifferentPrincipalsWithoutCrossContamination(): void
@@ -148,7 +147,6 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     public function testDefaultGuardSwitchesFacadeContextBetweenGuardLocalResolvers(): void
@@ -237,8 +235,6 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      * Persist and return an active identity row.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(): StubPrincipal
     {

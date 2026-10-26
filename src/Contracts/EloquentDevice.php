@@ -9,9 +9,9 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 /**
  * Explicit persistence boundary for refreshable Eloquent-backed devices.
  *
- * Extends the generic `Device` read surface with the relation and column-name
- * accessors the package's refresh rotation and last-seen persistence paths
- * require.
+ * Extends the generic `Device` read surface with the relation and the
+ * column-name accessors behind each persisted device attribute, which the
+ * package's refresh rotation and last-seen persistence paths rely on.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,11 +30,32 @@ interface EloquentDevice extends Device
     public function authenticatable(): MorphTo;
 
     /**
+     * Column name holding the device identifier.
+     *
+     * @return string
+     */
+    public function getDeviceIdentifierName(): string;
+
+    /**
      * Column name holding the persisted last-logged-in timestamp.
      *
      * @return string
      */
     public function getLastLoggedInName(): string;
+
+    /**
+     * Column name holding the persisted last MFA verification timestamp.
+     *
+     * @return string
+     */
+    public function getLastMfaVerificationName(): string;
+
+    /**
+     * Column name holding the persisted operating system string.
+     *
+     * @return string
+     */
+    public function getOperatingSystemName(): string;
 
     /**
      * Column name holding the persisted hashed refresh-key digest.

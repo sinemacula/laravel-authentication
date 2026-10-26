@@ -142,6 +142,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExchangeThrowsWhenConfiguredDeviceModelClassIsEmpty(): void
     {
@@ -168,6 +169,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExchangeConvertsUnresolvableIdentityExceptionToFailure(): void
     {
@@ -217,6 +219,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExchangeIncludesDeviceIdWhenRotationIdShapeIsInvalid(): void
     {
@@ -245,6 +248,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExchangeUsesPidHintWhenRefreshTokenCarriesPrincipalId(): void
     {
@@ -306,6 +310,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExchangeRejectsHintedPrincipalWhoseIdentifierStringifiesToNull(): void
     {
@@ -361,6 +366,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExchangeHandlesQueryExceptionDuringDeviceLookup(): void
     {
@@ -399,6 +405,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testExchangeThrowsWhenConfiguredDeviceModelDoesNotImplementEloquentDevice(): void
     {

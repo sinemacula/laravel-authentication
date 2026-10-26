@@ -24,6 +24,8 @@ interface PrincipalResolver
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed|null  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function resolve(Identity $identity, mixed $hint = null): ?Principal;
 }

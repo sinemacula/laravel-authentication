@@ -542,8 +542,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * Persist a 2D access-only identity.
      *
      * @return \Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedAccessOnlyIdentity(): PerformanceAccessOnlyIdentity
     {
@@ -562,8 +560,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @param  string  $email
      * @return \Tests\Integration\Fixtures\IntegrationIdentity
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIntegrationIdentity(string $email): IntegrationIdentity
     {
@@ -584,8 +580,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      * @formatter:off
      *
      * @return array{0: \Tests\Integration\Fixtures\Coexist3dIdentity, 1: \Tests\Integration\Fixtures\Coexist3dPrincipal}
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      *
      * @formatter:on
      */
@@ -616,8 +610,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @param  string  $email
      * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      *
      * @formatter:on
      */
@@ -656,8 +648,6 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
      *
      * @param  string  $email
      * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dPrincipal}
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      *
      * @formatter:on
      */

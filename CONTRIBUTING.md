@@ -1,7 +1,6 @@
 # Contributing
 
-Contributions are welcome via GitHub pull requests. This guide covers the
-expectations for working on this package.
+Contributions are welcome via GitHub pull requests. This guide covers the expectations for working on this package.
 
 ## Requirements
 
@@ -28,12 +27,13 @@ Branch from `master` using the appropriate prefix:
 | `bugfix/`   | Bug fixes                        |
 | `hotfix/`   | Urgent production fixes          |
 | `refactor/` | Refactoring without new features |
+| `test/`     | Test-only changes                |
+| `docs/`     | Documentation-only changes       |
 | `chore/`    | Tooling, CI, dependencies        |
 
 ### Commits
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/).
-Prefix your commit messages accordingly:
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). Prefix your commit messages accordingly:
 
 ```text
 feat: add tenant-aware principal resolution
@@ -42,14 +42,18 @@ test: add query budget tests for 3D bearer path
 chore: update qlty configuration
 ```
 
+Pull request titles must follow the same convention - and they are the ones that matter most: PRs are
+squash-merged, so the title becomes the commit on `master`, and release-please derives the changelog and
+the next version from those commits.
+
 ### Code Quality
 
 All code must pass static analysis before submission:
 
 ```bash
-composer check                            # PHPStan level 8, PHP-CS-Fixer, CodeSniffer
-composer check -- --all --no-cache --fix  # With auto-fix
-composer format                           # Format code
+composer check    # Static analysis and lint checks via qlty (PHPStan, PHP-CS-Fixer, CodeSniffer)
+composer format   # Format the codebase via qlty
+composer smells   # Advisory code smells (duplication, complexity)
 ```
 
 ### Testing
@@ -57,8 +61,10 @@ composer format                           # Format code
 Run the full test suite before submitting:
 
 ```bash
-composer test             # All suites in parallel (Paratest)
-composer test:coverage    # With clover coverage report
+composer test                 # Run the test suite in parallel using Paratest
+composer test:coverage        # With clover coverage report
+composer test:mutation        # Mutation gate scoped to your diff against master
+composer test:mutation:full   # Full mutation run, no threshold
 ```
 
 Individual suites:
@@ -73,33 +79,29 @@ composer test:performance   # Performance budget tests
 Single test file or method:
 
 ```bash
-vendor/bin/phpunit tests/Unit/SomeTest.php
+vendor/bin/phpunit tests/Unit/Guards/BasicGuardTest.php
 vendor/bin/phpunit --filter testMethodName tests/Unit/SomeTest.php
+```
+
+### Benchmarks
+
+```bash
+composer bench      # PHPBench hot-path benchmarks
+composer bench:ci   # PHPBench with CI artifact dump
 ```
 
 ### Standards
 
-- PHP strict types (`declare(strict_types = 1)`) in every file
 - PHPStan level 8 compliance
 - Full type hints on all public method parameters and return types
 - PHPDoc on all methods and classes
-- 100% line coverage is expected for new code
+- New code is expected to ship with tests covering the behavioural surface; the package's mutation-testing gate
+  (`composer test:mutation`) is the enforced floor. Behaviour that spans the authentication lifecycle (guards, token
+  refresh, events) should be covered by integration tests that exercise the package the way a consuming application
+  does.
 
 ## Pull Requests
 
+- Title the PR as a Conventional Commit - the squash-merge makes it the commit that drives the changelog
 - Keep changes minimal and scoped to a single concern
-- Do not change static analysis or formatting configuration without prior
-  discussion
-- Include tests for new or changed behaviour
-- Ensure `composer check` and `composer test` pass
-
-## Security
-
-If you discover a security vulnerability, please report it directly to
-Sine Macula rather than opening a public issue. See [SECURITY.md](SECURITY.md)
-for details.
-
-## License
-
-By contributing, you agree that your contributions will be licensed under
-the [Apache License 2.0](LICENSE).
+- Do not change static analysis or formatting configuration without prior discussion

@@ -111,7 +111,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     public function testJwtBearerHintedResolutionKeepsPrincipalTenantAndTypeStable(): void
@@ -143,8 +142,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      * identity's default principal lookup can return tenant-aware context.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testBasicGuardThreeDimensionalDefaultResolutionKeepsTenantAndTypeStable(): void
     {
@@ -176,8 +173,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      * acting principal.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testBasicGuardTwoDimensionalControlStillReturnsIdentityAsPrincipal(): void
     {
@@ -256,8 +251,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      * @param  string  $email
      * @return array{0: \Tests\Integration\Fixtures\TenantAware3dIdentity, 1: \Tests\Integration\Fixtures\TenantAware3dPrincipal, 2: \Tests\Integration\Fixtures\TenantAware3dTenant}
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     *
      * @formatter:on
      */
     private function seedTenantAwareThreeDimensionalFixtures(string $email = 'tenant-aware-3d@example.test'): array
@@ -291,8 +284,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function jwtGuardForBearer(#[\SensitiveParameter] string $token): JwtGuard
     {
@@ -317,8 +308,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      * @param  string  $username
      * @param  string  $password
      * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function basicGuardForCredentials(string $guardName, string $username, string $password): BasicGuard
     {
@@ -341,8 +330,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
      * Persist and return an active 2D identity.
      *
      * @return \Tests\Unit\Stubs\StubPrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedTwoDimensionalIdentity(): StubPrincipal
     {

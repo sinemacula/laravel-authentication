@@ -16,7 +16,7 @@ use Illuminate\Config\Repository as ConfigRepository;
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class ResolutionCacheConfig
+final readonly class ResolutionCacheConfig
 {
     /** @var int Default bearer identity TTL in seconds. `0` disables caching. */
     public const int DEFAULT_JWT_IDENTITY_TTL_SECONDS = 0;
@@ -32,7 +32,7 @@ final class ResolutionCacheConfig
     public function __construct(
 
         /** Deferred config repository resolver. */
-        private readonly \Closure $configResolver,
+        private \Closure $configResolver,
     ) {}
 
     /**

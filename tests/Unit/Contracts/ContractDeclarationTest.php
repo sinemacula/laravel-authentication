@@ -126,10 +126,13 @@ final class ContractDeclarationTest extends TestCase
     public static function provideEloquentDeviceContractMethods(): iterable
     {
         yield from [
-            'authenticatable'     => ['authenticatable'],
-            'getLastLoggedInName' => ['getLastLoggedInName'],
-            'getRefreshKeyName'   => ['getRefreshKeyName'],
-            'getRevokedAtName'    => ['getRevokedAtName'],
+            'authenticatable'            => ['authenticatable'],
+            'getDeviceIdentifierName'    => ['getDeviceIdentifierName'],
+            'getLastLoggedInName'        => ['getLastLoggedInName'],
+            'getLastMfaVerificationName' => ['getLastMfaVerificationName'],
+            'getOperatingSystemName'     => ['getOperatingSystemName'],
+            'getRefreshKeyName'          => ['getRefreshKeyName'],
+            'getRevokedAtName'           => ['getRevokedAtName'],
         ];
     }
 
@@ -154,8 +157,6 @@ final class ContractDeclarationTest extends TestCase
      * the persistence column-name accessors must return strings.
      *
      * @return void
-     *
-     * @throws \ReflectionException
      */
     public function testEloquentDeviceDeclaresExpectedReturnTypes(): void
     {
@@ -163,7 +164,16 @@ final class ContractDeclarationTest extends TestCase
         self::assertInstanceOf(\ReflectionNamedType::class, $authenticatableReturn);
         self::assertSame(MorphTo::class, $authenticatableReturn->getName());
 
-        foreach (['getLastLoggedInName', 'getRefreshKeyName', 'getRevokedAtName'] as $method) {
+        $columnNameAccessors = [
+            'getDeviceIdentifierName',
+            'getLastLoggedInName',
+            'getLastMfaVerificationName',
+            'getOperatingSystemName',
+            'getRefreshKeyName',
+            'getRevokedAtName',
+        ];
+
+        foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
             self::assertInstanceOf(\ReflectionNamedType::class, $returnType);
             self::assertSame('string', $returnType->getName());

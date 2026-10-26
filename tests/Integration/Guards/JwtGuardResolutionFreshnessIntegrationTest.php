@@ -177,7 +177,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshRejectsTokenWhenIdentityBecomesInactiveAfterIssuance(): void
     {
@@ -201,6 +201,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshRejectsTokenWhenPrincipalBecomesInactiveAfterIssuance(): void
     {
@@ -226,7 +227,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshRejectsTokenWhenDeviceIsDeletedAfterIssuance(): void
     {
@@ -282,6 +283,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testRefreshPathNeverUsesResolutionCache(): void
     {
@@ -380,8 +382,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @param  string  $email
      * @return \Tests\Unit\Stubs\StubActiveAwarePrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(string $email = 'freshness@example.test'): StubActiveAwarePrincipal
     {
@@ -419,8 +419,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function guardForBearer(#[\SensitiveParameter] string $token): JwtGuard
     {
@@ -435,8 +433,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      * Resolve a fresh guard against the current request binding.
      *
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function freshGuard(): JwtGuard
     {

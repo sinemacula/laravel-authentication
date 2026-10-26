@@ -125,6 +125,8 @@ final class JwtGuard extends AbstractGuard
      *
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
+     *
+     * @throws \Random\RandomException
      */
     public function refresh(#[\SensitiveParameter] string $refreshToken): ?RefreshResult
     {

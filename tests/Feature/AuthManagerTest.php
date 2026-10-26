@@ -52,8 +52,6 @@ final class AuthManagerTest extends TestCase
      * resolves a guard-scoped `JwtTokenService`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testAuthManagerExposesJwtMethod(): void
     {
@@ -112,8 +110,6 @@ final class AuthManagerTest extends TestCase
      * the `$guardName === ''` early-throw in `AuthManager::jwt()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testJwtThrowsWhenDefaultGuardIsEmpty(): void
     {

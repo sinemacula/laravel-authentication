@@ -190,8 +190,6 @@ final class IdentifierCoercionTest extends TestCase
      * @return void
      *
      * @SuppressWarnings("php:S3011")
-     *
-     * @throws \ReflectionException
      */
     public function testConstructorIsPrivate(): void
     {

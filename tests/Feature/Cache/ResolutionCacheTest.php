@@ -72,8 +72,6 @@ final class ResolutionCacheTest extends TestCase
      * guard's warm hit does not satisfy another guard's first read.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testBearerIdentityCacheIsScopedPerGuard(): void
     {
@@ -133,8 +131,6 @@ final class ResolutionCacheTest extends TestCase
      * `$clone->unsetRelations()` call inside `cloneIdentity()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testCachedIdentityCloneHasNoRelations(): void
     {
@@ -233,8 +229,6 @@ final class ResolutionCacheTest extends TestCase
      * early-return in `StoreBackedResolutionCache::forgetJwtIdentity()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForgetJwtIdentityShortCircuitsForNullIdentifier(): void
     {
@@ -364,8 +358,6 @@ final class ResolutionCacheTest extends TestCase
      * `rememberJwtIdentity()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRememberJwtIdentitySkipsCacheWhenTtlIsZero(): void
     {
@@ -400,8 +392,6 @@ final class ResolutionCacheTest extends TestCase
      * `$cached !== null` return path inside `rememberJwtIdentity()`.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testRememberJwtIdentityReturnsCacheHit(): void
     {
@@ -478,8 +468,6 @@ final class ResolutionCacheTest extends TestCase
      *
      * @param  string  $email
      * @return \Tests\Unit\Stubs\StubPrincipal
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(string $email = 'cache@example.test'): StubPrincipal
     {

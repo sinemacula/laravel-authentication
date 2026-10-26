@@ -78,8 +78,6 @@ final class CustomEventsIntegrationTest extends TestCase
      * the jwt guard can bind and refresh against.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[\Override]
     protected function setUp(): void
@@ -231,6 +229,8 @@ final class CustomEventsIntegrationTest extends TestCase
      * `Refreshed` event carrying the guard name and the bound identity.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testRefreshedFiresAfterSuccessfulRefresh(): void
     {

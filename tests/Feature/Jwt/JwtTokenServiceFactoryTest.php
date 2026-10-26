@@ -101,7 +101,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testAuthFacadeJwtUsesDefaultGuardConfig(): void
     {
@@ -131,7 +131,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testAuthManagerJwtUsesNamedGuardSecretAndAudienceOverride(): void
     {
@@ -154,7 +154,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testAuthFacadeJwtUsesDistinctCustomerGuardOverride(): void
     {
@@ -181,7 +181,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testAuthFacadeJwtFallsBackToPackageDefaultsWhenGuardHasNoJwtBlock(): void
     {
@@ -207,7 +207,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testAuthFacadeJwtHonoursGuardKidOverride(): void
     {
@@ -271,8 +271,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * against the basic driver.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testAuthFacadeJwtRejectsNonJwtGuard(): void
     {
@@ -287,8 +285,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * context-free service.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testAuthFacadeJwtRejectsUnknownGuard(): void
     {
@@ -303,8 +299,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * fails closed on malformed config.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testAuthFacadeJwtRejectsIntegerIndexedKeys(): void
     {
@@ -328,8 +322,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * built, and the error names the offending kid.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testAuthFacadeJwtRejectsNullSecretValue(): void
     {
@@ -353,8 +345,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * `InvalidArgumentException`. Pins the `$guard === ''` early-throw.
      *
      * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function testForGuardRejectsEmptyGuardName(): void
     {
@@ -376,7 +366,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
      */
     public function testForGuardHonoursPerGuardIntegerOverride(): void
     {

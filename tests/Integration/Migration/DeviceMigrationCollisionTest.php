@@ -105,7 +105,7 @@ final class DeviceMigrationCollisionTest extends TestCase
 
         try {
             $this->runMigrationUp($migration);
-        } catch (\RuntimeException) {
+        } catch (\RuntimeException) { // @phpstan-ignore catch.neverThrown
             // Expected - fall through to assertions below.
         }
 

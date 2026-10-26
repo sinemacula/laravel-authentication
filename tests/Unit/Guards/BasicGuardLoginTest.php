@@ -423,10 +423,12 @@ final class BasicGuardLoginTest extends TestCase
             public bool $returnEarlyCalled = false;
 
             /**
-             * @return static
+             * Record the call before deferring to the parent.
+             *
+             * @return self
              */
             #[\Override]
-            public function returnEarly(): static
+            public function returnEarly(): self
             {
                 $this->returnEarlyCalled = true;
 
@@ -496,8 +498,8 @@ final class BasicGuardLoginTest extends TestCase
 
         $guard->user();
 
-        static::assertInstanceOf(Attempting::class, $attemptingEvent);
-        static::assertFalse($attemptingEvent->remember);
+        self::assertInstanceOf(Attempting::class, $attemptingEvent);
+        self::assertFalse($attemptingEvent->remember);
     }
 
     /**

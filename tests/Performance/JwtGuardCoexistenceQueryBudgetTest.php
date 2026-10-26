@@ -89,7 +89,6 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
      *
      * @return void
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     public function testSequentialTwoDimensionalAndThreeDimensionalAuthUsesThreeReadsAndNoWrites(): void
@@ -191,8 +190,6 @@ final class JwtGuardCoexistenceQueryBudgetTest extends PerformanceContractTestCa
      * @formatter:off
      *
      * @return array{0: \Tests\Integration\Fixtures\Coexist2dIdentity, 1: \Tests\Integration\Fixtures\Coexist3dIdentity, 2: \Tests\Integration\Fixtures\Coexist3dPrincipal}
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      *
      * @formatter:on
      */

@@ -143,8 +143,6 @@ final class JwtGuardFailureBudgetTest extends PerformanceContractTestCase
      * Persist a single active 2D identity.
      *
      * @return \Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function seedIdentity(): PerformanceAccessOnlyIdentity
     {

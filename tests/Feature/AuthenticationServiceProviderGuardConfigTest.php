@@ -202,7 +202,7 @@ final class AuthenticationServiceProviderGuardConfigTest extends TestCase
 
         try {
             $guard->user();
-        } catch (\Throwable) {
+        } catch (\Throwable) { // @phpstan-ignore catch.neverThrown
             // The provider may throw (no database); the event fires before the
             // provider lookup so it is already captured.
         }

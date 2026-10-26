@@ -141,6 +141,28 @@ final class DeviceTest extends TestCase
     }
 
     /**
+     * Asserts the string columns are cast to strings when read back, so scalar
+     * values assigned to them never leak through with their original type.
+     *
+     * @return void
+     */
+    public function testCastsStringColumnsToString(): void
+    {
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => 1,
+            'authenticatable_id'   => 2,
+            'os'                   => 3,
+            'refresh_key'          => 4,
+        ]);
+
+        self::assertSame('1', $device->authenticatable_type);
+        self::assertSame('2', $device->authenticatable_id);
+        self::assertSame('3', $device->os);
+        self::assertSame('4', $device->refresh_key);
+    }
+
+    /**
      * Asserts `authenticatable()` returns a polymorphic MorphTo relation.
      *
      * @return void
@@ -213,7 +235,7 @@ final class DeviceTest extends TestCase
             self::assertSame('devices', $device->getTable());
         } finally {
             if ($previous !== null) {
-                $this->app?->instance('config', $previous);
+                $this->app->instance('config', $previous);
             }
             Config::clearResolvedInstance('config');
         }
