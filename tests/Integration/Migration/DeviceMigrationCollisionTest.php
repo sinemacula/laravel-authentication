@@ -9,6 +9,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
 
 /**
@@ -42,7 +43,6 @@ final class DeviceMigrationCollisionTest extends TestCase
         parent::setUp();
 
         config()->set('authentication.device.table', 'devices');
-        config()->set('authentication.device.refresh_key_column', 'refresh_key');
 
         Schema::dropIfExists('devices');
         Schema::dropIfExists('app_devices');
@@ -154,6 +154,24 @@ final class DeviceMigrationCollisionTest extends TestCase
         self::assertFalse(Schema::hasTable('devices'));
         self::assertTrue(Schema::hasColumn('app_devices', 'authenticatable_type'));
         self::assertTrue(Schema::hasColumn('app_devices', 'refresh_key'));
+    }
+
+    /**
+     * The migration creates the refresh-key column the shipped device model
+     * names through `EloquentDevice::getRefreshKeyName()`. No config key
+     * renames it, so a stale `refresh_key_column` setting is ignored.
+     *
+     * @return void
+     */
+    public function testMigrationCreatesRefreshKeyColumnNamedByDeviceContract(): void
+    {
+        config()->set('authentication.device.refresh_key_column', 'renamed_refresh_key');
+
+        $migration = $this->loadMigration();
+        $this->runMigrationUp($migration);
+
+        self::assertTrue(Schema::hasColumn('devices', (new Device)->getRefreshKeyName()));
+        self::assertFalse(Schema::hasColumn('devices', 'renamed_refresh_key'));
     }
 
     /**

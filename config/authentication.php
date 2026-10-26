@@ -13,18 +13,18 @@ return [
     |
     | Configures the package's default Eloquent device adapter. JWT refresh
     | lookup and rotation require `device.model` to be an Eloquent model
-    | implementing the package `EloquentDevice` contract. The shipped migration
-    | and model use the conventional schema below; custom models may remap
-    | columns via their public column-name accessors. Bearer-path last-seen
-    | persistence is driven by the bound device instance itself, so it only runs
-    | when that resolved device is a persisted EloquentDevice.
+    | implementing the package `EloquentDevice` contract. Column names come from
+    | that contract's accessors (e.g. `getRefreshKeyName()`); the shipped
+    | migration and model use the default names, so a custom model that renames
+    | a column ships its own migration. Bearer-path last-seen persistence is
+    | driven by the bound device instance itself, so it only runs when that
+    | resolved device is a persisted EloquentDevice.
     |
     */
 
     'device' => [
         'model'                      => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
         'table'                      => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
-        'refresh_key_column'         => env('AUTHENTICATION_DEVICE_REFRESH_KEY_COLUMN', 'refresh_key'),
         'last_seen_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_SEEN_THROTTLE_SECONDS', 60),
     ],
 

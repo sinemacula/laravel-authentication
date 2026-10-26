@@ -108,7 +108,6 @@ final class RefreshTokenExchangeBenchHarness
                 'device' => [
                     'model'                      => Device::class,
                     'table'                      => 'devices',
-                    'refresh_key_column'         => 'refresh_key',
                     'last_seen_throttle_seconds' => 60,
                 ],
                 'timebox' => [

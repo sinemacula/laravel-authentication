@@ -187,13 +187,14 @@ The published `authentication.php` config controls the device model, table, and 
 'device' => [
     'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
     'table'                      => 'devices',
-    'refresh_key_column'         => 'refresh_key',
     'last_seen_throttle_seconds' => 60,
 ],
 ```
 
 The shipped `Device` model uses UUID v7 primary keys and a polymorphic `authenticatable` relation. Subclass it
-or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract.
+or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. Column names come from
+that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates
+the default names, so a model that renames a column needs its own migration.
 
 ### Credential validation timing
 
