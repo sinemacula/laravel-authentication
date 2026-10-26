@@ -107,7 +107,6 @@ abstract class JwtTokenServiceTestCase extends TestCase
     {
         return new JwtTokenService(
             $this->makeKeyring(),
-            self::ALGORITHM,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );

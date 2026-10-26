@@ -71,6 +71,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
     /** @var string Secret material for the previous-generation kid key. */
     private const string KID_OLD_SECRET = 'kid-old-secret-material-32-bytes!!';
 
+    /** @var string Secret material long enough for HS384 (48 bytes). */
+    private const string HS384_SECRET = 'hs384-secret-material-with-at-least-48-bytes!!!!';
+
     /**
      * Freeze Carbon and the JWT library clock before each test so time-based
      * assertions are deterministic.
@@ -475,6 +478,37 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * A guard's `jwt.algorithm` override reaches signing through the keyring:
+     * the issued token names that algorithm in its header and verifies under
+     * the same service.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAuthFacadeJwtSignsWithGuardAlgorithmOverride(): void
+    {
+        config()->set('auth.guards.hs384', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'keys'       => [self::STAFF_KID => self::HS384_SECRET],
+                'active_kid' => self::STAFF_KID,
+                'algorithm'  => 'HS384',
+            ],
+        ]);
+
+        $service = PackageAuth::jwt('hs384');
+
+        self::assertInstanceOf(JwtTokenService::class, $service);
+
+        $token = $this->issueAccessToken($service);
+
+        self::assertSame('HS384', $this->headerField($token, 'alg'));
+        self::assertNotNull($service->parse($token, TokenType::ACCESS));
+    }
+
+    /**
      * `forGuard()` rejects an empty guard name with an
      * `InvalidArgumentException`. Pins the `$guard === ''` early-throw.
      *
@@ -683,13 +717,33 @@ final class JwtTokenServiceFactoryTest extends TestCase
     {
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, (string) array_key_first($keys), 'HS256'),
-            'HS256',
             15,
             60 * 24 * 30,
             30,
             null,
             $audience,
         );
+    }
+
+    /**
+     * Decode the JWT header segment of the supplied token and return one of its
+     * fields.
+     *
+     * @param  string  $token
+     * @param  string  $field
+     * @return mixed
+     */
+    private function headerField(string $token, string $field): mixed
+    {
+        $segments = explode('.', $token);
+
+        self::assertCount(3, $segments, 'JWT must have three segments');
+
+        $header = json_decode(JWT::urlsafeB64Decode($segments[0]), true);
+
+        self::assertIsArray($header);
+
+        return $header[$field] ?? null;
     }
 
     /**

@@ -15,9 +15,10 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 /**
  * Algorithm allow-list tests for `JwtTokenService`.
  *
- * Proves every allow-listed HMAC algorithm signs and verifies end to end: a
- * token issued under the algorithm carries it in the JWT header and parses back
- * to the issued claims.
+ * Proves every allow-listed HMAC algorithm signs and verifies end to end: the
+ * service signs under its keyring's algorithm, so a token issued over a keyring
+ * for the algorithm carries it in the JWT header and parses back to the issued
+ * claims.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,8 +47,8 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts a token issued under each allow-listed algorithm names that
-     * algorithm in its header and parses back to the issued claims.
+     * Asserts a token issued over a keyring for each allow-listed algorithm
+     * names that algorithm in its header and parses back to the issued claims.
      *
      * @param  string  $algorithm
      * @return void
@@ -59,7 +60,6 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
     {
         $service = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::LONG_SECRET], self::KID, $algorithm),
-            $algorithm,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );

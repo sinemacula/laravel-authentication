@@ -108,7 +108,6 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->events   = \Mockery::mock(Dispatcher::class);
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
-            self::ALGORITHM,
             self::ACCESS_TTL,
             self::REFRESH_TTL,
         );

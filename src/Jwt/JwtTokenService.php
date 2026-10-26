@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  * Encapsulates `firebase/php-jwt` so the guards do not import it directly.
  * Issues access and refresh tokens, decodes and verifies.
  *
- * - signing material lives in a `JwtKeyring` that fails closed
+ * - signing material and algorithm live in a `JwtKeyring` that fails closed
  * - kid-based rotation via the active kid header and `kid -> Key` map
  * - `typ` claim distinguishes access from refresh
  * - configurable clock skew via `leewaySeconds` on every verification
@@ -38,7 +38,6 @@ final class JwtTokenService
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtKeyring  $keyring
-     * @param  string  $algorithm
      * @param  int  $accessTtlMinutes
      * @param  int  $refreshTtlMinutes
      * @param  int  $leewaySeconds
@@ -50,9 +49,6 @@ final class JwtTokenService
 
         /** Signing and verification material, keyed by kid. */
         private JwtKeyring $keyring,
-
-        /** JWS signing algorithm (`HS256`, `HS384`, or `HS512`). */
-        private string $algorithm,
 
         /** Access-token lifetime in minutes, written into the `exp` claim. */
         private int $accessTtlMinutes,
@@ -180,8 +176,8 @@ final class JwtTokenService
     }
 
     /**
-     * Encode the claim payload as a JWT, embedding the keyring's active kid in
-     * the header.
+     * Encode the claim payload as a JWT with the keyring's active key, signing
+     * under that key's algorithm and embedding its kid in the header.
      *
      * @param  array<string, mixed>  $payload
      * @return string
@@ -191,7 +187,7 @@ final class JwtTokenService
         return JWT::encode(
             $payload,
             $this->keyring->activeKey()->getKeyMaterial(),
-            $this->algorithm,
+            $this->keyring->activeKey()->getAlgorithm(),
             $this->keyring->activeKid(),
         );
     }

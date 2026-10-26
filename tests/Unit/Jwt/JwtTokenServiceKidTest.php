@@ -183,7 +183,6 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     {
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, $activeKid, self::ALGORITHM),
-            self::ALGORITHM,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );

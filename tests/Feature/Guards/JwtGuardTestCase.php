@@ -104,7 +104,6 @@ abstract class JwtGuardTestCase extends TestCase
         $this->timebox  = \Mockery::mock(Timebox::class);
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
-            self::ALGORITHM,
             self::ACCESS_TTL,
             self::REFRESH_TTL,
         );

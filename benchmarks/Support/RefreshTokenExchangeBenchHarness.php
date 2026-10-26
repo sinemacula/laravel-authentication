@@ -130,7 +130,7 @@ final class RefreshTokenExchangeBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens              = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 'HS256', 15, 60 * 24 * 30);
+        $this->tokens              = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 15, 60 * 24 * 30);
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
         $this->tenantAwareProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
         $this->timebox             = new Timebox;
