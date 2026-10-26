@@ -158,8 +158,13 @@ final class JwtTokenServiceFactory
      * Validate the raw JWT key map and return a strictly-typed `kid -> secret`
      * array.
      *
+     * Kids are not checked here: PHP stores a purely numeric kid such as
+     * `'2026'` as an integer array key, which `JwtKeyring` accepts and looks up
+     * by its string form, so the keyring is the single place kids are
+     * validated.
+     *
      * @param  array<array-key, mixed>  $rawKeys
-     * @return array<string, string>
+     * @return array<array-key, string>
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
@@ -168,16 +173,6 @@ final class JwtTokenServiceFactory
         $coerced = [];
 
         foreach ($rawKeys as $kid => $material) {
-
-            if (!is_string($kid) || $kid === '') {
-
-                $message = 'JWT key map contains a non-string or empty kid in'
-                    . ' `authentication.jwt.keys`. Every entry must be'
-                    . ' keyed by a non-empty string kid (integer-indexed lists'
-                    . ' such as `[\'secret_a\', \'secret_b\']` are rejected).';
-
-                throw new InvalidJwtConfigurationException($message);
-            }
 
             if (!is_string($material)) {
 

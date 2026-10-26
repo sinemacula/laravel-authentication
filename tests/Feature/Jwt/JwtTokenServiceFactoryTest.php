@@ -71,6 +71,12 @@ final class JwtTokenServiceFactoryTest extends TestCase
     /** @var string Secret material for the previous-generation kid key. */
     private const string KID_OLD_SECRET = 'kid-old-secret-material-32-bytes!!';
 
+    /** @var string Purely numeric kid for the current-generation key. */
+    private const string NUMERIC_KID_NEW = '2026';
+
+    /** @var string Purely numeric kid for the previous-generation key. */
+    private const string NUMERIC_KID_OLD = '2025';
+
     /** @var string Secret material long enough for HS384 (48 bytes). */
     private const string HS384_SECRET = 'hs384-secret-material-with-at-least-48-bytes!!!!';
 
@@ -308,26 +314,66 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Integer-indexed key lists are rejected so a guard-local key map still
-     * fails closed on malformed config.
+     * An integer-indexed key list still fails closed: its kids are `0` and `1`,
+     * so an active kid naming anything else is not found in the map.
      *
      * @return void
      */
-    public function testAuthFacadeJwtRejectsIntegerIndexedKeys(): void
+    public function testAuthFacadeJwtRejectsIntegerIndexedKeysWithoutMatchingActiveKid(): void
     {
         config()->set('auth.guards.broken_keys', [
             'driver'   => 'jwt',
             'provider' => 'identities',
             'jwt'      => [
-                'keys'       => ['secret_a', 'secret_b'],
+                'keys'       => [self::STAFF_SECRET, self::CUSTOMER_SECRET],
                 'active_kid' => 'whatever',
             ],
         ]);
 
         $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('non-string or empty kid');
+        $this->expectExceptionMessage('JWT active kid \'whatever\' is not present in the configured key map.');
 
         PackageAuth::jwt('broken_keys');
+    }
+
+    /**
+     * A purely numeric kid (which PHP stores as an integer array key) signs and
+     * verifies like any other kid, including a numeric kid kept only for
+     * verification during rotation.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAuthFacadeJwtAcceptsNumericKids(): void
+    {
+        config()->set('auth.guards.numeric_kids', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'keys' => [
+                    self::NUMERIC_KID_NEW => self::KID_NEW_SECRET,
+                    self::NUMERIC_KID_OLD => self::KID_OLD_SECRET,
+                ],
+                'active_kid' => self::NUMERIC_KID_NEW,
+            ],
+        ]);
+
+        $service = PackageAuth::jwt('numeric_kids');
+
+        self::assertInstanceOf(JwtTokenService::class, $service);
+
+        $token = $this->issueAccessToken($service);
+
+        self::assertSame(self::NUMERIC_KID_NEW, $this->headerField($token, 'kid'));
+        self::assertNotNull($service->parse($token, TokenType::ACCESS));
+
+        $oldToken = $this->issueAccessToken(
+            $this->makeVerifier([self::NUMERIC_KID_OLD => self::KID_OLD_SECRET], 'package-default-audience'),
+        );
+
+        self::assertSame(self::NUMERIC_KID_OLD, $this->headerField($oldToken, 'kid'));
+        self::assertNotNull($service->parse($oldToken, TokenType::ACCESS));
     }
 
     /**

@@ -49,8 +49,10 @@ final readonly class JwtKeyring
      * graceful rotation.
      *
      * Typed `array<array-key, mixed>` because this factory is the fail-closed
-     * boundary at which null secrets, integer-indexed arrays, and non-string
-     * values are rejected with typed exceptions.
+     * boundary at which empty kids and null, empty, non-string, or short
+     * secrets are rejected with typed exceptions. A purely numeric kid such as
+     * `'2026'` arrives as an integer key (PHP casts numeric string keys) and is
+     * matched by its string form, which is how `firebase/php-jwt` looks it up.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $activeKid
@@ -145,7 +147,7 @@ final readonly class JwtKeyring
      * meet the algorithm's minimum length; fail-closed regardless of the
      * caller's static type hint.
      *
-     * @param  array<string, mixed>  $keys
+     * @param  array<array-key, mixed>  $keys
      * @param  string  $algorithm
      * @return array<string, \Firebase\JWT\Key>
      *

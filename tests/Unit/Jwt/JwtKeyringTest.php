@@ -317,6 +317,20 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
+     * Asserts a purely numeric kid, which PHP stores as an integer array key,
+     * is accepted and resolved by its string form as the active kid.
+     *
+     * @return void
+     */
+    public function testFromKeyMapAcceptsNumericKid(): void
+    {
+        $keyring = JwtKeyring::fromKeyMap(['2026' => self::SECRET], '2026', self::ALGORITHM);
+
+        self::assertSame('2026', $keyring->activeKid());
+        self::assertSame(self::SECRET, $keyring->activeKey()->getKeyMaterial());
+    }
+
+    /**
      * Asserts `verificationKeys()` returns a `kid → Key` map so php-jwt picks
      * the correct key from each token's `kid` header.
      *
