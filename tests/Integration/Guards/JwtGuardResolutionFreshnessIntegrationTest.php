@@ -13,8 +13,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -52,6 +52,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -74,6 +75,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -315,6 +317,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
                  * @param  string  $providerModelClass
                  * @param  mixed  $identifier
                  * @return void
+                 *
+                 * @throws \LogicException
                  */
                 #[\Override]
                 public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
@@ -342,6 +346,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

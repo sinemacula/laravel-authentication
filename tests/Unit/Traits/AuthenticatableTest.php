@@ -6,7 +6,7 @@ namespace Tests\Unit\Traits;
 
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**

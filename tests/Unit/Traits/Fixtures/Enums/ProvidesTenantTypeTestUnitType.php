@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Traits\Fixtures;
+namespace Tests\Unit\Traits\Fixtures\Enums;
 
 /**
  * Fixture unit enum exercising the non-backed UnitEnum branch of the

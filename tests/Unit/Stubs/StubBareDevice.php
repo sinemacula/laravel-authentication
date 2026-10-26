@@ -38,12 +38,6 @@ final class StubBareDevice extends Model implements Device
     /** @var array<string> Mass-assignment guard list. */
     protected $guarded = [];
 
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'last_logged_in_at' => 'datetime',
-        'revoked_at'        => 'datetime',
-    ];
-
     /**
      * Bare device id accessor.
      *
@@ -114,5 +108,19 @@ final class StubBareDevice extends Model implements Device
         $value = $this->getAttribute('revoked_at');
 
         return $value instanceof CarbonInterface ? $value : null;
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'last_logged_in_at' => 'datetime',
+            'revoked_at'        => 'datetime',
+        ];
     }
 }

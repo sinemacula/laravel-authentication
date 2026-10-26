@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  *
  * @internal
  */
-class StubModel extends Model
+final class StubModel extends Model
 {
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];

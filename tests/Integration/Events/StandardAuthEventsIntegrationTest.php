@@ -19,9 +19,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -30,15 +30,15 @@ use Tests\Unit\Stubs\StubPrincipal;
  * Integration test for the six standard Laravel auth events.
  *
  * Boots a Testbench application, registers a `cli` guard driven by the
- * package's `basic` driver against a `StubPrincipal` identity table seeded
- * with a single user, and exercises the successful `attempt`, failed `attempt`,
- * and `logout` paths to assert the dispatched standard events (`Attempting`,
- * `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`)  match Laravel's
+ * package's `basic` driver against a `StubPrincipal` identity table seeded with
+ * a single user, and exercises the successful `attempt`, failed `attempt`, and
+ * `logout` paths to assert the dispatched standard events (`Attempting`,
+ * `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) match Laravel's
  * first-party contract with the expected constructor payload shapes.
  *
  * The `cli` guard uses the package's `basic` driver so credentials can be
- * passed directly via `attempt()` without needing an HTTP Authorization
- * header, keeping the assertions focused on the event-emission contract.
+ * passed directly via `attempt()` without needing an HTTP Authorization header,
+ * keeping the assertions focused on the event-emission contract.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,6 +65,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -90,6 +91,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -194,6 +196,8 @@ final class StandardAuthEventsIntegrationTest extends TestCase
                  * @param  string  $providerModelClass
                  * @param  mixed  $identifier
                  * @return void
+                 *
+                 * @throws \LogicException
                  */
                 #[\Override]
                 public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
@@ -331,6 +335,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

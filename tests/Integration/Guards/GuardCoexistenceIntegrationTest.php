@@ -125,14 +125,14 @@ final class GuardCoexistenceIntegrationTest extends TestCase
      * hands each token to the respective guard through a real Illuminate
      * Request's `Bearer` header, and asserts:
      *
-     * 1. the 2D guard's `identity()` and `principal()` return the
-     *    exact same model instance (2D adoption mode),
-     * 2. the 3D guard's `identity()` and `principal()` return
-     *    distinct model instances of distinct classes (3D mode),
+     * 1. the 2D guard's `identity()` and `principal()` return the exact same
+     *    model instance (2D adoption mode),
+     * 2. the 3D guard's `identity()` and `principal()` return distinct model
+     *    instances of distinct classes (3D mode),
      * 3. after rebinding the request for the 3D guard, the old 2D guard has
      *    been cleared rather than leaking request-local auth state,
-     * 4. and `Auth::id()` on the active guard returns that guard's
-     *    identity key.
+     * 4. and `Auth::id()` on the active guard returns that guard's identity
+     *    key.
      *
      * @return void
      */

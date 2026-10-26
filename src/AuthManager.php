@@ -20,11 +20,12 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
  * (`identity`, `principal`, `device`, `tenant`, `type`) and guard-scoped
  * `jwt()` issuance directly on the manager. Each contextual accessor forwards
  * to the active guard when it implements `ContextualGuard`, otherwise returns
- * `null`. Bound to the `auth` container key by `AuthenticationServiceProvider`. Not
- * `final` so consumers may subclass.
+ * `null`. Bound to the `auth` container key by `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
+ *
+ * @inheritable
  */
 class AuthManager extends IlluminateAuthManager
 {
@@ -43,9 +44,11 @@ class AuthManager extends IlluminateAuthManager
             $this->customCreators = $existing->customCreators;
         }
 
-        if ($existing->customProviderCreators !== []) {
-            $this->customProviderCreators = $existing->customProviderCreators;
+        if ($existing->customProviderCreators === []) {
+            return;
         }
+
+        $this->customProviderCreators = $existing->customProviderCreators;
     }
 
     /**
@@ -56,8 +59,6 @@ class AuthManager extends IlluminateAuthManager
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      *
      * @throws \InvalidArgumentException
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     public function jwt(?string $guard = null): JwtTokenService
     {

@@ -22,7 +22,7 @@ use PhpBench\Attributes\Warmup;
 #[Warmup(1)]
 final class JwtGuardBench
 {
-    /** @var ?\Benchmarks\Support\JwtGuardBenchHarness */
+    /** @var ?\Benchmarks\Support\JwtGuardBenchHarness @managed-static Reused across phpbench iterations. */
     private static ?JwtGuardBenchHarness $harness = null;
 
     /**

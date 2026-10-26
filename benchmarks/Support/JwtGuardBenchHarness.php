@@ -6,23 +6,15 @@ namespace Benchmarks\Support;
 
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
-use Illuminate\Cache\ArrayStore;
-use Illuminate\Cache\Repository as CacheRepository;
-use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
-use Illuminate\Contracts\Cache\Factory as CacheFactory;
-use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Events\Dispatcher as DispatcherContract;
 use Illuminate\Contracts\Hashing\Hasher;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
-use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
-use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -36,8 +28,6 @@ use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
-use Tests\Integration\Fixtures\TenantAware3dPrincipal;
-use Tests\Integration\Fixtures\TenantAware3dTenant;
 use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 
 /**
@@ -99,7 +89,7 @@ final class JwtGuardBenchHarness
     /** @var \Illuminate\Support\Timebox */
     private readonly Timebox $timebox;
 
-    /** @var \SineMacula\Laravel\Authentication\Cache\ResolutionCache */
+    /** @var \SineMacula\Laravel\Authentication\Contracts\ResolutionCache */
     private readonly ResolutionCache $warmResolutionCache;
 
     /** @var string 2D access-only bearer token. */
@@ -143,24 +133,7 @@ final class JwtGuardBenchHarness
         Carbon::setTestNow($now);
         JWT::$timestamp = $now->getTimestamp();
 
-        $config = new ConfigRepository([
-            'authentication' => [
-                'device' => [
-                    'model'                      => Device::class,
-                    'table'                      => 'devices',
-                    'refresh_key_column'         => 'refresh_key',
-                    'last_seen_throttle_seconds' => 60,
-                ],
-                'timebox' => [
-                    'credentials_microseconds' => 400000,
-                ],
-                'resolution_cache' => [
-                    'jwt' => [
-                        'identity_ttl_seconds' => 15,
-                    ],
-                ],
-            ],
-        ]);
+        $config = JwtBenchSetup::config();
 
         $container = new Container;
         $container->instance('config', $config);
@@ -178,33 +151,7 @@ final class JwtGuardBenchHarness
 
         $this->tokens              = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
         $this->timebox             = new Timebox;
-        $this->warmResolutionCache = new StoreBackedResolutionCache(
-            new class (new CacheRepository(new ArrayStore)) implements CacheFactory {
-                /**
-                 * Constructor.
-                 *
-                 * @param  \Illuminate\Cache\Repository  $repository
-                 */
-                public function __construct(
-                    private readonly CacheRepository $repository,
-                ) {}
-
-                /**
-                 * @param  string|\UnitEnum|null  $name
-                 * @return \Illuminate\Contracts\Cache\Repository
-                 */
-                #[\Override]
-                public function store($name = null): Repository
-                {
-                    unset($name);
-
-                    return $this->repository;
-                }
-            },
-            new ResolutionCacheConfig(
-                static fn (): ConfigRepository => $config,
-            ),
-        );
+        $this->warmResolutionCache = JwtBenchSetup::warmResolutionCache($config);
 
         $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
         $this->coexistTwoDProvider       = new ModelProvider($hasher, Coexist2dIdentity::class);
@@ -396,107 +343,21 @@ final class JwtGuardBenchHarness
     }
 
     /**
-     * Create the shared tables once.
+     * Create the benchmark schema when missing.
      *
      * @return void
      */
     private function createSchema(): void
     {
-        $schema = BenchDatabase::schema();
+        BenchSchema::ensureAccessOnlyIdentityTable();
 
-        if (!$schema->hasTable('access_only_identities')) {
-            $schema->create('access_only_identities', static function (Blueprint $blueprint): void {
-                $blueprint->id();
-                $blueprint->string('email')->unique();
-                $blueprint->string('password');
-                $blueprint->timestamps();
-            });
+        foreach (['integration_identities', 'coexist_2d_identities', 'coexist_3d_identities', 'tenant_aware_3d_identities'] as $table) {
+            BenchSchema::ensureIdentityTable($table);
         }
 
-        if (!$schema->hasTable('integration_identities')) {
-            $schema->create('integration_identities', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('email')->unique();
-                $blueprint->string('password');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('coexist_2d_identities')) {
-            $schema->create('coexist_2d_identities', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('email')->unique();
-                $blueprint->string('password');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('coexist_3d_identities')) {
-            $schema->create('coexist_3d_identities', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('email')->unique();
-                $blueprint->string('password');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('coexist_3d_principals')) {
-            $schema->create('coexist_3d_principals', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->unsignedInteger('identity_id');
-                $blueprint->string('name');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('tenant_aware_3d_identities')) {
-            $schema->create('tenant_aware_3d_identities', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('email')->unique();
-                $blueprint->string('password');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('tenant_aware_3d_tenants')) {
-            $schema->create('tenant_aware_3d_tenants', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->string('name');
-                $blueprint->string('type');
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('tenant_aware_3d_principals')) {
-            $schema->create('tenant_aware_3d_principals', static function (Blueprint $blueprint): void {
-                $blueprint->increments('id');
-                $blueprint->unsignedInteger('identity_id');
-                $blueprint->unsignedInteger('tenant_id');
-                $blueprint->string('name');
-                $blueprint->boolean('is_active')->default(true);
-                $blueprint->timestamps();
-            });
-        }
-
-        if (!$schema->hasTable('devices')) {
-            $schema->create('devices', static function (Blueprint $blueprint): void {
-                $blueprint->uuid('id')->primary();
-                $blueprint->string('authenticatable_type');
-                $blueprint->string('authenticatable_id');
-                $blueprint->index(['authenticatable_type', 'authenticatable_id']);
-                $blueprint->string('os');
-                $blueprint->string('refresh_key', 64)->nullable()->index();
-                $blueprint->timestamp('revoked_at')->nullable();
-                $blueprint->timestamp('last_logged_in_at')->nullable();
-                $blueprint->timestamp('last_mfa_verified_at')->nullable();
-                $blueprint->timestamps();
-            });
-        }
+        BenchSchema::ensureCoexistPrincipalTable();
+        BenchSchema::ensureTenantTables();
+        BenchSchema::ensureDeviceTable();
     }
 
     /**
@@ -605,6 +466,8 @@ final class JwtGuardBenchHarness
      *
      * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
      * @return void
+     *
+     * @throws \LogicException
      */
     private function seedThreeDimensionalFixtures(Hasher $hasher): void
     {
@@ -658,67 +521,17 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $tenant = TenantAware3dTenant::query()->first();
+        $principal = TenantFixtures::seedTenantPrincipal(
+            $identity,
+            TenantFixtures::seedTenant('Bench Tenant Staff', 'staff'),
+            'bench-tenant-3d-principal',
+        );
 
-        if (!$tenant instanceof TenantAware3dTenant) {
-
-            $tenant       = new TenantAware3dTenant;
-            $tenant->name = 'Bench Tenant Staff';
-            $tenant->type = 'staff';
-            $tenant->save();
-        }
-
-        $principal = TenantAware3dPrincipal::query()
-            ->where('identity_id', $identity->getKey())
-            ->where('name', 'bench-tenant-3d-principal')
-            ->first();
-
-        if (!$principal instanceof TenantAware3dPrincipal) {
-
-            /** @var int $identityKey */
-            $identityKey = $identity->getKey();
-            /** @var int $tenantKey */
-            $tenantKey = $tenant->getKey();
-
-            $principal              = new TenantAware3dPrincipal;
-            $principal->identity_id = $identityKey;
-            $principal->tenant_id   = $tenantKey;
-            $principal->name        = 'bench-tenant-3d-principal';
-            $principal->is_active   = true;
-            $principal->save();
-        }
-
-        $secondaryTenant = TenantAware3dTenant::query()
-            ->where('name', 'Bench Tenant Customer')
-            ->first();
-
-        if (!$secondaryTenant instanceof TenantAware3dTenant) {
-
-            $secondaryTenant       = new TenantAware3dTenant;
-            $secondaryTenant->name = 'Bench Tenant Customer';
-            $secondaryTenant->type = 'customer';
-            $secondaryTenant->save();
-        }
-
-        $secondaryPrincipal = TenantAware3dPrincipal::query()
-            ->where('identity_id', $identity->getKey())
-            ->where('name', 'bench-tenant-3d-secondary-principal')
-            ->first();
-
-        if (!$secondaryPrincipal instanceof TenantAware3dPrincipal) {
-
-            /** @var int $identityKey */
-            $identityKey = $identity->getKey();
-            /** @var int $secondaryTenantKey */
-            $secondaryTenantKey = $secondaryTenant->getKey();
-
-            $secondaryPrincipal              = new TenantAware3dPrincipal;
-            $secondaryPrincipal->identity_id = $identityKey;
-            $secondaryPrincipal->tenant_id   = $secondaryTenantKey;
-            $secondaryPrincipal->name        = 'bench-tenant-3d-secondary-principal';
-            $secondaryPrincipal->is_active   = true;
-            $secondaryPrincipal->save();
-        }
+        $secondaryPrincipal = TenantFixtures::seedTenantPrincipal(
+            $identity,
+            TenantFixtures::seedTenant('Bench Tenant Customer', 'customer'),
+            'bench-tenant-3d-secondary-principal',
+        );
 
         $this->tenantAwareThreeDToken    = $this->tokens->issueAccessToken($identity, $principal, null);
         $this->tenantAwareSecondaryToken = $this->tokens->issueAccessToken($identity, $secondaryPrincipal, null);
@@ -730,7 +543,7 @@ final class JwtGuardBenchHarness
      * @param  string  $name
      * @param  \SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
      * @param  \Illuminate\Http\Request  $request
-     * @param  ?\SineMacula\Laravel\Authentication\Cache\ResolutionCache  $resolutionCache
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\ResolutionCache  $resolutionCache
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
     private function makeGuard(string $name, ModelProvider $provider, Request $request, ?ResolutionCache $resolutionCache = null): JwtGuard

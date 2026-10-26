@@ -21,7 +21,7 @@
             "Jwt/RefreshResult.php",
             "Models",
             "Resolvers/UnresolvableIdentityException.php",
-            "Traits"
+            "Concerns"
         ]
     },
     logs: {

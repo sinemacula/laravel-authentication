@@ -6,11 +6,11 @@ namespace Tests\Unit\Stubs;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Eloquent stub implementing Identity, HasPrincipals, and HasDevices.
@@ -24,6 +24,8 @@ use SineMacula\Laravel\Authentication\Traits\Authenticatable;
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
+ *
+ * @inheritable
  */
 class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
 {
@@ -44,6 +46,7 @@ class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
+    #[\Override]
     public function principals(): Builder
     {
         return $this->newQuery();
@@ -54,6 +57,7 @@ class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
+    #[\Override]
     public function devices(): Builder
     {
         return $this->newQuery();
@@ -64,6 +68,7 @@ class StubIdentity extends Model implements HasDevices, HasPrincipals, Identity
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
+    #[\Override]
     public function resolveDefaultPrincipal(): ?Principal
     {
         return $this->defaultPrincipal;

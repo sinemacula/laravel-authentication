@@ -67,7 +67,7 @@ default = true
 [[source]]
 name = "sinemacula"
 repository = "https://github.com/sinemacula/coding-standards"
-branch = "master"
+tag = "v1.27.1"
 
 [[plugin]]
 name = "actionlint"
@@ -84,16 +84,37 @@ name = "osv-scanner"
 
 [[plugin]]
 name = "php-codesniffer"
-version = "4.0.1"
+version = "4.0.4"
 mode = "comment"
-package_file = "composer.json"
+package_file = ".qlty/configs/composer.json"
 package_filters = ["slevomat", "dealerdirect", "sinemacula"]
 
+# phpcs 4.x returns exit code 3 when it finds issues; qlty's default
+# success_codes ([0, 1]) would treat that as a plugin failure and discard the
+# findings. This override accepts the 4.x codes. It lives here, not in the
+# shared source.toml, because a drivers table there breaks the source's
+# exported_config_paths. Only required while on phpcs 4.x.
+[plugins.definitions.php-codesniffer.drivers.lint]
+success_codes = [0, 1, 2, 3]
+
+# The symfony pins hold the fixer's dependencies on the 7.x line: 3.90+ accepts
+# symfony 8, which requires PHP 8.4.1 and uses 8.4-only syntax that the PHP 8.3
+# runner cannot parse. They have to be extra_packages because package_file and
+# extra_packages are mutually exclusive on a plugin.
 [[plugin]]
 name = "php-cs-fixer"
-package_file = "composer.json"
-package_filters = ["sinemacula"]
-version = "3.94.2"
+version = "3.95.25"
+extra_packages = [
+    "sinemacula/coding-standards@1.27.1",
+    "symfony/console@^7.4",
+    "symfony/event-dispatcher@^7.4",
+    "symfony/filesystem@^7.4",
+    "symfony/finder@^7.4",
+    "symfony/options-resolver@^7.4",
+    "symfony/process@^7.4",
+    "symfony/stopwatch@^7.4",
+    "symfony/string@^7.4",
+]
 
 [[plugin]]
 name = "radarlint-php"
@@ -119,6 +140,14 @@ name = "yamllint"
 [[plugin]]
 name = "phpstan"
 version = "2.1.46"
+package_file = ".qlty/configs/composer.json"
+package_filters = ["phpstan", "larastan", "sinemacula"]
 
+# phpstan resolves framework symbols by autoloading the package's own
+# dependencies, which a bare checkout does not have, so install them first.
+# COMPOSER_VENDOR_DIR is pinned to the repository's vendor directory because
+# the plugin environment points it at the shared phpstan tool sandbox, where an
+# install would replace the pinned analysis stack. Only extension requirements
+# are ignored so the PHP version constraint still applies.
 [plugins.definitions.phpstan.drivers.lint]
-prepare_script = "~/.qlty/cache/tools/composer/generic-42cc848a9f5e/composer.phar install --no-scripts --ignore-platform-reqs"
+prepare_script = "COMPOSER_VENDOR_DIR=vendor ~/.qlty/cache/tools/composer/generic-42cc848a9f5e/composer.phar install --no-scripts --ignore-platform-req='ext-*'"

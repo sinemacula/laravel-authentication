@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Model;
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
+ *
+ * @inheritable
  */
 class StubAuthenticatableModel extends Model implements AuthenticatableContract
 {

@@ -6,10 +6,10 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Eloquent fixture for the 3D guard coexistence test.
@@ -41,21 +41,17 @@ final class Coexist3dIdentity extends Model implements HasPrincipals, Identity
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
 
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'is_active' => 'boolean',
-    ];
-
     /**
      * Application-defined default principal lookup.
      *
-     * Returns the first active principal owned by this identity, or `null`
-     * when none exists. The integration test seeds exactly one active principal
-     * per identity so the default-principal branch of the resolver returns a
+     * Returns the first active principal owned by this identity, or `null` when
+     * none exists. The integration test seeds exactly one active principal per
+     * identity so the default-principal branch of the resolver returns a
      * deterministic row.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
+    #[\Override]
     public function resolveDefaultPrincipal(): ?Principal
     {
         $principal = $this->principals()
@@ -75,9 +71,23 @@ final class Coexist3dIdentity extends Model implements HasPrincipals, Identity
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
+    #[\Override]
     public function principals(): Builder
     {
         return Coexist3dPrincipal::query()
             ->where('identity_id', $this->getKey());
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+        ];
     }
 }

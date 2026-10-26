@@ -176,7 +176,7 @@ final class BasicGuardBenchHarness
      * @param  string  $password
      * @return \Illuminate\Http\Request
      */
-    private function makeRequest(string $user, string $password): Request
+    private function makeRequest(string $user, #[\SensitiveParameter] string $password): Request
     {
         return Request::create('/bench/basic', 'GET', [], [], [], [
             'PHP_AUTH_USER' => $user,

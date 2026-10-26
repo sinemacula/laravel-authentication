@@ -19,6 +19,7 @@ final class StubTenantWithCustomIdentifier extends StubTenant
      *
      * @return string
      */
+    #[\Override]
     protected function getTenantIdentifierName(): string
     {
         return 'tenant_uuid';

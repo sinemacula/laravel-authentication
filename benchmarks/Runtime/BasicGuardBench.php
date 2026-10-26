@@ -21,7 +21,7 @@ use PhpBench\Attributes\Warmup;
 #[Warmup(1)]
 final class BasicGuardBench
 {
-    /** @var ?\Benchmarks\Support\BasicGuardBenchHarness */
+    /** @var ?\Benchmarks\Support\BasicGuardBenchHarness @managed-static Reused across phpbench iterations. */
     private static ?BasicGuardBenchHarness $harness = null;
 
     /**

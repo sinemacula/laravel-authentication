@@ -5,10 +5,10 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Minimal 2D identity used by the access-only integration test.

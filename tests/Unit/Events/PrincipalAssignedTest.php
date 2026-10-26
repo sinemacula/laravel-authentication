@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Unit\Events;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -17,7 +18,7 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
  *
  * @internal
  */
-#[\PHPUnit\Framework\Attributes\CoversNothing]
+#[CoversNothing]
 final class PrincipalAssignedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;

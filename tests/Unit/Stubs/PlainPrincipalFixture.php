@@ -41,7 +41,6 @@ final readonly class PlainPrincipalFixture implements Principal
 
         /** Active flag. */
         public bool $active = true,
-
     ) {}
 
     /**

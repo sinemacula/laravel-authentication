@@ -324,9 +324,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->events->shouldReceive('dispatch')
             ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
-                if ($event instanceof Failed) {
-                    $failedEvent = $event;
+                if (!$event instanceof Failed) {
+                    return;
                 }
+
+                $failedEvent = $event;
             });
 
         self::assertNull($guard->user());
@@ -550,9 +552,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->events->shouldReceive('dispatch')
             ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
-                if ($event instanceof Failed) {
-                    $failedEvent = $event;
+                if (!$event instanceof Failed) {
+                    return;
                 }
+
+                $failedEvent = $event;
             });
 
         self::assertNull($guard->user());

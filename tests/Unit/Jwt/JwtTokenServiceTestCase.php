@@ -16,10 +16,10 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 /**
  * Shared base case for the `JwtTokenService` split tests.
  *
- * Owns the frozen Carbon + JWT clocks, the test secret/algorithm/TTL
- * constants, and the helper factories used by every concrete
- * `JwtTokenServiceTest` variant. Subclasses focus on a single behavioural
- * slice (issuance, parse) so each class stays focused on a single concern.
+ * Owns the frozen Carbon + JWT clocks, the test secret/algorithm/TTL constants,
+ * and the helper factories used by every concrete `JwtTokenServiceTest`
+ * variant. Subclasses focus on a single behavioural slice (issuance, parse) so
+ * each class stays focused on a single concern.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

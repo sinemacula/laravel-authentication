@@ -6,8 +6,8 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
 
 /**
  * Principal fixture for tenant-aware 3D resolution tests.
@@ -32,13 +32,6 @@ final class TenantAware3dPrincipal extends Model implements Principal
 
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
-
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'identity_id' => 'integer',
-        'tenant_id'   => 'integer',
-        'is_active'   => 'boolean',
-    ];
 
     /**
      * Owning identity relation.
@@ -66,5 +59,20 @@ final class TenantAware3dPrincipal extends Model implements Principal
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(TenantAware3dTenant::class, 'tenant_id');
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'identity_id' => 'integer',
+            'tenant_id'   => 'integer',
+            'is_active'   => 'boolean',
+        ];
     }
 }

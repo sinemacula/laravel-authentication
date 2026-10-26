@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Cache;
+namespace SineMacula\Laravel\Authentication\Contracts;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 

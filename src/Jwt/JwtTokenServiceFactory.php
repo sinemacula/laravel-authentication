@@ -36,7 +36,6 @@ final class JwtTokenServiceFactory
 
         /** @var \Illuminate\Config\Repository */
         private readonly ConfigRepository $config,
-
     ) {}
 
     /**
@@ -46,8 +45,6 @@ final class JwtTokenServiceFactory
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      *
      * @throws \InvalidArgumentException
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     public function forGuard(string $guard): JwtTokenService
     {

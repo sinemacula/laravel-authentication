@@ -34,6 +34,5 @@ final readonly class RefreshFailed
 
         /** Device identifier from the token, when parseable. */
         public ?string $deviceId = null,
-
     ) {}
 }

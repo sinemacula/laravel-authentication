@@ -7,11 +7,11 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Identity fixture for tenant-aware 3D resolution tests.
@@ -38,11 +38,6 @@ final class TenantAware3dIdentity extends Model implements HasPrincipals, Identi
 
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
-
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'is_active' => 'boolean',
-    ];
 
     /**
      * Eloquent relation builder for the identity's principals.
@@ -84,6 +79,19 @@ final class TenantAware3dIdentity extends Model implements HasPrincipals, Identi
             static fn (QueryBuilder $query): QueryBuilder => $query
                 ->where('tenant_aware_3d_principals.id', $hint),
         );
+    }
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+        ];
     }
 
     /**

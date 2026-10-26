@@ -22,10 +22,10 @@ use Tests\Integration\Fixtures\AccessOnlyIdentity;
 
 /**
  * Verifies the "access-only" usage pattern: the package works end-to-end with
- * no devices migration, no Device contract implementation, and no
- * refresh-token flow. Consumers who only need access tokens without device
- * binding or refresh can skip the devices table entirely, while the bearer path
- * still rehydrates the persisted identity through the configured provider.
+ * no devices migration, no Device contract implementation, and no refresh-token
+ * flow. Consumers who only need access tokens without device binding or refresh
+ * can skip the devices table entirely, while the bearer path still rehydrates
+ * the persisted identity through the configured provider.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

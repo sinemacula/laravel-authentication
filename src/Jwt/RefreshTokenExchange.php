@@ -63,7 +63,6 @@ final class RefreshTokenExchange
 
         /** Guard name carried on every RefreshFailed event. */
         private readonly string $guardName,
-
     ) {}
 
     /**
@@ -511,6 +510,8 @@ final class RefreshTokenExchange
      * @param  string  $oldRotationId
      * @param  string  $newRotationId
      * @return bool
+     *
+     * @imperative
      */
     private function atomicallyRotateRefreshKey(EloquentDevice&Model $device, #[\SensitiveParameter] string $oldRotationId, #[\SensitiveParameter] string $newRotationId): bool
     {

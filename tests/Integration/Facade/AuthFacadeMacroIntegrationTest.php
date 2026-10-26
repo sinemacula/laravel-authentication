@@ -119,9 +119,9 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     }
 
     /**
-     * When the default guard is swapped to a stock framework guard (the
-     * session `web` guard) the macro returns the safe fallback because the
-     * resolved guard does not implement `ContextualGuard`.
+     * When the default guard is swapped to a stock framework guard (the session
+     * `web` guard) the macro returns the safe fallback because the resolved
+     * guard does not implement `ContextualGuard`.
      *
      * @return void
      */
@@ -147,8 +147,8 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
 
     /**
      * Configure two guards: the package `api` guard (jwt driver) and a stock
-     * framework `web` guard (session driver). Individual tests flip the
-     * default guard between them to exercise both branches of the macro's
+     * framework `web` guard (session driver). Individual tests flip the default
+     * guard between them to exercise both branches of the macro's
      * `ContextualGuard` check.
      *
      * @param  mixed  $app
@@ -156,6 +156,7 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

@@ -57,6 +57,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -75,6 +76,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -201,6 +203,7 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

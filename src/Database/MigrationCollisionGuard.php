@@ -26,7 +26,6 @@ final readonly class MigrationCollisionGuard
 
         /** Schema builder */
         private Builder $schema,
-
     ) {}
 
     /**

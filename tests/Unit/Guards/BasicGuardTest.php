@@ -64,6 +64,7 @@ final class BasicGuardTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -113,8 +114,8 @@ final class BasicGuardTest extends TestCase
     /**
      * A request with an empty-string username and a non-empty password returns
      * null. Mutation guard: pins each arm of the `||` guard in
-     * `credentialsFromRequest()` independently - the empty-username branch
-     * must short-circuit even when the password is present.
+     * `credentialsFromRequest()` independently - the empty-username branch must
+     * short-circuit even when the password is present.
      *
      * @return void
      */
@@ -130,8 +131,8 @@ final class BasicGuardTest extends TestCase
 
     /**
      * A request with a non-empty username and an empty-string password returns
-     * null. Mutation guard: pins the `$password === ''` arm of the `||`
-     * guard in `credentialsFromRequest()`.
+     * null. Mutation guard: pins the `$password === ''` arm of the `||` guard
+     * in `credentialsFromRequest()`.
      *
      * @return void
      */
@@ -375,8 +376,8 @@ final class BasicGuardTest extends TestCase
     }
 
     /**
-     * Instantiate BasicGuard with the current set of collaborator mocks and
-     * the supplied request. Uses the default `email` identifier field.
+     * Instantiate BasicGuard with the current set of collaborator mocks and the
+     * supplied request. Uses the default `email` identifier field.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard

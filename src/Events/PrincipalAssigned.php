@@ -32,6 +32,5 @@ final readonly class PrincipalAssigned
 
         /** Principal that was bound to the guard. */
         public Principal $principal,
-
     ) {}
 }

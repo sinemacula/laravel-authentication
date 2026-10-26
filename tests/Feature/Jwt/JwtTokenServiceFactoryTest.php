@@ -262,8 +262,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         self::assertNotNull($service);
 
-        // Parsing a malformed token triggers the decode-failure debug
-        // log.
+        // Parsing a malformed token triggers the decode-failure debug log.
         $service->parse('not-a-valid-jwt');
     }
 

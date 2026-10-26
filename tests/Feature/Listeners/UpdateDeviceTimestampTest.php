@@ -58,8 +58,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Release the frozen clock and drop the in-memory schema once each test
-     * has completed.
+     * Release the frozen clock and drop the in-memory schema once each test has
+     * completed.
      *
      * @return void
      */
@@ -114,8 +114,8 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * Asserts the listener uses a frozen `Carbon::now()` when `setTestNow()`
-     * is active.
+     * Asserts the listener uses a frozen `Carbon::now()` when `setTestNow()` is
+     * active.
      *
      * @return void
      */
@@ -270,10 +270,9 @@ final class UpdateDeviceTimestampTest extends TestCase
     }
 
     /**
-     * The listener no-ops on an unpersisted Eloquent device (the `$exists`
-     * flag is false), so the in-memory model is not touched and the database
-     * is not written to. Pins the `!$device->exists` short-circuit in
-     * `__invoke()`.
+     * The listener no-ops on an unpersisted Eloquent device (the `$exists` flag
+     * is false), so the in-memory model is not touched and the database is not
+     * written to. Pins the `!$device->exists` short-circuit in `__invoke()`.
      *
      * @return void
      */

@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Traits\Fixtures;
+namespace Tests\Unit\Traits\Fixtures\Enums;
 
 /**
  * Fixture backed enum exercising the BackedEnum branch of the

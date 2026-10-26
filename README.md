@@ -1,10 +1,14 @@
-# Laravel Authentication
+<h1 align="center">Laravel Authentication</h1>
+
+<div align="center">
 
 [![Latest Stable Version](https://img.shields.io/packagist/v/sinemacula/laravel-authentication.svg)](https://packagist.org/packages/sinemacula/laravel-authentication)
 [![Build Status](https://github.com/sinemacula/laravel-authentication/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/sinemacula/laravel-authentication/actions/workflows/tests.yml)
 [![Maintainability](https://qlty.sh/gh/sinemacula/projects/laravel-authentication/maintainability.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-authentication)
 [![Code Coverage](https://qlty.sh/gh/sinemacula/projects/laravel-authentication/coverage.svg)](https://qlty.sh/gh/sinemacula/projects/laravel-authentication)
 [![Total Downloads](https://img.shields.io/packagist/dt/sinemacula/laravel-authentication.svg)](https://packagist.org/packages/sinemacula/laravel-authentication)
+
+</div>
 
 Stateless contextual authentication for Laravel. Distinguishes the authenticated **Identity** from the acting
 **Principal** and the issuing **Device**, exposed through Laravel's standard `Auth` facade, middleware, and events.
@@ -275,8 +279,8 @@ One model implements both `Identity` and `Principal` - the user who logs in *is*
 use Illuminate\Foundation\Auth\User;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 
 class AppUser extends User implements Identity, Principal
 {
@@ -323,10 +327,10 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal as PrincipalContract;
 use SineMacula\Laravel\Authentication\Contracts\Tenant as TenantContract;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsTenant;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
-use SineMacula\Laravel\Authentication\Traits\ProvidesTenantType;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
 
 class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
 {

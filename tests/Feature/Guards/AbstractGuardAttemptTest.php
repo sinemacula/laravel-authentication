@@ -22,10 +22,9 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * Feature tests for the credential `attempt()` event dispatch flow on
  * `AbstractGuard`.
  *
- * Covers the Attempting/Validated/Login/Failed/Authenticated event
- * sequence for success and failure paths, including inactive
- * identity/principal rejection and unresolvable identity handling.
- * Timebox and lifecycle tests live in
+ * Covers the Attempting/Validated/Login/Failed/Authenticated event sequence for
+ * success and failure paths, including inactive identity/principal rejection
+ * and unresolvable identity handling. Timebox and lifecycle tests live in
  * `AbstractGuardAttemptLifecycleTest`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -430,9 +429,11 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')
             ->andReturnUsing(static function (object $event) use (&$attemptingEvent): void {
-                if ($event instanceof Attempting) {
-                    $attemptingEvent = $event;
+                if (!$event instanceof Attempting) {
+                    return;
                 }
+
+                $attemptingEvent = $event;
             });
 
         $guard->attempt(['email' => 'x']);

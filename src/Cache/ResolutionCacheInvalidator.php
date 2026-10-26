@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Cache;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 
 /**
  * Explicit shared-cache invalidator.
@@ -22,7 +23,7 @@ final readonly class ResolutionCacheInvalidator
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Cache\ResolutionCache  $cache
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ResolutionCache  $cache
      * @param  \Closure(): \Illuminate\Config\Repository  $configResolver
      */
     public function __construct(
@@ -32,7 +33,6 @@ final readonly class ResolutionCacheInvalidator
 
         /** Deferred config repository resolver. */
         private \Closure $configResolver,
-
     ) {}
 
     /**
@@ -96,9 +96,11 @@ final readonly class ResolutionCacheInvalidator
 
             $providerModelClass = $this->providerModelClassForJwtGuard($guardName, $identity);
 
-            if ($providerModelClass !== null) {
-                $matches[$guardName] = $providerModelClass;
+            if ($providerModelClass === null) {
+                continue;
             }
+
+            $matches[$guardName] = $providerModelClass;
         }
 
         return $matches;

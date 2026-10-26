@@ -72,13 +72,14 @@ abstract class AbstractGuard implements ContextualGuard
 
         /** Timebox enforcing uniform elapsed time on the credential path. */
         protected Timebox $timebox,
-
     ) {}
 
     /**
      * Determine if the current request has no authenticated identity.
      *
      * @return bool
+     *
+     * @imperative
      */
     #[\Override]
     public function guest(): bool
@@ -90,6 +91,8 @@ abstract class AbstractGuard implements ContextualGuard
      * Determine if the current request has an authenticated identity.
      *
      * @return bool
+     *
+     * @imperative
      */
     #[\Override]
     public function check(): bool
@@ -196,6 +199,8 @@ abstract class AbstractGuard implements ContextualGuard
      * @return bool
      *
      * @throws \Throwable
+     *
+     * @imperative
      */
     #[\Override]
     public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool
@@ -394,9 +399,11 @@ abstract class AbstractGuard implements ContextualGuard
         $this->setIdentity($identity);
         $this->setPrincipal($principal);
 
-        if ($device !== null) {
-            $this->setDevice($device);
+        if ($device === null) {
+            return;
         }
+
+        $this->setDevice($device);
     }
 
     /**

@@ -85,9 +85,8 @@ final class AuthFacadeTest extends TestCase
 
     /**
      * `Auth::manager()` throws `LogicException` when the `auth` container
-     * binding does not resolve to a package `AuthManager` instance - the
-     * safety net for consumers who forgot to register the package service
-     * provider.
+     * binding does not resolve to a package `AuthManager` instance - the safety
+     * net for consumers who forgot to register the package service provider.
      *
      * @return void
      *
@@ -110,6 +109,7 @@ final class AuthFacadeTest extends TestCase
      * @param  mixed  $app
      * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
      */
+    #[\Override]
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthenticationServiceProvider::class];

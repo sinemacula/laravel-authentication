@@ -290,8 +290,8 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * Define the Testbench environment with package config and an
-     * `auth.guards`/`auth.providers` setup that exercises both the `model`
-     * user provider driver and the `jwt`/`basic` guard driver creators.
+     * `auth.guards`/`auth.providers` setup that exercises both the `model` user
+     * provider driver and the `jwt`/`basic` guard driver creators.
      *
      * @param  mixed  $app
      * @return void

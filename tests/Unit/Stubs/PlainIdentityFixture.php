@@ -32,7 +32,6 @@ final readonly class PlainIdentityFixture implements Identity
 
         /** Pre-hashed password used for the `getAuthPassword()` accessor. */
         public string $password = 'hashed-password',
-
     ) {}
 
     /**

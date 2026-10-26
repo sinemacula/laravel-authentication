@@ -64,7 +64,8 @@ final class BasicGuard extends AbstractGuard
         // Timebox enforcing uniform elapsed time on the credential path.
         Timebox $timebox,
 
-        // Credentials key passed to the identity provider (defaults to `email`).
+        // Credentials key passed to the identity provider (defaults to
+        // `email`).
         string $identifierField = 'email',
 
     ) {

@@ -23,7 +23,8 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversClass(UpdateDeviceTimestamp::class)]
 final class UpdateDeviceTimestampQueryBudgetTest extends PerformanceContractTestCase
 {
-    private const DATETIME_FORMAT = 'Y-m-d H:i:s';
+    /** @var string Timestamp format used by the device table columns. */
+    private const string DATETIME_FORMAT = 'Y-m-d H:i:s';
 
     /**
      * Provision the persisted stub-device table.

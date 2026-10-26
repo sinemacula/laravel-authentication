@@ -45,6 +45,7 @@ final class ModelProviderCredentialTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -53,8 +54,8 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
-     * Password-like keys are filtered case-insensitively and do not block
-     * later valid credentials from reaching the query.
+     * Password-like keys are filtered case-insensitively and do not block later
+     * valid credentials from reaching the query.
      *
      * @return void
      */
@@ -446,7 +447,6 @@ final class ModelProviderCredentialTest extends TestCase
 
                 /** Pre-built model instance returned from createModel(). */
                 private readonly Authenticatable&Model $instance,
-
             ) {
                 parent::__construct($hasher, $modelClass);
             }
@@ -456,6 +456,7 @@ final class ModelProviderCredentialTest extends TestCase
              *
              * @return \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model
              */
+            #[\Override]
             protected function createModel(): Authenticatable&Model
             {
                 return $this->instance;

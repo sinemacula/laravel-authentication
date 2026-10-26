@@ -5,10 +5,10 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Traits\ActsAsPrincipal;
-use SineMacula\Laravel\Authentication\Traits\Authenticatable;
 
 /**
  * Eloquent fixture for the 2D guard coexistence test.
@@ -40,8 +40,16 @@ final class Coexist2dIdentity extends Model implements Identity, Principal
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
 
-    /** @var array<string, string> The attributes that should be cast. */
-    protected $casts = [
-        'is_active' => 'boolean',
-    ];
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+        ];
+    }
 }

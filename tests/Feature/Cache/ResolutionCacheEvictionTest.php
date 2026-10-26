@@ -9,19 +9,18 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
 use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Feature tests for the resolution cache eviction and invalidation
- * paths.
+ * Feature tests for the resolution cache eviction and invalidation paths.
  *
  * Covers `ResolutionCacheInvalidator::forgetIdentity()`,
- * `forgetIdentityForGuard()`, and the guard-filtering logic that
- * skips non-JWT, non-model, and misconfigured guards.
+ * `forgetIdentityForGuard()`, and the guard-filtering logic that skips non-JWT,
+ * non-model, and misconfigured guards.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -37,6 +36,7 @@ final class ResolutionCacheEvictionTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -57,6 +57,7 @@ final class ResolutionCacheEvictionTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Cache::store()->clear();
@@ -137,9 +138,8 @@ final class ResolutionCacheEvictionTest extends TestCase
 
     /**
      * When the `forgetIdentity()` method is called with an explicit identifier,
-     * it uses that identifier instead of `getAuthIdentifier()`. Mutation
-     * guard: pins the coalesce order `$identifier ??
-     * $identity->getAuthIdentifier()`.
+     * it uses that identifier instead of `getAuthIdentifier()`. Mutation guard:
+     * pins the coalesce order `$identifier ?? $identity->getAuthIdentifier()`.
      *
      * @return void
      *
@@ -367,8 +367,8 @@ final class ResolutionCacheEvictionTest extends TestCase
             },
         );
 
-        // Invalidate - the empty-model guard should be skipped, but the
-        // valid staff guard should still be invalidated.
+        // Invalidate - the empty-model guard should be skipped, but the valid
+        // staff guard should still be invalidated.
         $invalidator->forgetIdentity($identity);
 
         $cache->rememberJwtIdentity(
@@ -587,6 +587,7 @@ final class ResolutionCacheEvictionTest extends TestCase
      * @param  mixed  $app
      * @return void
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

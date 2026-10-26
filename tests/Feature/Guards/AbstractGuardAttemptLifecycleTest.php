@@ -12,12 +12,12 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
- * Feature tests for the timebox budget, lifecycle state management,
- * and explicit-argument paths on `AbstractGuard::attempt()`.
+ * Feature tests for the timebox budget, lifecycle state management, and
+ * explicit-argument paths on `AbstractGuard::attempt()`.
  *
- * Covers the `Timebox::call()` budget selection, the
- * `returnEarly()` call on success, `clearContextualState()` between
- * logins, and the explicit principal/device argument paths.
+ * Covers the `Timebox::call()` budget selection, the `returnEarly()` call on
+ * success, `clearContextualState()` between logins, and the explicit
+ * principal/device argument paths.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -116,6 +116,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             /**
              * @return static
              */
+            #[\Override]
             public function returnEarly(): static
             {
                 $this->returnEarlyCalled = true;
@@ -172,6 +173,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             /**
              * @return static
              */
+            #[\Override]
             public function returnEarly(): static
             {
                 $this->returnEarlyCalled = true;

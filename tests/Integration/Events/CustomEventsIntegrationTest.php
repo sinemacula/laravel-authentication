@@ -81,6 +81,7 @@ final class CustomEventsIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function setUp(): void
     {
         parent::setUp();
@@ -112,6 +113,7 @@ final class CustomEventsIntegrationTest extends TestCase
      *
      * @return void
      */
+    #[\Override]
     protected function tearDown(): void
     {
         Schema::dropIfExists('stub_principals');
@@ -155,8 +157,8 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful JWT authentication whose token carries a `did` claim binds
-     * a device and dispatches exactly one `DeviceAuthenticated` event carrying
+     * A successful JWT authentication whose token carries a `did` claim binds a
+     * device and dispatches exactly one `DeviceAuthenticated` event carrying
      * the guard name and device.
      *
      * @return void
@@ -313,6 +315,7 @@ final class CustomEventsIntegrationTest extends TestCase
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
+    #[\Override]
     protected function defineEnvironment(mixed $app): void
     {
         parent::defineEnvironment($app);

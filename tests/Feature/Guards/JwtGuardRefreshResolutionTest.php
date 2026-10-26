@@ -10,11 +10,11 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCache;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -305,9 +305,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * Fail-closed: when the resolver returns `null` for a hinted `pid` during
-     * refresh, `matchesPidHint` must return `false` so the exchange rejects
-     * the token. Mutation guard: pins the `$resolved === null` early-return
-     * `false` in `RefreshTokenExchange::matchesPidHint()`.
+     * refresh, `matchesPidHint` must return `false` so the exchange rejects the
+     * token. Mutation guard: pins the `$resolved === null` early-return `false`
+     * in `RefreshTokenExchange::matchesPidHint()`.
      *
      * @return void
      *
@@ -677,9 +677,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * `setPrincipalResolver()` must update both the parent guard and the
-     * exchange resolver. This test asserts the parent (bearer) resolver is
-     * also updated by resolving a bearer token after rebinding. Mutation
-     * guard: pins the `parent::setPrincipalResolver()` call in
+     * exchange resolver. This test asserts the parent (bearer) resolver is also
+     * updated by resolving a bearer token after rebinding. Mutation guard: pins
+     * the `parent::setPrincipalResolver()` call in
      * `JwtGuard::setPrincipalResolver()`.
      *
      * @return void
@@ -725,10 +725,10 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * Allow the standard `Attempting` + `Failed` events that every failed
-     * `JwtGuard::refresh()` call now dispatches (alongside the
-     * package-specific `RefreshFailed` event). Tests that assert a specific
-     * `RefreshFailed` reason call this helper first to permit the standard
-     * events without constraining them.
+     * `JwtGuard::refresh()` call now dispatches (alongside the package-specific
+     * `RefreshFailed` event). Tests that assert a specific `RefreshFailed`
+     * reason call this helper first to permit the standard events without
+     * constraining them.
      *
      * @return void
      */

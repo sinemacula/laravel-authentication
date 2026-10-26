@@ -21,7 +21,7 @@ use PhpBench\Attributes\Warmup;
 #[Warmup(1)]
 final class UpdateDeviceTimestampBench
 {
-    /** @var ?\Benchmarks\Support\UpdateDeviceTimestampBenchHarness */
+    /** @var ?\Benchmarks\Support\UpdateDeviceTimestampBenchHarness @managed-static Reused across phpbench iterations. */
     private static ?UpdateDeviceTimestampBenchHarness $harness = null;
 
     /**
