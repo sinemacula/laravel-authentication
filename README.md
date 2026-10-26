@@ -77,10 +77,10 @@ php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 ```
 
-Set the JWT signing key:
+Generate a random JWT signing key into `.env`:
 
-```dotenv
-AUTHENTICATION_JWT_KEY="a-strong-random-value-of-at-least-32-bytes"
+```bash
+echo "AUTHENTICATION_JWT_KEY=$(openssl rand -base64 48)" >> .env
 ```
 
 Signing keys are always configured as a `kid → secret` map. Out of the box the map holds one key, `default`, read from
@@ -88,7 +88,8 @@ Signing keys are always configured as a `kid → secret` map. Out of the box the
 tokens. Every token carries its kid in the JWT header. See [Key Rotation](#key-rotation) for adding keys.
 
 Every key must be at least as long as the algorithm's digest: 32 bytes for `HS256` (the default), 48 for `HS384`,
-and 64 for `HS512`. `openssl rand -base64 48` prints a 64-character value that satisfies all three.
+and 64 for `HS512`. `openssl rand -base64 48` prints a 64-character value that satisfies all three. Generate every
+key this way rather than writing or copying one by hand.
 
 The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with an empty key map, a missing,
 empty, or too-short key, or an `active_kid` that is not in the map.
@@ -400,8 +401,13 @@ key to the published `config/authentication.php` alongside the current one and p
 ],
 ```
 
+Generate the new key into `.env`, then set `AUTHENTICATION_JWT_ACTIVE_KID` to its kid:
+
+```bash
+echo "AUTHENTICATION_JWT_KEY_2026_05=$(openssl rand -base64 48)" >> .env
+```
+
 ```dotenv
-AUTHENTICATION_JWT_KEY_2026_05="a-new-strong-random-value-of-at-least-32-bytes"
 AUTHENTICATION_JWT_ACTIVE_KID="2026-05"
 ```
 

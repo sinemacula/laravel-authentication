@@ -121,7 +121,8 @@ final readonly class JwtKeyring
 
     /**
      * Reject any signing algorithm not on the allow-list. Run first so weak or
-     * typo'd settings fail fast at boot.
+     * typo'd settings fail when the keyring is built (when a guard or token
+     * service is resolved) rather than on the first encode or decode.
      *
      * @param  string  $algorithm
      * @return void
@@ -186,8 +187,9 @@ final readonly class JwtKeyring
 
     /**
      * Reject secret material shorter than the algorithm's minimum key length
-     * (the HMAC digest size: 32, 48, or 64 bytes), so a weak key fails at boot
-     * rather than on the first encode or decode.
+     * (the HMAC digest size: 32, 48, or 64 bytes), so a weak key fails when the
+     * keyring is built (when a guard or token service is resolved) rather than
+     * on the first encode or decode.
      *
      * @param  int|string  $kid
      * @param  string  $material
