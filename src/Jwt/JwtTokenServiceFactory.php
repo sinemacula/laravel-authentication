@@ -126,32 +126,33 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Build a `JwtKeyring` from the package config layered with an optional
-     * per-guard override. When a non-empty `keys` map is found, kid mode
-     * activates and `active_kid` selects the signing key; otherwise the keyring
-     * uses single-secret mode.
+     * Build a `JwtKeyring` from the `keys` map and `active_kid`, preferring the
+     * per-guard override of each and falling back to the package-wide defaults.
      *
      * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $algorithm
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtKeyring
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     private function buildKeyring(#[\SensitiveParameter] array $guardJwtConfig, string $algorithm): JwtKeyring
     {
-        /** @var ?array<array-key, mixed> $rawKeys */
         $rawKeys = $guardJwtConfig['keys'] ?? $this->config->get('authentication.jwt.keys');
 
-        if (is_array($rawKeys) && $rawKeys !== []) {
-            return JwtKeyring::fromKeyMap(
-                $this->coerceKeysConfig($rawKeys),
-                $this->resolveJwtString($guardJwtConfig, 'active_kid', ''),
-                $algorithm,
-            );
+        if (!is_array($rawKeys)) {
+
+            $message = 'JWT keys must be a kid -> secret map. Set'
+                . ' `authentication.jwt.keys` (or the guard\'s `jwt.keys`'
+                . ' override) to an array of at least one entry.';
+
+            throw new InvalidJwtConfigurationException($message);
         }
 
-        /** @var ?string $secret */
-        $secret = $guardJwtConfig['secret'] ?? $this->config->get('authentication.jwt.secret');
-
-        return JwtKeyring::fromSecret(is_string($secret) ? $secret : '', $algorithm);
+        return JwtKeyring::fromKeyMap(
+            $this->coerceKeysConfig($rawKeys),
+            $this->resolveJwtString($guardJwtConfig, 'active_kid', ''),
+            $algorithm,
+        );
     }
 
     /**

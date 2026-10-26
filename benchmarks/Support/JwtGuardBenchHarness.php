@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
@@ -141,7 +142,7 @@ final class JwtGuardBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens  = new JwtTokenService(self::SECRET, 'HS256', 15, 60 * 24 * 30);
+        $this->tokens  = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 'HS256', 15, 60 * 24 * 30);
         $this->timebox = new Timebox;
 
         $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);

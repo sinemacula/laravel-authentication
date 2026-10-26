@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
+use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -42,6 +43,15 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
     /** @var string Shared package-default secret used across the test cases. */
     private const string PACKAGE_SECRET = 'package-default-secret-with-32-bytes!';
+
+    /** @var string Kid the package-default secret is registered under. */
+    private const string PACKAGE_KID = 'default';
+
+    /** @var string Kid the staff guard's secret is registered under. */
+    private const string STAFF_KID = 'staff';
+
+    /** @var string Kid the customer guard's secret is registered under. */
+    private const string CUSTOMER_KID = 'customer';
 
     /** @var string Guard-scoped secret for the staff guard. */
     private const string STAFF_SECRET = 'staff-secret-with-at-least-32-bytes!!';
@@ -126,8 +136,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
      * not the package defaults or another guard's JWT config.
      *
      * Verified by issuing a token with the staff service and confirming it can
-     * be parsed by a standalone service using the same secret, and that the
-     * `aud` claim reflects the staff audience.
+     * be parsed by a standalone service using the same kid and secret, and that
+     * the `aud` claim reflects the staff audience.
      *
      * @return void
      *
@@ -141,7 +151,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $service = $manager->jwt('staff');
         $token   = $this->issueAccessToken($service);
 
-        $verifier = new JwtTokenService(self::STAFF_SECRET, 'HS256', 15, 60 * 24 * 30, 30, null, 'staff-api');
+        $verifier = $this->makeVerifier([self::STAFF_KID => self::STAFF_SECRET], 'staff-api');
         $claims   = $verifier->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
@@ -161,14 +171,14 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $service = PackageAuth::jwt('customer');
         $token   = $this->issueAccessToken($service);
 
-        $verifier = new JwtTokenService(self::CUSTOMER_SECRET, 'HS256', 15, 60 * 24 * 30, 30, null, 'customer-api');
+        $verifier = $this->makeVerifier([self::CUSTOMER_KID => self::CUSTOMER_SECRET], 'customer-api');
         $claims   = $verifier->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
         self::assertSame('customer-api', $claims[Claims::AUDIENCE->value]);
 
         // Token must NOT be parseable with the staff secret.
-        $wrongVerifier = new JwtTokenService(self::STAFF_SECRET, 'HS256', 15, 60 * 24 * 30, 30, null, 'customer-api');
+        $wrongVerifier = $this->makeVerifier([self::CUSTOMER_KID => self::STAFF_SECRET], 'customer-api');
         self::assertNull($wrongVerifier->parse($token, TokenType::ACCESS));
     }
 
@@ -188,7 +198,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $service = PackageAuth::jwt('package_default');
         $token   = $this->issueAccessToken($service);
 
-        $verifier = new JwtTokenService(self::PACKAGE_SECRET, 'HS256', 15, 60 * 24 * 30, 30, null, 'package-default-audience');
+        $verifier = $this->makeVerifier([self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
         $claims   = $verifier->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
@@ -199,7 +209,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Kid-mode overrides are guard-scoped too, so one guard can rotate keys
+     * Key-map overrides are guard-scoped too, so one guard can rotate keys
      * independently of the package defaults.
      *
      * Verified by issuing a token and checking the JWT header's `kid` field,
@@ -234,7 +244,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         // A standalone service with only the new kid's secret must also parse
         // the token.
-        $newKeyVerifier = new JwtTokenService(self::KID_NEW_SECRET, 'HS256', 15, 60 * 24 * 30);
+        $newKeyVerifier = $this->makeVerifier([self::KID_NEW => self::KID_NEW_SECRET]);
         self::assertNotNull($newKeyVerifier->parse($token, TokenType::ACCESS));
     }
 
@@ -295,7 +305,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Integer-indexed key lists are rejected so guard-local kid mode still
+     * Integer-indexed key lists are rejected so a guard-local key map still
      * fails closed on malformed config.
      *
      * @return void
@@ -341,6 +351,106 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * A guard `keys` override that is not a map (for example a bare secret
+     * string) is rejected instead of being treated as a single key.
+     *
+     * @return void
+     */
+    public function testAuthFacadeJwtRejectsNonArrayGuardKeys(): void
+    {
+        config()->set('auth.guards.string_keys', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'keys'       => self::STAFF_SECRET,
+                'active_kid' => self::STAFF_KID,
+            ],
+        ]);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            'JWT keys must be a kid -> secret map. Set `authentication.jwt.keys`'
+            . ' (or the guard\'s `jwt.keys` override) to an array of at least one entry.',
+        );
+
+        PackageAuth::jwt('string_keys');
+    }
+
+    /**
+     * A missing package-wide key map is rejected for guards that do not
+     * override it, so there is no keyless fallback.
+     *
+     * @return void
+     */
+    public function testAuthFacadeJwtRejectsMissingPackageKeys(): void
+    {
+        config()->set('authentication.jwt.keys', null);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            'JWT keys must be a kid -> secret map. Set `authentication.jwt.keys`'
+            . ' (or the guard\'s `jwt.keys` override) to an array of at least one entry.',
+        );
+
+        PackageAuth::jwt('package_default');
+    }
+
+    /**
+     * An empty guard key map is rejected rather than falling back to the
+     * package-wide keys.
+     *
+     * @return void
+     */
+    public function testAuthFacadeJwtRejectsEmptyGuardKeys(): void
+    {
+        config()->set('auth.guards.empty_keys', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'keys'       => [],
+                'active_kid' => self::STAFF_KID,
+            ],
+        ]);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage('JWT key map is empty. Set `authentication.jwt.keys` to a kid -> secret map of at least one entry.');
+
+        PackageAuth::jwt('empty_keys');
+    }
+
+    /**
+     * A guard that overrides only `active_kid` signs with that kid from the
+     * package-wide key map.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAuthFacadeJwtUsesGuardActiveKidAgainstPackageKeys(): void
+    {
+        config()->set('authentication.jwt.keys', [
+            self::PACKAGE_KID => self::PACKAGE_SECRET,
+            self::KID_NEW     => self::KID_NEW_SECRET,
+        ]);
+
+        config()->set('auth.guards.active_kid_only', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'active_kid' => self::KID_NEW,
+            ],
+        ]);
+
+        $token = $this->issueAccessToken(PackageAuth::jwt('active_kid_only'));
+
+        $newKeyVerifier   = $this->makeVerifier([self::KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
+        $wrongKeyVerifier = $this->makeVerifier([self::KID_NEW => self::PACKAGE_SECRET], 'package-default-audience');
+
+        self::assertNotNull($newKeyVerifier->parse($token, TokenType::ACCESS));
+        self::assertNull($wrongKeyVerifier->parse($token, TokenType::ACCESS));
+    }
+
+    /**
      * `forGuard()` rejects an empty guard name with an
      * `InvalidArgumentException`. Pins the `$guard === ''` early-throw.
      *
@@ -374,7 +484,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'driver'   => 'jwt',
             'provider' => 'identities',
             'jwt'      => [
-                'secret'             => self::STAFF_SECRET,
+                'keys'               => [self::STAFF_KID => self::STAFF_SECRET],
+                'active_kid'         => self::STAFF_KID,
                 'access_ttl_minutes' => 99,
             ],
         ]);
@@ -496,8 +607,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'driver'   => 'jwt',
             'provider' => 'identities',
             'jwt'      => [
-                'secret'   => self::STAFF_SECRET,
-                'audience' => 'staff-api',
+                'keys'       => [self::STAFF_KID => self::STAFF_SECRET],
+                'active_kid' => self::STAFF_KID,
+                'audience'   => 'staff-api',
             ],
         ]);
 
@@ -505,8 +617,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'driver'   => 'jwt',
             'provider' => 'identities',
             'jwt'      => [
-                'secret'   => self::CUSTOMER_SECRET,
-                'audience' => 'customer-api',
+                'keys'       => [self::CUSTOMER_KID => self::CUSTOMER_SECRET],
+                'active_kid' => self::CUSTOMER_KID,
+                'audience'   => 'customer-api',
             ],
         ]);
 
@@ -527,10 +640,32 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'provider' => 'identities',
         ]);
 
-        $config->set('authentication.jwt.secret', self::PACKAGE_SECRET);
+        $config->set('authentication.jwt.keys', [self::PACKAGE_KID => self::PACKAGE_SECRET]);
+        $config->set('authentication.jwt.active_kid', self::PACKAGE_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.audience', 'package-default-audience');
         $config->set('authentication.jwt.access_ttl_minutes', 45);
+    }
+
+    /**
+     * Build a standalone verifier over the supplied key map, using its first
+     * kid as the active kid.
+     *
+     * @param  array<string, string>  $keys
+     * @param  ?string  $audience
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     */
+    private function makeVerifier(#[\SensitiveParameter] array $keys, ?string $audience = null): JwtTokenService
+    {
+        return new JwtTokenService(
+            JwtKeyring::fromKeyMap($keys, (string) array_key_first($keys), 'HS256'),
+            'HS256',
+            15,
+            60 * 24 * 30,
+            30,
+            null,
+            $audience,
+        );
     }
 
     /**

@@ -44,6 +44,9 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     /** @var string HS256 signing secret for freshness test tokens. */
     private const string JWT_SECRET = 'freshness-secret-with-at-least-32-bytes!';
 
+    /** @var string Kid the signing secret is registered under. */
+    private const string JWT_KID = 'test-kid';
+
     /**
      * Provision the identity table and register the mutable principal resolver.
      *
@@ -302,7 +305,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
             'model'  => StubActiveAwarePrincipal::class,
         ]);
 
-        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.keys', [self::JWT_KID => self::JWT_SECRET]);
+        $config->set('authentication.jwt.active_kid', self::JWT_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
     }
 
@@ -407,6 +411,7 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
             array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
             self::JWT_SECRET,
             'HS256',
+            self::JWT_KID,
         );
     }
 }

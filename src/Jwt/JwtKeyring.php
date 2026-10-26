@@ -9,15 +9,12 @@ use Firebase\JWT\Key;
 /**
  * JWT key configuration value object.
  *
- * Two construction modes:
+ * Built from a `kid -> secret` map plus an active kid (`fromKeyMap()`). Every
+ * issued token carries the active kid in its header; verification accepts any
+ * kid present in the map, which is what makes graceful key rotation possible. A
+ * map with a single entry is the minimal configuration.
  *
- * - **Single-secret mode** (`fromSecret()`): one secret signs and verifies
- *   every token, no `kid` header.
- * - **Kid mode** (`fromKeyMap()`): a `kid -> secret` map plus an active kid.
- *   Tokens carry the active kid in the header; verification accepts any kid
- *   present in the map. This is the production rotation pattern.
- *
- * Fails closed: empty secrets and unknown active kids raise
+ * Fails closed: empty maps, empty secrets, and unknown active kids raise
  * `InvalidJwtConfigurationException` at construction.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -25,9 +22,6 @@ use Firebase\JWT\Key;
  */
 final readonly class JwtKeyring
 {
-    /** @var string Sentinel kid for single-secret mode (never in headers). */
-    private const string LEGACY_KID = '__legacy__';
-
     /** @var array<int, string> Allow-listed JWT signing algorithms. */
     private const array SUPPORTED_ALGORITHMS = [
         'HS256',
@@ -45,52 +39,19 @@ final readonly class JwtKeyring
      *
      * @param  array<string, \Firebase\JWT\Key>  $keys
      * @param  string  $activeKid
-     * @param  bool  $kidMode
      */
     private function __construct(
 
         /** Map of `kid -> Firebase\JWT\Key` used for verification. */
         private array $keys,
 
-        /** Kid stamped into every issued token; empty string when kid mode is off. */
+        /** Kid stamped into every issued token. */
         private string $activeKid,
-
-        /** Whether the keyring operates in kid mode (true) or legacy single-secret mode (false). */
-        private bool $kidMode,
     ) {}
 
     /**
-     * Construct a single-secret keyring (no kid header).
-     *
-     * @param  string  $secret
-     * @param  string  $algorithm
-     * @return self
-     *
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
-     */
-    public static function fromSecret(#[\SensitiveParameter] string $secret, string $algorithm): self
-    {
-        self::assertAlgorithmSupported($algorithm);
-
-        if ($secret === '') {
-
-            $message = 'JWT secret is empty. Set `authentication.jwt.secret`'
-                . ' (env `AUTHENTICATION_JWT_SECRET`) to a strong random value -'
-                . ' an empty secret would silently accept forged tokens.';
-
-            throw new InvalidJwtConfigurationException($message);
-        }
-
-        return new self(
-            [self::LEGACY_KID => new Key($secret, $algorithm)],
-            self::LEGACY_KID,
-            false,
-        );
-    }
-
-    /**
-     * Construct a kid-aware keyring with an active signing key and a
-     * verification map for graceful rotation.
+     * Construct a keyring with an active signing key and a verification map for
+     * graceful rotation.
      *
      * Typed `array<array-key, mixed>` because this factory is the fail-closed
      * boundary at which null secrets, integer-indexed arrays, and non-string
@@ -110,8 +71,7 @@ final readonly class JwtKeyring
         if ($keys === []) {
 
             $message = 'JWT key map is empty. Set `authentication.jwt.keys`'
-                . ' to a kid -> secret map of at least one entry, or remove the keys'
-                . ' block entirely to fall back to single-secret mode.';
+                . ' to a kid -> secret map of at least one entry.';
 
             throw new InvalidJwtConfigurationException($message);
         }
@@ -128,7 +88,6 @@ final readonly class JwtKeyring
         return new self(
             self::buildKeyMap($keys, $algorithm),
             $activeKid,
-            true,
         );
     }
 
@@ -143,30 +102,29 @@ final readonly class JwtKeyring
     }
 
     /**
-     * Return the kid embedded in newly issued tokens, or `null` in
-     * single-secret mode.
+     * Return the kid embedded in newly issued tokens.
      *
-     * @return ?string
+     * @return string
      */
-    public function activeKid(): ?string
+    public function activeKid(): string
     {
-        return $this->kidMode ? $this->activeKid : null;
+        return $this->activeKid;
     }
 
     /**
-     * Return the verification key set in the form `firebase/php-jwt` expects: a
-     * single `Key` in single-secret mode, or a `kid -> Key` map in kid mode.
+     * Return the `kid -> Key` verification map in the form `firebase/php-jwt`
+     * expects.
      *
-     * @return array<string, \Firebase\JWT\Key>|\Firebase\JWT\Key
+     * @return array<string, \Firebase\JWT\Key>
      */
-    public function verificationKeys(): array|Key
+    public function verificationKeys(): array
     {
-        return $this->kidMode ? $this->keys : $this->keys[self::LEGACY_KID];
+        return $this->keys;
     }
 
     /**
-     * Reject any signing algorithm not on the allow-list. Run first in both
-     * factories so weak or typo'd settings fail fast at boot.
+     * Reject any signing algorithm not on the allow-list. Run first so weak or
+     * typo'd settings fail fast at boot.
      *
      * @param  string  $algorithm
      * @return void

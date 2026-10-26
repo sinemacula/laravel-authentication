@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use Tests\Unit\Stubs\StubDevice;
@@ -49,6 +50,9 @@ abstract class JwtGuardTestCase extends TestCase
 
     /** @var string Shared secret for the hand-rolled JWT tokens. */
     protected const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
+
+    /** @var string Kid the test secret is registered under. */
+    protected const string KID = 'test-kid';
 
     /** @var string HMAC algorithm for the hand-rolled JWT tokens. */
     protected const string ALGORITHM = 'HS256';
@@ -98,7 +102,12 @@ abstract class JwtGuardTestCase extends TestCase
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
         $this->events   = \Mockery::mock(Dispatcher::class);
         $this->timebox  = \Mockery::mock(Timebox::class);
-        $this->tokens   = new JwtTokenService(self::SECRET, self::ALGORITHM, self::ACCESS_TTL, self::REFRESH_TTL);
+        $this->tokens   = new JwtTokenService(
+            JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
+            self::ALGORITHM,
+            self::ACCESS_TTL,
+            self::REFRESH_TTL,
+        );
 
         // Default: Timebox::call() invokes the callback directly so credential
         // validation paths run deterministically.
@@ -245,7 +254,7 @@ abstract class JwtGuardTestCase extends TestCase
      */
     protected function encodeToken(array $payload): string
     {
-        return JWT::encode($payload, self::SECRET, self::ALGORITHM);
+        return JWT::encode($payload, self::SECRET, self::ALGORITHM, self::KID);
     }
 
     /**

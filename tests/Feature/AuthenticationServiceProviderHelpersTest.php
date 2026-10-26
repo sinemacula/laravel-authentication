@@ -63,7 +63,7 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
 
     /**
      * `mergeConfigFrom()` seeds the package defaults without clobbering values
-     * the consumer has already set. The test confirms the consumer's secret
+     * the consumer has already set. The test confirms the consumer's key map
      * from `defineEnvironment` survives the provider's `mergeConfigFrom` call,
      * while a key the consumer did NOT set (`device.table`) takes the package
      * default.
@@ -73,8 +73,8 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
     public function testMergeConfigDoesNotOverwriteConsumerValues(): void
     {
         self::assertSame(
-            'test-secret-key-with-at-least-32-bytes!',
-            config('authentication.jwt.secret'),
+            ['default' => 'test-secret-key-with-at-least-32-bytes!'],
+            config('authentication.jwt.keys'),
         );
 
         self::assertSame('devices', config('authentication.device.table'));
@@ -139,6 +139,7 @@ final class AuthenticationServiceProviderHelpersTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
+        $config->set('authentication.jwt.keys', ['default' => 'test-secret-key-with-at-least-32-bytes!']);
+        $config->set('authentication.jwt.active_kid', 'default');
     }
 }

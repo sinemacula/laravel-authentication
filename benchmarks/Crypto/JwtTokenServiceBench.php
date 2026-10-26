@@ -10,6 +10,7 @@ use PhpBench\Attributes\Iterations;
 use PhpBench\Attributes\Revs;
 use PhpBench\Attributes\Warmup;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -54,7 +55,7 @@ final readonly class JwtTokenServiceBench
         JWT::$timestamp = $now->getTimestamp();
 
         $this->service = new JwtTokenService(
-            'benchmark-jwt-secret-key-with-at-least-32-bytes!',
+            JwtKeyring::fromKeyMap(['bench' => 'benchmark-jwt-secret-key-with-at-least-32-bytes!'], 'bench', 'HS256'),
             'HS256',
             15,
             60 * 24 * 30,

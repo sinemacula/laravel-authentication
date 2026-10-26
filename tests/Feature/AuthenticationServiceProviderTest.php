@@ -308,7 +308,8 @@ final class AuthenticationServiceProviderTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.keys', ['default' => self::JWT_SECRET]);
+        $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', self::JWT_ALGORITHM);
         $config->set('authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
 

@@ -67,6 +67,9 @@ final class CustomEventsIntegrationTest extends TestCase
     /** @var string A shared test secret for hand-rolled JWTs (32+ bytes). */
     private const string JWT_SECRET = 'test-secret-key-with-at-least-32-bytes!';
 
+    /** @var string Kid the signing secret is registered under. */
+    private const string JWT_KID = 'test-kid';
+
     /** @var \Carbon\Carbon frozen clock shared by Carbon and the JWT library */
     private Carbon $now;
 
@@ -253,6 +256,7 @@ final class CustomEventsIntegrationTest extends TestCase
             ],
             self::JWT_SECRET,
             'HS256',
+            self::JWT_KID,
         );
 
         Event::fake([Refreshed::class]);
@@ -332,7 +336,8 @@ final class CustomEventsIntegrationTest extends TestCase
             'provider' => 'api_users',
         ]);
 
-        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.keys', [self::JWT_KID => self::JWT_SECRET]);
+        $config->set('authentication.jwt.active_kid', self::JWT_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
     }
@@ -367,6 +372,7 @@ final class CustomEventsIntegrationTest extends TestCase
             ]),
             self::JWT_SECRET,
             'HS256',
+            self::JWT_KID,
         );
     }
 

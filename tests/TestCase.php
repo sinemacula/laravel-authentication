@@ -62,7 +62,8 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('authentication.device.model', Device::class);
         $config->set('authentication.device.table', 'devices');
         $config->set('authentication.device.refresh_key_column', 'refresh_key');
-        $config->set('authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
+        $config->set('authentication.jwt.keys', ['test-kid' => 'test-secret-key-with-at-least-32-bytes!']);
+        $config->set('authentication.jwt.active_kid', 'test-kid');
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
         $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);

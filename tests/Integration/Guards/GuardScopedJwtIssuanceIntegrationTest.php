@@ -182,8 +182,9 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
             'driver'   => 'jwt',
             'provider' => 'identities',
             'jwt'      => [
-                'secret'   => self::STAFF_SECRET,
-                'audience' => 'staff-api',
+                'keys'       => [self::STAFF_GUARD => self::STAFF_SECRET],
+                'active_kid' => self::STAFF_GUARD,
+                'audience'   => 'staff-api',
             ],
         ]);
 
@@ -191,8 +192,9 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
             'driver'   => 'jwt',
             'provider' => 'identities',
             'jwt'      => [
-                'secret'   => self::CUSTOMER_SECRET,
-                'audience' => 'customer-api',
+                'keys'       => [self::CUSTOMER_GUARD => self::CUSTOMER_SECRET],
+                'active_kid' => self::CUSTOMER_GUARD,
+                'audience'   => 'customer-api',
             ],
         ]);
 

@@ -63,7 +63,8 @@ final class AuthManagerTest extends TestCase
             'driver'   => 'jwt',
             'provider' => 'identities',
         ]);
-        config()->set('authentication.jwt.secret', 'test-secret-key-with-at-least-32-bytes!');
+        config()->set('authentication.jwt.keys', ['default' => 'test-secret-key-with-at-least-32-bytes!']);
+        config()->set('authentication.jwt.active_kid', 'default');
 
         /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
         $manager = app('auth');

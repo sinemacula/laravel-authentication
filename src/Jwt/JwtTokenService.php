@@ -34,13 +34,10 @@ final class JwtTokenService
     /** @var \Psr\Log\LoggerInterface PSR-3 logger for parse-failure debug traces. */
     private LoggerInterface $logger;
 
-    /** @var \SineMacula\Laravel\Authentication\Jwt\JwtKeyring Signing / verification material. */
-    private JwtKeyring $keyring;
-
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtKeyring|string  $secretOrKeyring
+     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtKeyring  $keyring
      * @param  string  $algorithm
      * @param  int  $accessTtlMinutes
      * @param  int  $refreshTtlMinutes
@@ -48,14 +45,11 @@ final class JwtTokenService
      * @param  ?string  $issuer
      * @param  ?string  $audience
      * @param  ?\Psr\Log\LoggerInterface  $logger
-     *
-     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     public function __construct(
 
-        // Pre-built keyring, or a single HMAC secret to wrap in a one-kid
-        // keyring.
-        #[\SensitiveParameter] JwtKeyring|string $secretOrKeyring,
+        /** Signing and verification material, keyed by kid. */
+        private JwtKeyring $keyring,
 
         /** JWS signing algorithm (e.g. `HS256`, `RS256`). */
         private string $algorithm,
@@ -79,10 +73,6 @@ final class JwtTokenService
         // NullLogger.
         ?LoggerInterface $logger = null,
     ) {
-        $this->keyring = is_string($secretOrKeyring)
-            ? JwtKeyring::fromSecret($secretOrKeyring, $algorithm)
-            : $secretOrKeyring;
-
         $this->logger = $logger ?? new NullLogger;
     }
 
@@ -191,7 +181,7 @@ final class JwtTokenService
 
     /**
      * Encode the claim payload as a JWT, embedding the keyring's active kid in
-     * the header when kid mode is active.
+     * the header.
      *
      * @param  array<string, mixed>  $payload
      * @return string

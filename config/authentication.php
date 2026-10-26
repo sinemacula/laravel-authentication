@@ -54,23 +54,27 @@ return [
     | store, but JwtGuard still rehydrates identity, principal, and optional
     | device state on bearer authentication. A resolved, persisted device may
     | still trigger normal device-authenticated side effects such as debounced
-    | last-seen writes. Configure either `secret` (single-secret mode) or `keys`
-    | + `active_kid` (kid-based rotation). Invalid signing material fails
+    | last-seen writes. Signing material is always a `kid => secret` map in
+    | `keys` plus the `active_kid` that signs new tokens; every token carries
+    | its kid, and any kid in the map verifies. Invalid signing material fails
     | closed when a JWT guard or token service is resolved. `issuer`/`audience`
     | are optional; when set they are strictly verified on every parse.
     |
     */
 
     'jwt' => [
-        'secret' => env('AUTHENTICATION_JWT_SECRET'),
 
-        // Optional `kid => secret` map for graceful key rotation. When
-        // populated, takes precedence over `secret` above.
-        'keys' => [],
+        // `kid => secret` map. Out of the box it holds one key, `default`, read
+        // from AUTHENTICATION_JWT_KEY. To rotate, add a new kid backed by its
+        // own env var (e.g. AUTHENTICATION_JWT_KEY_2026_05), point `active_kid`
+        // at it, and remove the old kid once every token signed under it has
+        // expired.
+        'keys' => [
+            'default' => env('AUTHENTICATION_JWT_KEY'),
+        ],
 
-        // Kid in the `keys` map that signs newly issued tokens. Required when
-        // `keys` is non-empty.
-        'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', ''),
+        // Kid in the `keys` map that signs newly issued tokens.
+        'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', 'default'),
 
         'algorithm'           => env('AUTHENTICATION_JWT_ALGORITHM', 'HS256'),
         'access_ttl_minutes'  => (int) env('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES', 15),

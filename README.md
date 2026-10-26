@@ -45,7 +45,8 @@ device record live in the `devices` table so replay and stale credentials can be
   fail-closed behaviour on empty secrets, unsupported algorithms, type confusion, and `pid` / `did` mismatches.
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
   machine-readable `RefreshFailed` events for SIEM attribution.
-- **Kid-based key rotation** - issue under one kid, verify against a `kid → secret` map.
+- **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
+  it, so keys rotate without signing anyone out.
 - **Device tracking** with debounced `last_logged_in_at` writes.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`.
@@ -75,14 +76,18 @@ php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 ```
 
-Set the JWT secret:
+Set the JWT signing key:
 
 ```dotenv
-AUTHENTICATION_JWT_SECRET="a-strong-random-value-of-at-least-32-bytes"
+AUTHENTICATION_JWT_KEY="a-strong-random-value-of-at-least-32-bytes"
 ```
 
-The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with empty or invalid signing
-material.
+Signing keys are always configured as a `kid → secret` map. Out of the box the map holds one key, `default`, read from
+`AUTHENTICATION_JWT_KEY`, and `AUTHENTICATION_JWT_ACTIVE_KID` (default `default`) selects the key that signs new
+tokens. Every token carries its kid in the JWT header. See [Key Rotation](#key-rotation) for adding keys.
+
+The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with an empty key map, a missing
+or empty key, or an `active_kid` that is not in the map.
 
 ### Access-only mode (no devices, no refresh)
 
@@ -130,16 +135,18 @@ entry; missing fields fall back to the defaults:
         'driver'   => 'jwt',
         'provider' => 'users',
         'jwt'      => [
-            'secret'   => env('STAFF_JWT_SECRET'),
-            'audience' => 'staff-api',
+            'keys'       => ['staff-2026-05' => env('STAFF_JWT_KEY')],
+            'active_kid' => 'staff-2026-05',
+            'audience'   => 'staff-api',
         ],
     ],
     'customer' => [
         'driver'   => 'jwt',
         'provider' => 'users',
         'jwt'      => [
-            'secret'   => env('CUSTOMER_JWT_SECRET'),
-            'audience' => 'customer-api',
+            'keys'       => ['customer-2026-05' => env('CUSTOMER_JWT_KEY')],
+            'active_kid' => 'customer-2026-05',
+            'audience'   => 'customer-api',
         ],
     ],
 ],
@@ -147,8 +154,9 @@ entry; missing fields fall back to the defaults:
 
 Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. The `aud` claim on each issued token
 matches the guard that issued it, so tokens minted for one audience cannot authenticate against the other. Every
-field in the package `jwt` block is overridable (`secret`, `keys`, `active_kid`, `algorithm`,
-`access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`).
+field in the package `jwt` block is overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`,
+`refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a
+guard that overrides `keys` should also set `active_kid` to a kid in its own map.
 
 ### Per-guard principal resolvers
 
@@ -373,20 +381,28 @@ return [
 
 ## Key Rotation
 
-For graceful signing-key rotation, configure `jwt.keys` and `jwt.active_kid`:
+Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
+New tokens carry the active kid in their JWT header; the verifier accepts any kid in the map. To rotate, add the new
+key to the published `config/authentication.php` alongside the current one and point `active_kid` at it:
 
 ```php
 'jwt' => [
     'keys' => [
-        '2026-04' => env('AUTHENTICATION_JWT_KEY_2026_04'),
-        '2026-03' => env('AUTHENTICATION_JWT_KEY_2026_03'),
+        'default' => env('AUTHENTICATION_JWT_KEY'),
+        '2026-05' => env('AUTHENTICATION_JWT_KEY_2026_05'),
     ],
-    'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', '2026-04'),
+    'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', 'default'),
 ],
 ```
 
-New tokens are signed with the active kid and carry it in the JWT header. The verifier accepts any kid in the
-map - add a new kid, point `active_kid` at it, retire the old kid once every token signed under it has expired.
+```dotenv
+AUTHENTICATION_JWT_KEY_2026_05="a-new-strong-random-value-of-at-least-32-bytes"
+AUTHENTICATION_JWT_ACTIVE_KID="2026-05"
+```
+
+Tokens signed under `default` keep verifying while it stays in the map. Remove it once every token signed under it
+has expired (the longer of the access and refresh token lifetimes). Removing a kid immediately rejects every token
+signed under it, which is also how to revoke a compromised key.
 
 ## Events
 
