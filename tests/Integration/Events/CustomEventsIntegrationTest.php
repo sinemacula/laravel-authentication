@@ -33,12 +33,12 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Integration test for the package's custom contextual events.
  *
- * Boots a Testbench application with both a `basic` guard (for the
- * principal-assigned paths) and a `jwt` guard (for the device and refresh
- * paths), then exercises the lifecycle points where `PrincipalAssigned`,
- * `DeviceAuthenticated`, and `Refreshed` are expected to fire. Verifies each
- * event carries the expected payload and that they dispatch via Laravel's
- * standard event dispatcher (so consumers can subscribe via `Event::listen`).
+ * Boots a Testbench application with a `jwt` guard, then exercises the
+ * lifecycle points (`attempt()`, bearer authentication, and refresh) where
+ * `PrincipalAssigned`, `DeviceAuthenticated`, and `Refreshed` are expected to
+ * fire. Verifies each event carries the expected payload and that they dispatch
+ * via Laravel's standard event dispatcher (so consumers can subscribe via
+ * `Event::listen`).
  *
  * The `StubPrincipal` model implements both `Identity` and `Principal` so the
  * 2D-mode resolver returns the identity itself, avoiding the need for a
@@ -55,9 +55,6 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(RefreshTokenExchange::class)]
 final class CustomEventsIntegrationTest extends TestCase
 {
-    /** @var string The name of the basic-driven guard under test. */
-    private const string BASIC_GUARD = 'cli';
-
     /** @var string The name of the jwt-driven guard under test. */
     private const string JWT_GUARD = 'api';
 
@@ -124,7 +121,7 @@ final class CustomEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A successful attempt through the basic guard binds a principal and
+     * A successful attempt through the jwt guard binds a principal and
      * dispatches exactly one `PrincipalAssigned` event carrying the guard name
      * and the resolved principal.
      *
@@ -134,7 +131,7 @@ final class CustomEventsIntegrationTest extends TestCase
     {
         Event::fake([PrincipalAssigned::class]);
 
-        self::assertTrue(Auth::guard(self::BASIC_GUARD)->attempt([
+        self::assertTrue(Auth::guard(self::JWT_GUARD)->attempt([
             'email'    => self::USER_EMAIL,
             'password' => self::USER_PASSWORD,
         ]));
@@ -142,7 +139,7 @@ final class CustomEventsIntegrationTest extends TestCase
         Event::assertDispatched(PrincipalAssigned::class, 1);
         Event::assertDispatched(PrincipalAssigned::class, function (PrincipalAssigned $event): bool {
 
-            self::assertSame(self::BASIC_GUARD, $event->guard);
+            self::assertSame(self::JWT_GUARD, $event->guard);
             self::assertInstanceOf(Principal::class, $event->principal);
 
             $identity = $event->principal->getIdentity();
@@ -296,19 +293,19 @@ final class CustomEventsIntegrationTest extends TestCase
             $captured[] = $event;
         });
 
-        self::assertTrue(Auth::guard(self::BASIC_GUARD)->attempt([
+        self::assertTrue(Auth::guard(self::JWT_GUARD)->attempt([
             'email'    => self::USER_EMAIL,
             'password' => self::USER_PASSWORD,
         ]));
 
         self::assertCount(1, $captured);
-        self::assertSame(self::BASIC_GUARD, $captured[0]->guard);
+        self::assertSame(self::JWT_GUARD, $captured[0]->guard);
     }
 
     /**
-     * Register the `cli` (basic) and `api` (jwt) guards plus the shared
-     * `api_users` provider and align the package's JWT secret with the test
-     * secret so hand-rolled tokens decode cleanly.
+     * Register the `api` (jwt) guard plus the `api_users` provider and align
+     * the package's JWT secret with the test secret so hand-rolled tokens
+     * decode cleanly.
      *
      * @param  mixed  $app
      * @return void
@@ -328,11 +325,6 @@ final class CustomEventsIntegrationTest extends TestCase
         $config->set('auth.providers.api_users', [
             'driver' => 'model',
             'model'  => StubPrincipal::class,
-        ]);
-
-        $config->set('auth.guards.' . self::BASIC_GUARD, [
-            'driver'   => 'basic',
-            'provider' => 'api_users',
         ]);
 
         $config->set('auth.guards.' . self::JWT_GUARD, [

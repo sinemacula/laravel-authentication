@@ -22,7 +22,6 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
 /**
@@ -312,32 +311,6 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `BasicGuard` implements the package `ContextualGuard`.
-     *
-     * @return void
-     */
-    public function testBasicGuardImplementsContextualGuard(): void
-    {
-        self::assertTrue(
-            (new \ReflectionClass(BasicGuard::class))->implementsInterface(ContextualGuard::class),
-            'BasicGuard must implement ContextualGuard.',
-        );
-    }
-
-    /**
-     * `BasicGuard` implements Laravel's framework `Guard` contract.
-     *
-     * @return void
-     */
-    public function testBasicGuardImplementsLaravelGuard(): void
-    {
-        self::assertTrue(
-            (new \ReflectionClass(BasicGuard::class))->implementsInterface(LaravelGuard::class),
-            'BasicGuard must implement Illuminate\Contracts\Auth\Guard.',
-        );
-    }
-
-    /**
      * Data provider listing every method on Laravel's `Guard` contract.
      *
      * @return \Generator<string, array{0: string}>
@@ -356,23 +329,19 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Both shipped guards declare every method on Laravel's `Guard` contract.
-     * Pins the full conformance surface in one reflection scan per guard class
-     * so a renamed contract method fails the suite cleanly.
+     * The shipped guard declares every method on Laravel's `Guard` contract.
+     * Pins the full conformance surface in one reflection scan so a renamed
+     * contract method fails the suite cleanly.
      *
      * @param  string  $method
      * @return void
      */
     #[DataProvider('provideLaravelGuardMethods')]
-    public function testShippedGuardsDeclareLaravelGuardMethod(string $method): void
+    public function testShippedGuardDeclaresLaravelGuardMethod(string $method): void
     {
         self::assertTrue(
             (new \ReflectionClass(JwtGuard::class))->hasMethod($method),
             "JwtGuard must declare {$method}().",
-        );
-        self::assertTrue(
-            (new \ReflectionClass(BasicGuard::class))->hasMethod($method),
-            "BasicGuard must declare {$method}().",
         );
     }
 }

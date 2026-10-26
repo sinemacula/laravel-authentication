@@ -16,7 +16,6 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -85,15 +84,17 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `basic` guard driver creator is registered against Laravel's `Auth`
-     * factory so resolving an `auth.guards.*.driver = basic` guard yields the
-     * package `BasicGuard`.
+     * The package registers no `basic` guard driver, so a guard configured with
+     * `driver = basic` fails to resolve.
      *
      * @return void
      */
-    public function testBasicGuardDriverCreatorIsRegistered(): void
+    public function testBasicGuardDriverIsNotRegistered(): void
     {
-        self::assertInstanceOf(BasicGuard::class, app('auth')->guard('cli'));
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Auth driver [basic] for guard [cli] is not defined.');
+
+        app('auth')->guard('cli');
     }
 
     /**
@@ -291,7 +292,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     /**
      * Define the Testbench environment with package config and an
      * `auth.guards`/`auth.providers` setup that exercises both the `model` user
-     * provider driver and the `jwt`/`basic` guard driver creators.
+     * provider driver and the `jwt` guard driver creator, plus a `basic` guard
+     * that no registered driver serves.
      *
      * @param  mixed  $app
      * @return void

@@ -20,34 +20,33 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Guards\BasicGuard;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Integration test for the six standard Laravel auth events.
  *
- * Boots a Testbench application, registers a `cli` guard driven by the
- * package's `basic` driver against a `StubPrincipal` identity table seeded with
- * a single user, and exercises the successful `attempt`, failed `attempt`, and
+ * Boots a Testbench application, registers an `api` guard driven by the
+ * package's `jwt` driver against a `StubPrincipal` identity table seeded with a
+ * single user, and exercises the successful `attempt`, failed `attempt`, and
  * `logout` paths to assert the dispatched standard events (`Attempting`,
  * `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) match Laravel's
  * first-party contract with the expected constructor payload shapes.
  *
- * The `cli` guard uses the package's `basic` driver so credentials can be
- * passed directly via `attempt()` without needing an HTTP Authorization header,
- * keeping the assertions focused on the event-emission contract.
+ * Credentials are passed directly via `attempt()`, keeping the assertions
+ * focused on the event-emission contract of the shared guard lifecycle.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(BasicGuard::class)]
+#[CoversClass(AbstractGuard::class)]
 final class StandardAuthEventsIntegrationTest extends TestCase
 {
     /** @var string The guard name under test. */
-    private const string GUARD_NAME = 'cli';
+    private const string GUARD_NAME = 'api';
 
     /** @var string The email of the seeded test user. */
     private const string USER_EMAIL = 'user@example.test';
@@ -267,7 +266,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Register the `cli` guard against the `basic` driver and the `cli_users`
+     * Register the `api` guard against the `jwt` driver and the `users`
      * provider pointing at the `StubPrincipal` identity model before the
      * Testbench application boots so the package service provider picks up the
      * driver registration at the appropriate time.
@@ -287,14 +286,14 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.providers.cli_users', [
+        $config->set('auth.providers.users', [
             'driver' => 'model',
             'model'  => StubPrincipal::class,
         ]);
 
         $config->set('auth.guards.' . self::GUARD_NAME, [
-            'driver'   => 'basic',
-            'provider' => 'cli_users',
+            'driver'   => 'jwt',
+            'provider' => 'users',
         ]);
     }
 }

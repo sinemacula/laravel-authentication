@@ -16,7 +16,7 @@ Stateless contextual authentication for Laravel. Distinguishes the authenticated
 
 Drops into Laravel's existing auth machinery - same `Auth::check()`, `Auth::user()`, `auth()->guard('api')`, same
 middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::device()`) and
-ships hardened JWT and HTTP Basic guards.
+ships a hardened JWT guard.
 
 ## Core Concept
 
@@ -38,7 +38,7 @@ device record live in the `devices` table so replay and stale credentials can be
 
 ## Features
 
-- **Two guards**, both sessionless: `jwt` (Bearer token) and `basic` (HTTP Basic).
+- **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
 - **Hardened JWT pipeline**: strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, per-token `jti`, and
@@ -49,7 +49,7 @@ device record live in the `devices` table so replay and stale credentials can be
 - **Device tracking** with debounced `last_logged_in_at` writes.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`.
-- **Pluggable everywhere**: identity model, device model, principal resolver, identifier field, table names.
+- **Pluggable everywhere**: identity model, device model, principal resolver, table names.
 
 ## Design Notes
 
@@ -108,10 +108,6 @@ Register guards and providers in `config/auth.php` exactly as you would with any
         'driver'   => 'jwt',
         'provider' => 'users',
     ],
-    'cli' => [
-        'driver'   => 'basic',
-        'provider' => 'users',
-    ],
 ],
 
 'providers' => [
@@ -154,34 +150,6 @@ matches the guard that issued it, so tokens minted for one audience cannot authe
 field in the package `jwt` block is overridable (`secret`, `keys`, `active_kid`, `algorithm`,
 `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`).
 
-### Per-guard basic-auth identifier field
-
-The `basic` driver accepts an `identifier_field` override - e.g. an `email`-keyed web guard alongside a `key_id`
--keyed tenant API guard:
-
-```php
-'guards' => [
-    'cli' => [
-        'driver'   => 'basic',
-        'provider' => 'users',
-    ],
-    'tenant_api' => [
-        'driver'           => 'basic',
-        'provider'         => 'tenant_api_keys',
-        'identifier_field' => 'key_id',
-    ],
-],
-
-'providers' => [
-    'tenant_api_keys' => [
-        'driver' => 'model',
-        'model'  => App\Models\TenantApiKey::class,
-    ],
-],
-```
-
-Omitting `identifier_field` falls back to `authentication.credentials.identifier_field` (default `email`).
-
 ### Per-guard principal resolvers
 
 By default, every guard uses the app-wide `PrincipalResolver` binding. Any guard may override it locally:
@@ -217,7 +185,7 @@ or swap `device.model` entirely - custom models must implement the `EloquentDevi
 
 ### Credential validation timing
 
-The `basic` guard wraps credential checks in a constant-time `Timebox` to prevent timing side-channels:
+`attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels:
 
 ```php
 'timebox' => [
@@ -348,8 +316,8 @@ $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 
 ### Active-state enforcement
 
-When an identity model implements `CanBeActive`, both guards consult `isActive()` on every bearer and credential
-path and reject authentication when it returns `false`:
+When an identity model implements `CanBeActive`, the guard consults `isActive()` on every bearer, refresh, and
+credential path and rejects authentication when it returns `false`:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -364,21 +332,6 @@ class AppUser extends User implements Identity, Principal, CanBeActive
     }
 }
 ```
-
-### HTTP Basic behind PHP-FPM / nginx
-
-The `basic` guard reads credentials via `Request::getUser()` / `Request::getPassword()`, which pull from
-`$_SERVER['PHP_AUTH_USER']` / `PHP_AUTH_PW`. Behind **PHP-FPM + nginx**, the `Authorization` header is **not**
-forwarded into those superglobals by default - forward it explicitly:
-
-```nginx
-location ~ \.php$ {
-    fastcgi_pass_header Authorization;
-    # ...rest of the fastcgi block
-}
-```
-
-Apache with `mod_php` populates these variables automatically.
 
 ## Usage
 

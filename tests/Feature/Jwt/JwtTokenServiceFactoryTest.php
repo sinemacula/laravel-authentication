@@ -268,7 +268,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
     /**
      * Non-JWT guards are rejected up front so the issuance API cannot be used
-     * against the basic driver.
+     * against another driver such as Laravel's `session` guard.
      *
      * @return void
      */
@@ -277,7 +277,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('does not use the jwt driver');
 
-        PackageAuth::jwt('cli');
+        PackageAuth::jwt('web');
     }
 
     /**
@@ -522,8 +522,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
             ],
         ]);
 
-        $config->set('auth.guards.cli', [
-            'driver'   => 'basic',
+        $config->set('auth.guards.web', [
+            'driver'   => 'session',
             'provider' => 'identities',
         ]);
 

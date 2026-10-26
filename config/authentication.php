@@ -30,27 +30,13 @@ return [
 
     /*
     |---------------------------------------------------------------------------
-    | Credentials
-    |---------------------------------------------------------------------------
-    |
-    | Field name the BasicGuard passes to the identity provider when building
-    | credentials from HTTP Basic headers. Override when the identity model keys
-    | off `username`, `phone`, etc.
-    |
-    */
-
-    'credentials' => [
-        'identifier_field' => env('AUTHENTICATION_IDENTIFIER_FIELD', 'email'),
-    ],
-
-    /*
-    |---------------------------------------------------------------------------
     | Credential validation timing
     |---------------------------------------------------------------------------
     |
-    | Microsecond budget passed to Illuminate\Support\Timebox on the
-    | credential-validation path. Must exceed the worst-case hasher cost (bcrypt
-    | cost 12 ≈ 150–250ms) or timing-safety breaks down.
+    | Microsecond budget passed to Illuminate\Support\Timebox around the
+    | credential checks in a guard's `attempt()` and `validate()`. Must exceed
+    | the worst-case hasher cost (bcrypt cost 12 ≈ 150–250ms) or timing-safety
+    | breaks down.
     |
     */
 

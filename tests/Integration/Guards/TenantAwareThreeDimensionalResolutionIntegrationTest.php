@@ -12,7 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
-use SineMacula\Laravel\Authentication\Guards\BasicGuard;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
@@ -29,7 +29,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * @internal
  */
-#[CoversClass(BasicGuard::class)]
+#[CoversClass(AbstractGuard::class)]
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(DefaultPrincipalResolver::class)]
 final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCase
@@ -37,14 +37,11 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     /** @var string Shared plaintext password for the seeded fixtures. */
     private const string TEST_PASSWORD = 'correct horse battery staple';
 
-    /** @var string JWT guard name for 3D bearer tests. */
+    /** @var string JWT guard name for 3D bearer and credential tests. */
     private const string JWT_GUARD = 'api_3d';
 
-    /** @var string Basic guard name for 3D credential tests. */
-    private const string BASIC_THREE_D_GUARD = 'cli_3d';
-
-    /** @var string Basic guard name for 2D credential tests. */
-    private const string BASIC_TWO_D_GUARD = 'cli_2d';
+    /** @var string JWT guard name for 2D credential tests. */
+    private const string TWO_D_GUARD = 'api_2d';
 
     /**
      * Provision the tenant-aware 3D and 2D identity tables used by the suite.
@@ -138,17 +135,19 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * The 3D BasicGuard credential path still authenticates normally while the
+     * The 3D credential `attempt()` path still authenticates normally while the
      * identity's default principal lookup can return tenant-aware context.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
-    public function testBasicGuardThreeDimensionalDefaultResolutionKeepsTenantAndTypeStable(): void
+    public function testCredentialAttemptThreeDimensionalDefaultResolutionKeepsTenantAndTypeStable(): void
     {
-        [$identity, $principal, $tenant] = $this->seedTenantAwareThreeDimensionalFixtures('basic-3d@example.test');
+        [$identity, $principal, $tenant] = $this->seedTenantAwareThreeDimensionalFixtures('attempt-3d@example.test');
 
-        $guard = $this->basicGuardForCredentials(
-            self::BASIC_THREE_D_GUARD,
+        $guard = $this->guardAfterCredentialAttempt(
+            self::JWT_GUARD,
             $identity->email,
             self::TEST_PASSWORD,
         );
@@ -169,17 +168,19 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * The 2D BasicGuard control path still returns the identity itself as the
-     * acting principal.
+     * The 2D credential `attempt()` control path still returns the identity
+     * itself as the acting principal.
      *
      * @return void
+     *
+     * @throws \Throwable
      */
-    public function testBasicGuardTwoDimensionalControlStillReturnsIdentityAsPrincipal(): void
+    public function testCredentialAttemptTwoDimensionalControlStillReturnsIdentityAsPrincipal(): void
     {
         $identity = $this->seedTwoDimensionalIdentity();
 
-        $guard = $this->basicGuardForCredentials(
-            self::BASIC_TWO_D_GUARD,
+        $guard = $this->guardAfterCredentialAttempt(
+            self::TWO_D_GUARD,
             $identity->email,
             self::TEST_PASSWORD,
         );
@@ -195,7 +196,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * Configure the JWT and Basic guards used by the suite.
+     * Configure the JWT guards used by the suite.
      *
      * @param  mixed  $app
      * @return void
@@ -219,13 +220,8 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
             'provider' => 'tenant_aware_identities',
         ]);
 
-        $config->set('auth.guards.' . self::BASIC_THREE_D_GUARD, [
-            'driver'   => 'basic',
-            'provider' => 'tenant_aware_identities',
-        ]);
-
-        $config->set('auth.guards.' . self::BASIC_TWO_D_GUARD, [
-            'driver'   => 'basic',
+        $config->set('auth.guards.' . self::TWO_D_GUARD, [
+            'driver'   => 'jwt',
             'provider' => 'two_d_identities',
         ]);
 
@@ -302,26 +298,30 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
     }
 
     /**
-     * Resolve a fresh BasicGuard against HTTP Basic credentials.
+     * Resolve a fresh JWT guard and authenticate it through a credential
+     * `attempt()`.
      *
      * @param  string  $guardName
-     * @param  string  $username
+     * @param  string  $email
      * @param  string  $password
-     * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \Throwable
      */
-    private function basicGuardForCredentials(string $guardName, string $username, string $password): BasicGuard
+    private function guardAfterCredentialAttempt(string $guardName, string $email, #[\SensitiveParameter] string $password): JwtGuard
     {
-        app()->instance('request', Request::create('/tenant-aware-basic', 'GET', [], [], [], [
-            'PHP_AUTH_USER' => $username,
-            'PHP_AUTH_PW'   => $password,
-        ]));
+        app()->instance('request', Request::create('/tenant-aware-attempt'));
 
         $manager = PackageAuth::manager();
         $manager->forgetGuards();
 
         $guard = $manager->guard($guardName);
 
-        self::assertInstanceOf(BasicGuard::class, $guard);
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertTrue($guard->attempt([
+            'email'    => $email,
+            'password' => $password,
+        ]));
 
         return $guard;
     }
@@ -336,7 +336,7 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         $hasher = app(Hasher::class);
 
         $identity            = new StubPrincipal;
-        $identity->email     = 'basic-2d@example.test';
+        $identity->email     = 'attempt-2d@example.test';
         $identity->password  = $hasher->make(self::TEST_PASSWORD);
         $identity->is_active = true;
         $identity->save();
