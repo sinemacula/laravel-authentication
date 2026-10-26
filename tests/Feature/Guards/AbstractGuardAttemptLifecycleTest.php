@@ -114,15 +114,12 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             public bool $returnEarlyCalled = false;
 
             /**
-             * Timebox::returnEarly() returns static, which an override cannot narrow to
-             * self.
+             * Record the call before deferring to the parent.
              *
-             * @return static
-             *
-             * @phpstan-ignore sineMacula.redundantStaticReturnType
+             * @return self
              */
             #[\Override]
-            public function returnEarly(): static
+            public function returnEarly(): self
             {
                 $this->returnEarlyCalled = true;
 
@@ -176,15 +173,12 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             public bool $returnEarlyCalled = false;
 
             /**
-             * Timebox::returnEarly() returns static, which an override cannot narrow to
-             * self.
+             * Record the call before deferring to the parent.
              *
-             * @return static
-             *
-             * @phpstan-ignore sineMacula.redundantStaticReturnType
+             * @return self
              */
             #[\Override]
-            public function returnEarly(): static
+            public function returnEarly(): self
             {
                 $this->returnEarlyCalled = true;
 
