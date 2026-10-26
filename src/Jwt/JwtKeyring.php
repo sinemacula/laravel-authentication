@@ -32,7 +32,7 @@ final readonly class JwtKeyring
     /**
      * Constructor.
      *
-     * @param  array<string, \Firebase\JWT\Key>  $keys
+     * @param  array<array-key, \Firebase\JWT\Key>  $keys
      * @param  string  $activeKid
      */
     private function __construct(
@@ -110,9 +110,10 @@ final readonly class JwtKeyring
 
     /**
      * Return the `kid -> Key` verification map in the form `firebase/php-jwt`
-     * expects.
+     * expects. A purely numeric kid is keyed by its integer form; PHP resolves
+     * the header's string kid to that key when `firebase/php-jwt` looks it up.
      *
-     * @return array<string, \Firebase\JWT\Key>
+     * @return array<array-key, \Firebase\JWT\Key>
      */
     public function verificationKeys(): array
     {
@@ -144,13 +145,14 @@ final readonly class JwtKeyring
 
     /**
      * Validate the supplied kid -> secret map and convert it into a kid -> Key
-     * map. Both kid and secret must be non-empty strings, and every secret must
-     * meet the algorithm's minimum length; fail-closed regardless of the
-     * caller's static type hint.
+     * map. Kids must be non-empty (a purely numeric kid arrives as an integer
+     * key) and secrets non-empty strings, and every secret must meet the
+     * algorithm's minimum length; fail-closed regardless of the caller's static
+     * type hint.
      *
      * @param  array<array-key, mixed>  $keys
      * @param  string  $algorithm
-     * @return array<string, \Firebase\JWT\Key>
+     * @return array<array-key, \Firebase\JWT\Key>
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
