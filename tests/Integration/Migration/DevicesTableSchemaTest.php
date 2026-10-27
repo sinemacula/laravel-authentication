@@ -234,32 +234,29 @@ final class DevicesTableSchemaTest extends TestCase
     }
 
     /**
-     * The session deadlines hold dates past January 2038, the end of MySQL's
-     * `timestamp` type, so the longest accepted session lifetime can be stored
-     * on every engine.
+     * Every time column holds dates past January 2038, the end of MySQL's
+     * `timestamp` type, so the longest accepted session lifetime and anything
+     * recorded during it can be stored on every engine.
      *
      * @return void
      */
-    public function testStoresDeadlinesPastJanuary2038(): void
+    public function testStoresEveryTimePastJanuary2038(): void
     {
-        $id = (string) Str::uuid7();
+        $id    = (string) Str::uuid7();
+        $times = [];
+
+        foreach (self::TIMESTAMP_COLUMNS as $offset => $column) {
+            $times[$column] = sprintf('%d-02-28 23:59:59', 2039 + $offset);
+        }
 
         DB::table(self::TABLE)->insert([
             'id'                   => $id,
             'authenticatable_type' => 'App\Models\User',
             'authenticatable_id'   => '1',
-            'idle_expires_at'      => '2040-02-29 23:59:59',
-            'absolute_expires_at'  => '2046-04-06 12:00:00',
-            'revoked_at'           => '2039-01-01 00:00:00',
+            ...$times,
         ]);
 
-        $row = DB::table(self::TABLE)->where('id', $id)->first(['idle_expires_at', 'absolute_expires_at', 'revoked_at']);
-
-        self::assertNotNull($row);
-        self::assertSame(
-            ['idle_expires_at' => '2040-02-29 23:59:59', 'absolute_expires_at' => '2046-04-06 12:00:00', 'revoked_at' => '2039-01-01 00:00:00'],
-            (array) $row,
-        );
+        self::assertSame($times, (array) DB::table(self::TABLE)->where('id', $id)->first(self::TIMESTAMP_COLUMNS));
     }
 
     /**
