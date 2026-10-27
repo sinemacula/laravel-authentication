@@ -8,6 +8,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 ## Invariants
 
 - Any real authentication attempt starts with Laravel's `Attempting` event.
+- The credentials on `Attempting` and `Failed` never carry a password: keys whose name contains `password`
+  (case-insensitive) are always removed, plus any fragment in `authentication.events.redacted_credential_keys`. The
+  identifier and every other key are kept.
 - `Validated` means the identity has already been accepted by credentials or by an upstream mechanism such as bearer
   token verification or refresh. It does not guarantee that principal or device resolution will succeed afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
@@ -60,7 +63,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 ## Implementation Anchors
 
 - `src/Guards/Concerns/ValidatesGuardCredentials.php`: `hasValidCredentials()`, `fireAttemptingEvent()`,
-  `fireValidatedEvent()`, `fireFailedEvent()`.
+  `fireValidatedEvent()`, `fireFailedEvent()`, `redactCredentials()`.
 - `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `login()`, `logout()`,
   `setRequest()`, `bindAuthenticationLifecycle()`, `resolveContextForCredentials()`.
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
@@ -104,6 +107,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testRejectedBearerTokenIsAttemptedOncePerRequest`, `testLogoutKeepsTheRequestSignedOut`
 - `tests/Integration/Guards/ActingAsIntegrationTest.php`
   `testActingAsBindsEachIdentitysDefaultPrincipal`
+- `tests/Integration/Events/StandardAuthEventsIntegrationTest.php`
+  `testAttemptingAndFailedEventsCarryNoPasswordLikeCredentials`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
   `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersDeviceFailsTheAttempt`
 
@@ -113,6 +118,7 @@ Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
   `DeviceAuthenticated`, `Refreshed`, or `RefreshFailed`
+- which credential keys are redacted from `Attempting` and `Failed`
 - the decision to route bearer auth or refresh through `login()`
 - what `setUser()` binds
 - the listener or persistence behavior attached to `DeviceAuthenticated`

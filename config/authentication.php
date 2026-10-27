@@ -46,6 +46,24 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Credential redaction in events
+    |---------------------------------------------------------------------------
+    |
+    | Laravel's `Attempting` and `Failed` events receive the credentials passed
+    | to a guard's `attempt()`, and any listener, queued job, or log can capture
+    | them. The guards remove every key whose name contains `password`
+    | (case-insensitive) before dispatching, always, and keep the rest, the
+    | identifier included, for throttling and audit listeners. List further
+    | key-name fragments to remove (for example `secret` or `code`) here.
+    |
+    */
+
+    'events' => [
+        'redacted_credential_keys' => [],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | JWT
     |---------------------------------------------------------------------------
     |

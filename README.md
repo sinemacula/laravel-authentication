@@ -472,6 +472,17 @@ signed under it, which is also how to revoke a compromised key.
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 
+The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
+(case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
+dispatched, and the identifier is kept for throttling and audit listeners. To remove more keys, list name fragments in
+the published config:
+
+```php
+'events' => [
+    'redacted_credential_keys' => ['secret', 'code'],
+],
+```
+
 `RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution:
 
 | Reason                    | Meaning                                              |

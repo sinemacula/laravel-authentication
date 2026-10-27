@@ -239,12 +239,12 @@ final class StandardAuthEventsIntegrationTest extends TestCase
 
     /**
      * The dispatched `Failed` instance carries the guard name, the resolved
-     * user (or null), and the supplied credentials on its public properties,
-     * matching Laravel's first-party guard payload shape.
+     * user (or null), and the supplied credentials without the password on its
+     * public properties, matching Laravel's first-party guard payload shape.
      *
      * @return void
      */
-    public function testStandardFailedEventConstructorReceivesGuardNameUserAndCredentials(): void
+    public function testStandardFailedEventConstructorReceivesGuardNameUserAndRedactedCredentials(): void
     {
         Event::fake([Failed::class]);
 
@@ -255,14 +255,34 @@ final class StandardAuthEventsIntegrationTest extends TestCase
 
         self::assertFalse(Auth::guard(self::GUARD_NAME)->attempt($credentials));
 
-        Event::assertDispatched(Failed::class, function (Failed $event) use ($credentials): bool {
+        Event::assertDispatched(Failed::class, function (Failed $event): bool {
 
             self::assertSame(self::GUARD_NAME, $event->guard);
             self::assertInstanceOf(Identity::class, $event->user);
-            self::assertSame($credentials, $event->credentials);
+            self::assertSame(['email' => self::USER_EMAIL], $event->credentials);
 
             return true;
         });
+    }
+
+    /**
+     * Neither `Attempting` nor `Failed` carries a password-like credential,
+     * while the identifier stays for throttling and audit listeners.
+     *
+     * @return void
+     */
+    public function testAttemptingAndFailedEventsCarryNoPasswordLikeCredentials(): void
+    {
+        Event::fake([Attempting::class, Failed::class]);
+
+        self::assertFalse(Auth::guard(self::GUARD_NAME)->attempt([
+            'email'                 => self::USER_EMAIL,
+            'password'              => 'wrong-password',
+            'password_confirmation' => 'wrong-password',
+        ]));
+
+        Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->credentials === ['email' => self::USER_EMAIL]);
+        Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->credentials === ['email' => self::USER_EMAIL]);
     }
 
     /**
