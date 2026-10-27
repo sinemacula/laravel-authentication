@@ -573,11 +573,12 @@ $guard->attempt(['email' => $email, 'password' => $password], $membership, $devi
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
-(through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin that fails either check fails the
-attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and device
-you have already proven belong to the identity. `setPrincipal()` and `setDevice()` are trusted binds in the same way:
-they do not check ownership, activity or revocation, so a principal or device taken from request input (a header that
-switches the acting membership, say) must be verified first, as `attempt()` verifies its pins.
+(through `HasDevices`, looked up the way a bearer `did` is), not revoked, and with a session that has not ended. A pin
+that fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
+only pass it a principal and device you have already proven belong to the identity. `setPrincipal()` and `setDevice()`
+are trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a
+principal or device taken from request input (a header that switches the acting membership, say) must be verified
+first, as `attempt()` verifies its pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
@@ -642,8 +643,9 @@ with the time of the rotation. A validly signed refresh token for a live device 
 
 - the current one: the refresh rotates it and returns a new pair;
 - the one the current one replaced, presented within `refresh_grace_seconds` (30 by default) of that rotation: the
-  refresh returns a new pair carrying the device's current rotation id, and writes nothing, so a client that lost the
-  response, or a second tab that refreshed at the same moment, keeps its session, and retries never extend the window;
+  refresh returns a new pair carrying the device's current rotation id, and writes no rotation state, so a client that
+  lost the response, or a second tab that refreshed at the same moment, keeps its session, and retries never extend the
+  window;
 - any other id: the token was rotated before, so it has been replayed, perhaps stolen. The device is revoked at once
   (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `DeviceRevoked` and `RefreshFailed`
   (`rotation_reuse`) are dispatched, and every token of the device stops working, access tokens included.
@@ -654,6 +656,12 @@ credential cannot tell a replay from anything else, so its tokens fail with `ref
 left alone. When a parallel refresh changes the device between this refresh's read and its write, the row is judged
 again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
 `rotation_conflict`, without revoking anything, and the client can simply retry.
+
+A refresh token for a rotation id the device never held is a replay too, and that includes a token from an earlier
+refresh credential of the same device. Do not sign a client in again by giving an existing device a new
+`refresh_key`: any refresh token left from its earlier session stays validly signed until its own `exp` and, when it
+is presented, revokes the new session. Create a new device for each sign-in, as the example under
+[Usage](#usage) does.
 
 Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
 clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back

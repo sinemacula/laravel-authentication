@@ -31,7 +31,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()` and
   `setDevice()` resolve the request first too, so a principal or device set before the first access replaces the one the
   request's token binds instead of being replaced by it. They are trusted binds, like `login()`: they check neither
-  ownership nor activity, so a caller verifies what it passes them first.
+  ownership nor activity, nor a device's revocation or session deadlines, so a caller verifies what it passes them
+  first.
 
 ## Success Path
 

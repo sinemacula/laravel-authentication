@@ -320,6 +320,8 @@ final class RefreshTokenExchange
      * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: \Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
      *
      * @formatter:on
+     *
+     * @throws \LogicException
      */
     private function classify(EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): array|RefreshFailureReason
     {
@@ -365,6 +367,8 @@ final class RefreshTokenExchange
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  \Carbon\CarbonImmutable  $now
      * @return bool
+     *
+     * @throws \LogicException
      */
     private static function isGraceRetry(Device $device, #[\SensitiveParameter] string $rotationId, string $current, TokenLifetimes $lifetimes, CarbonImmutable $now): bool
     {

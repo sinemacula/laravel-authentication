@@ -247,8 +247,9 @@ abstract class AbstractGuard implements ContextualGuard
      * Pins are verified, not trusted, because callers may take them from
      * request input: the principal must resolve through the resolver's hinted
      * path to the same principal of the same class, and the device must be one
-     * of the identity's own live (unrevoked) devices. The resolved instances
-     * are bound, and a pin that fails either check fails the attempt.
+     * of the identity's own devices that is not revoked and whose session has
+     * not ended. The resolved instances are bound, and a pin that fails either
+     * check fails the attempt.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal

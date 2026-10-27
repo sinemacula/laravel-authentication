@@ -13,7 +13,7 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
  */
 enum RevocationReason: string
 {
-    // A refresh token the device had already rotated was presented outside the
-    // grace window
+    // A refresh token was presented whose rotation id is neither the device's
+    // current one nor the previous one inside the grace window
     case ROTATION_REUSE = 'rotation_reuse';
 }

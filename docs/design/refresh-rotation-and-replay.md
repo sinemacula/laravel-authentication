@@ -104,6 +104,13 @@ other rotated token as a replay that revokes the device.
   the device's connection they come in that order; inside one, `RefreshFailed` and `Failed` come first and
   `DeviceRevoked` follows the commit. Nothing is hydrated. Every token of the device then fails: access tokens on the
   bearer path, refresh tokens with `device_revoked`.
+- "Any id the device never held" includes a validly signed token from an earlier credential of the same row. A device
+  is given a refresh credential outside a rotation only when it is created, so this is always a replay today. Code that
+  gives an existing device a new credential (signing a client in again on the same row) must also clear
+  `previous_refresh_key` and `refresh_rotated_at`, and must first make the earlier credential's tokens fail without
+  revoking (for example by rejecting, as `token_invalid`, a token issued before the credential was set): otherwise a
+  leftover token from the earlier session, which stays validly signed until its own `exp`, revokes the new session.
+  Until then, applications create a new device for each sign-in.
 - Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the device.
 - When the swap affects no row, the row changed between the read and the write. The exchange re-reads it once from the
@@ -288,6 +295,7 @@ Update this note when any of the following change:
 - the meanings of `rotation_reuse`, `rotation_conflict`, `refresh_key_missing`, `session_expired`, `device_revoked`, or
   `device_unknown`, or which of them revokes the device
 - whether replay revokes one device row or a broader credential family, or whether revocation marks or deletes the row
+- whether code other than device creation can give a device a new refresh credential
 - when `DeviceRevoked` is dispatched
 - whether a rotation can move the absolute deadline, or how the idle deadline and token expiries are derived
 - whether database errors still propagate instead of mapping to a failure reason
