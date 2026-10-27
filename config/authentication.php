@@ -46,7 +46,7 @@ return [
     | `pending_table` (on the device model's connection) for at most
     | `pending_ttl_seconds` (30 to 3600; an integer, or a digit string as
     | `env()` returns one); anything else fails closed when a pending sign-in
-    | is issued.
+    | is issued. Prune expired pending sign-ins with `model:prune`.
     |
     */
 

@@ -111,16 +111,16 @@ other rotated token as a replay that revokes the device.
   carrying the seconds until the full count's window ends (`retryAfter`), and that failure is not counted itself, so a
   blocked client costs one read. `refresh()` dispatches `Failed` and then throws Laravel's `ThrottleRequestsException`,
   rendered as a 429 with `Retry-After`: `refresh()` returns only `?RefreshResult`, and a 401 would be wrong.
-- A device of another guard, or of none, produces `device_guard_mismatch` without a write, even for a token that would
-  be a replay, and nothing is hydrated.
+- A device of another guard, or of none, produces `device_guard_mismatch` without a write to the device, even for a
+  token that would be a replay, and nothing is hydrated.
 - A device whose `sign_in_method` the guard no longer allows, or which records none, produces `method_not_allowed`; an
   owner the guard's audience policy no longer admits as the principal produces `principal_ineligible`. Neither writes
-  or revokes.
+  to the device or revokes it.
 - Missing or malformed claims produce `token_invalid`: a refresh token must carry `exp`, `iat`, `jti`, `typ`, `grd`, and
   `did` (`pid` is optional). The token's own `exp` is checked by `parse()` (with leeway) before `$now` is taken; the
   row's deadlines are authoritative and apply without leeway.
 - Unknown device ids produce `device_unknown`, and so does a `did` that cannot be a key of the device model, which is
-  rejected before any query.
+  rejected before the device lookup.
 - Database errors are not a failure reason: they propagate to the caller as server errors on every query (lookup, swap,
   re-read, revocation), so an outage is never reported as an unknown device.
 - Revoked devices produce `device_revoked` without a write. Revocation is not refresh-only: the bearer path rejects an
@@ -372,10 +372,15 @@ other rotated token as a replay that revokes the device.
   `testWithDaylightSavingARotationInTheSecondPassLeavesNoGraceWindow`,
   `testWithDaylightSavingARefreshSettingAnIdleDeadlineInTheSecondPassFailsWithoutWriting`,
   `testWithDaylightSavingADeadlineInTheSecondPassEndsTheSessionEarly`
-- `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php`
-  `testRefreshSuccessUsesTwoReadsAndOneWrite`, `testGraceRetryUsesTwoReadsAndNoWrites`,
-  `testLostRotationResolvedAsAGraceRetryUsesThreeReadsAndOneWrite`, `testReplayRevocationUsesOneReadAndOneWrite`,
-  `testMissingRefreshCredentialUsesOneReadAndNoWrites`, `testEndedSessionRefreshFailureUsesOneReadAndNoWrites`,
+- `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (the shipped policy and limiter)
+  `testTheGuardAdmitsOnlyTheListedPrincipalTypesOnSignInAndRefresh`,
+  `testRefreshesRefusedForTheirFailuresAreAnswered429ThroughTheRoute`
+- `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php` (every refresh reads its limits once; a failure counts
+  itself)
+  `testRefreshSuccessUsesThreeReadsAndOneWrite`, `testGraceRetryUsesThreeReadsAndNoWrites`,
+  `testLostRotationResolvedAsAGraceRetryUsesFourReadsAndOneWrite`,
+  `testReplayRevocationReadsTheDeviceAndRevokesItInOneWrite`, `testMissingRefreshCredentialStopsAtTheDeviceLookup`,
+  `testEndedSessionRefreshFailureStopsAtTheDeviceLookup`, `testMalformedDeviceIdRefreshFailureSkipsTheDeviceLookup`,
   `testGraceAndReplayCostNoMoreThanARotation`
 
 ## Change Triggers

@@ -7,7 +7,10 @@ principal auth without device tracking or refresh rotation.
 
 ## Invariants
 
-- The package can boot and authenticate bearer requests without a `devices` table.
+- The package can boot and authenticate bearer requests without a `devices` table, or any of the package's tables.
+- `attempt()` counts its attempts in the `rate_limits` table, unless the guard turns its sign-in limits off
+  (`rate_limits.sign_in = null`): a deployment that signs in with `attempt()` keeps that table, and the `devices` and
+  `pending_sign_ins` tables stay empty.
 - Access tokens for this mode must be issued with `device = null`, which means the JWT carries `did = null`. `did` is
   the one access-token claim that may be absent or null, apart from the optional `pty` (the principal's type); `sub`,
   `pid`, `exp`, `iat`, `jti`, `typ`, and `grd` are required as on every access token. With no session to bound it,
@@ -19,7 +22,8 @@ principal auth without device tracking or refresh rotation.
 
 ## Success Path
 
-- Skip the package devices migration.
+- Leave the `devices` table out (or empty); keep the `rate_limits` table only for a guard that signs in with
+  `attempt()`.
 - Do not implement `HasDevices` on the identity model.
 - Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
 - On the bearer path, the guard binds identity and principal normally and leaves device unset.
@@ -65,4 +69,5 @@ Update this note when any of the following change:
 - whether bearer auth can still succeed without `HasDevices`
 - whether access-only bearer auth remains free of device writes
 - whether refresh becomes supported without persisted device state
+- which package tables `attempt()` or bearer auth need
 - whether guard construction still validates the configured device model class up front

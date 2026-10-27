@@ -20,12 +20,16 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   the principal (the context's pin, verified like an `attempt()` pin, else the resolver's default) and its tenant must
   be active, and the audience policy must admit them with the method's identifier type; a password is rehashed; the
   proof of a device is checked; the additional-factor policy is asked; the session is written, or a pending sign-in is
-  issued. Only a success or a pending sign-in gives the slots back.
+  issued. Only a success or a pending sign-in gives the slots back. The slots are taken and given back outside the
+  session's transaction, so a sign-in rolled back by its caller still counts.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
   context, never both.
-- One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`.
+- One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The
+  deadlines come from the audience policy's lifetimes for the principal (`AudiencePolicy::lifetimes()`), which with the
+  shipped policy are the guard's `jwt.by_principal_type` entry for the principal's type, or the guard's own; the access
+  token is issued with the principal's type in `pty` (see `audience-policy.md`).
 - A session is written in one transaction on the device's connection: the device first, then both tokens, so any
   failure while issuing rolls the device back. Only the digest of the rotation id is stored.
 - A refresh token proves a device only when it is the device's current rotation id, validly signed for the guard
@@ -86,6 +90,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Integration/Sessions/SessionServiceTest.php`
 - `tests/Feature/Sessions/DeviceProofTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
 - `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
+- `tests/Integration/Sessions/SignInPolicyEndToEndTest.php`: the shipped audience policy, attempt limiter, normalisers
+  and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
+- `tests/Integration/Migration/PendingSignInsTableSchemaTest.php`
 - `tests/Performance/SessionServiceQueryBudgetTest.php`
 
 ## Change Triggers

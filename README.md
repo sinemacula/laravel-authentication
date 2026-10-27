@@ -87,6 +87,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/access-only-mode.md`
 - `docs/design/guard-bound-tokens.md`
 - `docs/design/session-service.md`
+- `docs/design/audience-policy.md`
 
 ## Installation
 
@@ -127,13 +128,14 @@ empty, or too-short key, or an `active_kid` that is not in the map.
 
 Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-lived session flows:
 
-1. Skip the `authentication-migrations` publish.
-2. Do not implement `HasDevices` on your identity model.
-3. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-4. Do not call `$guard->refresh(...)`. Clients re-authenticate when the access token expires.
+1. Do not implement `HasDevices` on your identity model.
+2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
+3. Do not call `$guard->refresh(...)` or the session service. Clients re-authenticate when the access token expires.
 
-`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. See
-`docs/design/access-only-mode.md`.
+`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Bearer requests need
+none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the `rate_limits` table (see
+[Rate limits](#rate-limits)), so publish and run the migrations for it, or set the guard's `rate_limits.sign_in` to
+`null`; the `devices` and `pending_sign_ins` tables then stay empty. See `docs/design/access-only-mode.md`.
 
 ## Configuration
 
@@ -298,12 +300,12 @@ both blocks, a value of the wrong shape, an empty list, or a key the policy does
 differently.
 
 Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
-`access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the guard's
-own). Each key a type leaves out, or sets to `null`, is the guard's value; the refresh grace window and the leeway stay
-the guard's, because a refresh judges them before it knows the principal. Any other key, or a map that is not keyed by
-type names, fails closed with an `InvalidJwtConfigurationException` when the guard is resolved. Access tokens expire
-after their principal type's access lifetime, `Auth::jwt('api')->lifetimesFor($principal)` returns the lifetimes for a
-principal, and a guard without per-type lifetimes never reads a principal's type for them.
+`access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the
+guard's own). Each key a type leaves out, or sets to `null`, is the guard's value; the refresh grace window and the
+leeway stay the guard's, because a refresh judges them before it knows the principal. Any other key, or a map that is
+not keyed by type names, fails closed with an `InvalidJwtConfigurationException` when the guard is resolved. Access
+tokens expire after their principal type's access lifetime, `Auth::jwt('api')->lifetimesFor($principal)` returns the
+lifetimes for a principal, and a guard without per-type lifetimes never reads a principal's type for them.
 
 ### Per-guard principal resolvers
 
@@ -467,20 +469,22 @@ address, and a successful refresh costs one read. A refresh refused for its fail
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
-The table holds only SHA-256 digests of the guard, flow, scope and identifier or IP address, never either in clear. Every
-change to a count is one statement the database applies atomically. A database error propagates as a server error: a
-limiter that cannot count lets nothing through. The counters live on `rate_limits.connection` (the default connection
-when `null`): counts written on the same connection as a transaction you open around a sign-in are rolled back with
-it, so point it at a connection of its own if you wrap sign-ins in transactions you may roll back.
+The table holds only SHA-256 digests of the guard, flow, scope and identifier or IP address, never either in clear.
+Every change to a count is one statement the database applies atomically. A database error propagates as a server error:
+a limiter that cannot count lets nothing through. The counters live on `rate_limits.connection` (the default connection
+when `null`): counts written on the same connection as a transaction you open around a sign-in are rolled back with it,
+so point it at a connection of its own if you wrap sign-ins in transactions you may roll back.
 
-Ended windows stay in the table until they are pruned. The model lives outside your application's `app/Models`, so
-schedule its pruning explicitly, together with the package's other prunable models:
+Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
+[Additional factors](#additional-factors)). Both models live outside your application's `app/Models`, so name them when
+you schedule Laravel's pruning command:
 
 ```php
 use Illuminate\Support\Facades\Schedule;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 
-Schedule::command('model:prune', ['--model' => [RateLimit::class]])->hourly();
+Schedule::command('model:prune', ['--model' => [PendingSignIn::class, RateLimit::class]])->hourly();
 ```
 
 ### Credential validation timing
@@ -746,12 +750,13 @@ compare them as equal, so lookups match but a unique index rejects the second ad
 collation, and `LOWER()` and the collation can disagree on non-ASCII letters. Storing the normal form makes both
 behave the same, and lets the index mean what the application means.
 
-A successful password sign-in rehashes the password when the hasher reports the stored hash outdated (a new
-algorithm or cost) and Laravel's `hashing.rehash_on_login` is on, never on bearer requests or refresh. The `model`
-provider writes the new hash with one conditional update, `WHERE <key> = :id AND <password> = :checkedHash`, so a
-password changed between the check and the rehash is never overwritten with a hash of the old one; the write fires no
-model events and leaves `updated_at` alone. A hash that does not come from the model's own password attribute (a
-`getAuthPassword()` that reads another table) is not rehashed by the provider.
+A successful password sign-in rehashes the password when the hasher reports the stored hash outdated (a new algorithm or
+cost) and Laravel's `hashing.rehash_on_login` is on; never on bearer requests, refresh, `validate()`, or a session
+started with `start()` or `complete()`, which check no password. The `model` provider writes the new hash with one
+conditional update, `WHERE <key> = :id AND <password> = :checkedHash`, so a password changed between the check and the
+rehash is never overwritten with a hash of the old one; the write fires no model events and leaves `updated_at` alone. A
+hash that does not come from the model's own password attribute (a `getAuthPassword()` that reads another table) is not
+rehashed by the provider.
 
 ### Identifier verification
 
@@ -1031,12 +1036,8 @@ used; the factor policy is not asked again), and starts the session on the devic
 is unchanged, otherwise on a new one, recording the client the sign-in came from. A token that completes nothing fails
 as `pending_invalid`, without saying why.
 
-Pending sign-ins that were never completed expire; prune them with Laravel's pruning command, scheduled for the
-package's model (it is outside the application's models, so name it):
-
-```php
-Schedule::command('model:prune', ['--model' => [SineMacula\Laravel\Authentication\Models\PendingSignIn::class]])->daily();
-```
+Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see
+[Rate limits](#rate-limits)).
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. Access-only guards
 (identities without `HasDevices`) keep issuing access tokens with `Auth::jwt('api')->issueAccessToken()`.
@@ -1185,10 +1186,10 @@ the published config:
 instead. `DeviceCreated` precedes it for a new device. Both carry the guard, identity, principal, tenant, device,
 method and client (IP address and user agent), and never a token.
 
-`SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's client
-(IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a wrong
-password or an unknown identifier carries none), the principal and tenant once resolved, the wait for `rate_limited`,
-and a `SignInFailureReason`. It never carries a password, code or token:
+`SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's
+client (IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a
+wrong password or an unknown identifier carries none), the principal and tenant once resolved, the wait for
+`rate_limited`, and a `SignInFailureReason`. It never carries a password, code or token:
 
 | Reason                       | Meaning                                                            |
 |------------------------------|--------------------------------------------------------------------|
