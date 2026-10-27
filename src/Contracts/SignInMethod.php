@@ -33,24 +33,26 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 interface SignInMethod
 {
     /**
-     * The type of identifier the method signs in with (for example `email`), or
-     * `null` when it uses none. It names the identifier's normaliser, the form
-     * the attempt limits count it in, and the identifier a guard that requires
-     * verified identifiers checks.
+     * The type of identifier the method signs in to the guard with (for example
+     * `email`), or `null` when it uses none. It names the identifier's
+     * normaliser, the form the attempt limits count it in, and the identifier a
+     * guard that requires verified identifiers checks.
      *
+     * @param  string  $guard
      * @return ?string
      */
-    public function identifierType(): ?string;
+    public function identifierType(string $guard): ?string;
 
     /**
-     * The identifier the input names, as given, or `null` when it names none.
-     * Used for the attempt limits and the failure event, never to look the
-     * identity up.
+     * The identifier the input names for the guard, as given, or `null` when it
+     * names none. Used for the attempt limits and the failure event, never to
+     * look the identity up.
      *
+     * @param  string  $guard
      * @param  array<array-key, mixed>  $input
      * @return ?string
      */
-    public function identifier(#[\SensitiveParameter] array $input): ?string;
+    public function identifier(string $guard, #[\SensitiveParameter] array $input): ?string;
 
     /**
      * Verify the input and return the identity it proves, or why it does not.

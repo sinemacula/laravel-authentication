@@ -22,11 +22,12 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   within, otherwise none (`Audience\PrincipalType::of()`), read on the write connection. A guard that lists types admits
   only principals whose type it lists; a principal without a type is refused. Refusal is `principal_ineligible`.
 - The verified-identifier gate applies only when the guard sets `require_verified_identifier` and the sign-in names an
-  identifier type: the password method's is `authentication.sign_in.password_identifier` (default `email`), whatever
-  the credentials look like, so a query closure in `attempt()` cannot skip it. The identity must then implement
-  `HasVerifiableIdentifiers` (otherwise a `LogicException`: a misconfiguration) and report that identifier verified,
-  read on the write connection; otherwise `identifier_unverified`. `start()`, `complete()` without a stored type, and
-  refresh carry no identifier type and are never gated: an external verifier or an existing session vouches for them.
+  identifier type: the password method's is the guard's `sign_in.password_identifier`, else
+  `authentication.sign_in.password_identifier` (default `email`), whatever the credentials look like, so a query closure
+  in `attempt()` cannot skip it. The identity must then implement `HasVerifiableIdentifiers` (otherwise a
+  `LogicException`: a misconfiguration) and report that identifier verified, read on the write connection; otherwise
+  `identifier_unverified`. `start()`, `complete()` without a stored type, and refresh carry no identifier type and are
+  never gated: an external verifier or an existing session vouches for them.
 - `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks, and runs
   eligibility before the gate.
 - Lifetimes come from `jwt.by_principal_type.<type>` on the guard (any of `access_ttl_minutes`,

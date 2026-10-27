@@ -67,9 +67,9 @@ trait SignsInWithCredentials
             return new RefusedSignIn(SignInFailureReason::METHOD_NOT_ALLOWED);
         }
 
-        $type        = $password->identifierType();
+        $type        = $password->identifierType($this->name);
         $limiter     = self::signInCollaborator(AttemptLimiter::class);
-        $reservation = $limiter->acquire(new AttemptSubject($this->name, AttemptFlow::SIGN_IN, $password->identifier($credentials), $type, $client->ip));
+        $reservation = $limiter->acquire(new AttemptSubject($this->name, AttemptFlow::SIGN_IN, $password->identifier($this->name, $credentials), $type, $client->ip));
 
         if (!$reservation->granted()) {
             return new RefusedSignIn(SignInFailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);

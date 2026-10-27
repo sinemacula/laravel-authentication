@@ -37,10 +37,12 @@ return [
     |
     | The password sign-in method looks identities up by the column named in
     | `password_identifier`, which is also the identifier type the attempt
-    | limits count and a guard that requires verified identifiers checks. It
-    | must be a lower-case column name (a letter, then letters, digits, or
-    | underscores) that does not contain `password`; anything else fails
-    | closed when a password sign-in runs.
+    | limits count and a guard that requires verified identifiers checks. A
+    | guard whose identities are found by another column names its own in
+    | `auth.guards.<name>.sign_in.password_identifier` (the only key a guard's
+    | `sign_in` block may set). Either must be a lower-case column name (a
+    | letter, then letters, digits, or underscores) that does not contain
+    | `password`; anything else fails closed when a password sign-in runs.
     |
     | A sign-in the additional-factor policy asks a further factor of waits in
     | `pending_table` (on the device model's connection) for at most

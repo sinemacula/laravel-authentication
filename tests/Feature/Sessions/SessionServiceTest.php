@@ -893,23 +893,29 @@ final class SessionServiceTest extends TestCase
             /**
              * No identifier type.
              *
+             * @param  string  $guard
              * @return ?string
              */
             #[\Override]
-            public function identifierType(): ?string
+            public function identifierType(string $guard): ?string
             {
+                unset($guard);
+
                 return null;
             }
 
             /**
              * The configured identifier.
              *
+             * @param  string  $guard
              * @param  array<array-key, mixed>  $input
              * @return ?string
              */
             #[\Override]
-            public function identifier(#[\SensitiveParameter] array $input): ?string
+            public function identifier(string $guard, #[\SensitiveParameter] array $input): ?string
             {
+                unset($guard, $input);
+
                 return $this->identifier;
             }
 

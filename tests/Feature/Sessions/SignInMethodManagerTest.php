@@ -42,11 +42,11 @@ final class SignInMethodManagerTest extends TestCase
 
         self::assertInstanceOf(PasswordSignIn::class, $password);
         self::assertSame($password, $manager->method('password'));
-        self::assertSame('email', $password->identifierType());
+        self::assertSame('email', $password->identifierType('api'));
 
         config()->set('authentication.sign_in.password_identifier', 'username');
 
-        self::assertSame('username', $password->identifierType());
+        self::assertSame('username', $password->identifierType('api'));
     }
 
     /**
@@ -61,23 +61,29 @@ final class SignInMethodManagerTest extends TestCase
             /**
              * No identifier.
              *
+             * @param  string  $guard
              * @return ?string
              */
             #[\Override]
-            public function identifierType(): ?string
+            public function identifierType(string $guard): ?string
             {
+                unset($guard);
+
                 return null;
             }
 
             /**
              * No identifier.
              *
+             * @param  string  $guard
              * @param  array<array-key, mixed>  $input
              * @return ?string
              */
             #[\Override]
-            public function identifier(#[\SensitiveParameter] array $input): ?string
+            public function identifier(string $guard, #[\SensitiveParameter] array $input): ?string
             {
+                unset($guard, $input);
+
                 return null;
             }
 

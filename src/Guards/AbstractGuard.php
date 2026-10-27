@@ -263,8 +263,8 @@ abstract class AbstractGuard implements ContextualGuard
      * limits before the credentials are checked; a successful sign-in gives its
      * slots back. The credentials keep their full provider semantics, closures
      * included, but the identifier the limits count and the verified-identifier
-     * requirement checks is always the configured
-     * `authentication.sign_in.password_identifier` key, however the lookup was
+     * requirement checks is always the guard's password identifier key (its own
+     * `sign_in.password_identifier`, or the package's), however the lookup was
      * written. Once the password is accepted, the identity, the principal and
      * its tenant must be active, the pins must hold, the audience policy must
      * admit the identity as the principal, and the additional-factor policy
@@ -299,7 +299,7 @@ abstract class AbstractGuard implements ContextualGuard
         $this->fireAttemptingEvent($credentials);
 
         $password   = self::signInCollaborator(PasswordSignIn::class);
-        $identifier = $password->identifier($credentials);
+        $identifier = $password->identifier($this->name, $credentials);
         $client     = ClientContext::fromRequest($this->request);
         $outcome    = $this->signInWithCredentials($password, $credentials, $principal, $device, $client);
 

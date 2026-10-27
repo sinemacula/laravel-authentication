@@ -133,8 +133,8 @@ final readonly class SessionService
     {
         $driver = $this->collaborator(SignInMethodManager::class)->method($method);
         $context ??= SignInContext::fromRequest($this->guard->getRequest());
-        $type       = $driver->identifierType();
-        $identifier = $driver->identifier($input);
+        $type       = $driver->identifierType($this->guard->getName());
+        $identifier = $driver->identifier($this->guard->getName(), $input);
         $safe       = $identifier === null ? [] : [$type ?? 'identifier' => $identifier];
 
         $this->dispatch(new Attempting($this->guard->getName(), $safe, false));

@@ -50,6 +50,7 @@ use Tests\TestCase;
  * verified-identifier gate, configured per guard as an application would.
  *
  * - `api`: identities with a designated email, the password and `sso` methods.
+ * - `by_number`: the same identities, signing in by their `id` with a password.
  * - `sso_only`: the same identities, the `sso` method only.
  * - `verified`: the same identities, verified identifiers required.
  * - `members`: typed memberships; only `staff` and `client_staff` principals,
@@ -185,6 +186,36 @@ final class SignInPolicyEndToEndTest extends TestCase
         }
 
         self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A guard that names its own identifier column signs in by that column,
+     * through `signIn()` and `attempt()` alike, ignores the package's, and
+     * counts its attempts against the identifier under that column: after five
+     * wrong passwords the right one is refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardSignsInAndCountsByItsOwnIdentifierColumn(): void
+    {
+        $identity = $this->seedPasswordIdentity('ada@example.test');
+        $number   = (string) $identity->getKey(); // @phpstan-ignore cast.string
+
+        self::assertTrue($this->sessions('by_number')->signIn('password', ['id' => $number, 'password' => self::PASSWORD])->isSignedIn());
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', self::credentials())->reason);
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            self::assertFalse($this->freshGuard('by_number')->attempt(['id' => $number, 'password' => 'wrong']));
+        }
+
+        $this->recordEvents([SignInFailed::class]);
+
+        self::assertFalse($this->freshGuard('by_number')->attempt(['id' => $number, 'password' => self::PASSWORD]));
+        self::assertSame(SignInFailureReason::RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertSame($number, $this->recordedEvent(SignInFailed::class)->identifier);
+        self::assertEquals(5, DB::table('rate_limits')->where('key', hash('sha256', "by_number\0sign_in\0per_identifier\0{$number}"))->value('hits'));
     }
 
     /**
@@ -373,6 +404,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         $config->set('auth.providers.typed', ['driver' => 'model', 'model' => TypedIdentity::class]);
 
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.guards.by_number', ['driver' => 'jwt', 'provider' => 'verifiable', 'sign_in' => ['password_identifier' => 'id']]);
         $config->set('auth.guards.sso_only', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['sso']]]);
         $config->set('auth.guards.verified', [
             'driver'   => 'jwt',

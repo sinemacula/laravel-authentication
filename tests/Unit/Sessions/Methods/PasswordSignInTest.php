@@ -67,9 +67,9 @@ final class PasswordSignInTest extends TestCase
      */
     public function testIdentifierTypeIsTheConfiguredColumnOrEmail(): void
     {
-        self::assertSame('email', (new PasswordSignIn(new Repository))->identifierType());
-        self::assertSame('username', $this->method('username')->identifierType());
-        self::assertSame('login_2', $this->method('login_2')->identifierType());
+        self::assertSame('email', (new PasswordSignIn(new Repository))->identifierType('api'));
+        self::assertSame('username', $this->method('username')->identifierType('api'));
+        self::assertSame('login_2', $this->method('login_2')->identifierType('api'));
     }
 
     /**
@@ -113,7 +113,83 @@ final class PasswordSignInTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('authentication.sign_in.password_identifier must name the identifier column');
 
-        $this->method($key)->identifierType();
+        $this->method($key)->identifierType('api');
+    }
+
+    /**
+     * A guard that names its own identifier column in its `sign_in` block signs
+     * in by it; a guard that does not, or whose block leaves it out, uses the
+     * package's.
+     *
+     * @return void
+     */
+    public function testAGuardMayNameItsOwnIdentifierColumn(): void
+    {
+        $method = new PasswordSignIn(new Repository([
+            'authentication' => ['sign_in' => ['password_identifier' => 'email']],
+            'auth'           => ['guards' => [
+                'staff'   => ['driver' => 'jwt', 'sign_in' => ['password_identifier' => 'username']],
+                'members' => ['driver' => 'jwt', 'sign_in' => []],
+                'api'     => ['driver' => 'jwt'],
+            ]],
+        ]));
+
+        self::assertSame('username', $method->identifierType('staff'));
+        self::assertSame('email', $method->identifierType('members'));
+        self::assertSame('email', $method->identifierType('api'));
+        self::assertSame('email', $method->identifierType('unconfigured'));
+        self::assertSame('ada', $method->identifier('staff', ['username' => 'ada', 'email' => 'ada@example.test']));
+        self::assertSame('ada@example.test', $method->identifier('api', ['username' => 'ada', 'email' => 'ada@example.test']));
+    }
+
+    /**
+     * A guard's own identifier column must be a lower-case column name too, and
+     * the failure names the guard's setting.
+     *
+     * @param  mixed  $key
+     * @return void
+     */
+    #[DataProvider('provideInvalidIdentifierKeys')]
+    public function testAGuardsOwnIdentifierColumnIsValidatedToo(mixed $key): void
+    {
+        $method = new PasswordSignIn(new Repository(['auth' => ['guards' => ['staff' => ['sign_in' => ['password_identifier' => $key]]]]]));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('auth.guards.staff.sign_in.password_identifier must name the identifier column');
+
+        $method->identifierType('staff');
+    }
+
+    /**
+     * Rows of `[guard sign_in block]` that a guard may not set.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideMalformedGuardSignInBlocks(): iterable
+    {
+        yield from [
+            'not an array' => ['username'],
+            'unknown key'  => [['password_identifier' => 'username', 'pending_table' => 'staff_pending']],
+            'list'         => [['username']],
+        ];
+    }
+
+    /**
+     * A guard's `sign_in` block that is not an array, or that sets anything but
+     * the identifier column, fails closed naming the guard.
+     *
+     * @param  mixed  $block
+     * @return void
+     */
+    #[DataProvider('provideMalformedGuardSignInBlocks')]
+    public function testAMalformedGuardSignInBlockFailsClosed(mixed $block): void
+    {
+        $method = new PasswordSignIn(new Repository(['auth' => ['guards' => ['staff' => ['sign_in' => $block]]]]));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('auth.guards.staff.sign_in must be an array that sets only `password_identifier`.');
+
+        $method->identifierType('staff');
     }
 
     /**
@@ -126,10 +202,10 @@ final class PasswordSignInTest extends TestCase
     {
         $method = $this->method('username');
 
-        self::assertSame(' Ada ', $method->identifier(['username' => ' Ada ', 'email' => 'ada@example.test']));
-        self::assertNull($method->identifier(['email' => 'ada@example.test']));
-        self::assertNull($method->identifier(['username' => 42]));
-        self::assertNull($method->identifier(['username' => ['ada']]));
+        self::assertSame(' Ada ', $method->identifier('api', ['username' => ' Ada ', 'email' => 'ada@example.test']));
+        self::assertNull($method->identifier('api', ['email' => 'ada@example.test']));
+        self::assertNull($method->identifier('api', ['username' => 42]));
+        self::assertNull($method->identifier('api', ['username' => ['ada']]));
     }
 
     /**

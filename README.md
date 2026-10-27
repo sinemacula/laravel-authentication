@@ -419,9 +419,22 @@ to describe it. Database errors are never read as an unknown device: they propag
 ```
 
 The password sign-in method looks identities up by `password_identifier`, which is also the identifier type the
-attempt limits count and a guard that requires verified identifiers checks. It must be a lower-case column name (a
-letter, then letters, digits, or underscores) that does not contain `password`; anything else fails with an
-`InvalidArgumentException` when a password sign-in runs. A sign-in that needs a further factor waits in `pending_table`
+attempt limits count and a guard that requires verified identifiers checks. A guard whose identities are found by
+another column names its own, and that is the one `signIn('password', ...)` and `attempt()` use on it:
+
+```php
+'guards' => [
+    'staff' => [
+        'driver'   => 'jwt',
+        'provider' => 'staff',
+        'sign_in'  => ['password_identifier' => 'username'],
+    ],
+],
+```
+
+Either must be a lower-case column name (a letter, then letters, digits, or underscores) that does not contain
+`password`; anything else, or any other key in a guard's `sign_in` block, fails with an `InvalidArgumentException`
+when a password sign-in runs. A sign-in that needs a further factor waits in `pending_table`
 (on the device model's connection) for at most `pending_ttl_seconds`, an integer from 30 to 3600 (see
 [Additional factors](#additional-factors)).
 
