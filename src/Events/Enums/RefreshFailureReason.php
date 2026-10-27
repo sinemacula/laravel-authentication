@@ -19,7 +19,7 @@ enum RefreshFailureReason: string
     // Token decode/expiry/typ/iss/aud failure
     case TOKEN_INVALID = 'token_invalid';
 
-    // Device id did not resolve
+    // Device id is not a key of the device model or names no device
     case DEVICE_UNKNOWN = 'device_unknown';
 
     // Rotation id did not match the stored digest
