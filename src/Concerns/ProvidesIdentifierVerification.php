@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Concerns;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
@@ -84,16 +85,15 @@ trait ProvidesIdentifierVerification
 
         $verifiedAt = $this->getConnection()->transaction(function () use ($type, $identifier, $column): mixed {
 
-            $row    = $this->newQueryWithoutScopes()->whereKey($this->getKey())->toBase();
-            $stored = (array) (clone $row)->lockForUpdate()->first([$type, $column]);
+            $stored = (array) $this->identityRow()->lockForUpdate()->first([$type, $column]);
 
-            if (($stored[$type] ?? null) !== $identifier || ($stored[$column] ?? null) !== null) {
+            if ($stored === [] || $stored[$type] !== $identifier || $stored[$column] !== null) {
                 return null;
             }
 
             $verifiedAt = $this->fromDateTime(Carbon::now());
 
-            return $row->update([$column => $verifiedAt]) === 1 ? $verifiedAt : null;
+            return $this->identityRow()->update([$column => $verifiedAt]) === 1 ? $verifiedAt : null;
         });
 
         if ($verifiedAt === null) {
@@ -114,6 +114,16 @@ trait ProvidesIdentifierVerification
     protected function getVerifiedAtName(string $type): string
     {
         return "{$type}_verified_at";
+    }
+
+    /**
+     * A query for the identity's own row, without its scopes.
+     *
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function identityRow(): Builder
+    {
+        return $this->newQueryWithoutScopes()->whereKey($this->getKey())->toBase();
     }
 
     /**

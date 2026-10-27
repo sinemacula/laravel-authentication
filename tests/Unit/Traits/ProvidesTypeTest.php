@@ -174,34 +174,35 @@ final class ProvidesTypeTest extends TestCase
 
     /**
      * Asserts the check follows the attribute `getTypeAttributeName()` names,
-     * so a model with that one loaded reads it although it has no `type`.
+     * as a subclass of a model that uses the trait overrides it, building on
+     * the trait's own name, so a model with that one loaded reads it although
+     * it has no `type`.
      *
      * @return void
      */
     public function testGetTypeChecksTheAttributeTheNameHookNames(): void
     {
-        $principal = new class extends Model implements HasType {
-            use ProvidesType;
-
+        $principal = new class extends StubTenant {
             /**
              * Column name holding the type.
              *
              * @return string
              */
+            #[\Override]
             protected function getTypeAttributeName(): string
             {
-                return 'role';
+                return 'member_' . parent::getTypeAttributeName();
             }
         };
 
-        $principal->setRawAttributes(['role' => null]);
+        $principal->setRawAttributes(['member_type' => null]);
 
         self::assertSame('', $principal->getType());
 
         $principal->setRawAttributes(['type' => 'staff']);
 
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('its `role` attribute is not loaded');
+        $this->expectExceptionMessage('its `member_type` attribute is not loaded');
 
         $principal->getType();
     }

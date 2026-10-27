@@ -133,9 +133,9 @@ final class ProvidesIdentifierVerificationTest extends TestCase
     }
 
     /**
-     * Marking records nothing when the identifier is already verified, or when
-     * the row's identifier is not the one given, whatever the model in memory
-     * holds.
+     * Marking records nothing when the identifier is already verified, when the
+     * row's identifier is not the one given, whatever the model in memory
+     * holds, or when the row is gone.
      *
      * @return void
      */
@@ -152,6 +152,10 @@ final class ProvidesIdentifierVerificationTest extends TestCase
         self::assertNull(DB::table('verifiable_identities')->value('email_verified_at'));
 
         self::assertTrue($identity->markIdentifierAsVerified('email', 'changed@example.com'));
+        self::assertFalse($identity->markIdentifierAsVerified('email', 'changed@example.com'));
+
+        DB::table('verifiable_identities')->delete();
+
         self::assertFalse($identity->markIdentifierAsVerified('email', 'changed@example.com'));
     }
 
