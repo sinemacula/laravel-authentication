@@ -63,7 +63,8 @@ device record live in the `devices` table so replay and stale credentials can be
   token pair, binds the guard, and reports `DeviceCreated` and `SignedIn` once committed.
 - **Device records**, one per signed-in session: owner, principal, guard, sign-in method and client metadata, the last
   use (time, IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a
-  reason. Refresh digests are hidden from serialisation.
+  reason. Refresh digests are hidden from serialisation. An identity's active devices list as safe, paginated
+  summaries with the current device marked, and ended devices are pruned with `model:prune`.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
   `AdditionalFactorRequired` / `Refreshed` / `DeviceRevoked` / `IdentifierVerified` and one `AuthenticationFailed` with
@@ -94,6 +95,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/guard-bound-tokens.md`
 - `docs/design/session-service.md`
 - `docs/design/audience-policy.md`
+- `docs/design/device-lifecycle.md`
 
 ## Installation
 
@@ -1509,6 +1511,35 @@ connection neither delays nor withdraws it. The transaction that Laravel's `Data
 testing traits wrap around each test does not count either, so a test sees `DeviceRevoked` when the application would.
 Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
 error, which surfaces as a server error for you to retry.
+
+### Listing devices
+
+`devices()` returns one page of an identity's active devices for a "where you're signed in" screen: every session it
+holds on any guard that is not revoked and is before both its idle and absolute deadline, most recently used first
+(devices never used last), then newest first:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->get('/devices', fn () => Auth::sessions('api')->devices(Auth::identity(), perPage: 20));
+```
+
+Each item is a `DeviceSummary`, safe to return as it is: the device id (its `did`), guard, sign-in method, client name
+and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
+started (its latest sign-in on that device), the last use and its IP address and user agent, both deadlines, and
+`current`, which marks the device the request is authenticated with on that guard. It never holds a refresh digest, the
+rotation time, the revocation columns, the owner or the principal, and `toArray()` and JSON use snake_case keys and
+ISO-8601 times. A page holds 1 to 100 devices (15 by default; anything else is an `InvalidArgumentException`), and the
+page is the request's `page` parameter unless you pass one. The list is read on the write connection through the
+identity's `devices()` relation, in two queries (a count and a select), so a device revoked a moment ago is never shown.
+An identity that does not implement `HasDevices`, or whose `devices()` relation queries a model that is not an
+`EloquentDevice`, is a `LogicException`.
+
+The same rule is a query scope on any model that uses `ActsAsDevice`, for your own queries:
+
+```php
+Device::query()->active()->where('guard', 'api')->count();
+```
 
 ### Long-running processes
 

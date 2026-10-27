@@ -23,15 +23,16 @@ use Carbon\CarbonInterface;
  *
  * Both digests are hidden from `toArray()` and `toJson()`, under whatever
  * column names the model uses. The guard, sign-in method and client a session
- * started with come from `RecordsDeviceOrigin`, and when it started and last
- * switched its principal from `RecordsSessionMilestones`.
+ * started with come from `RecordsDeviceOrigin`, when it started and last
+ * switched its principal from `RecordsSessionMilestones`, and the `active()`
+ * scope from `ScopesActiveDevices`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 trait ActsAsDevice
 {
-    use ReadsDeviceAttributes, RecordsDeviceOrigin, RecordsSessionMilestones;
+    use ReadsDeviceAttributes, RecordsDeviceOrigin, RecordsSessionMilestones, ScopesActiveDevices;
 
     /**
      * Return the device's primary key.
