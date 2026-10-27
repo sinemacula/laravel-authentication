@@ -17,9 +17,10 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * a declared column.
  *
  * The activity check runs `isActive()` inside `WriteConnection::during()` for
- * the model: model reads on any connection, and query-builder reads on the
- * model's own connection, go to the write connection; a query-builder read on
- * another connection must pin itself (see `Database\WriteConnection`).
+ * the subject: model reads on any connection, and query-builder reads on the
+ * subject's own connection when it is an Eloquent model, go to the write
+ * connection; any other query-builder read must pin itself (see
+ * `Database\WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

@@ -53,7 +53,8 @@ interface Device
      * plaintext rotation identifier - the refresh exchange verifies the
      * plaintext against this digest via `hash_equals()`. Returns `null` when no
      * refresh credential has been issued or after revocation cleared the
-     * column.
+     * column. The refresh exchange reads it inside `WriteConnection::during()`
+     * for the device, as it does `getRevokedAt()`.
      *
      * @return ?string
      */
@@ -64,6 +65,12 @@ interface Device
      * the device everywhere: the bearer path treats it exactly like a missing
      * device, so access tokens naming it stop authenticating at once, and the
      * refresh exchange rejects it with reason `device_revoked`.
+     *
+     * It runs inside `WriteConnection::during()` for the device, together with
+     * the lookup that found it on the bearer path: model reads on any
+     * connection, and query-builder reads on the device's own connection, go to
+     * the write connection, so a revocation derived from a relation or another
+     * table cannot come from a lagging replica.
      *
      * @return ?\Carbon\CarbonInterface
      */

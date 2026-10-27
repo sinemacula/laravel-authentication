@@ -247,16 +247,17 @@ its refresh digest and revocation state - goes to the write connection, even whe
 and `write` hosts. A replica can lag behind a revocation, a deactivation, or a refresh rotation, and a lookup it served
 could admit a credential the primary has already rejected.
 
-The package pins the lookups it makes, including the relations the identity and principal models eager-load (`$with`),
-on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug in carries
-the same obligation:
+The package pins the lookups it makes, including the relations the identity, principal and device models eager-load
+(`$with`), on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug
+in carries the same obligation:
 
 - a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
   must read from the write connection, including the relations its results eager-load;
 - `resolveDefaultPrincipal()` and `resolveHintedPrincipal()` already run inside `WriteConnection::during()` for the
-  identity, `getTenant()` for the principal, and `isActive()` for the model it belongs to: every model read made there,
-  on any connection, goes to that connection's writer, and so does a query-builder read on the model's own connection.
-  A query-builder or `DB` read on another connection must pin itself.
+  identity, `getTenant()` for the principal, `isActive()` for the model it belongs to, and a device's `getRevokedAt()`
+  and `getRefreshKey()` for the device: every model read made there, on any connection, goes to that connection's
+  writer, and so does a query-builder read on the model's own connection. A query-builder or `DB` read on another
+  connection, or made by a principal or identity that is not an Eloquent model, must pin itself.
 
 `WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
 queries that it does not reach, so run a lookup whose results load relations inside `during()`, which pins every

@@ -45,9 +45,9 @@ interface Principal
      * Return the tenant the principal acts within, if any. The activity check
      * runs it inside `WriteConnection::during()` for this principal: model
      * reads on any connection (a tenant in a landlord database included), and
-     * query-builder reads on this principal's connection, go to the write
-     * connection; a query-builder read on another connection must pin itself
-     * (see `Database\WriteConnection`).
+     * query-builder reads on this principal's own connection when it is an
+     * Eloquent model, go to the write connection; any other query-builder read
+     * must pin itself (see `Database\WriteConnection`).
      *
      * When the principal names a tenant that opts into activation (its model
      * implements `CanBeActive`) and that tenant cannot be loaded (deleted,

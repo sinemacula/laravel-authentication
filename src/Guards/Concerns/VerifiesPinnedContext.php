@@ -102,6 +102,11 @@ trait VerifiesPinnedContext
      * revoked: a revoked device is treated exactly like a missing one, from the
      * row already loaded.
      *
+     * The lookup and the revocation read both run inside
+     * `WriteConnection::during()` for the device model, so a device that
+     * derives its revocation from a relation or another table reads it from the
+     * writer as well.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
@@ -113,14 +118,18 @@ trait VerifiesPinnedContext
         }
 
         $devices = WriteConnection::query($identity->devices());
+        $model   = $devices->getModel();
 
-        if (!DeviceKeyShape::matches($devices->getModel(), $hint)) {
+        if (!DeviceKeyShape::matches($model, $hint)) {
             return null;
         }
 
-        $device = $devices->find($hint);
+        return WriteConnection::during($model, static function () use ($devices, $hint): ?Device {
 
-        return $device instanceof Device && $device->getRevokedAt() === null ? $device : null;
+            $device = $devices->find($hint);
+
+            return $device instanceof Device && $device->getRevokedAt() === null ? $device : null;
+        });
     }
 
     /**

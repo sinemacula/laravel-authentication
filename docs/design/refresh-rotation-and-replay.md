@@ -18,10 +18,12 @@ stateful per-device credentials with server-side replay detection.
   by clearing the digest and setting `revoked_at`.
 - Refresh can preserve principal continuity by carrying `pid` forward into both the rotated refresh token and the new
   access token.
-- Refresh reads device state, revocation, and replay detection live on every exchange, from the write connection, so
-  a lagging read replica cannot serve a stale digest or miss a revocation. The owner, principal, and tenant behind the
-  activity checks are read from the write connection too, including a tenant the owner or principal eager-loads and a
-  tenant kept on another connection.
+- Refresh reads device state, revocation, and replay detection live on every exchange, from the write connection, so a
+  lagging read replica cannot serve a stale digest or miss a revocation. The device lookup and the device's
+  `getRevokedAt()` and `getRefreshKey()` run inside `WriteConnection::during()`, so a device that derives either from a
+  relation (eager-loaded or not) or another table reads it from the writer too. The owner, principal, and tenant behind
+  the activity checks are read from the write connection too, including a tenant the owner or principal eager-loads and
+  a tenant kept on another connection.
 - Refresh applies the same opt-in activation checks as sign-in and bearer requests: the reloaded owner, the resolved
   principal, and the tenant it acts within must each be active when they implement `CanBeActive`.
 
@@ -107,6 +109,8 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshRejectsTokenWhenDeviceIsDeletedAfterIssuance`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testRefreshReadsDeviceAndIdentityFromTheWriteConnection`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testRefreshRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testExchangeRejectsMalformedDeviceIdWithoutQuerying`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`

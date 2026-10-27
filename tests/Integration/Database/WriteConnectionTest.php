@@ -221,22 +221,26 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
-     * A subject that is not an Eloquent model has no connection to pin: the
-     * callback runs, its value is returned, and reads inside it still go to the
-     * replica.
+     * A subject that is not an Eloquent model has no connection of its own, so
+     * a query-builder read made before any model read still goes to the
+     * replica, but model reads inside the callback go to the writer, and the
+     * connection reads from the replica again once the callback returns.
      *
      * @return void
      */
-    public function testDuringRunsTheCallbackUnchangedForANonModelSubject(): void
+    public function testDuringPinsModelReadsForANonModelSubject(): void
     {
-        $device = $this->seedDevice();
+        $device     = $this->seedDevice();
+        $connection = $this->splitConnection();
 
         $found = WriteConnection::during(new \stdClass, static fn (): array => [
-            'value'  => 'resolved',
+            'row'    => $connection->table('devices')->where('id', $device->getKey())->first(),
             'device' => Device::query()->find($device->getKey()),
         ]);
 
-        self::assertSame(['value' => 'resolved', 'device' => null], $found);
+        self::assertNull($found['row']);
+        self::assertInstanceOf(Device::class, $found['device']);
+        self::assertNull(Device::query()->find($device->getKey()));
     }
 
     /**

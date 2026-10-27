@@ -11,10 +11,14 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -29,6 +33,9 @@ use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
+use Tests\Integration\Fixtures\EagerRevocationLogDevice;
+use Tests\Integration\Fixtures\RevocationLogDevice;
+use Tests\Integration\Fixtures\RevocationLogIdentity;
 use Tests\Integration\Fixtures\SuspendableUser;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
@@ -204,6 +211,76 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertFalse($guard->attempt($credentials, null, $device));
         self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * A device that derives its revocation from another table, revoked on the
+     * primary while the replica lags, rejects the bearer token: the revocation
+     * is read inside the device lookup's write-connection pin, not only the
+     * lookup's own query.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags(): void
+    {
+        [$identity, $device] = $this->seedRevocationLogDevice();
+
+        $token   = $this->authManager()->jwt('revocation_log')->issueAccessToken($identity, $identity, $device);
+        $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
+
+        self::assertTrue($identity->is($this->guardForRequest($request, 'revocation_log')->user()));
+
+        $this->recordRevocation($device);
+
+        self::assertNull($this->guardForRequest($request, 'revocation_log')->user());
+    }
+
+    /**
+     * Rows of `[device model]`: device models that derive their revocation from
+     * the `device_revocations` table.
+     *
+     * @return iterable<string, array{0: class-string<\SineMacula\Laravel\Authentication\Models\Device>}>
+     */
+    public static function provideRevocationLogDeviceModels(): iterable
+    {
+        yield from [
+            'read of its own'       => [RevocationLogDevice::class],
+            'eager-loaded relation' => [EagerRevocationLogDevice::class],
+        ];
+    }
+
+    /**
+     * A refresh for a device that derives its revocation from another table, by
+     * a read of its own or through a relation it eager-loads, revoked on the
+     * primary while the replica lags, fails with `device_revoked`: the device
+     * lookup and the revocation are both read from the writer.
+     *
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideRevocationLogDeviceModels')]
+    public function testRefreshRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags(string $model): void
+    {
+        app(ConfigRepository::class)->set('authentication.device.model', $model);
+
+        [$identity, $device] = $this->seedRevocationLogDevice($model);
+
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+
+        $this->recordRevocation($device);
+
+        $reasons = [];
+
+        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+            $reasons[] = $event->reason;
+        });
+
+        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
+        self::assertSame([RefreshFailureReason::DEVICE_REVOKED], $reasons);
     }
 
     /**
@@ -440,6 +517,16 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             'model'  => ActivatableTenantMember::class,
         ]);
 
+        $config->set('auth.guards.revocation_log', [
+            'driver'   => 'jwt',
+            'provider' => 'revocation_log',
+        ]);
+
+        $config->set('auth.providers.revocation_log', [
+            'driver' => 'model',
+            'model'  => RevocationLogIdentity::class,
+        ]);
+
         $config->set('auth.guards.suspendable', [
             'driver'   => 'jwt',
             'provider' => 'suspendable',
@@ -564,6 +651,54 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ])->save();
 
         return $device;
+    }
+
+    /**
+     * Write an identity with a device that derives its revocation from the
+     * `device_revocations` table through the split connection, creating that
+     * table on the primary and the replica.
+     *
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
+     * @return array{0: \Tests\Integration\Fixtures\RevocationLogIdentity, 1: \SineMacula\Laravel\Authentication\Models\Device}
+     */
+    private function seedRevocationLogDevice(string $model = RevocationLogDevice::class): array
+    {
+        $this->createOnPrimaryAndReplica('device_revocations', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->uuid('device_id');
+            $blueprint->timestamp('revoked_at');
+        });
+
+        $identity = new RevocationLogIdentity;
+        $identity->forceFill([
+            'email'    => 'revocation-log@example.test',
+            'password' => 'hashed',
+        ])->save();
+
+        $device = new $model;
+        $device->forceFill([
+            'authenticatable_type' => RevocationLogIdentity::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'ios',
+            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+        ])->save();
+
+        return [$identity, $device];
+    }
+
+    /**
+     * Record a revocation of the device through the split connection, so the
+     * replica does not see it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @return void
+     */
+    private function recordRevocation(Device $device): void
+    {
+        DB::connection(self::SPLIT_CONNECTION)->table('device_revocations')->insert([
+            'device_id'  => $device->getKey(),
+            'revoked_at' => Carbon::now(),
+        ]);
     }
 
     /**

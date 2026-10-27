@@ -242,6 +242,10 @@ final class RefreshTokenExchange
      * constant-time verification, so a revoked row cannot be used to time-probe
      * the valid rotation-id space.
      *
+     * The revocation time and the digest are read inside
+     * `WriteConnection::during()` for the device, so a device that derives
+     * either from a relation or another table reads it from the writer as well.
+     *
      * @param  mixed  $rawDeviceId
      * @param  string  $rotationId
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
@@ -260,14 +264,14 @@ final class RefreshTokenExchange
             return null;
         }
 
-        if ($device->getRevokedAt() !== null) {
+        [$revokedAt, $storedDigest] = WriteConnection::during($device, static fn (): array => [$device->getRevokedAt(), $device->getRefreshKey()]);
+
+        if ($revokedAt !== null) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_REVOKED, $deviceId);
 
             return null;
         }
-
-        $storedDigest = $device->getRefreshKey();
 
         if ($storedDigest === null || !RefreshTokenHasher::verify($rotationId, $storedDigest)) {
 
@@ -283,7 +287,9 @@ final class RefreshTokenExchange
      * Look up a device by id through the configured device model class, which
      * must satisfy the explicit Eloquent-backed `EloquentDevice` boundary,
      * reading from the write connection so a lagging replica cannot serve a
-     * stale digest or revocation state.
+     * stale digest or revocation state. The lookup runs inside
+     * `WriteConnection::during()` for the device model, so relations the device
+     * model eager-loads come from the writer too.
      *
      * An id that cannot be a key of the device model names no device and is
      * rejected without a query; database errors on a well-formed id propagate.
@@ -306,7 +312,7 @@ final class RefreshTokenExchange
             return null;
         }
 
-        $device = WriteConnection::query($model->newQuery())->find($id);
+        $device = WriteConnection::during($model, static fn (): mixed => WriteConnection::query($model->newQuery())->find($id));
 
         return $device instanceof Model ? $device : null;
     }

@@ -60,14 +60,15 @@ final class WriteConnection
      * connection's previous read mode afterwards (also when the callback
      * throws).
      *
-     * Reads on the subject's connection are pinned, including ones made through
-     * the query builder rather than a model. So is every connection a model
-     * resolves inside the callback, so a relation on another connection,
-     * eager-loaded by a lookup or lazily loaded by an activity check, is read
-     * from that connection's writer as well.
+     * Every connection a model resolves inside the callback is pinned, so a
+     * relation on another connection, eager-loaded by a lookup or lazily loaded
+     * by an activity check, is read from that connection's writer. When the
+     * subject is an Eloquent model, reads on its own connection are pinned as
+     * well, including ones made through the query builder rather than a model.
      *
-     * A subject that is not an Eloquent model has no connection to pin, so the
-     * callback simply runs; reads it makes are then the caller's obligation.
+     * A subject that is not an Eloquent model (a custom principal or identity)
+     * has no connection of its own, so only its model reads are pinned; a
+     * query-builder or `DB` read it makes must pin itself.
      *
      * @template TReturn
      *
@@ -79,10 +80,6 @@ final class WriteConnection
      */
     public static function during(object $subject, \Closure $callback): mixed
     {
-        if (!$subject instanceof Model) {
-            return $callback();
-        }
-
         /** @var array<int, array{0: \Illuminate\Database\Connection, 1: bool}> $pinned */
         $pinned = [];
 
@@ -92,7 +89,9 @@ final class WriteConnection
             $connection->useWriteConnectionWhenReading();
         };
 
-        $pin($subject->getConnection());
+        if ($subject instanceof Model) {
+            $pin($subject->getConnection());
+        }
 
         $resolver = Model::getConnectionResolver();
 

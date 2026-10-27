@@ -25,10 +25,11 @@ specific principal or device and the runtime cannot prove that claim, authentica
   the bearer flow.
 - `pid`, `did`, and active-state checks run live on every request; nothing is cached across requests.
 - The identity, principal, tenant, and device reads behind those checks go to the write connection, so a lagging read
-  replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises. The identity and
-  principal lookups run inside `WriteConnection::during()`, which pins their model's connection and every connection a
-  model resolves while they run, so relations they eager-load (a `$with` tenant, say) come from the writer too, not only
-  the lookup's own query, even on another connection; so does each `CanBeActive::isActive()` check and the tenant read.
+  replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises. The identity,
+  principal, and device lookups run inside `WriteConnection::during()`, which pins their model's connection and every
+  connection a model resolves while they run, so relations they eager-load (a `$with` tenant, say) come from the writer
+  too, not only the lookup's own query, even on another connection; so does each `CanBeActive::isActive()` check, the
+  tenant read, and a device's `getRevokedAt()`, whether or not the subject is an Eloquent model.
 
 ## Success Path
 
@@ -104,6 +105,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testRevokingDeviceBlocksRefreshAndExistingAccessToken`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testBearerRejectsDeviceRevokedOnThePrimaryWhileTheReplicaLags`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testBearerRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/UncastRevokedDeviceIntegrationTest.php`
   `testBearerRejectsTheRevokedDevice`, `testAttemptRejectsTheRevokedDeviceWhenPinned`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
