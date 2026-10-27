@@ -281,8 +281,9 @@ daylight saving, both passes through the hour that repeats when the clocks go ba
 therefore reads back early by the length of the shift (an hour in most zones): a deadline stored there ends the session
 that much early (and when the idle lifetime is no longer than the shift, the refresh that sets it fails with an
 `InvalidArgumentException` and changes nothing), and a rotation stored there leaves the previous refresh token no grace
-window, so a retry of it counts as a replay and revokes the device. The ambiguity can end a session early or fail a
-refresh; it never extends a session or a grace window.
+window, so a retry of it counts as a replay and revokes the device. A last use recorded there reads early too, so for
+the rest of that pass a `last_used_throttle_seconds` shorter than the shift records every use. The ambiguity can end a
+session early, fail a refresh, or record extra uses; it never extends a session or a grace window.
 
 The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
