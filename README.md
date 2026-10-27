@@ -219,9 +219,9 @@ that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so o
 the default names, so a model that renames a column needs its own migration.
 
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
-missing, and its refresh token fails with `device_revoked`. `ActsAsDevice` reads any stored value as a revocation, with
-or without a `datetime` cast on the column. Revoking a device therefore ends its session at once rather
-than when its access tokens expire.
+missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
+than when its access tokens expire. `ActsAsDevice` reads any stored value as a revocation, with or without a `datetime`
+cast on the column.
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
