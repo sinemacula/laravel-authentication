@@ -360,6 +360,11 @@ class AppMembership extends Model implements CanBeActive, PrincipalContract
 
     protected $fillable = ['identity_id', 'tenant_id', 'role', 'is_active'];
 
+    public function identity(): BelongsTo
+    {
+        return $this->belongsTo(AppIdentity::class, 'identity_id');
+    }
+
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(AppTenant::class);
@@ -481,6 +486,11 @@ identity (its `getIdentity()` is the authenticated identity), and the device mus
 (through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin that fails either check fails the
 attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
 only pass it a principal and device you have already proven belong to the identity.
+
+Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
+`identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
+from the principal's own stored key, ignoring any identity relation the resolver already set, and a principal whose
+owner cannot be read (no relation, or an owner that has been deleted) fails the attempt.
 
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 

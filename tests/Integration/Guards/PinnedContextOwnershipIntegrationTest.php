@@ -5,10 +5,12 @@ declare(strict_types = 1);
 namespace Tests\Integration\Guards;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -18,6 +20,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
+use Tests\Integration\Fixtures\InverseRelationMembershipResolver;
 use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
 use Tests\Unit\Stubs\Stub3dPrincipal;
@@ -151,6 +154,62 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
+     * Another member's membership fails the attempt even on a guard whose
+     * resolver finds a hinted membership by key alone and sets the identity as
+     * its owner relation: the owner is read from the membership's stored key,
+     * not from that relation.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherMembersMembershipFailsEvenWhenTheResolverSetsTheInverseRelation(): void
+    {
+        [$member, $membership] = $this->seedMember('first@example.test');
+        [, $otherMembership]   = $this->seedMember('second@example.test');
+
+        $guard = $this->freshGuard('inverse');
+
+        self::assertFalse($guard->attempt($this->credentials($member), $otherMembership));
+        self::assertFalse($guard->hasUser());
+
+        $guard = $this->freshGuard('inverse');
+
+        self::assertTrue($guard->attempt($this->credentials($member), $membership));
+        self::assertSame($membership->getKey(), $guard->principal()?->getPrincipalIdentifier());
+    }
+
+    /**
+     * Another member's membership whose owner has been deleted fails the
+     * attempt, with `Failed` dispatched, on a guard whose resolver is not
+     * scoped: an owner that cannot be loaded is not the identity signing in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testMembershipWhoseOwnerIsDeletedFailsTheAttempt(): void
+    {
+        [$member]                        = $this->seedMember('first@example.test');
+        [$otherMember, $otherMembership] = $this->seedMember('second@example.test');
+
+        $otherMember->delete();
+
+        $failed = [];
+
+        Event::listen(Failed::class, static function (Failed $event) use (&$failed): void {
+            $failed[] = $event->user;
+        });
+
+        $guard = $this->freshGuard('unscoped');
+
+        self::assertFalse($guard->attempt($this->credentials($member), $otherMembership));
+        self::assertFalse($guard->hasUser());
+        self::assertCount(1, $failed);
+        self::assertTrue($member->is($failed[0]));
+    }
+
+    /**
      * A principal of another class whose identifier equals the member's own
      * membership identifier fails the attempt.
      *
@@ -253,6 +312,12 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
             'driver'             => 'jwt',
             'provider'           => 'members',
             'principal_resolver' => UnscopedMembershipResolver::class,
+        ]);
+
+        $config->set('auth.guards.inverse', [
+            'driver'             => 'jwt',
+            'provider'           => 'members',
+            'principal_resolver' => InverseRelationMembershipResolver::class,
         ]);
 
         $config->set('auth.providers.members', [

@@ -30,6 +30,13 @@ interface Principal
      * Return the identity that owns this principal (in 2D mode this is the
      * principal itself).
      *
+     * `attempt()` relies on it to prove that a pinned principal belongs to the
+     * identity signing in. It runs with reads on this principal's connection
+     * pinned to the write connection, on an Eloquent principal it is called on
+     * a copy without loaded relations (so the owner comes from the stored key,
+     * not a relation the resolver set), and a `LogicException` from it (no
+     * owner relation, or an owner that cannot be loaded) fails the pin.
+     *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      */
     public function getIdentity(): Identity;

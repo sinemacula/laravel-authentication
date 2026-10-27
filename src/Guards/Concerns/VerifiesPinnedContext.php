@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
+use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -128,13 +129,27 @@ trait VerifiesPinnedContext
      * principal's connection pinned to the write connection. In 2D mode the
      * principal is its own identity.
      *
+     * An Eloquent principal's owner is read from its own stored key on a copy
+     * without loaded relations, so an identity relation the resolver already
+     * set (for example the inverse of the lookup it made) cannot vouch for the
+     * principal. A principal whose owner cannot be read (`getIdentity()` throws
+     * a `LogicException`, as `ActsAsPrincipal` does for a deleted owner or a
+     * model without an identity relation) is not owned, so the pin fails the
+     * attempt rather than the request.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return bool
      */
     private function isOwnedBy(Principal $principal, Identity $identity): bool
     {
-        $owner = WriteConnection::during($principal, static fn (): Identity => $principal->getIdentity());
+        $stored = $principal instanceof Model ? $principal->withoutRelations() : $principal;
+
+        try {
+            $owner = WriteConnection::during($stored, static fn (): Identity => $stored->getIdentity());
+        } catch (\LogicException) {
+            return false;
+        }
 
         return $owner::class === $identity::class
             && IdentifierCoercion::matches($owner->getAuthIdentifier(), $identity->getAuthIdentifier());

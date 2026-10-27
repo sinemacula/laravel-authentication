@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
+use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPinnedContextGuard;
 
@@ -187,6 +188,81 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($pinned);
 
         $this->assertAttemptFails($this->guardAttempt($pinned));
+    }
+
+    /**
+     * A pinned principal whose owner cannot be read (its `getIdentity()` throws
+     * a `LogicException`, as for a deleted owner) is not owned, so it fails the
+     * attempt instead of the request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedPrincipalWhoseOwnerCannotBeReadFailsTheAttempt(): void
+    {
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
+
+        $pinned = $this->principal('p-1');
+        $pinned->shouldReceive('getIdentity')->andThrow(new \LogicException('The owner cannot be loaded.'));
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($pinned);
+
+        $this->assertAttemptFails($this->guardAttempt($pinned));
+    }
+
+    /**
+     * A pinned `ActsAsPrincipal` model without an identity relation (the shape
+     * of a principal that never declared `identity()`) cannot report an owner,
+     * so it fails the attempt instead of the request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttempt(): void
+    {
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
+
+        $pinned = new Stub3dPrincipal;
+        $pinned->forceFill(['id' => 5]);
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 5)->andReturn($pinned);
+
+        $this->assertAttemptFails($this->guardAttempt($pinned));
+    }
+
+    /**
+     * An identity relation already set on the resolved principal does not vouch
+     * for it: the owner is read from the principal's own stored key, so a
+     * principal that names the identity only through a preloaded relation fails
+     * the attempt.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedPrincipalVouchedForOnlyByAPreloadedOwnerRelationFailsTheAttempt(): void
+    {
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
+
+        $pinned = new Stub3dPrincipal;
+        $pinned->forceFill(['id' => 5]);
+        $pinned->setRelation('identity', $identity);
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 5)->andReturn($pinned);
+
+        $this->assertAttemptFails($this->guardAttempt($pinned));
+        self::assertSame($identity, $pinned->getIdentity());
     }
 
     /**

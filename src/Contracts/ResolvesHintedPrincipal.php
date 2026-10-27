@@ -9,7 +9,9 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  *
  * Lets identities short-circuit the default `principals()->find($hint)` path
  * when they can hydrate the acting principal more efficiently - for example
- * with tenant data preloaded and the inverse identity relation already set.
+ * with tenant data preloaded. An identity relation set on the result is not
+ * proof of ownership: the guard reads a pinned principal's owner from the
+ * principal's own stored key.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
