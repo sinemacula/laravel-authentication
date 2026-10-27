@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
+use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
@@ -632,6 +633,49 @@ final class SessionServiceTest extends TestCase
         self::assertSame('Phone', $asked->clientName);
         self::assertSame('iOS', $asked->platform);
         self::assertNull($asked->provenDevice);
+    }
+
+    /**
+     * A sign-in acting within a tenant carries that tenant on: the factor
+     * policy is told of it, and so are `DeviceCreated` and `SignedIn` when the
+     * session starts (the first sign-in), and the pending sign-in and
+     * `AdditionalFactorRequired` when a further factor is required (the
+     * second).
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInWithinATenantCarriesTheTenantOn(): void
+    {
+        [, $membership, $tenant] = $this->seedMember();
+
+        $asked = [];
+
+        $factors = $this->bindMock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
+            $asked[] = $context->tenant;
+
+            return count($asked) === 2;
+        });
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class, AdditionalFactorRequired::class]);
+
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+        self::assertSameModel($membership, $session->principal);
+        self::assertSameModel($tenant, $this->recordedEvent(DeviceCreated::class)->tenant);
+        self::assertSameModel($tenant, $this->recordedEvent(SignedIn::class)->tenant);
+
+        $pending = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->pending;
+
+        self::assertNotNull($pending);
+        self::assertSameModel($tenant, $pending->tenant);
+        self::assertSameModel($tenant, $this->recordedEvent(AdditionalFactorRequired::class)->tenant);
+        self::assertCount(2, $asked);
+        self::assertSameModel($tenant, $asked[0]);
+        self::assertSameModel($tenant, $asked[1]);
     }
 
     /**

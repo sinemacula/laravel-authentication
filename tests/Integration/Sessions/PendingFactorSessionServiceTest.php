@@ -616,6 +616,41 @@ final class PendingFactorSessionServiceTest extends TestCase
     }
 
     /**
+     * A sign-in within a tenant carries the tenant through the factor seam: the
+     * factor policy is told of it, `AdditionalFactorRequired` reports it, and
+     * the completion's `DeviceCreated` and `SignedIn` carry it too.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheTenantReachesTheFactorPolicyAndEveryEvent(): void
+    {
+        [$member, , $tenant] = $this->seedMember();
+
+        $told    = [];
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$told): bool {
+            $told[] = $context->tenant?->getTenantIdentifier();
+
+            return true;
+        });
+
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        $this->recordEvents([AdditionalFactorRequired::class, DeviceCreated::class, SignedIn::class]);
+
+        $pending = $this->sessions('members')->start($member, null, 'sso')->pending;
+
+        self::assertNotNull($pending);
+        self::assertSame([$tenant->getKey()], $told);
+        self::assertSame($tenant->getKey(), $this->recordedEvent(AdditionalFactorRequired::class)->tenant?->getTenantIdentifier());
+        self::assertTrue($this->sessions('members')->complete($pending->token)->isSignedIn());
+        self::assertSame($tenant->getKey(), $this->recordedEvent(DeviceCreated::class)->tenant?->getTenantIdentifier());
+        self::assertSame($tenant->getKey(), $this->recordedEvent(SignedIn::class)->tenant?->getTenantIdentifier());
+    }
+
+    /**
      * `AdditionalFactorRequired` waits for the pending sign-in to commit:
      * inside a caller's transaction it fires on commit, and never when the
      * caller rolls the pending sign-in back. It names the device the client

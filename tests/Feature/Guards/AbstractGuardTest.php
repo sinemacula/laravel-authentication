@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -530,6 +531,40 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(SignInFailed::class, $signIn);
         self::assertSame(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
         self::assertSame($principal, $signIn->principal);
+    }
+
+    /**
+     * The additional-factor policy is told of the tenant the principal acts
+     * within, as the activity check loaded it, so it can decide per tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheFactorPolicyIsToldOfThePrincipalsTenant(): void
+    {
+        $identity  = $this->mockIdentity();
+        $tenant    = \Mockery::mock(Tenant::class);
+        $principal = $this->mockActivePrincipal();
+        $principal->shouldReceive('getTenant')->andReturn($tenant);
+
+        $this->expectPasswordAccepted($identity);
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->once();
+
+        $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
+
+        $asked = null;
+
+        $this->factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnUsing(static function (AdditionalFactorContext $context) use (&$asked): bool {
+            $asked = $context;
+
+            return false;
+        });
+
+        self::assertTrue($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
+        self::assertInstanceOf(AdditionalFactorContext::class, $asked);
+        self::assertSame($principal, $asked->principal);
+        self::assertSame($tenant, $asked->tenant);
     }
 
     /**
