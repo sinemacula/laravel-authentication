@@ -616,7 +616,7 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($identity, $result->pending->identity);
         self::assertSame('password', $result->pending->method);
         self::assertSame('api', $result->pending->guard);
-        self::assertSame(['sign-in' => '2026-04-06 12:05:00', 'account' => '2026-04-06 12:05:00'], PendingSignIn::query()->sole()->attempt_windows);
+        self::assertSame([['sign-in' => '2026-04-06 12:05:00'], ['account' => '2026-04-06 12:05:00']], PendingSignIn::query()->sole()->attempt_windows);
         self::assertSame(0, Device::query()->count());
         self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());

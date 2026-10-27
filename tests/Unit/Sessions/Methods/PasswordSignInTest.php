@@ -340,7 +340,7 @@ final class PasswordSignInTest extends TestCase
         self::assertFalse($method->verifyPassword($attempts, $this->provider, $identity, $credentials));
         self::assertFalse($method->verifyPassword($attempts, $this->provider, $identity, $credentials));
 
-        self::assertSame(['account' => 'window staff'], $attempts->windows());
+        self::assertSame([['account' => 'window staff'], ['account' => 'window staff']], $attempts->windows());
         self::assertSame('staff', $subjects[0]->guard);
         self::assertSame($identity::class . "\x007", $subjects[0]->account);
     }

@@ -44,8 +44,10 @@ use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
+use Tests\Fixtures\Sessions\TwoSecretSignIn;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -724,11 +726,11 @@ final class PendingFactorSessionServiceTest extends TestCase
 
     /**
      * A completed pending sign-in gives its slots back through whatever limiter
-     * is bound, from the windows its sign-in's reservations recorded: the
-     * identifier's and IP address's and the account's together, in one
-     * reservation rebuilt for the guard's sign-in flow with the identifier type
-     * and IP address but no identifier or account. A limiter that recorded no
-     * windows is still told to give the slots back; a pending sign-in `start()`
+     * is bound, from the windows its sign-in's reservations recorded: one
+     * reservation rebuilt for each it held (the identifier's and IP address's,
+     * then the account's), for the guard's sign-in flow with the identifier
+     * type and IP address but no identifier or account. A limiter that recorded
+     * no windows is still told to give each back; a pending sign-in `start()`
      * issued reserved nothing and gives nothing back.
      *
      * @return void
@@ -743,33 +745,65 @@ final class PendingFactorSessionServiceTest extends TestCase
         app()->instance(AttemptLimiter::class, $limiter);
 
         self::assertTrue($this->sessions()->complete($this->pendingFor()->token)->isSignedIn());
-        self::assertCount(1, $limiter->released);
+        self::assertCount(2, $limiter->released);
 
-        $released = $limiter->released[0];
-        $account  = IntegrationIdentity::class . "\0" . $identity->getKey(); // @phpstan-ignore binaryOp.invalid
+        $account = $limiter->acquired[1]->account;
 
-        self::assertSame(['ada@example.test' => 'window', $account => 'window'], $released->windows);
-        self::assertTrue($released->granted());
-        self::assertSame('api', $released->subject->guard);
-        self::assertSame(AttemptFlow::SIGN_IN, $released->subject->flow);
-        self::assertNull($released->subject->identifier);
-        self::assertSame('email', $released->subject->identifierType);
-        self::assertSame(self::CLIENT_IP, $released->subject->ip);
-        self::assertNull($released->subject->account);
+        self::assertNotNull($account);
+        self::assertSame([['ada@example.test' => 'window'], [$account => 'window']], array_map(static fn ($released): array => $released->windows, $limiter->released));
+
+        foreach ($limiter->released as $released) {
+            self::assertTrue($released->granted());
+            self::assertSame('api', $released->subject->guard);
+            self::assertSame(AttemptFlow::SIGN_IN, $released->subject->flow);
+            self::assertNull($released->subject->identifier);
+            self::assertSame('email', $released->subject->identifierType);
+            self::assertSame(self::CLIENT_IP, $released->subject->ip);
+            self::assertNull($released->subject->account);
+        }
 
         $windowless = new RecordingAttemptLimiter(false);
 
         app()->instance(AttemptLimiter::class, $windowless);
 
         self::assertTrue($this->sessions()->complete($this->pendingFor()->token)->isSignedIn());
-        self::assertCount(1, $windowless->released);
-        self::assertSame([], $windowless->released[0]->windows);
+        self::assertCount(2, $windowless->released);
+        self::assertSame([[], []], array_map(static fn ($released): array => $released->windows, $windowless->released));
 
         $started = $this->sessions()->start($identity, null, 'sso')->pending;
 
         self::assertNotNull($started);
         self::assertTrue($this->sessions()->complete($started->token)->isSignedIn());
-        self::assertCount(1, $windowless->released);
+        self::assertCount(2, $windowless->released);
+    }
+
+    /**
+     * A method that checks two secrets counts two checks against the account,
+     * and its pending sign-in, once completed, gives both slots back, as a
+     * sign-in that starts its session at once does: completing further-factor
+     * sign-ins never uses up the account's limit.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInGivesBackEverySlotItsMethodTookOnTheAccount(): void
+    {
+        $identity = $this->seedIdentity();
+        $input    = [...self::credentials(), 'pin' => TwoSecretSignIn::PIN];
+
+        app(SignInMethodManager::class)->extend('two_secrets', fn (): TwoSecretSignIn => new TwoSecretSignIn);
+        config()->set('auth.guards.api.audience.methods', ['two_secrets']);
+
+        for ($signIn = 1; $signIn <= 6; $signIn++) {
+
+            $pending = $this->sessions()->signIn('two_secrets', $input)->pending;
+
+            self::assertNotNull($pending);
+            self::assertSame([1, 2], [$this->identifierHits(), $this->accountHits($identity)]);
+            self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
+            self::assertSame([0, 0], [$this->identifierHits(), $this->accountHits($identity)]);
+        }
     }
 
     /**

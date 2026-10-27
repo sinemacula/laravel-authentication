@@ -82,9 +82,9 @@ final readonly class PendingSignIns
     /**
      * Store a pending sign-in for the admitted sign-in, recording the device
      * the client proved it holds and the digest it was proven against, and the
-     * windows of the attempt-limit slots the sign-in took (`null` for one that
-     * reserved none, empty for one whose limiter recorded no windows), and
-     * return its credential.
+     * windows of each attempt-limit reservation the sign-in holds (`null` for
+     * one that reserved none; a reservation whose limiter recorded no windows
+     * is kept, with none), and return its credential.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
@@ -92,7 +92,7 @@ final readonly class PendingSignIns
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?array<string, string>  $attemptWindows
+     * @param  ?list<array<string, string>>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\PendingFactor
      *
      * @throws \InvalidArgumentException
@@ -213,27 +213,24 @@ final readonly class PendingSignIns
     }
 
     /**
-     * The attempt-limit slots the pending sign-in's sign-in took, as a granted
-     * reservation to give back once it completes: its windows, for the guard's
-     * sign-in flow, with the identifier type and the IP address it recorded
-     * (neither the identifier nor the account, which it does not keep), so the
-     * limiter gives them back from the windows alone. `null` only for a pending
-     * sign-in whose sign-in reserved nothing (one `start()` issued); a sign-in
-     * whose limiter recorded no windows still gets its reservation back, with
+     * The attempt-limit reservations the pending sign-in's sign-in held, as
+     * granted reservations to give back once it completes, one for each it
+     * held: its windows, for the guard's sign-in flow, with the identifier type
+     * and the IP address the pending sign-in recorded (neither the identifier
+     * nor the account, which it does not keep), so the limiter gives them back
+     * from the windows alone and exactly as many slots as were taken. None for
+     * a pending sign-in whose sign-in reserved nothing (one `start()` issued);
+     * a reservation whose limiter recorded no windows is still given back, with
      * none.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
-     * @return ?\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
+     * @return list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation>
      */
-    public static function reservation(PendingSignIn $pending): ?AttemptReservation
+    public static function reservations(PendingSignIn $pending): array
     {
-        if ($pending->attempt_windows === null) {
-            return null;
-        }
-
         $subject = new AttemptSubject($pending->guard, AttemptFlow::SIGN_IN, null, $pending->identifier_type, $pending->created_ip);
 
-        return new AttemptReservation($subject, null, $pending->attempt_windows);
+        return array_map(static fn (array $windows): AttemptReservation => new AttemptReservation($subject, null, $windows), $pending->attempt_windows ?? []);
     }
 
     /**

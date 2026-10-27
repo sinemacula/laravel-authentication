@@ -86,11 +86,35 @@ final class AccountAttemptsTest extends TestCase
         self::assertFalse($attempts->reserve($this->identity(2)));
         self::assertSame(30, $attempts->refusedFor());
         self::assertTrue($attempts->reserve($this->identity(3)));
-        self::assertSame(['first' => '2026-04-06 12:05:00', 'second' => '2026-04-06 12:10:00'], $attempts->windows());
+        self::assertSame([['first' => '2026-04-06 12:05:00'], ['second' => '2026-04-06 12:10:00']], $attempts->windows());
 
         $attempts->release();
 
         self::assertSame([$first, $second], $given);
+    }
+
+    /**
+     * One account checked twice holds two reservations with the same window:
+     * both are reported for a pending sign-in, and releasing gives both back.
+     *
+     * @return void
+     */
+    public function testTwoReservationsOfOneAccountAreKeptApart(): void
+    {
+        $limiter = \Mockery::mock(AttemptLimiter::class);
+        $limiter->shouldReceive('acquire')->twice()->andReturnUsing(
+            static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null, ['account' => '2026-04-06 12:05:00']),
+        );
+        $limiter->shouldReceive('release')->twice();
+
+        $attempts = new AccountAttempts($limiter, 'api');
+        $identity = $this->identity(7);
+
+        self::assertTrue($attempts->reserve($identity));
+        self::assertTrue($attempts->reserve($identity));
+        self::assertSame([['account' => '2026-04-06 12:05:00'], ['account' => '2026-04-06 12:05:00']], $attempts->windows());
+
+        $attempts->release();
     }
 
     /**

@@ -45,7 +45,7 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * @property ?string $created_user_agent
  * @property ?string $device_id
  * @property ?string $device_refresh_key
- * @property ?array<string, string> $attempt_windows
+ * @property ?list<array<string, string>> $attempt_windows
  * @property \Carbon\CarbonInterface $expires_at
  */
 final class PendingSignIn extends Model

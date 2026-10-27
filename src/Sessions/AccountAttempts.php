@@ -61,6 +61,8 @@ final class AccountAttempts
      *
      * @throws \InvalidArgumentException
      *
+     * @phpstan-impure
+     *
      * @imperative
      */
     public function reserve(Identity $identity): bool
@@ -93,14 +95,16 @@ final class AccountAttempts
     }
 
     /**
-     * The windows of every slot held, keyed by the limit's key, for a pending
-     * sign-in to keep until it completes.
+     * The windows of each reservation held, one entry per reservation, for a
+     * pending sign-in to keep until it completes and then give back as they
+     * were taken: two reservations of one account (a method that checks two
+     * secrets) give back two slots.
      *
-     * @return array<string, string>
+     * @return list<array<string, string>>
      */
     public function windows(): array
     {
-        return array_merge(...array_map(static fn (AttemptReservation $reservation): array => $reservation->windows, $this->held));
+        return array_map(static fn (AttemptReservation $reservation): array => $reservation->windows, $this->held);
     }
 
     /**

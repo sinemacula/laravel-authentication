@@ -58,14 +58,17 @@ final readonly class SignInRequest
      * calls this once it has the identity: a lookup can find one account by
      * many spellings of an identifier, and through every guard whose provider
      * returns it, so only the account's own count bounds the guesses at its
-     * secret. The slot is the sign-in's: given back when it starts a session,
-     * kept by a pending sign-in until that completes, and left counted when it
-     * fails.
+     * secret. Call it before each secret checked: a method that checks two
+     * takes two slots. Every slot is the sign-in's: given back when it starts a
+     * session, kept by a pending sign-in until that completes, and left counted
+     * when it fails.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return bool
      *
      * @throws \InvalidArgumentException
+     *
+     * @phpstan-impure
      *
      * @imperative
      */

@@ -254,9 +254,7 @@ final readonly class SessionService
 
         [$admitted, $session] = $outcome;
 
-        $reservation = PendingSignIns::reservation($found->pending);
-
-        if ($reservation !== null) {
+        foreach (PendingSignIns::reservations($found->pending) as $reservation) {
             $this->collaborator(AttemptLimiter::class)->release($reservation);
         }
 
@@ -341,7 +339,7 @@ final readonly class SessionService
         }
 
         $outcome = $admitted instanceof AdmittedSignIn
-            ? $this->proceed($admitted, $method, $subject->identifierType, $context, [...$reservation->windows, ...$accounts->windows()])
+            ? $this->proceed($admitted, $method, $subject->identifierType, $context, [$reservation->windows, ...$accounts->windows()])
             : $admitted;
 
         if ($outcome instanceof SignInResult && $outcome->isSignedIn()) {
@@ -510,7 +508,7 @@ final readonly class SessionService
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  ?array<string, string>  $attemptWindows
+     * @param  ?list<array<string, string>>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
@@ -540,7 +538,7 @@ final readonly class SessionService
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  ?array<string, string>  $attemptWindows
+     * @param  ?list<array<string, string>>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable

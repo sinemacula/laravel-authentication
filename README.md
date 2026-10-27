@@ -1131,7 +1131,8 @@ A method that looks an identity up and then checks a secret calls `$request->res
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
 attempts). A lookup can find one account by many spellings of its identifier, and through every guard whose provider
 returns it, so only the account's own count bounds the guesses at its secret, and at a further factor its sign-in waits
-for. The slot belongs to the sign-in: it is given back only when the session starts.
+for. Reserve before each secret you check: a method that checks two (a password and a PIN, say) takes two slots. The
+slots belong to the sign-in: they are all given back when the session starts, or when its pending sign-in completes.
 
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
 refuses anything else, and `password`), from a service provider, and allow that exact name in each guard's audience:
@@ -1454,9 +1455,10 @@ so one method never has a second spelling for a guard to allow or a device to re
 
 An `AttemptLimiter` of your own records in each granted reservation's `windows` everything its `release()` needs to give
 the slots back (string keys and values), and gives them back from the windows alone. A sign-in that waits for a further
-factor stores the windows of every reservation it holds and, when it completes, gives them back through one reservation
-rebuilt from them, whose subject carries the guard, the flow, the identifier type and the IP address but no identifier
-or account.
+factor stores the windows of each reservation it holds and, when it completes, gives each back through a reservation
+rebuilt from its own windows, whose subject carries the guard, the flow, the identifier type and the IP address but no
+identifier or account. Two reservations may record the same key (a method that checks two secrets reserves the account
+twice), and each is given back.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
