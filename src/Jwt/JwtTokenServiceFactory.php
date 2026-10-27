@@ -74,7 +74,6 @@ final class JwtTokenServiceFactory
 
         return new JwtTokenService(
             $this->buildKeyring($guardJwtConfig, $algorithm),
-            $algorithm,
             $this->resolveJwtInteger($guardJwtConfig, 'access_ttl_minutes', 15),
             $this->resolveJwtInteger($guardJwtConfig, 'refresh_ttl_minutes', 60 * 24 * 30),
             $this->resolveJwtInteger($guardJwtConfig, 'leeway_seconds', 30),
@@ -126,40 +125,81 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Build a `JwtKeyring` from the package config layered with an optional
-     * per-guard override. When a non-empty `keys` map is found, kid mode
-     * activates and `active_kid` selects the signing key; otherwise the keyring
-     * uses single-secret mode.
+     * Build a `JwtKeyring` from the `keys` map and `active_kid`, preferring the
+     * per-guard override of each and falling back to the package-wide defaults.
      *
      * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $algorithm
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtKeyring
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
     private function buildKeyring(#[\SensitiveParameter] array $guardJwtConfig, string $algorithm): JwtKeyring
     {
-        /** @var ?array<array-key, mixed> $rawKeys */
         $rawKeys = $guardJwtConfig['keys'] ?? $this->config->get('authentication.jwt.keys');
 
-        if (is_array($rawKeys) && $rawKeys !== []) {
-            return JwtKeyring::fromKeyMap(
-                $this->coerceKeysConfig($rawKeys),
-                $this->resolveJwtString($guardJwtConfig, 'active_kid', ''),
-                $algorithm,
-            );
+        if (!is_array($rawKeys)) {
+
+            $message = 'JWT keys must be a kid -> secret map. Set'
+                . ' `authentication.jwt.keys` (or the guard\'s `jwt.keys`'
+                . ' override) to an array of at least one entry.';
+
+            throw new InvalidJwtConfigurationException($message);
         }
 
-        /** @var ?string $secret */
-        $secret = $guardJwtConfig['secret'] ?? $this->config->get('authentication.jwt.secret');
+        return JwtKeyring::fromKeyMap(
+            $this->coerceKeysConfig($rawKeys),
+            $this->resolveActiveKid($guardJwtConfig),
+            $algorithm,
+        );
+    }
 
-        return JwtKeyring::fromSecret(is_string($secret) ? $secret : '', $algorithm);
+    /**
+     * Resolve the active kid, preferring the per-guard override and falling
+     * back to the package-wide default.
+     *
+     * A guard override that is absent or `null` falls back to the package-wide
+     * kid. A purely numeric kid written as an integer (e.g.
+     * `'active_kid' => 2026`) resolves to its string form, matching how
+     * `JwtKeyring` looks up numeric kids. Any other non-string value, at either
+     * level, fails closed instead of falling back.
+     *
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @return string
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private function resolveActiveKid(#[\SensitiveParameter] array $guardJwtConfig): string
+    {
+        $activeKid = $guardJwtConfig['active_kid'] ?? $this->config->get('authentication.jwt.active_kid');
+
+        if (is_int($activeKid)) {
+            return (string) $activeKid;
+        }
+
+        if (!is_string($activeKid)) {
+
+            $message = 'JWT active kid is missing or not a string or integer.'
+                . ' Set `authentication.jwt.active_kid` (or the guard\'s'
+                . ' `jwt.active_kid` override) to a kid in the key map.';
+
+            throw new InvalidJwtConfigurationException($message);
+        }
+
+        return $activeKid;
     }
 
     /**
      * Validate the raw JWT key map and return a strictly-typed `kid -> secret`
      * array.
      *
+     * Kids are not checked here: PHP stores a purely numeric kid such as
+     * `'2026'` as an integer array key, which `JwtKeyring` accepts and looks up
+     * by its string form, so the keyring is the single place kids are
+     * validated.
+     *
      * @param  array<array-key, mixed>  $rawKeys
-     * @return array<string, string>
+     * @return array<array-key, string>
      *
      * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
@@ -168,16 +208,6 @@ final class JwtTokenServiceFactory
         $coerced = [];
 
         foreach ($rawKeys as $kid => $material) {
-
-            if (!is_string($kid) || $kid === '') {
-
-                $message = 'JWT key map contains a non-string or empty kid in'
-                    . ' `authentication.jwt.keys`. Every entry must be'
-                    . ' keyed by a non-empty string kid (integer-indexed lists'
-                    . ' such as `[\'secret_a\', \'secret_b\']` are rejected).';
-
-                throw new InvalidJwtConfigurationException($message);
-            }
 
             if (!is_string($material)) {
 

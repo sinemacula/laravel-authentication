@@ -25,14 +25,13 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        $table            = Config::string('authentication.device.table', 'devices');
-        $refreshKeyColumn = Config::string('authentication.device.refresh_key_column', 'refresh_key');
+        $table = Config::string('authentication.device.table', 'devices');
 
         $schema = Schema::getConnection()->getSchemaBuilder();
 
         (new MigrationCollisionGuard($schema))->ensureNotExists($table);
 
-        Schema::create($table, static function (Blueprint $blueprint) use ($refreshKeyColumn): void {
+        Schema::create($table, static function (Blueprint $blueprint): void {
             $blueprint->uuid('id')->primary();
 
             // Plain string polymorphic columns so the table works against
@@ -48,7 +47,7 @@ return new class extends Migration {
             // package's default Eloquent device adapter. Nullable so a device
             // can exist pre-issuance or post-revocation. Indexed but not
             // unique: revocation sets a family to one sentinel.
-            $blueprint->string($refreshKeyColumn, 64)->nullable()->index();
+            $blueprint->string('refresh_key', 64)->nullable()->index();
 
             // Revocation marker. Set by the reuse-detection CAS path and
             // consumer-initiated logout-everywhere flows; non-null rejects any

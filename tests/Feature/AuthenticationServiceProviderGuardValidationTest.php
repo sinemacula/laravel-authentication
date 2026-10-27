@@ -24,7 +24,7 @@ use Tests\Unit\Stubs\StubIdentity;
  * validation on `AuthenticationServiceProvider`.
  *
  * Covers the JWT driver's device-model pre-checks and the guard-local
- * `principal_resolver` override validation path used by both shipped guards.
+ * `principal_resolver` override validation path.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -177,8 +177,8 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('principal_resolver must be a non-empty string');
 
-        AuthenticationServiceProvider::createBasicGuard($this->app, 'tenant_api', [
-            'driver'             => 'basic',
+        AuthenticationServiceProvider::createJwtGuard($this->app, 'tenant_api', [
+            'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => '',
         ]);
@@ -197,8 +197,8 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('principal_resolver must be a non-empty string');
 
-        AuthenticationServiceProvider::createBasicGuard($this->app, 'tenant_api', [
-            'driver'             => 'basic',
+        AuthenticationServiceProvider::createJwtGuard($this->app, 'tenant_api', [
+            'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => ['not-a-string'],
         ]);
@@ -219,8 +219,8 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('resolved to [stdClass]');
 
-        AuthenticationServiceProvider::createBasicGuard($this->app, 'tenant_api', [
-            'driver'             => 'basic',
+        AuthenticationServiceProvider::createJwtGuard($this->app, 'tenant_api', [
+            'driver'             => 'jwt',
             'provider'           => 'identities',
             'principal_resolver' => 'not-a-resolver',
         ]);
@@ -281,7 +281,8 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(Repository::class);
 
-        $config->set('authentication.jwt.secret', 'guard-config-test-secret-with-at-least-32!');
+        $config->set('authentication.jwt.keys', ['default' => 'guard-config-test-secret-with-at-least-32!']);
+        $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
         $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);

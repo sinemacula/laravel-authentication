@@ -16,7 +16,7 @@ Stateless contextual authentication for Laravel. Distinguishes the authenticated
 
 Drops into Laravel's existing auth machinery - same `Auth::check()`, `Auth::user()`, `auth()->guard('api')`, same
 middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::device()`) and
-ships hardened JWT and HTTP Basic guards.
+ships a hardened JWT guard.
 
 ## Core Concept
 
@@ -38,18 +38,20 @@ device record live in the `devices` table so replay and stale credentials can be
 
 ## Features
 
-- **Two guards**, both sessionless: `jwt` (Bearer token) and `basic` (HTTP Basic).
+- **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
-- **Hardened JWT pipeline**: strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, per-token `jti`, and
-  fail-closed behaviour on empty secrets, unsupported algorithms, type confusion, and `pid` / `did` mismatches.
+- **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), strict `iss` / `aud` / `typ` / `exp` /
+  leeway enforcement, per-token `jti`, and fail-closed behaviour on empty or short keys, unsupported algorithms,
+  type confusion, and `pid` / `did` mismatches.
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
   machine-readable `RefreshFailed` events for SIEM attribution.
-- **Kid-based key rotation** - issue under one kid, verify against a `kid → secret` map.
+- **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
+  it, so keys rotate without signing anyone out.
 - **Device tracking** with debounced `last_logged_in_at` writes.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`.
-- **Pluggable everywhere**: identity model, device model, principal resolver, identifier field, table names.
+- **Pluggable everywhere**: identity model, device model, principal resolver, table names.
 
 ## Design Notes
 
@@ -75,14 +77,22 @@ php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 ```
 
-Set the JWT secret:
+Generate a random JWT signing key into `.env`:
 
-```dotenv
-AUTHENTICATION_JWT_SECRET="a-strong-random-value-of-at-least-32-bytes"
+```bash
+echo "AUTHENTICATION_JWT_KEY=$(openssl rand -base64 48)" >> .env
 ```
 
-The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with empty or invalid signing
-material.
+Signing keys are always configured as a `kid → secret` map. Out of the box the map holds one key, `default`, read from
+`AUTHENTICATION_JWT_KEY`, and `AUTHENTICATION_JWT_ACTIVE_KID` (default `default`) selects the key that signs new
+tokens. Every token carries its kid in the JWT header. See [Key Rotation](#key-rotation) for adding keys.
+
+Every key must be at least as long as the algorithm's digest: 32 bytes for `HS256` (the default), 48 for `HS384`,
+and 64 for `HS512`. `openssl rand -base64 48` prints a 64-character value that satisfies all three. Generate every
+key this way rather than writing or copying one by hand.
+
+The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with an empty key map, a missing,
+empty, or too-short key, or an `active_kid` that is not in the map.
 
 ### Access-only mode (no devices, no refresh)
 
@@ -108,10 +118,6 @@ Register guards and providers in `config/auth.php` exactly as you would with any
         'driver'   => 'jwt',
         'provider' => 'users',
     ],
-    'cli' => [
-        'driver'   => 'basic',
-        'provider' => 'users',
-    ],
 ],
 
 'providers' => [
@@ -134,16 +140,18 @@ entry; missing fields fall back to the defaults:
         'driver'   => 'jwt',
         'provider' => 'users',
         'jwt'      => [
-            'secret'   => env('STAFF_JWT_SECRET'),
-            'audience' => 'staff-api',
+            'keys'       => ['staff-2026-05' => env('STAFF_JWT_KEY')],
+            'active_kid' => 'staff-2026-05',
+            'audience'   => 'staff-api',
         ],
     ],
     'customer' => [
         'driver'   => 'jwt',
         'provider' => 'users',
         'jwt'      => [
-            'secret'   => env('CUSTOMER_JWT_SECRET'),
-            'audience' => 'customer-api',
+            'keys'       => ['customer-2026-05' => env('CUSTOMER_JWT_KEY')],
+            'active_kid' => 'customer-2026-05',
+            'audience'   => 'customer-api',
         ],
     ],
 ],
@@ -151,36 +159,9 @@ entry; missing fields fall back to the defaults:
 
 Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. The `aud` claim on each issued token
 matches the guard that issued it, so tokens minted for one audience cannot authenticate against the other. Every
-field in the package `jwt` block is overridable (`secret`, `keys`, `active_kid`, `algorithm`,
-`access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`).
-
-### Per-guard basic-auth identifier field
-
-The `basic` driver accepts an `identifier_field` override - e.g. an `email`-keyed web guard alongside a `key_id`
--keyed tenant API guard:
-
-```php
-'guards' => [
-    'cli' => [
-        'driver'   => 'basic',
-        'provider' => 'users',
-    ],
-    'tenant_api' => [
-        'driver'           => 'basic',
-        'provider'         => 'tenant_api_keys',
-        'identifier_field' => 'key_id',
-    ],
-],
-
-'providers' => [
-    'tenant_api_keys' => [
-        'driver' => 'model',
-        'model'  => App\Models\TenantApiKey::class,
-    ],
-],
-```
-
-Omitting `identifier_field` falls back to `authentication.credentials.identifier_field` (default `email`).
+field in the package `jwt` block is overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`,
+`refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a
+guard that overrides `keys` should also set `active_kid` to a kid in its own map.
 
 ### Per-guard principal resolvers
 
@@ -207,17 +188,18 @@ The published `authentication.php` config controls the device model, table, and 
 'device' => [
     'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
     'table'                      => 'devices',
-    'refresh_key_column'         => 'refresh_key',
     'last_seen_throttle_seconds' => 60,
 ],
 ```
 
 The shipped `Device` model uses UUID v7 primary keys and a polymorphic `authenticatable` relation. Subclass it
-or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract.
+or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. Column names come from
+that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates
+the default names, so a model that renames a column needs its own migration.
 
 ### Credential validation timing
 
-The `basic` guard wraps credential checks in a constant-time `Timebox` to prevent timing side-channels:
+`attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels:
 
 ```php
 'timebox' => [
@@ -226,49 +208,6 @@ The `basic` guard wraps credential checks in a constant-time `Timebox` to preven
 ```
 
 Must exceed the worst-case hasher cost.
-
-### Optional bearer identity cache
-
-Cross-request resolution caching is off by default. When enabled, it applies only to JWT bearer identity
-rehydration through model providers - basic-auth lookups, device lookups, principal resolution, and the refresh
-path stay live.
-
-```php
-'resolution_cache' => [
-    'store' => env('AUTHENTICATION_RESOLUTION_CACHE_STORE'),
-    'jwt'   => [
-        'identity_ttl_seconds'  => env('AUTHENTICATION_JWT_IDENTITY_CACHE_TTL_SECONDS', 0),
-        'principal_ttl_seconds' => env('AUTHENTICATION_JWT_PRINCIPAL_CACHE_TTL_SECONDS', 0),
-    ],
-],
-```
-
-- `identity_ttl_seconds = 0` disables the cache.
-- `principal_ttl_seconds` is reserved for future use; leave at `0`.
-- Active-state checks, `pid` matching, and `did` device validation still run live on every request.
-
-If you opt in, wire explicit invalidation from your identity model observer:
-
-```php
-use App\Models\User;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
-
-final class UserObserver
-{
-    public function saved(User $user): void
-    {
-        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-    }
-
-    public function deleted(User $user): void
-    {
-        app(ResolutionCacheInvalidator::class)->forgetIdentity($user);
-    }
-}
-```
-
-Do not enable the cache unless that invalidation wiring is in place. If the auth identifier itself changes, pass
-the previous identifier to `forgetIdentity()` as well.
 
 ## Identity Models
 
@@ -391,8 +330,8 @@ $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 
 ### Active-state enforcement
 
-When an identity model implements `CanBeActive`, both guards consult `isActive()` on every bearer and credential
-path and reject authentication when it returns `false`:
+When an identity model implements `CanBeActive`, the guard consults `isActive()` on every bearer, refresh, and
+credential path and rejects authentication when it returns `false`:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -407,21 +346,6 @@ class AppUser extends User implements Identity, Principal, CanBeActive
     }
 }
 ```
-
-### HTTP Basic behind PHP-FPM / nginx
-
-The `basic` guard reads credentials via `Request::getUser()` / `Request::getPassword()`, which pull from
-`$_SERVER['PHP_AUTH_USER']` / `PHP_AUTH_PW`. Behind **PHP-FPM + nginx**, the `Authorization` header is **not**
-forwarded into those superglobals by default - forward it explicitly:
-
-```nginx
-location ~ \.php$ {
-    fastcgi_pass_header Authorization;
-    # ...rest of the fastcgi block
-}
-```
-
-Apache with `mod_php` populates these variables automatically.
 
 ## Usage
 
@@ -463,20 +387,33 @@ return [
 
 ## Key Rotation
 
-For graceful signing-key rotation, configure `jwt.keys` and `jwt.active_kid`:
+Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
+New tokens carry the active kid in their JWT header; the verifier accepts any kid in the map. To rotate, add the new
+key to the published `config/authentication.php` alongside the current one and point `active_kid` at it:
 
 ```php
 'jwt' => [
     'keys' => [
-        '2026-04' => env('AUTHENTICATION_JWT_KEY_2026_04'),
-        '2026-03' => env('AUTHENTICATION_JWT_KEY_2026_03'),
+        'default' => env('AUTHENTICATION_JWT_KEY'),
+        '2026-05' => env('AUTHENTICATION_JWT_KEY_2026_05'),
     ],
-    'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', '2026-04'),
+    'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', 'default'),
 ],
 ```
 
-New tokens are signed with the active kid and carry it in the JWT header. The verifier accepts any kid in the
-map - add a new kid, point `active_kid` at it, retire the old kid once every token signed under it has expired.
+Generate the new key into `.env`, then set `AUTHENTICATION_JWT_ACTIVE_KID` to its kid:
+
+```bash
+echo "AUTHENTICATION_JWT_KEY_2026_05=$(openssl rand -base64 48)" >> .env
+```
+
+```dotenv
+AUTHENTICATION_JWT_ACTIVE_KID="2026-05"
+```
+
+Tokens signed under `default` keep verifying while it stays in the map. Remove it once every token signed under it
+has expired (the longer of the access and refresh token lifetimes). Removing a kid immediately rejects every token
+signed under it, which is also how to revoke a compromised key.
 
 ## Events
 
@@ -518,7 +455,6 @@ All concrete classes in this package are `final`. Extension is through **composi
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally              |
 | Custom identity retrieval         | Subclass `ModelProvider` (the one non-final service)                   |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
-| Resolution caching                | Bind your own `ResolutionCache` implementation                         |
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 

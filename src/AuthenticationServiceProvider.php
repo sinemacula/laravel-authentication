@@ -6,7 +6,6 @@ namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\ConnectionResolverInterface;
@@ -15,17 +14,12 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Cache\ResolutionCacheInvalidator;
-use SineMacula\Laravel\Authentication\Cache\StoreBackedResolutionCache;
-use SineMacula\Laravel\Authentication\Config\ResolutionCacheConfig;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
-use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -37,9 +31,9 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  * Package service provider.
  *
  * Registers configuration, the package `AuthManager` singleton, the `model`
- * user provider driver, the `jwt` and `basic` guard drivers, the default
- * principal resolver binding, the `DeviceAuthenticated` listener, and the
- * config + migration publishing tags.
+ * user provider driver, the `jwt` guard driver, the default principal resolver
+ * binding, the `DeviceAuthenticated` listener, and the config + migration
+ * publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,29 +51,6 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(
             __DIR__ . '/../config/authentication.php',
             'authentication',
-        );
-
-        $this->app->singleton(
-            ResolutionCacheConfig::class,
-            static fn (Application $app): ResolutionCacheConfig => new ResolutionCacheConfig(
-                static fn (): ConfigRepository => $app->make(ConfigRepository::class),
-            ),
-        );
-
-        $this->app->singleton(
-            ResolutionCache::class,
-            static fn (Application $app): ResolutionCache => new StoreBackedResolutionCache(
-                $app->make(CacheFactory::class),
-                $app->make(ResolutionCacheConfig::class),
-            ),
-        );
-
-        $this->app->singleton(
-            ResolutionCacheInvalidator::class,
-            static fn (Application $app): ResolutionCacheInvalidator => new ResolutionCacheInvalidator(
-                $app->make(ResolutionCache::class),
-                static fn (): ConfigRepository => $app->make(ConfigRepository::class),
-            ),
         );
 
         $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
@@ -154,50 +125,6 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $app->make(Timebox::class),
             $tokens,
             $exchange,
-            $app->make(ResolutionCache::class),
-        );
-
-        self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
-
-        return $guard;
-    }
-
-    /**
-     * Construct a `BasicGuard` from the supplied container, guard name, and
-     * Laravel guard config block. Identifier field resolves guard-first, then
-     * falls back to `authentication.credentials.identifier_field`.
-     *
-     * @param  \Illuminate\Foundation\Application  $app
-     * @param  string  $name
-     * @param  array<string, mixed>  $config
-     * @return \SineMacula\Laravel\Authentication\Guards\BasicGuard
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    public static function createBasicGuard(Application $app, string $name, array $config): BasicGuard
-    {
-        $providerName = $config['provider'] ?? '';
-
-        /** @var \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider */
-        $provider = IlluminateAuth::createUserProvider(is_string($providerName) ? $providerName : '');
-
-        $guardIdentifierField = $config['identifier_field'] ?? null;
-
-        $identifierField = is_string($guardIdentifierField) && $guardIdentifierField !== ''
-            ? $guardIdentifierField
-            : $app->make(ConfigRepository::class)
-                ->string('authentication.credentials.identifier_field', 'email');
-
-        $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
-
-        $guard = new BasicGuard(
-            $name,
-            $provider,
-            $selection['resolver'],
-            $app->make(Dispatcher::class),
-            $app->make('request'),
-            $app->make(Timebox::class),
-            $identifierField,
         );
 
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
@@ -242,8 +169,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `jwt` and `basic` guard driver creators against Laravel's
-     * `Auth` factory.
+     * Register the `jwt` guard driver creator against Laravel's `Auth` factory.
      *
      * @return void
      */
@@ -252,11 +178,6 @@ final class AuthenticationServiceProvider extends ServiceProvider
         IlluminateAuth::extend(
             'jwt',
             static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createJwtGuard($app, $name, $config),
-        );
-
-        IlluminateAuth::extend(
-            'basic',
-            static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createBasicGuard($app, $name, $config),
         );
     }
 

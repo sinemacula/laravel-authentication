@@ -40,20 +40,6 @@ final class JwtGuardBench
     }
 
     /**
-     * Benchmark 2D bearer path with a warm identity cache.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    #[Iterations(5)]
-    #[Revs(25)]
-    public function benchAccessOnlyBearerWarmIdentityCache(): void
-    {
-        $this->harness()->runAccessOnlyBearerWarmIdentityCache();
-    }
-
-    /**
      * Benchmark device-bearing bearer path when the timestamp listener skips
      * the write.
      *
@@ -123,20 +109,6 @@ final class JwtGuardBench
     public function benchThreeDimensionalBearerSecondaryTenantAccess(): void
     {
         $this->harness()->runThreeDimensionalBearerSecondaryTenantAccess();
-    }
-
-    /**
-     * Benchmark tenant-aware 3D bearer path with a warm identity cache.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    #[Iterations(5)]
-    #[Revs(25)]
-    public function benchThreeDimensionalBearerTenantAccessWarmIdentityCache(): void
-    {
-        $this->harness()->runThreeDimensionalBearerTenantAccessWarmIdentityCache();
     }
 
     /**

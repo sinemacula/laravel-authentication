@@ -10,9 +10,10 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
- * Kid-mode behavioural tests for `JwtTokenService`.
+ * Kid behavioural tests for `JwtTokenService`.
  *
  * Drives the keyring through the token service's public surface to prove the
  * rotation contract: tokens issued under the active kid carry the kid in their
@@ -28,6 +29,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 #[CoversClass(JwtTokenService::class)]
 final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 {
+    use InteractsWithJwtTokens;
+
     /** @var string Secret material for the previous-generation kid. */
     private const string OLD_SECRET = 'old-rotation-secret-with-32-bytes!!';
 
@@ -41,9 +44,9 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     private const string NEW_KID = '2026-04';
 
     /**
-     * Asserts a token issued in kid mode embeds the active kid in its JWT
-     * header. Decodes the header bytes manually so the assertion does not
-     * depend on the verifier path.
+     * Asserts an issued token embeds the active kid in its JWT header. Decodes
+     * the header bytes manually so the assertion does not depend on the
+     * verifier path.
      *
      * @return void
      *
@@ -61,7 +64,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
         $token = $service->issueAccessToken($identity, $principal, null);
 
-        self::assertSame(self::NEW_KID, $this->headerKid($token));
+        self::assertSame(self::NEW_KID, $this->jwtHeader($token)['kid'] ?? null);
     }
 
     /**
@@ -130,50 +133,14 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     }
 
     /**
-     * Asserts a legacy single-secret verifier still accepts a token signed by a
-     * kid-mode service when both share the same secret material. php-jwt
-     * ignores the `kid` header when handed a bare `Key` rather than a map, so
-     * consumers may upgrade their issuer to kid mode ahead of their verifier
-     * without invalidating in-flight tokens - the cutover is graceful in both
-     * directions.
+     * Asserts the default test service also stamps its kid into every issued
+     * token - there is no headerless token shape.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testLegacyVerifierAcceptsKidSignedTokenWithMatchingSecret(): void
-    {
-        $kidService = $this->makeKidService(
-            [self::NEW_KID => self::NEW_SECRET],
-            self::NEW_KID,
-        );
-
-        $legacyService = new JwtTokenService(
-            self::NEW_SECRET,
-            self::ALGORITHM,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
-        );
-
-        $identity  = $this->mockIdentity('identity-7');
-        $principal = $this->mockPrincipal('principal-3');
-
-        $token  = $kidService->issueAccessToken($identity, $principal, null);
-        $claims = $legacyService->parse($token, TokenType::ACCESS);
-
-        self::assertIsArray($claims);
-        self::assertSame('identity-7', $claims[Claims::SUBJECT->value]);
-    }
-
-    /**
-     * Asserts the legacy single-secret service issues tokens with no `kid`
-     * header - the rotation header is opt-in.
-     *
-     * @return void
-     *
-     * @throws \Random\RandomException
-     */
-    public function testLegacyServiceEmitsNoKidHeader(): void
+    public function testDefaultServiceEmbedsItsKidInHeader(): void
     {
         $service = $this->makeService();
 
@@ -182,12 +149,34 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
 
         $token = $service->issueAccessToken($identity, $principal, null);
 
-        self::assertNull($this->headerKid($token));
+        self::assertSame(self::KID, $this->jwtHeader($token)['kid'] ?? null);
     }
 
     /**
-     * Construct a `JwtTokenService` configured with a kid-aware keyring built
-     * from the supplied map and active kid.
+     * Asserts a token signed with valid key material but carrying no `kid`
+     * header is rejected, so a headerless token can never verify.
+     *
+     * @return void
+     */
+    public function testParseRejectsTokenWithoutKidHeader(): void
+    {
+        $token = JWT::encode(
+            [
+                Claims::SUBJECT->value    => 'identity-7',
+                Claims::ISSUED_AT->value  => $this->now->getTimestamp(),
+                Claims::EXPIRES_AT->value => $this->now->getTimestamp() + 600,
+                Claims::TYPE->value       => TokenType::ACCESS->value,
+            ],
+            self::SECRET,
+            self::ALGORITHM,
+        );
+
+        self::assertNull($this->makeService()->parse($token, TokenType::ACCESS));
+    }
+
+    /**
+     * Construct a `JwtTokenService` configured with a keyring built from the
+     * supplied map and active kid.
      *
      * @param  array<string, string>  $keys
      * @param  string  $activeKid
@@ -197,34 +186,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     {
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, $activeKid, self::ALGORITHM),
-            self::ALGORITHM,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );
-    }
-
-    /**
-     * Decode the JWT header segment of the supplied token and return its `kid`
-     * value (or `null` when the header omits it). Used by the rotation tests to
-     * assert what the issuer wrote into the header without depending on the
-     * verifier path.
-     *
-     * @param  string  $token
-     * @return ?string
-     */
-    private function headerKid(string $token): ?string
-    {
-        $segments = explode('.', $token);
-
-        self::assertCount(3, $segments);
-
-        $headerJson = JWT::urlsafeB64Decode($segments[0]);
-        $header     = json_decode($headerJson, true);
-
-        self::assertIsArray($header);
-
-        $kid = $header['kid'] ?? null;
-
-        return is_string($kid) ? $kid : null;
     }
 }

@@ -6,6 +6,7 @@ namespace Tests\Unit\Jwt;
 
 use Firebase\JWT\Key;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
@@ -13,11 +14,11 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 /**
  * Unit tests for the `JwtKeyring` value object.
  *
- * Asserts the fail-closed validation surface (empty secrets, empty key maps,
- * unknown active kids, malformed entries) and the two shape contracts the token
- * service relies on: legacy mode returns a single `Key` from
- * `verificationKeys()` and emits no kid header, kid mode returns a `kid → Key`
- * map and emits the active kid.
+ * Asserts the fail-closed validation surface (empty key maps, unknown active
+ * kids, malformed entries, short keys, unsupported algorithms) and the shape
+ * contracts the token service relies on: `verificationKeys()` returns a
+ * `kid → Key` map and `activeKid()` returns the kid embedded in every issued
+ * token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,7 +28,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 #[CoversClass(JwtKeyring::class)]
 final class JwtKeyringTest extends TestCase
 {
-    /** @var string Test secret used by the legacy single-secret tests. */
+    /** @var string Test secret used as key material across the tests. */
     private const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
 
     /** @var string HMAC algorithm used across the keyring tests. */
@@ -40,46 +41,6 @@ final class JwtKeyringTest extends TestCase
     private const string OLD_KID = '2026-03';
 
     /**
-     * Asserts `fromSecret()` rejects an empty secret with the typed
-     * configuration exception so missing env vars fail loudly at boot.
-     *
-     * @return void
-     */
-    public function testFromSecretRejectsEmptySecret(): void
-    {
-        $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('JWT secret is empty');
-
-        JwtKeyring::fromSecret('', self::ALGORITHM);
-    }
-
-    /**
-     * Asserts a single-secret keyring reports `null` from `activeKid()` so
-     * newly issued tokens carry no `kid` header.
-     *
-     * @return void
-     */
-    public function testFromSecretReportsNullActiveKid(): void
-    {
-        $keyring = JwtKeyring::fromSecret(self::SECRET, self::ALGORITHM);
-
-        self::assertNull($keyring->activeKid());
-    }
-
-    /**
-     * Asserts `verificationKeys()` returns a bare `Key` (not a map) in legacy
-     * mode so php-jwt accepts headerless tokens.
-     *
-     * @return void
-     */
-    public function testFromSecretReturnsBareKeyForVerification(): void
-    {
-        $keyring = JwtKeyring::fromSecret(self::SECRET, self::ALGORITHM);
-
-        self::assertInstanceOf(Key::class, $keyring->verificationKeys());
-    }
-
-    /**
      * Asserts `fromKeyMap()` rejects an empty map with the typed configuration
      * exception.
      *
@@ -88,7 +49,7 @@ final class JwtKeyringTest extends TestCase
     public function testFromKeyMapRejectsEmptyMap(): void
     {
         $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('JWT key map is empty');
+        $this->expectExceptionMessage('JWT key map is empty. Set `authentication.jwt.keys` to a kid -> secret map of at least one entry.');
 
         JwtKeyring::fromKeyMap([], self::NEW_KID, self::ALGORITHM);
     }
@@ -193,18 +154,146 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `fromSecret()` rejects a signing algorithm that is not on the
+     * Asserts `fromKeyMap()` rejects a signing algorithm that is not on the
      * supported allow-list - typos and weak settings must fail at boot rather
      * than at the first encode/decode call.
      *
      * @return void
      */
-    public function testFromSecretRejectsUnsupportedAlgorithm(): void
+    public function testFromKeyMapRejectsUnsupportedAlgorithm(): void
     {
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage('JWT algorithm \'HS526\' is not supported');
 
-        JwtKeyring::fromSecret('real-secret', 'HS526');
+        JwtKeyring::fromKeyMap([self::NEW_KID => self::SECRET], self::NEW_KID, 'HS526');
+    }
+
+    /**
+     * Data provider listing signing algorithms outside the HMAC allow-list,
+     * including the asymmetric families that were previously accepted.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideRejectedAlgorithms(): iterable
+    {
+        yield from [
+            'RS256'          => ['RS256'],
+            'RS384'          => ['RS384'],
+            'RS512'          => ['RS512'],
+            'ES256'          => ['ES256'],
+            'ES384'          => ['ES384'],
+            'EdDSA'          => ['EdDSA'],
+            'none'           => ['none'],
+            'lowercase-hmac' => ['hs256'],
+        ];
+    }
+
+    /**
+     * Asserts `fromKeyMap()` accepts only HMAC algorithms: one key per kid both
+     * signs and verifies, which an asymmetric key pair cannot do, so every
+     * other algorithm is rejected with the allow-list in the message.
+     *
+     * @param  string  $algorithm
+     * @return void
+     */
+    #[DataProvider('provideRejectedAlgorithms')]
+    public function testFromKeyMapRejectsAlgorithmOutsideHmacAllowList(string $algorithm): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage("JWT algorithm '{$algorithm}' is not supported. Set `authentication.jwt.algorithm` to one of: HS256, HS384, HS512.");
+
+        JwtKeyring::fromKeyMap([self::NEW_KID => self::SECRET], self::NEW_KID, $algorithm);
+    }
+
+    /**
+     * Data provider pairing each allow-listed algorithm with its minimum key
+     * length in bytes (the HMAC digest size).
+     *
+     * @return iterable<string, array{0: string, 1: int}>
+     */
+    public static function provideAlgorithmMinimumKeyLengths(): iterable
+    {
+        yield from [
+            'HS256' => ['HS256', 32],
+            'HS384' => ['HS384', 48],
+            'HS512' => ['HS512', 64],
+        ];
+    }
+
+    /**
+     * Asserts a key exactly at the algorithm's minimum length is accepted.
+     *
+     * @param  string  $algorithm
+     * @param  int  $minimumBytes
+     * @return void
+     */
+    #[DataProvider('provideAlgorithmMinimumKeyLengths')]
+    public function testFromKeyMapAcceptsKeyAtAlgorithmMinimumLength(string $algorithm, int $minimumBytes): void
+    {
+        $material = str_repeat('k', $minimumBytes);
+
+        $keyring = JwtKeyring::fromKeyMap([self::NEW_KID => $material], self::NEW_KID, $algorithm);
+
+        self::assertSame($material, $keyring->activeKey()->getKeyMaterial());
+    }
+
+    /**
+     * Asserts a key one byte shorter than the algorithm's minimum is rejected
+     * with a message naming the kid, the algorithm, and the minimum length.
+     *
+     * @param  string  $algorithm
+     * @param  int  $minimumBytes
+     * @return void
+     */
+    #[DataProvider('provideAlgorithmMinimumKeyLengths')]
+    public function testFromKeyMapRejectsKeyShorterThanAlgorithmMinimum(string $algorithm, int $minimumBytes): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(sprintf(
+            'JWT key \'%s\' is too short for %s: it must be at least %d bytes. Set every kid in `authentication.jwt.keys` to a random value of at least %d bytes.',
+            self::NEW_KID,
+            $algorithm,
+            $minimumBytes,
+            $minimumBytes,
+        ));
+
+        JwtKeyring::fromKeyMap([self::NEW_KID => str_repeat('k', $minimumBytes - 1)], self::NEW_KID, $algorithm);
+    }
+
+    /**
+     * Asserts every kid is held to the minimum length, not just the active one,
+     * so a short retired key cannot linger in the verification map.
+     *
+     * @return void
+     */
+    public function testFromKeyMapRejectsShortKeyForInactiveKid(): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(sprintf('JWT key \'%s\' is too short for HS256', self::OLD_KID));
+
+        JwtKeyring::fromKeyMap(
+            [
+                self::NEW_KID => self::SECRET,
+                self::OLD_KID => 'short-old-key',
+            ],
+            self::NEW_KID,
+            self::ALGORITHM,
+        );
+    }
+
+    /**
+     * Asserts key length is measured in bytes, matching the HMAC key size: 16
+     * two-byte characters make a 32-byte key, which HS256 accepts.
+     *
+     * @return void
+     */
+    public function testFromKeyMapMeasuresKeyLengthInBytes(): void
+    {
+        $material = str_repeat('é', 16);
+
+        $keyring = JwtKeyring::fromKeyMap([self::NEW_KID => $material], self::NEW_KID, self::ALGORITHM);
+
+        self::assertSame($material, $keyring->activeKey()->getKeyMaterial());
     }
 
     /**
@@ -228,8 +317,22 @@ final class JwtKeyringTest extends TestCase
     }
 
     /**
-     * Asserts `verificationKeys()` returns a `kid → Key` map in kid mode so
-     * php-jwt picks the correct key from each token's `kid` header.
+     * Asserts a purely numeric kid, which PHP stores as an integer array key,
+     * is accepted and resolved by its string form as the active kid.
+     *
+     * @return void
+     */
+    public function testFromKeyMapAcceptsNumericKid(): void
+    {
+        $keyring = JwtKeyring::fromKeyMap(['2026' => self::SECRET], '2026', self::ALGORITHM);
+
+        self::assertSame('2026', $keyring->activeKid());
+        self::assertSame(self::SECRET, $keyring->activeKey()->getKeyMaterial());
+    }
+
+    /**
+     * Asserts `verificationKeys()` returns a `kid → Key` map so php-jwt picks
+     * the correct key from each token's `kid` header.
      *
      * @return void
      */
@@ -246,7 +349,6 @@ final class JwtKeyringTest extends TestCase
 
         $verificationKeys = $keyring->verificationKeys();
 
-        self::assertIsArray($verificationKeys);
         self::assertCount(2, $verificationKeys);
         self::assertArrayHasKey(self::NEW_KID, $verificationKeys);
         self::assertArrayHasKey(self::OLD_KID, $verificationKeys);

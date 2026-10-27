@@ -14,7 +14,6 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -632,58 +631,6 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
         self::assertSame($principal, $guard->principal());
-    }
-
-    /**
-     * Refresh must stay live-only even when a shared resolution cache is
-     * injected into the guard.
-     *
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \Random\RandomException
-     */
-    public function testRefreshPathNeverUsesResolutionCache(): void
-    {
-        $plainRotationId = 'stored-rotation-id';
-
-        $identity = new StubIdentity;
-        $identity->forceFill(['id' => 21]);
-
-        $device = new StubDevice;
-        $device->forceFill([
-            'authenticatable_type' => StubIdentity::class,
-            'authenticatable_id'   => '21',
-            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
-        ])->save();
-
-        $device->setRelation('authenticatable', $identity);
-
-        $this->swapDeviceModelToInMemoryInstance($device);
-
-        $cache = \Mockery::mock(ResolutionCache::class);
-        $cache->shouldNotReceive('rememberJwtIdentity');
-        $cache->shouldNotReceive('forgetJwtIdentity');
-
-        $guard = $this->makeGuard($this->makeRequest(null), $cache);
-
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-21');
-        $principal->shouldReceive('isActive')->once()->andReturnTrue();
-
-        $this->resolver->shouldReceive('resolve')
-            ->once()
-            ->with($identity)
-            ->andReturn($principal);
-
-        $token = $this->encodeRefreshToken([
-            'did' => $device->id,
-            'jti' => $plainRotationId,
-        ]);
-
-        $this->events->shouldReceive('dispatch')->andReturnNull();
-
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
     }
 
     /**

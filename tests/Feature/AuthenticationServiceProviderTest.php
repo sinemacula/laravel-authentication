@@ -5,6 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Feature;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
@@ -16,7 +18,6 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Guards\BasicGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -85,15 +86,17 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The `basic` guard driver creator is registered against Laravel's `Auth`
-     * factory so resolving an `auth.guards.*.driver = basic` guard yields the
-     * package `BasicGuard`.
+     * The package registers no `basic` guard driver, so a guard configured with
+     * `driver = basic` fails to resolve.
      *
      * @return void
      */
-    public function testBasicGuardDriverCreatorIsRegistered(): void
+    public function testBasicGuardDriverIsNotRegistered(): void
     {
-        self::assertInstanceOf(BasicGuard::class, app('auth')->guard('cli'));
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Auth driver [basic] for guard [cli] is not defined.');
+
+        app('auth')->guard('cli');
     }
 
     /**
@@ -213,6 +216,33 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * Package guards follow later rebinds of the `events` dispatcher, so an
+     * `Event::fake()` (or any dispatcher swap) made after a guard resolves
+     * still receives that guard's events.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     * @throws \Throwable
+     */
+    public function testJwtGuardTracksLaterEventDispatcherRebind(): void
+    {
+        config()->set('authentication.timebox.credentials_microseconds', 1);
+
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        Event::fake([Attempting::class, Failed::class]);
+
+        self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
+        self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
+
+        Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
+        Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
+    }
+
+    /**
      * The guard-scoped JWT service factory is bound into the container so
      * guards and the public `Auth::jwt()` surface resolve through the same
      * internal construction path.
@@ -291,7 +321,8 @@ final class AuthenticationServiceProviderTest extends TestCase
     /**
      * Define the Testbench environment with package config and an
      * `auth.guards`/`auth.providers` setup that exercises both the `model` user
-     * provider driver and the `jwt`/`basic` guard driver creators.
+     * provider driver and the `jwt` guard driver creator, plus a `basic` guard
+     * that no registered driver serves.
      *
      * @param  mixed  $app
      * @return void
@@ -306,7 +337,8 @@ final class AuthenticationServiceProviderTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.keys', ['default' => self::JWT_SECRET]);
+        $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', self::JWT_ALGORITHM);
         $config->set('authentication.jwt.access_ttl_minutes', self::JWT_TTL_MINUTES);
 

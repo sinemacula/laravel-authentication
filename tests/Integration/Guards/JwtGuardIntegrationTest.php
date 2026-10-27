@@ -37,6 +37,9 @@ final class JwtGuardIntegrationTest extends TestCase
     /** @var string */
     private const string JWT_SECRET = 'integration-secret-with-at-least-32-bytes!';
 
+    /** @var string Kid the signing secret is registered under. */
+    private const string JWT_KID = 'test-kid';
+
     /** @var string */
     private const string AUTH_MIDDLEWARE = 'auth:api';
 
@@ -337,7 +340,8 @@ final class JwtGuardIntegrationTest extends TestCase
             'model'  => StubPrincipal::class,
         ]);
 
-        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.keys', [self::JWT_KID => self::JWT_SECRET]);
+        $config->set('authentication.jwt.active_kid', self::JWT_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
     }
@@ -371,6 +375,7 @@ final class JwtGuardIntegrationTest extends TestCase
             array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
             self::JWT_SECRET,
             'HS256',
+            self::JWT_KID,
         );
     }
 

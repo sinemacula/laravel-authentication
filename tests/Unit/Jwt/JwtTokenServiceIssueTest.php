@@ -8,12 +8,11 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
- * Issuance-side unit tests for `JwtTokenService` - `issueAccessToken()`,
- * `issueRefreshToken()`, and the empty-secret fail-loud constructor guard.
+ * Issuance-side unit tests for `JwtTokenService` - `issueAccessToken()` and
+ * `issueRefreshToken()`.
  *
  * Split out of the original `JwtTokenServiceTest` so each class stays focused
  * on a single behavioural slice.
@@ -26,22 +25,6 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 #[CoversClass(JwtTokenService::class)]
 final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 {
-    /**
-     * The constructor refuses to build with an empty secret so the package
-     * fails loudly on missing env vars instead of silently signing tokens with
-     * a zero-knowledge key.
-     *
-     * @return void
-     */
-    public function testConstructorRejectsEmptySecret(): void
-    {
-        $this->expectException(InvalidJwtConfigurationException::class);
-
-        $service = new JwtTokenService('', self::ALGORITHM, self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES);
-
-        unset($service); // Constructor must throw before this point.
-    }
-
     /**
      * Asserts an issued access token decodes back to the supplied identity,
      * principal, and device claims with an `exp` claim `access_ttl_minutes` in

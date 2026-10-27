@@ -11,7 +11,6 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
@@ -21,35 +20,33 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\ResolutionCache;
-use SineMacula\Laravel\Authentication\Guards\BasicGuard;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Integration test for the six standard Laravel auth events.
  *
- * Boots a Testbench application, registers a `cli` guard driven by the
- * package's `basic` driver against a `StubPrincipal` identity table seeded with
- * a single user, and exercises the successful `attempt`, failed `attempt`, and
+ * Boots a Testbench application, registers an `api` guard driven by the
+ * package's `jwt` driver against a `StubPrincipal` identity table seeded with a
+ * single user, and exercises the successful `attempt`, failed `attempt`, and
  * `logout` paths to assert the dispatched standard events (`Attempting`,
  * `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`) match Laravel's
  * first-party contract with the expected constructor payload shapes.
  *
- * The `cli` guard uses the package's `basic` driver so credentials can be
- * passed directly via `attempt()` without needing an HTTP Authorization header,
- * keeping the assertions focused on the event-emission contract.
+ * Credentials are passed directly via `attempt()`, keeping the assertions
+ * focused on the event-emission contract of the shared guard lifecycle.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(BasicGuard::class)]
+#[CoversClass(AbstractGuard::class)]
 final class StandardAuthEventsIntegrationTest extends TestCase
 {
     /** @var string The guard name under test. */
-    private const string GUARD_NAME = 'cli';
+    private const string GUARD_NAME = 'api';
 
     /** @var string The email of the seeded test user. */
     private const string USER_EMAIL = 'user@example.test';
@@ -157,60 +154,6 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         Event::assertNotDispatched(Validated::class);
         Event::assertNotDispatched(Login::class);
         Event::assertNotDispatched(Authenticated::class);
-    }
-
-    /**
-     * The basic guard's credential path must remain fully live and never touch
-     * the shared bearer identity cache.
-     *
-     * @return void
-     */
-    public function testBasicGuardNeverUsesResolutionCache(): void
-    {
-        assert($this->app !== null);
-
-        $this->app->instance(
-            ResolutionCache::class,
-            new class implements ResolutionCache {
-                /**
-                 * @param  string  $guardName
-                 * @param  string  $providerModelClass
-                 * @param  mixed  $identifier
-                 * @param  callable(): ?\Illuminate\Contracts\Auth\Authenticatable  $resolver
-                 * @return never
-                 *
-                 * @throws \LogicException
-                 */
-                #[\Override]
-                public function rememberJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier, callable $resolver): ?Authenticatable
-                {
-                    unset($guardName, $providerModelClass, $identifier, $resolver);
-
-                    throw new \LogicException('Basic guard must not use the shared resolution cache.');
-                }
-
-                /**
-                 * @param  string  $guardName
-                 * @param  string  $providerModelClass
-                 * @param  mixed  $identifier
-                 * @return void
-                 *
-                 * @throws \LogicException
-                 */
-                #[\Override]
-                public function forgetJwtIdentity(string $guardName, string $providerModelClass, mixed $identifier): void
-                {
-                    unset($guardName, $providerModelClass, $identifier);
-
-                    throw new \LogicException('Basic guard must not invalidate the shared resolution cache.');
-                }
-            },
-        );
-
-        self::assertTrue(Auth::guard(self::GUARD_NAME)->attempt([
-            'email'    => self::USER_EMAIL,
-            'password' => self::USER_PASSWORD,
-        ]));
     }
 
     /**
@@ -323,7 +266,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * Register the `cli` guard against the `basic` driver and the `cli_users`
+     * Register the `api` guard against the `jwt` driver and the `users`
      * provider pointing at the `StubPrincipal` identity model before the
      * Testbench application boots so the package service provider picks up the
      * driver registration at the appropriate time.
@@ -343,14 +286,14 @@ final class StandardAuthEventsIntegrationTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
-        $config->set('auth.providers.cli_users', [
+        $config->set('auth.providers.users', [
             'driver' => 'model',
             'model'  => StubPrincipal::class,
         ]);
 
         $config->set('auth.guards.' . self::GUARD_NAME, [
-            'driver'   => 'basic',
-            'provider' => 'cli_users',
+            'driver'   => 'jwt',
+            'provider' => 'users',
         ]);
     }
 }

@@ -79,7 +79,7 @@ composer test:performance   # Performance budget tests
 Single test file or method:
 
 ```bash
-vendor/bin/phpunit tests/Unit/Guards/BasicGuardTest.php
+vendor/bin/phpunit tests/Unit/Jwt/JwtKeyringTest.php
 vendor/bin/phpunit --filter testMethodName tests/Unit/SomeTest.php
 ```
 

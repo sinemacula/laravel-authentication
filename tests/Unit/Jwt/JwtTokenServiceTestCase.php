@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 
 /**
@@ -32,6 +33,9 @@ abstract class JwtTokenServiceTestCase extends TestCase
 
     /** @var string Shared secret used across the token-service tests. */
     protected const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
+
+    /** @var string Kid the shared secret is registered under. */
+    protected const string KID = 'test-kid';
 
     /** @var string HMAC algorithm used by the service under test. */
     protected const string ALGORITHM = 'HS256';
@@ -102,11 +106,22 @@ abstract class JwtTokenServiceTestCase extends TestCase
     protected function makeService(): JwtTokenService
     {
         return new JwtTokenService(
-            self::SECRET,
-            self::ALGORITHM,
+            $this->makeKeyring(),
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );
+    }
+
+    /**
+     * Build a single-key keyring holding the supplied secret under the shared
+     * test kid.
+     *
+     * @param  string  $secret
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtKeyring
+     */
+    protected function makeKeyring(#[\SensitiveParameter] string $secret = self::SECRET): JwtKeyring
+    {
+        return JwtKeyring::fromKeyMap([self::KID => $secret], self::KID, self::ALGORITHM);
     }
 
     /**

@@ -39,6 +39,9 @@ final class AccessOnlyIntegrationTest extends TestCase
     /** @var string Shared JWT secret used by the in-test guard. */
     private const string JWT_SECRET = 'access-only-secret-with-at-least-32-bytes!';
 
+    /** @var string Kid the signing secret is registered under. */
+    private const string JWT_KID = 'test-kid';
+
     /** @var string Guard name registered for the test. */
     private const string GUARD = 'api';
 
@@ -121,7 +124,7 @@ final class AccessOnlyIntegrationTest extends TestCase
             'iat' => $now,
             'exp' => $now + 900,
             'typ' => TokenType::ACCESS->value,
-        ], self::JWT_SECRET, 'HS256');
+        ], self::JWT_SECRET, 'HS256', self::JWT_KID);
 
         self::assertFalse(Schema::hasTable('devices'));
 
@@ -204,7 +207,8 @@ final class AccessOnlyIntegrationTest extends TestCase
             'model'  => AccessOnlyIdentity::class,
         ]);
 
-        $config->set('authentication.jwt.secret', self::JWT_SECRET);
+        $config->set('authentication.jwt.keys', [self::JWT_KID => self::JWT_SECRET]);
+        $config->set('authentication.jwt.active_kid', self::JWT_KID);
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
     }

@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -58,6 +59,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /** @var string Shared JWT secret for the test fixtures. */
     private const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
+
+    /** @var string Kid the test secret is registered under. */
+    private const string KID = 'test-kid';
 
     /** @var string HMAC algorithm shared with the test fixtures. */
     private const string ALGORITHM = 'HS256';
@@ -102,7 +106,11 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
         $this->events   = \Mockery::mock(Dispatcher::class);
-        $this->tokens   = new JwtTokenService(self::SECRET, self::ALGORITHM, self::ACCESS_TTL, self::REFRESH_TTL);
+        $this->tokens   = new JwtTokenService(
+            JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
+            self::ACCESS_TTL,
+            self::REFRESH_TTL,
+        );
 
         Schema::create('stub_devices', static function (Blueprint $blueprint): void {
             $blueprint->uuid('id')->primary();
@@ -489,7 +497,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'iat' => $now,
             'exp' => $now + (self::REFRESH_TTL * 60),
             'typ' => TokenType::REFRESH->value,
-        ]), self::SECRET, self::ALGORITHM);
+        ]), self::SECRET, self::ALGORITHM, self::KID);
     }
 
     /**
