@@ -30,7 +30,8 @@ enum RefreshFailureReason: string
     // the token is still the current one; the client may retry
     case ROTATION_CONFLICT = 'rotation_conflict';
 
-    // Device holds no refresh credential
+    // Device holds no refresh credential, so a replay cannot be told apart;
+    // not revoked
     case REFRESH_KEY_MISSING = 'refresh_key_missing';
 
     // Device row marked revoked

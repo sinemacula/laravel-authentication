@@ -19,11 +19,9 @@ use Illuminate\Http\Request;
  * PDO a value is cut short at the first one. A value that is missing, invalid,
  * or empty after cleaning is `null`.
  *
- * The package records last use with it. Code that creates a device records the
- * client it was created from (`created_ip`, `created_user_agent`) with
- * `fromRequest()` too, so those columns are cleaned the same way. Values taken
- * from elsewhere (a queued job that carried them, say) are cleaned by the
- * constructor in the same way.
+ * The package records last use with it; code that creates a device should
+ * record `created_ip` and `created_user_agent` through it too, from
+ * `fromRequest()` or the constructor.
  *
  * @api
  *
@@ -43,9 +41,6 @@ final readonly class ClientContext
 
     /**
      * Constructor.
-     *
-     * Cleans the raw IP address and user agent, so every instance holds values
-     * that are safe to store, however it was built.
      *
      * @param  ?string  $ip
      * @param  ?string  $userAgent

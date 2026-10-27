@@ -30,12 +30,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 /**
  * Refresh-token exchange service.
  *
- * Encapsulates the refresh round trip: parse the token, find the device it
- * names, judge the presented rotation id against the device's refresh
- * credential in constant time, reload the device's owner through the guard's
- * identity provider (so the provider's scopes apply and an owner the guard does
- * not serve is rejected), resolve the principal, and issue a new access +
- * refresh token pair.
+ * The device's owner is reloaded through the guard's identity provider, so the
+ * provider's scopes apply and an owner the guard does not serve is rejected.
  *
  * A validly signed token for a live device carries one of three rotation ids:
  * - the current one: the exchange rotates it to its successor with a

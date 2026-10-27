@@ -79,8 +79,7 @@ final readonly class TokenLifetimes
      * is missing (the device has no session) or has been reached.
      *
      * The one deadline rule, shared by bearer requests, sign-in pins, refresh,
-     * and token issuance. Static because it depends on the device's stored
-     * deadlines, not on any lifetime setting.
+     * and token issuance.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  \Carbon\CarbonInterface  $now
