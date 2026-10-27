@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Unit\Jwt;
 
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Firebase\JWT\JWT;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
@@ -13,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
  * Shared base case for the `JwtTokenService` split tests.
@@ -46,8 +48,11 @@ abstract class JwtTokenServiceTestCase extends TestCase
     /** @var int Default access-token TTL in minutes. */
     protected const int ACCESS_TTL_MINUTES = 15;
 
-    /** @var int Default refresh-token TTL in minutes. */
+    /** @var int Default idle session lifetime in minutes. */
     protected const int REFRESH_TTL_MINUTES = 60 * 24 * 30;
+
+    /** @var int Default absolute session lifetime in minutes. */
+    protected const int ABSOLUTE_TTL_MINUTES = 60 * 24 * 180;
 
     /** @var \Carbon\Carbon Frozen clock reference shared across token-time assertions. */
     protected Carbon $now;
@@ -111,8 +116,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
         return new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
+            30,
         );
     }
 
@@ -164,17 +169,34 @@ abstract class JwtTokenServiceTestCase extends TestCase
 
     /**
      * Build a Device mock whose getDeviceIdentifier() returns the supplied
-     * value.
+     * value, in a session that started now with the default lifetimes.
      *
      * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Device
      */
     protected function mockDevice(mixed $id): Device
     {
+        return $this->mockDeviceEndingAt($id, $this->now->copy()->addMinutes(self::REFRESH_TTL_MINUTES), $this->now->copy()->addMinutes(self::ABSOLUTE_TTL_MINUTES));
+    }
+
+    /**
+     * Build a Device mock with the supplied identifier and deadlines.
+     *
+     * @param  mixed  $id
+     * @param  ?\Carbon\CarbonInterface  $idle
+     * @param  ?\Carbon\CarbonInterface  $absolute
+     * @return \SineMacula\Laravel\Authentication\Contracts\Device
+     */
+    protected function mockDeviceEndingAt(mixed $id, ?CarbonInterface $idle, ?CarbonInterface $absolute): Device
+    {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device $device */
         $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')
             ->andReturn($id);
+        $device->shouldReceive('getIdleExpiresAt')
+            ->andReturn($idle);
+        $device->shouldReceive('getAbsoluteExpiresAt')
+            ->andReturn($absolute);
 
         return $device;
     }

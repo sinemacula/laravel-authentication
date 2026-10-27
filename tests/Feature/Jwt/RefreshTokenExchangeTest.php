@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubBareDevice;
@@ -125,8 +126,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
             self::GUARD_NAME,
-            self::ACCESS_TTL,
-            self::REFRESH_TTL,
+            new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180),
+            30,
         );
 
         self::createDeviceTable('stub_devices');
@@ -726,6 +727,223 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertNull($exchange->exchange($token));
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+    }
+
+    /**
+     * Rows of `[idle deadline, absolute deadline]` for sessions that have ended
+     * or never had deadlines, relative to the frozen clock in seconds.
+     *
+     * @return iterable<string, array{0: ?int, 1: ?int}>
+     */
+    public static function provideEndedSessions(): iterable
+    {
+        yield from [
+            'idle reached'         => [0, 3600],
+            'absolute reached'     => [3600, 0],
+            'no idle deadline'     => [null, 3600],
+            'no absolute deadline' => [3600, null],
+        ];
+    }
+
+    /**
+     * A device whose session has ended, or that has no deadlines, fails as
+     * `session_expired` before its owner is loaded or its digest compared, and
+     * nothing is written: the device is not revoked.
+     *
+     * @param  ?int  $idleIn
+     * @param  ?int  $absoluteIn
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideEndedSessions')]
+    public function testExchangeRejectsAnEndedSessionWithoutWriting(?int $idleIn, ?int $absoluteIn): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '9',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+            'idle_expires_at'      => $idleIn     === null ? null : $this->now->copy()->addSeconds($idleIn),
+            'absolute_expires_at'  => $absoluteIn === null ? null : $this->now->copy()->addSeconds($absoluteIn),
+        ])->save();
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $before = (array) DB::table('stub_devices')->where('id', $device->id)->first();
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::SESSION_EXPIRED
+                    && $event->deviceId === $device->id),
+            );
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        self::assertNull($this->makeExchange()->exchange($token));
+        self::assertSame($before, (array) DB::table('stub_devices')->where('id', $device->id)->first());
+    }
+
+    /**
+     * A rotation moves the idle deadline to the idle lifetime from the
+     * exchange's time, leaves the absolute deadline alone, and mirrors the
+     * persisted state on the returned device, which has nothing left to save.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangeMovesTheIdleDeadlineAndMirrorsItOnTheDevice(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+        $absolute        = $this->now->copy()->addDays(100);
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 32]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '32',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+            'idle_expires_at'      => $this->now->copy()->addMinute(),
+            'absolute_expires_at'  => $absolute,
+        ])->save();
+
+        $this->expectOwnerReload($device, $identity);
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-32');
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
+        $this->events->shouldNotReceive('dispatch');
+
+        $result = $this->makeExchange()->exchange($this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]));
+
+        self::assertNotNull($result);
+
+        $expectedIdle = $this->now->getTimestamp() + (self::REFRESH_TTL * 60);
+        $stored       = StubDevice::query()->findOrFail($device->id);
+
+        self::assertSame($expectedIdle, $stored->idle_expires_at?->getTimestamp());
+        self::assertSame($absolute->getTimestamp(), $stored->absolute_expires_at?->getTimestamp());
+        $claims = $this->tokens->parse($result->tokens->refreshToken, TokenType::REFRESH);
+
+        self::assertIsArray($claims);
+        self::assertIsString($claims[Claims::JWT_ID->value]);
+        self::assertSame($expectedIdle, $result->device->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame(RefreshTokenHasher::hash($claims[Claims::JWT_ID->value]), $result->device->getRefreshKey());
+        self::assertSame($result->device->getRefreshKey(), $stored->refresh_key);
+        self::assertFalse($result->device->isDirty());
+    }
+
+    /**
+     * A rotation id that is not the device's current one is rejected before the
+     * owner is loaded, and nothing is written.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangeRejectsARotationIdThatIsNotTheCurrentOne(): void
+    {
+        $device = new StubDevice;
+        $device->forceFill([
+            ...self::liveSession(),
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '9',
+            'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
+        ])->save();
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $this->provider->shouldNotReceive('retrieveById');
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
+                    && $event->deviceId === $device->id),
+            );
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => 'another-rotation-id',
+        ]);
+
+        self::assertNull($this->makeExchange()->exchange($token));
+        self::assertSame(RefreshTokenHasher::hash('stored-rotation-id'), $this->storedDigest($device->id));
+    }
+
+    /**
+     * The rotation compares the idle deadline with the value it read: an idle
+     * deadline another writer moved in between, even to a later time, makes the
+     * rotation miss.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testRotationMissesWhenTheIdleDeadlineMovedSinceItWasRead(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 33]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            ...self::liveSession(),
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '33',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+
+        $this->expectOwnerReload($device, $identity);
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        StubDevice::query()->whereKey($device->id)->update(['idle_expires_at' => $this->now->copy()->addDays(91)]);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-33');
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::ROTATION_REUSE
+                    && $event->deviceId === $device->id),
+            );
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        self::assertNull($this->makeExchange()->exchange($token));
     }
 
     /**

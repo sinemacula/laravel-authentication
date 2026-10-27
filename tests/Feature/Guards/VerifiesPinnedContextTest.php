@@ -411,6 +411,27 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
+     * A pinned device whose session has ended fails the attempt, like a revoked
+     * one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEndedPinnedDeviceFailsTheAttempt(): void
+    {
+        $ended = \Mockery::mock(Device::class);
+        $ended->shouldReceive('getDeviceIdentifier')->andReturn(self::DEVICE_ID);
+        $ended->shouldReceive('getRevokedAt')->andReturnNull();
+        $ended->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now());
+        $ended->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDay());
+
+        $guard = $this->guardWithDevices($ended);
+
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $ended), $guard);
+    }
+
+    /**
      * A pinned device of another class that shares the identifier of a device
      * the identity owns fails the attempt.
      *
@@ -660,7 +681,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * Build a device with the supplied identifier and revocation time.
+     * Build a device with the supplied identifier and revocation time, in a
+     * session that started now.
      *
      * @param  ?string  $identifier
      * @param  ?\Carbon\CarbonImmutable  $revokedAt
@@ -671,6 +693,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')->andReturn($identifier);
         $device->shouldReceive('getRevokedAt')->andReturn($revokedAt);
+        $device->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now()->addDays(90));
+        $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDays(180));
 
         return $device;
     }

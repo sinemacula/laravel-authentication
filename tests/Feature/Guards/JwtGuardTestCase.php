@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubInjectableDevice;
@@ -105,8 +106,8 @@ abstract class JwtGuardTestCase extends TestCase
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
             self::GUARD_NAME,
-            self::ACCESS_TTL,
-            self::REFRESH_TTL,
+            new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180),
+            30,
         );
 
         // Default: Timebox::call() invokes the callback directly so credential

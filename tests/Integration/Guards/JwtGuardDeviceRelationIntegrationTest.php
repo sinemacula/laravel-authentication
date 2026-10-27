@@ -128,7 +128,7 @@ final class JwtGuardDeviceRelationIntegrationTest extends TestCase
         $identity = $this->seedIdentity();
 
         $malformed = new Device;
-        $malformed->forceFill(['id' => 'not-a-uuid']);
+        $malformed->forceFill([...self::liveSession(), 'id' => 'not-a-uuid']);
 
         $token = $this->accessToken($identity, $malformed);
 

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -23,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -40,6 +42,8 @@ use Tests\Unit\Stubs\StubIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Well-formed id of the device the token names. */
     private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
@@ -719,60 +723,45 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenDidHintNamesRevokedDevice(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+        $this->assertDidHintIsRejected(new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID, 'revoked_at' => $this->now]));
+    }
 
-        $guard = $this->makeGuard($this->makeRequest($token));
+    /**
+     * Rows of `[idle deadline, absolute deadline]` of ended sessions, in
+     * seconds from the frozen clock.
+     *
+     * @return iterable<string, array{0: ?int, 1: ?int}>
+     */
+    public static function provideEndedSessions(): iterable
+    {
+        yield from [
+            'idle reached this second'     => [0, 3600],
+            'absolute reached this second' => [3600, 0],
+            'absolute passed'              => [3600, -1],
+            'no idle deadline'             => [null, 3600],
+        ];
+    }
 
-        $device = new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => $this->now]);
-
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('useWritePdo')
-            ->once()
-            ->andReturnSelf();
-        $builder->shouldReceive('getModel')
-            ->once()
-            ->andReturn(new StubDevice);
-        $builder->shouldReceive('find')
-            ->once()
-            ->with(self::DEVICE_ID)
-            ->andReturn($device);
-
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
-        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')
-            ->once()
-            ->andReturn($builder);
-
-        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getTenant')->andReturnNull();
-        $principal->shouldReceive('getPrincipalIdentifier')
-            ->andReturn('p-1');
-        $principal->shouldReceive('isActive')
-            ->once()
-            ->andReturnTrue();
-
-        $this->provider->shouldReceive('retrieveById')
-            ->once()
-            ->with('i-1')
-            ->andReturn($identity);
-
-        $this->resolver->shouldReceive('resolve')
-            ->once()
-            ->with($identity, 'p-1')
-            ->andReturn($principal);
-
-        $dispatched = [];
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event;
-            });
-
-        self::assertNull($guard->user());
-        self::assertNull($guard->device());
-        self::assertSame([Attempting::class, Failed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
-        self::assertInstanceOf(Failed::class, $dispatched[1]);
-        self::assertSame($identity, $dispatched[1]->user);
+    /**
+     * Fail-closed: a `did` naming a device whose session has ended is rejected
+     * exactly like a missing device, from the single lookup that loaded it,
+     * whatever the token's own expiry.
+     *
+     * @param  ?int  $idleIn
+     * @param  ?int  $absoluteIn
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    #[DataProvider('provideEndedSessions')]
+    public function testUserRejectsTokenWhenDidHintNamesDeviceWhoseSessionHasEnded(?int $idleIn, ?int $absoluteIn): void
+    {
+        $this->assertDidHintIsRejected(new StubDevice([
+            'id'                  => self::DEVICE_ID,
+            'revoked_at'          => null,
+            'idle_expires_at'     => $idleIn     === null ? null : $this->now->copy()->addSeconds($idleIn),
+            'absolute_expires_at' => $absoluteIn === null ? null : $this->now->copy()->addSeconds($absoluteIn),
+        ]));
     }
 
     /**
@@ -796,7 +785,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('find')
             ->once()
             ->with(self::DEVICE_ID)
-            ->andReturn(new StubDevice(['id' => self::DEVICE_ID]));
+            ->andReturn(new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID]));
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
@@ -842,7 +831,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->with(self::DEVICE_ID)
-            ->andReturn(new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => null]));
+            ->andReturn(new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID, 'revoked_at' => null]));
 
         $resolvers = [];
 
@@ -1081,7 +1070,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $device = new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => null]);
+        $device = new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID, 'revoked_at' => null]);
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
@@ -1195,5 +1184,71 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         self::assertSame($principal, $guard->principal());
         self::assertNull($guard->device());
         self::assertNotContains(DeviceAuthenticated::class, $dispatched);
+    }
+
+    /**
+     * Assert a bearer token whose `did` names the supplied device is rejected
+     * from the single lookup that loaded it, and that `Failed` names the
+     * resolved identity.
+     *
+     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function assertDidHintIsRejected(StubDevice $device): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andReturn($device);
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event;
+            });
+
+        self::assertNull($guard->user());
+        self::assertNull($guard->device());
+        self::assertSame([Attempting::class, Failed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
+        self::assertInstanceOf(Failed::class, $dispatched[1]);
+        self::assertSame($identity, $dispatched[1]->user);
     }
 }

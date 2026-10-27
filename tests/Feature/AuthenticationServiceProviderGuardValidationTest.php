@@ -283,7 +283,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
-        $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);
+        $config->set('authentication.jwt.refresh_idle_ttl_minutes', 60 * 24 * 30);
 
         $config->set('auth.providers.identities', [
             'driver' => 'model',

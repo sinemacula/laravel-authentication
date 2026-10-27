@@ -142,7 +142,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     public function testUnknownDeviceRefreshFailureUsesOneReadAndNoWrites(): void
     {
         $missingDevice = new Device;
-        $missingDevice->forceFill(['id' => '00000000-0000-0000-0000-000000000000']);
+        $missingDevice->forceFill([...self::liveSession(), 'id' => '00000000-0000-0000-0000-000000000000']);
 
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
@@ -167,7 +167,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     public function testMalformedDeviceIdRefreshFailureUsesNoQueries(): void
     {
         $malformedDevice = new Device;
-        $malformedDevice->forceFill(['id' => 'not-a-uuid']);
+        $malformedDevice->forceFill([...self::liveSession(), 'id' => 'not-a-uuid']);
 
         $jwt = PackageAuth::jwt(self::GUARD);
         self::assertNotNull($jwt);
@@ -210,6 +210,40 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $result = $this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token));
 
         self::assertNull($result);
+    }
+
+    /**
+     * A refresh for a device whose session has ended stops at the device
+     * lookup: the deadlines are read from the loaded row, and nothing is
+     * written.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testEndedSessionRefreshFailureUsesOneReadAndNoWrites(): void
+    {
+        $identity   = $this->seedIdentity();
+        $rotationId = 'ended-session-rotation-id';
+
+        $device = new Device;
+        $device->forceFill([
+            ...self::liveSession(),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+        ])->save();
+
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($device, $rotationId, $identity);
+
+        $device->forceFill(['idle_expires_at' => $this->now])->save();
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        self::assertNull($this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token)));
     }
 
     /**

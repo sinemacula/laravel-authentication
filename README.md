@@ -182,9 +182,35 @@ through its own user provider, so the provider's scoping applies and an owner it
 row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
 identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
 with `authenticatable_missing`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
-`algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and
-`active_kid` fall back independently: a guard that overrides `keys` should also set `active_kid` to a kid in its own
-map.
+`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `leeway_seconds`,
+`issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys` should also set
+`active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no overrides).
+
+### Token and session lifetimes
+
+Each guard issues access tokens and keeps sessions for these lifetimes, set in the package `jwt` block and overridable
+in a guard's `jwt` block. The defaults are 5 minutes for access tokens, and 90 days idle and 180 days absolute for
+sessions:
+
+| Key                            | Default | Range        | Env                                               |
+|--------------------------------|---------|--------------|---------------------------------------------------|
+| `access_ttl_minutes`           | 5       | 1 to 1440    | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
+| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
+| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
+| `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
+
+A session is a device. It ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
+deadline however often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past
+the absolute deadline, and never moves the absolute deadline. Tokens mirror the device: a refresh token expires at the
+device's idle deadline, and an access token after the access lifetime but never after the device's absolute deadline.
+A device past either deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it
+cannot be pinned on sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a
+session this way does not revoke the device.
+
+A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
+or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
+fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
+service is resolved; the defaults live only in the published config.
 
 ### Per-guard principal resolvers
 
@@ -253,7 +279,10 @@ that renames a column needs its own migration.
 
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
-than when its access tokens expire. `ActsAsDevice` reads any stored timestamp as a value, with or without a `datetime`
+than when its access tokens expire. A device whose session has ended, past its idle or absolute deadline, is rejected
+the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired` (see
+[Token and session lifetimes](#token-and-session-lifetimes)). `ActsAsDevice` reads any stored timestamp as a value, with
+or without a `datetime`
 cast on the column, and throws a `LogicException` when the device was loaded without one of its refresh or revocation
 state columns (both digests, the rotation time, both deadlines, and the revocation time), for example through a
 `devices()` relation or a global scope that selects other columns, so a partial select is reported instead of being read
@@ -544,13 +573,35 @@ from the principal's own stored key, even when Eloquent's strict mode prevents l
 relation the resolver already set, and a principal whose owner cannot be read (no relation, or an owner that has been
 deleted) fails the attempt.
 
-Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
+Issue tokens through the guard-scoped JWT service, then use the guard for refresh. A device must carry both deadlines
+before anything is issued for it; stamp them from the guard's lifetimes when the device is created:
 
 ```php
-$tokens = Auth::jwt('api');
-$guard  = auth()->guard('api');
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Models\Device;
 
-$accessToken = $tokens->issueAccessToken($identity, $principal, $device);
+$tokens    = Auth::jwt('api');
+$lifetimes = $tokens->lifetimes();
+$absolute  = $lifetimes->absoluteDeadline(now());
+$rotation  = RefreshTokenHasher::generate();
+
+$device = new Device(['client_name' => $request->input('client_name'), 'platform' => $request->input('platform')]);
+$device->forceFill([
+    'authenticatable_type' => $identity->getMorphClass(),
+    'authenticatable_id'   => (string) $identity->getKey(),
+    'refresh_key'          => RefreshTokenHasher::hash($rotation),
+    'idle_expires_at'      => $lifetimes->idleDeadline(now(), $absolute),
+    'absolute_expires_at'  => $absolute,
+])->save();
+
+$refreshToken = $tokens->issueRefreshToken($device, $rotation, $principal);
+$accessToken  = $tokens->issueAccessToken($identity, $principal, $device);
+```
+
+Then exchange the refresh token through the guard:
+
+```php
+$guard = auth()->guard('api');
 
 $rotated = $guard->refresh($refreshToken);
 
@@ -597,8 +648,8 @@ AUTHENTICATION_JWT_ACTIVE_KID="2026-05"
 ```
 
 Tokens signed under `default` keep verifying while it stays in the map. Remove it once every token signed under it
-has expired (the longer of the access and refresh token lifetimes). Removing a kid immediately rejects every token
-signed under it, which is also how to revoke a compromised key.
+has expired: a refresh token never outlives its session, so at most the absolute session lifetime after the switch.
+Removing a kid immediately rejects every token signed under it, which is also how to revoke a compromised key.
 
 ## Events
 
@@ -634,6 +685,7 @@ the published config:
 | `rotation_mismatch`       | Digest did not match the stored refresh key          |
 | `rotation_reuse`          | Replay or concurrent rotation; device revoked        |
 | `device_revoked`          | Device row marked revoked                            |
+| `session_expired`         | Device's idle or absolute deadline reached, or unset |
 | `authenticatable_missing` | Guard's provider did not return the device owner     |
 | `identity_inactive`       | Resolved identity reported inactive                  |
 | `principal_unresolved`    | Principal resolver returned null                     |

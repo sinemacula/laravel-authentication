@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -12,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
  * Proves that a principal or device someone else named belongs to an identity:
@@ -97,15 +99,18 @@ trait VerifiesPinnedContext
      * Resolve a device for the identity from a hint (a `did` claim or a pinned
      * device's identifier). Returns null when the identity does not implement
      * `HasDevices`, the hint cannot be a key of the device model (no query is
-     * made), or the device is not found or has been revoked: a revoked device
-     * is treated exactly like a missing one, from the row already loaded.
+     * made), or the device is not found, has been revoked, or its session has
+     * ended (past its idle or absolute deadline, or without deadlines): a
+     * revoked or ended device is treated exactly like a missing one, from the
+     * row already loaded. The deadlines are checked against the current time
+     * with no leeway, so a token cannot outlive its session.
      *
-     * Building the `devices()` relation, the lookup, and the revocation read
-     * all run inside `WriteConnection::during()` for the identity, which pins
-     * every connection a model resolves meanwhile: a relation that queries
-     * while it is built (a list of permitted devices, say) and a device that
-     * derives its revocation from a relation or another table read the writer
-     * as well.
+     * Building the `devices()` relation, the lookup, and the revocation and
+     * deadline reads all run inside `WriteConnection::during()` for the
+     * identity, which pins every connection a model resolves meanwhile: a
+     * relation that queries while it is built (a list of permitted devices,
+     * say) and a device that derives its state from a relation or another table
+     * read the writer as well.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -127,7 +132,7 @@ trait VerifiesPinnedContext
 
             $device = $devices->find($hint);
 
-            return $device instanceof Device && $device->getRevokedAt() === null ? $device : null;
+            return $device instanceof Device && $device->getRevokedAt() === null && !TokenLifetimes::hasEnded($device, Carbon::now()) ? $device : null;
         });
     }
 

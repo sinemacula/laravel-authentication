@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
@@ -130,7 +131,12 @@ final class RefreshTokenExchangeBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens              = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 'api', 15, 60 * 24 * 30);
+        $this->tokens = new JwtTokenService(
+            JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'),
+            'api',
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180),
+            30,
+        );
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
         $this->tenantAwareProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
         $this->timebox             = new Timebox;

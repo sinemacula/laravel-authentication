@@ -23,11 +23,19 @@ final readonly class PlainDeviceFixture implements Device
      * Constructor.
      *
      * @param  string  $id
+     * @param  ?\Carbon\CarbonInterface  $idleExpiresAt
+     * @param  ?\Carbon\CarbonInterface  $absoluteExpiresAt
      */
     public function __construct(
 
         /** Stable identifier used as the `did` claim. */
         public string $id,
+
+        /** Idle deadline of the device's session. */
+        public ?CarbonInterface $idleExpiresAt = null,
+
+        /** Absolute deadline of the device's session. */
+        public ?CarbonInterface $absoluteExpiresAt = null,
     ) {}
 
     /**
@@ -93,7 +101,7 @@ final readonly class PlainDeviceFixture implements Device
     #[\Override]
     public function getIdleExpiresAt(): ?CarbonInterface
     {
-        return null;
+        return $this->idleExpiresAt;
     }
 
     /**
@@ -104,7 +112,7 @@ final readonly class PlainDeviceFixture implements Device
     #[\Override]
     public function getAbsoluteExpiresAt(): ?CarbonInterface
     {
-        return null;
+        return $this->absoluteExpiresAt;
     }
 
     /**

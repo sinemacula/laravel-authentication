@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Tests\Concerns\InteractsWithJwtTokens;
 
 /**
@@ -188,8 +189,8 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, $activeKid, self::ALGORITHM),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
+            30,
         );
     }
 }

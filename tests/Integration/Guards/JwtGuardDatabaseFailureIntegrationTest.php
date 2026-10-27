@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\UnreachableDevice;
 use Tests\Integration\Fixtures\UnreachableDeviceIdentity;
 use Tests\TestCase;
@@ -35,6 +36,8 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Connection whose database cannot be opened. */
     private const string UNREACHABLE_CONNECTION = 'unreachable';
 
@@ -85,7 +88,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         config()->set('authentication.device.model', UnreachableDevice::class);
 
         $device = new UnreachableDevice;
-        $device->forceFill(['id' => self::DEVICE_ID]);
+        $device->forceFill([...self::liveSession(), 'id' => self::DEVICE_ID]);
 
         $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, 'rotation-id');
 
@@ -115,7 +118,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
         $identity->forceFill(['email' => 'outage@example.test', 'password' => 'irrelevant'])->save();
 
         $device = new UnreachableDevice;
-        $device->forceFill(['id' => self::DEVICE_ID]);
+        $device->forceFill([...self::liveSession(), 'id' => self::DEVICE_ID]);
 
         $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $device);
 

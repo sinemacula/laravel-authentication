@@ -4,13 +4,17 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Jwt;
 
+use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use Tests\Unit\Stubs\StubUncastDevice;
 
 /**
  * Claim-policy unit tests for `JwtTokenService`: the `grd` claim that binds
@@ -322,8 +326,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $verifier = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
             30,
             null,
             null,
@@ -349,6 +352,185 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * The service exposes the lifetimes it issues with, for code that stamps a
+     * new device's deadlines.
+     *
+     * @return void
+     */
+    public function testExposesItsLifetimes(): void
+    {
+        $lifetimes = new TokenLifetimes(7, 70, 700);
+
+        $service = new JwtTokenService($this->makeKeyring(), self::GUARD, $lifetimes, 30);
+
+        self::assertSame($lifetimes, $service->lifetimes());
+    }
+
+    /**
+     * A refresh token expires at the device's stored idle deadline, not the
+     * idle lifetime from now: the row decides how long the session lasts.
+     *
+     * @return void
+     */
+    public function testRefreshTokenExpiresAtTheDevicesIdleDeadline(): void
+    {
+        $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addHours(2), $this->now->copy()->addDays(10));
+
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($device, 'rotation-id'));
+
+        self::assertSame($this->now->getTimestamp() + 7200, $claims[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * A refresh token never expires after the device's absolute deadline, even
+     * when the stored idle deadline lies beyond it.
+     *
+     * @return void
+     */
+    public function testRefreshTokenNeverExpiresAfterTheAbsoluteDeadline(): void
+    {
+        $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addDays(10), $this->now->copy()->addDay());
+
+        $claims = $this->refreshClaims($this->makeService()->issueRefreshToken($device, 'rotation-id'));
+
+        self::assertSame($this->now->getTimestamp() + 86400, $claims[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * An access token expires after the access lifetime when there is no
+     * device, or when the device's session outlasts the token.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAccessTokenExpiresAfterTheAccessLifetimeWithinItsSession(): void
+    {
+        $expected = $this->now->getTimestamp() + (self::ACCESS_TTL_MINUTES * 60);
+
+        self::assertSame($expected, $this->accessExpiry(null));
+        self::assertSame($expected, $this->accessExpiry($this->mockDeviceEndingAt('device-42', $this->now->copy()->addDay(), $this->now->copy()->addDay())));
+    }
+
+    /**
+     * An access token never expires after the absolute deadline of its device's
+     * session, even when the idle deadline lies beyond it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAccessTokenExpiresAtTheAbsoluteDeadlineWhenItComesFirst(): void
+    {
+        foreach ([120, 1] as $absoluteIn) {
+
+            $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addDay(), $this->now->copy()->addSeconds($absoluteIn));
+
+            self::assertSame($this->now->getTimestamp() + $absoluteIn, $this->accessExpiry($device));
+        }
+    }
+
+    /**
+     * A caller that judged the device at a given time issues at that time:
+     * `iat` and the access lifetime count from it, cut to the whole second.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssuesAtTheGivenTime(): void
+    {
+        $issuedAt = CarbonImmutable::instance($this->now)->subSeconds(10)->addMilliseconds(900);
+        $service  = $this->makeService();
+        $device   = $this->mockDevice('device-42');
+
+        $access  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $device, $issuedAt), TokenType::ACCESS);
+        $refresh = $this->refreshClaims($service->issueRefreshToken($device, 'rotation-id', null, $issuedAt));
+
+        self::assertIsArray($access);
+        self::assertSame($this->now->getTimestamp() - 10, $access[Claims::ISSUED_AT->value]);
+        self::assertSame($this->now->getTimestamp() - 10 + (self::ACCESS_TTL_MINUTES * 60), $access[Claims::EXPIRES_AT->value]);
+        self::assertSame($this->now->getTimestamp() - 10, $refresh[Claims::ISSUED_AT->value]);
+    }
+
+    /**
+     * Rows of `[seconds from now to the idle deadline or null, seconds from
+     * now to the absolute deadline or null]` for sessions that have ended.
+     *
+     * @return iterable<string, array{0: ?int, 1: ?int}>
+     */
+    public static function provideEndedSessions(): iterable
+    {
+        yield from [
+            'idle reached this second'     => [0, 86400],
+            'idle passed'                  => [-60, 86400],
+            'absolute reached this second' => [3600, 0],
+            'absolute passed'              => [3600, -60],
+            'no idle deadline'             => [null, 86400],
+            'no absolute deadline'         => [3600, null],
+        ];
+    }
+
+    /**
+     * No access token is issued for a device whose session has ended or has no
+     * deadlines: it could never be used, and a token must not outlive its
+     * session.
+     *
+     * @param  ?int  $idleIn
+     * @param  ?int  $absoluteIn
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideEndedSessions')]
+    public function testRefusesAnAccessTokenForAnEndedSession(?int $idleIn, ?int $absoluteIn): void
+    {
+        $device = $this->mockDeviceEndingAt('device-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $device);
+    }
+
+    /**
+     * No refresh token is issued for a device whose session has ended or has no
+     * deadlines, so issuing cannot extend a session that is over.
+     *
+     * @param  ?int  $idleIn
+     * @param  ?int  $absoluteIn
+     * @return void
+     */
+    #[DataProvider('provideEndedSessions')]
+    public function testRefusesARefreshTokenForAnEndedSession(?int $idleIn, ?int $absoluteIn): void
+    {
+        $device = $this->mockDeviceEndingAt('device-42', $this->secondsFromNow($idleIn), $this->secondsFromNow($absoluteIn));
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+
+        $this->makeService()->issueRefreshToken($device, 'rotation-id');
+    }
+
+    /**
+     * A device loaded without its deadline columns cannot be issued for: the
+     * missing deadline is reported rather than read as "no session" or as a
+     * live one.
+     *
+     * @return void
+     */
+    public function testReportsADeviceLoadedWithoutItsDeadlines(): void
+    {
+        $device = new StubUncastDevice;
+        $device->setRawAttributes(['id' => 'device-42']);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `idle_expires_at` attribute is not loaded');
+
+        $this->makeService()->issueRefreshToken($device, 'rotation-id');
+    }
+
+    /**
      * Build a service on the shared test keyring bound to the named guard.
      *
      * @param  string  $guard
@@ -359,8 +541,8 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         return new JwtTokenService(
             $this->makeKeyring(),
             $guard,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
+            30,
         );
     }
 
@@ -411,12 +593,56 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         return new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
             30,
             null,
             null,
             $logger,
         );
+    }
+
+    /**
+     * Decode a refresh token issued by the default service.
+     *
+     * @param  string  $token
+     * @return array<string, mixed>
+     */
+    private function refreshClaims(string $token): array
+    {
+        $claims = $this->makeService()->parse($token, TokenType::REFRESH);
+
+        self::assertIsArray($claims);
+
+        return $claims;
+    }
+
+    /**
+     * The time the given number of seconds from now, or `null`.
+     *
+     * @param  ?int  $seconds
+     * @return ?\Carbon\CarbonImmutable
+     */
+    private function secondsFromNow(?int $seconds): ?CarbonImmutable
+    {
+        return $seconds === null ? null : CarbonImmutable::instance($this->now)->addSeconds($seconds);
+    }
+
+    /**
+     * The `exp` claim of an access token the default service issues for the
+     * device.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return mixed
+     *
+     * @throws \Random\RandomException
+     */
+    private function accessExpiry(?Device $device): mixed
+    {
+        $service = $this->makeService();
+        $claims  = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $device), TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+
+        return $claims[Claims::EXPIRES_AT->value];
     }
 }

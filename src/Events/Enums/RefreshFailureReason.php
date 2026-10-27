@@ -31,6 +31,9 @@ enum RefreshFailureReason: string
     // Device row marked revoked
     case DEVICE_REVOKED = 'device_revoked';
 
+    // Device's idle or absolute deadline reached, or missing
+    case SESSION_EXPIRED = 'session_expired';
+
     // Guard's identity provider did not return the device owner
     case AUTHENTICATABLE_MISSING = 'authenticatable_missing';
 

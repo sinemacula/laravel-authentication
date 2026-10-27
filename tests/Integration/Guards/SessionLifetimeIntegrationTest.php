@@ -1,0 +1,569 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Integration\Guards;
+
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
+use Firebase\JWT\JWT;
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\TestCase;
+use Tests\Unit\Stubs\StubPrincipal;
+
+/**
+ * End-to-end tests for idle and absolute session lifetimes on the shipped
+ * devices table: a refresh moves the idle deadline forward but never past the
+ * absolute deadline, which never moves; tokens mirror the deadlines; and a
+ * session past either deadline is over on every path, the bearer path, sign-in
+ * pins, and refresh, whatever its tokens say.
+ *
+ * The `api` guard uses 5-minute access tokens, a 1-hour idle lifetime, a
+ * 10-hour absolute lifetime, and 30 seconds of leeway.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+#[CoversClass(JwtGuard::class)]
+#[CoversClass(JwtTokenService::class)]
+#[CoversClass(RefreshTokenExchange::class)]
+#[CoversClass(TokenLifetimes::class)]
+#[CoversTrait(VerifiesPinnedContext::class)]
+final class SessionLifetimeIntegrationTest extends TestCase
+{
+    /** @var string Plaintext rotation id of the device's first refresh token. */
+    private const string ROTATION_ID = 'first-rotation-id';
+
+    /** @var string Password of the seeded identity. */
+    private const string PASSWORD = 'correct horse battery staple';
+
+    /** @var \Carbon\Carbon When the session starts. */
+    private Carbon $signedInAt;
+
+    /**
+     * Freeze the clocks, create the identity table, and register a route behind
+     * the `auth` middleware.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->signedInAt = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
+
+        $this->moveClockTo($this->signedInAt);
+
+        Schema::create('stub_principals', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+    }
+
+    /**
+     * Release the frozen clocks and drop the identity table.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('stub_principals');
+
+        Carbon::setTestNow();
+        JWT::$timestamp = null;
+
+        parent::tearDown();
+    }
+
+    /**
+     * A device created with deadlines stamped from the guard's lifetimes can be
+     * issued for straight away, without a reload: `forceFill()` keeps the
+     * deadlines in the model's attributes. The refresh token expires at the
+     * idle deadline and the access token after the access lifetime.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testDeviceStampedFromTheGuardLifetimesCanBeIssuedForAtOnce(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $refresh = $this->claims($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity), TokenType::REFRESH);
+        $access  = $this->claims($this->tokens()->issueAccessToken($identity, $identity, $device), TokenType::ACCESS);
+
+        self::assertSame($this->signedInAt->getTimestamp() + 3600, $refresh[Claims::EXPIRES_AT->value]);
+        self::assertSame($this->signedInAt->getTimestamp() + 300, $access[Claims::EXPIRES_AT->value]);
+        self::assertSame($this->signedInAt->getTimestamp() + 36000, $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * A refresh moves the idle deadline to the idle lifetime from now, keeps
+     * the absolute deadline exactly where the sign-in put it, and issues a
+     * refresh token that expires at the new idle deadline.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRefreshMovesTheIdleDeadlineAndKeepsTheAbsoluteDeadline(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $token = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+
+        $later = $this->signedInAt->copy()->addMinutes(40);
+
+        $this->moveClockTo($later);
+
+        $pair = $this->guard()->refresh($token);
+
+        self::assertNotNull($pair);
+
+        $stored = $this->stored($device);
+
+        self::assertSame($later->getTimestamp() + 3600, $stored->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($this->signedInAt->getTimestamp() + 36000, $stored->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($later->getTimestamp() + 3600, $this->claims($pair->refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
+        self::assertSame($later->getTimestamp() + 300, $this->claims($pair->accessToken, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * A session kept alive by refreshing every 50 minutes still ends at its
+     * absolute deadline: near it, a refresh sets the idle deadline to the
+     * absolute one, both new tokens expire no later than it, and from that
+     * second on the session cannot be refreshed.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRefreshNeverExtendsTheSessionPastItsAbsoluteDeadline(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $absolute = $this->signedInAt->copy()->addHours(10);
+        $token    = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+
+        foreach (range(50, 550, 50) as $minutes) {
+
+            $this->moveClockTo($this->signedInAt->copy()->addMinutes($minutes));
+
+            $pair = $this->guard()->refresh($token);
+
+            self::assertNotNull($pair);
+
+            $token = $pair->refreshToken;
+        }
+
+        $nearTheEnd = $absolute->copy()->subMinutes(2);
+
+        $this->moveClockTo($nearTheEnd);
+
+        $pair = $this->guard()->refresh($token);
+
+        self::assertNotNull($pair);
+        self::assertSame($absolute->getTimestamp(), $this->stored($device)->getIdleExpiresAt()?->getTimestamp());
+        self::assertSame($absolute->getTimestamp(), $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($absolute->getTimestamp(), $this->claims($pair->refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
+        self::assertSame($absolute->getTimestamp(), $this->claims($pair->accessToken, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
+
+        $this->moveClockTo($absolute);
+
+        self::assertSame(RefreshFailureReason::SESSION_EXPIRED, $this->refreshFailure($pair->refreshToken));
+    }
+
+    /**
+     * Rows of `[seconds after sign-in to the idle deadline, seconds after
+     * sign-in to the absolute deadline, seconds after sign-in to refresh at,
+     * whether the refresh succeeds]` around each boundary second.
+     *
+     * @return iterable<string, array{0: int, 1: int, 2: int, 3: bool}>
+     */
+    public static function provideDeadlineBoundaries(): iterable
+    {
+        yield from [
+            'one second before the idle deadline'     => [600, 36000, 599, true],
+            'at the idle deadline'                    => [600, 36000, 600, false],
+            'after the idle deadline'                 => [600, 36000, 601, false],
+            'one second before the absolute deadline' => [36000, 600, 599, true],
+            'at the absolute deadline'                => [36000, 600, 600, false],
+        ];
+    }
+
+    /**
+     * A refresh at or after either deadline fails with `session_expired`,
+     * writes nothing, and does not revoke the device: expiry is not revocation.
+     * One second earlier, the same refresh succeeds.
+     *
+     * @param  int  $idleIn
+     * @param  int  $absoluteIn
+     * @param  int  $refreshIn
+     * @param  bool  $succeeds
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideDeadlineBoundaries')]
+    public function testRefreshFailsFromTheSecondEitherDeadlineIsReached(int $idleIn, int $absoluteIn, int $refreshIn, bool $succeeds): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $this->setDeadlines($device, $this->signedInAt->copy()->addSeconds($idleIn), $this->signedInAt->copy()->addSeconds($absoluteIn));
+
+        $token = $this->tokens()->issueRefreshToken($this->stored($device), self::ROTATION_ID, $identity);
+
+        $this->moveClockTo($this->signedInAt->copy()->addSeconds($refreshIn));
+
+        $before = $this->storedRow($device);
+
+        if ($succeeds) {
+            self::assertNotNull($this->guard()->refresh($token));
+
+            return;
+        }
+
+        self::assertSame(RefreshFailureReason::SESSION_EXPIRED, $this->refreshFailure($token));
+        self::assertSame($before, $this->storedRow($device));
+        self::assertNull($this->stored($device)->getRevokedAt());
+    }
+
+    /**
+     * An access token naming a device whose session has ended is rejected
+     * through the middleware at once, even while the token itself has not
+     * expired: shortening a deadline cuts access immediately.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsADeviceWhoseSessionHasEnded(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $token = $this->tokens()->issueAccessToken($identity, $identity, $device);
+
+        $this->bearer($token)->assertOk()->assertExactJson(['device' => $device->getKey()]);
+
+        $this->setDeadlines($device, $this->signedInAt, $this->signedInAt->copy()->addHours(10));
+
+        $this->bearer($token)->assertUnauthorized();
+    }
+
+    /**
+     * JWT leeway never stretches a session: an access token past its expiry but
+     * inside the leeway still parses, yet is rejected once its device's
+     * absolute deadline has passed.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testLeewayDoesNotOutliveTheAbsoluteDeadline(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $absolute = $this->signedInAt->copy()->addMinutes(2);
+
+        $this->setDeadlines($device, $absolute, $absolute);
+
+        $token = $this->tokens()->issueAccessToken($identity, $identity, $this->stored($device));
+
+        self::assertSame($absolute->getTimestamp(), $this->claims($token, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
+
+        $this->moveClockTo($absolute->copy()->addSeconds(10));
+
+        self::assertNotNull($this->tokens()->parse($token, TokenType::ACCESS));
+
+        $this->bearer($token)->assertUnauthorized();
+    }
+
+    /**
+     * A device whose session has ended cannot be pinned on sign-in.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAttemptCannotPinADeviceWhoseSessionHasEnded(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $credentials = ['email' => $identity->email, 'password' => self::PASSWORD];
+
+        self::assertTrue($this->guard()->attempt($credentials, null, $device));
+
+        $this->setDeadlines($device, $this->signedInAt->copy()->addHour(), $this->signedInAt);
+
+        self::assertFalse($this->guard()->attempt($credentials, null, $device));
+    }
+
+    /**
+     * The rotation compares both deadlines with what it read: a deadline moved
+     * by another writer between the read and the rotation, even to a time still
+     * in the future, makes the rotation miss, and the presented token is then
+     * treated as a lost race.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRotationMissesWhenADeadlineMovesBeforeItCommits(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $token     = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $shortened = $this->signedInAt->copy()->addHours(2);
+
+        $this->beforeTheRotation(fn () => $this->setDeadlines($device, $this->signedInAt->copy()->addHour(), $shortened));
+
+        self::assertSame(RefreshFailureReason::ROTATION_REUSE, $this->refreshFailure($token));
+        self::assertSame($shortened->getTimestamp(), $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
+    }
+
+    /**
+     * Configure the `api` guard with short lifetimes.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = app(ConfigRepository::class);
+
+        $config->set('auth.defaults.guard', 'api');
+        $config->set('auth.providers.identities', ['driver' => 'model', 'model' => StubPrincipal::class]);
+        $config->set('auth.guards.api', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'access_ttl_minutes'           => 5,
+                'refresh_idle_ttl_minutes'     => 60,
+                'refresh_absolute_ttl_minutes' => 600,
+                'leeway_seconds'               => 30,
+            ],
+        ]);
+    }
+
+    /**
+     * Persist an identity and sign it in on a new device, stamped with the
+     * guard's lifetimes as an application does before the device is created by
+     * the package.
+     *
+     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device}
+     */
+    private function signIn(): array
+    {
+        $identity            = new StubPrincipal;
+        $identity->email     = 'session@example.test';
+        $identity->password  = app(Hasher::class)->make(self::PASSWORD);
+        $identity->is_active = true;
+        $identity->save();
+
+        $lifetimes = $this->tokens()->lifetimes();
+        $absolute  = $lifetimes->absoluteDeadline(Carbon::now());
+
+        $device = new Device(['client_name' => 'Phone', 'platform' => 'iOS']);
+
+        $device->forceFill([
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+            'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
+            'absolute_expires_at'  => $absolute,
+        ])->save();
+
+        return [$identity, $device];
+    }
+
+    /**
+     * Overwrite a device's deadlines on the row.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \Carbon\CarbonInterface  $idle
+     * @param  \Carbon\CarbonInterface  $absolute
+     * @return void
+     */
+    private function setDeadlines(Device $device, CarbonInterface $idle, CarbonInterface $absolute): void
+    {
+        Device::query()->whereKey($device->getKey())->update([
+            'idle_expires_at'     => $idle,
+            'absolute_expires_at' => $absolute,
+        ]);
+    }
+
+    /**
+     * Run a callback once, just before the rotation's compare-and-swap update
+     * executes.
+     *
+     * @param  \Closure(): void  $callback
+     * @return void
+     */
+    private function beforeTheRotation(\Closure $callback): void
+    {
+        $ran = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $callback): void {
+            if ($ran || !str_starts_with(strtolower($query), 'update') || !str_contains($query, 'refresh_key')) {
+                return;
+            }
+
+            $ran = true;
+
+            $callback();
+        });
+    }
+
+    /**
+     * Refresh with a token that must fail, and return the reason.
+     *
+     * @param  string  $token
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
+     *
+     * @throws \Random\RandomException
+     */
+    private function refreshFailure(#[\SensitiveParameter] string $token): ?RefreshFailureReason
+    {
+        $reasons = [];
+
+        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+            $reasons[] = $event->reason;
+        });
+
+        self::assertNull($this->guard()->refresh($token));
+
+        return $reasons[0] ?? null;
+    }
+
+    /**
+     * Send a bearer request to the protected route.
+     *
+     * @param  string  $token
+     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     */
+    private function bearer(#[\SensitiveParameter] string $token): TestResponse
+    {
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/me');
+    }
+
+    /**
+     * Decode a token's claims through the guard's token service.
+     *
+     * @param  string  $token
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @return array<string, mixed>
+     */
+    private function claims(#[\SensitiveParameter] string $token, TokenType $type): array
+    {
+        $claims = $this->tokens()->parse($token, $type);
+
+        self::assertIsArray($claims);
+
+        return $claims;
+    }
+
+    /**
+     * Reload a device from the database.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @return \SineMacula\Laravel\Authentication\Models\Device
+     */
+    private function stored(Device $device): Device
+    {
+        return Device::query()->whereKey($device->getKey())->firstOrFail();
+    }
+
+    /**
+     * Read a device's raw row.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @return array<string, mixed>
+     */
+    private function storedRow(Device $device): array
+    {
+        return (array) DB::table('devices')->where('id', $device->getKey())->first();
+    }
+
+    /**
+     * Move the application and JWT clocks to the given time.
+     *
+     * @param  \Carbon\Carbon  $at
+     * @return void
+     */
+    private function moveClockTo(Carbon $at): void
+    {
+        Carbon::setTestNow($at);
+
+        JWT::$timestamp = $at->getTimestamp();
+    }
+
+    /**
+     * The `api` guard's token service.
+     *
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     */
+    private function tokens(): JwtTokenService
+    {
+        $tokens = Auth::jwt('api');
+
+        self::assertNotNull($tokens);
+
+        return $tokens;
+    }
+
+    /**
+     * A fresh `api` guard.
+     *
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private function guard(): JwtGuard
+    {
+        $manager = app('auth');
+
+        assert($manager instanceof AuthManager);
+
+        $manager->forgetGuards();
+
+        $guard = $manager->guard('api');
+
+        assert($guard instanceof JwtGuard);
+
+        return $guard;
+    }
+}

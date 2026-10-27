@@ -12,6 +12,7 @@ use PhpBench\Attributes\Warmup;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -57,13 +58,13 @@ final readonly class JwtTokenServiceBench
         $this->service = new JwtTokenService(
             JwtKeyring::fromKeyMap(['bench' => 'benchmark-jwt-secret-key-with-at-least-32-bytes!'], 'bench', 'HS256'),
             'api',
-            15,
-            60 * 24 * 30,
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180),
+            30,
         );
 
         $this->identity    = new PlainIdentityFixture('bench-identity');
         $this->principal   = new PlainPrincipalFixture('bench-principal', $this->identity);
-        $this->device      = new PlainDeviceFixture('bench-device');
+        $this->device      = new PlainDeviceFixture('bench-device', $now->copy()->addDays(90), $now->copy()->addDays(180));
         $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, $this->device);
     }
 

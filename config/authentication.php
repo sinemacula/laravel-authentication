@@ -99,11 +99,25 @@ return [
         // Kid in the `keys` map that signs newly issued tokens.
         'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', 'default'),
 
-        'algorithm'           => env('AUTHENTICATION_JWT_ALGORITHM', 'HS256'),
-        'access_ttl_minutes'  => (int) env('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES', 15),
-        'refresh_ttl_minutes' => (int) env('AUTHENTICATION_JWT_REFRESH_TTL_MINUTES', 60 * 24 * 30),
-        'leeway_seconds'      => (int) env('AUTHENTICATION_JWT_LEEWAY_SECONDS', 30),
-        'issuer'              => env('AUTHENTICATION_JWT_ISSUER'),
-        'audience'            => env('AUTHENTICATION_JWT_AUDIENCE'),
+        'algorithm' => env('AUTHENTICATION_JWT_ALGORITHM', 'HS256'),
+
+        // Lifetimes, in minutes, each overridable per guard. An access token
+        // lives `access_ttl_minutes` (1 to 1440). A session (a device) ends
+        // `refresh_idle_ttl_minutes` after its last refresh, and in any case
+        // `refresh_absolute_ttl_minutes` after it started (each 1 to 5256000,
+        // ten years); a refresh token expires when its session would. Values
+        // must be integers, or digit strings as `env()` returns them; anything
+        // else fails closed when the guard is resolved.
+        'access_ttl_minutes'           => env('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES', 5),
+        'refresh_idle_ttl_minutes'     => env('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES', 60 * 24 * 90),
+        'refresh_absolute_ttl_minutes' => env('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES', 60 * 24 * 180),
+
+        // Clock-skew tolerance, in seconds (0 to 300), on every token's `exp`
+        // and `iat`. It never stretches a session: a device past its idle or
+        // absolute deadline is rejected however recent its access token.
+        'leeway_seconds' => env('AUTHENTICATION_JWT_LEEWAY_SECONDS', 30),
+
+        'issuer'   => env('AUTHENTICATION_JWT_ISSUER'),
+        'audience' => env('AUTHENTICATION_JWT_AUDIENCE'),
     ],
 ];

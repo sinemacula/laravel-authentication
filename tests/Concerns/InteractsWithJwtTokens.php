@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Concerns;
 
+use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -46,7 +47,7 @@ trait InteractsWithJwtTokens
 
     /**
      * Issue an access token for mock identity, principal, and device context
-     * objects.
+     * objects, the device in a session that started now.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @return string
@@ -63,6 +64,8 @@ trait InteractsWithJwtTokens
 
         $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')->andReturn('did-1');
+        $device->shouldReceive('getIdleExpiresAt')->andReturn(Carbon::now()->addDays(90));
+        $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(Carbon::now()->addDays(180));
 
         return $service->issueAccessToken($identity, $principal, $device);
     }

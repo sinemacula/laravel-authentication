@@ -134,7 +134,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     public function testRefreshReturnsNullWhenRefreshKeyDoesNotMatch(): void
     {
         $device = new StubDevice;
-        $device->forceFill(['refresh_key' => RefreshTokenHasher::hash('stored-rotation-id')])->save();
+        $device->forceFill([...self::liveSession(), 'refresh_key' => RefreshTokenHasher::hash('stored-rotation-id')])->save();
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
