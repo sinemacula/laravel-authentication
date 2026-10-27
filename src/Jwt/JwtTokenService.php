@@ -12,6 +12,7 @@ use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 
@@ -221,6 +222,10 @@ final class JwtTokenService
      * ended at the issue time or that has no deadlines: a token for it could
      * never be used, and must not be able to extend a session that is over.
      *
+     * The deadlines are read inside `WriteConnection::during()` for the device,
+     * so a device that derives one from another table caps its tokens at the
+     * writer's deadline, not a lagging replica's.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  \Carbon\CarbonInterface  $issuedAt
      * @return \Carbon\CarbonImmutable
@@ -229,7 +234,7 @@ final class JwtTokenService
      */
     private function sessionEnd(Device $device, CarbonInterface $issuedAt): CarbonImmutable
     {
-        [$idle, $absolute] = TokenLifetimes::liveDeadlines($device, $issuedAt)
+        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => TokenLifetimes::liveDeadlines($device, $issuedAt))
             ?? throw new \InvalidArgumentException('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
 
         return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));

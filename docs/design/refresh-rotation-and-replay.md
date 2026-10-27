@@ -49,7 +49,8 @@ other rotated token as a replay that revokes the device.
   a stale digest, rotation time, deadline, or revocation. The device lookup, the locking re-read, and every state read
   (`getRevokedAt()`, both deadlines, `getRefreshKey()`, `getPreviousRefreshKey()`, `getRefreshRotatedAt()`) run inside
   `WriteConnection::during()`, so a device that derives any of them from a relation (eager-loaded or not) or another
-  table reads it from the writer too. A device loaded without one of these columns throws a `LogicException` instead of
+  table reads it from the writer too. So do the deadline reads that cap the issued pair's `exp`, on a rotation, a grace
+  retry, and direct issuance alike. A device loaded without one of these columns throws a `LogicException` instead of
   being admitted or revoked on a missing value. The owner, principal, and tenant behind the activity checks are read
   from the write connection too, including a tenant the owner or principal eager-loads and a tenant kept on another
   connection.
@@ -271,6 +272,10 @@ other rotated token as a replay that revokes the device.
   `testRefreshRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testRefreshRejectsDeviceWhoseSessionEndIsRecordedOnThePrimaryWhileTheReplicaLags`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testRotationCapsTheIssuedPairAtTheSessionEndRecordedOnThePrimary`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testGraceRetryCapsTheIssuedPairAtTheSessionEndRecordedOnThePrimary`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testGraceRetryIsJudgedFromThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`

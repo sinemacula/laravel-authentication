@@ -14,7 +14,6 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use Tests\Unit\Stubs\StubUncastDevice;
 
 /**
  * Claim-policy unit tests for `JwtTokenService`: the `grd` claim that binds
@@ -527,24 +526,6 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
-
-        $this->makeService()->issueRefreshToken($device, 'rotation-id');
-    }
-
-    /**
-     * A device loaded without its deadline columns cannot be issued for: the
-     * missing deadline is reported rather than read as "no session" or as a
-     * live one.
-     *
-     * @return void
-     */
-    public function testReportsADeviceLoadedWithoutItsDeadlines(): void
-    {
-        $device = new StubUncastDevice;
-        $device->setRawAttributes(['id' => 'device-42']);
-
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('its `idle_expires_at` attribute is not loaded');
 
         $this->makeService()->issueRefreshToken($device, 'rotation-id');
     }

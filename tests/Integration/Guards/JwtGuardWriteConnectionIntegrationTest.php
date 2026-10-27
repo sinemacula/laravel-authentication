@@ -409,6 +409,95 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A refresh that rotates a device deriving the end of its session from
+     * another table, whose session ends at 12:03 on the primary while the
+     * replica still shows it ended at 11:00, succeeds and caps both tokens at
+     * 12:03: the deadlines that bound the issued pair are read from the writer
+     * too, not only the ones that judged the token.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRotationCapsTheIssuedPairAtTheSessionEndRecordedOnThePrimary(): void
+    {
+        app(ConfigRepository::class)->set('authentication.device.model', RevocationLogDevice::class);
+
+        [$identity, $device] = $this->seedRevocationLogDevice();
+
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $sessionEnd   = Carbon::now()->addMinutes(3);
+
+        $this->recordSessionEnd($device, $sessionEnd);
+        $this->recordSessionEnd($device, Carbon::now()->subHour(), self::REPLICA_CONNECTION);
+
+        $pair   = $this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken);
+        $tokens = $this->authManager()->jwt('revocation_log');
+        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('refresh_key');
+
+        self::assertNotNull($pair);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken)['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken)['exp'] ?? null);
+        self::assertSame(RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)), $stored);
+    }
+
+    /**
+     * A grace retry for a device deriving the end of its session from another
+     * table, whose session ends at 12:01 on the primary while the replica does
+     * not yet show it, is handed a pair that expires at 12:01: the reissue
+     * reads the session's end from the writer instead of minting tokens that
+     * outlive it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testGraceRetryCapsTheIssuedPairAtTheSessionEndRecordedOnThePrimary(): void
+    {
+        app(ConfigRepository::class)->set('authentication.device.model', RevocationLogDevice::class);
+
+        [$identity, $device] = $this->seedRevocationLogDevice();
+
+        $this->rotateOnThePrimary($device, Carbon::now()->subSeconds(5));
+
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $sessionEnd   = Carbon::now()->addMinute();
+
+        $this->recordSessionEnd($device, $sessionEnd);
+
+        $pair   = $this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken);
+        $tokens = $this->authManager()->jwt('revocation_log');
+
+        self::assertNotNull($pair);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->accessToken)['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($pair->refreshToken)['exp'] ?? null);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $tokens->parse($pair->refreshToken)['jti'] ?? null);
+    }
+
+    /**
+     * Tokens issued at sign-in for a device deriving the end of its session
+     * from another table, whose session ends at 12:01 on the primary while the
+     * replica does not yet show it, expire at 12:01.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssuanceCapsTokensAtTheSessionEndRecordedOnThePrimary(): void
+    {
+        [$identity, $device] = $this->seedRevocationLogDevice();
+
+        $sessionEnd = Carbon::now()->addMinute();
+
+        $this->recordSessionEnd($device, $sessionEnd);
+
+        $tokens = $this->authManager()->jwt('revocation_log');
+
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueAccessToken($identity, $identity, $device))['exp'] ?? null);
+        self::assertSame($sessionEnd->getTimestamp(), $tokens->parse($tokens->issueRefreshToken($device, self::ROTATION_ID, $identity))['exp'] ?? null);
+    }
+
+    /**
      * Rows of `[device model]`: device models that derive their revocation from
      * the `device_revocations` table.
      *
@@ -1022,17 +1111,20 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Record the end of the device's session, now, through the split
-     * connection, so the replica does not see it.
+     * Record the end of the device's session at the given time (default now),
+     * through the split connection unless another is named, so the replica does
+     * not see it.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  ?\Carbon\Carbon  $endedAt
+     * @param  string  $connection
      * @return void
      */
-    private function recordSessionEnd(Device $device): void
+    private function recordSessionEnd(Device $device, ?Carbon $endedAt = null, string $connection = self::SPLIT_CONNECTION): void
     {
-        DB::connection(self::SPLIT_CONNECTION)->table('device_session_ends')->insert([
+        DB::connection($connection)->table('device_session_ends')->insert([
             'device_id' => $device->getKey(),
-            'ended_at'  => Carbon::now(),
+            'ended_at'  => $endedAt ?? Carbon::now(),
         ]);
     }
 

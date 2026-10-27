@@ -136,6 +136,71 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
+     * Rows of `[token type]`: each kind of token the guard's service issues.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType}>
+     */
+    public static function provideTokenTypes(): iterable
+    {
+        yield from [
+            'access token'  => [TokenType::ACCESS],
+            'refresh token' => [TokenType::REFRESH],
+        ];
+    }
+
+    /**
+     * A device stamped from the guard's lifetimes is issued for up to the last
+     * second before its idle deadline, with the token expiring at that
+     * deadline; from the deadline on, issuing through `Auth::jwt()` refuses.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideTokenTypes')]
+    public function testNoTokenIsIssuedFromTheSecondTheIdleDeadlineIsReached(TokenType $type): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $idle = $this->signedInAt->copy()->addHour();
+
+        $this->moveClockTo($idle->copy()->subSecond());
+
+        self::assertSame($idle->getTimestamp(), $this->claims($this->issue($type, $identity, $device), $type)[Claims::EXPIRES_AT->value]);
+
+        $this->moveClockTo($idle);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+
+        $this->issue($type, $identity, $device);
+    }
+
+    /**
+     * A device loaded without its deadline columns cannot be issued for: the
+     * missing deadline is reported rather than read as "no session" or as a
+     * live one.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideTokenTypes')]
+    public function testIssuingReportsADeviceLoadedWithoutItsDeadlines(TokenType $type): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $partial = Device::query()->select(['id', 'authenticatable_type', 'authenticatable_id'])->findOrFail($device->getKey());
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `idle_expires_at` attribute is not loaded');
+
+        $this->issue($type, $identity, $partial);
+    }
+
+    /**
      * A refresh moves the idle deadline to the idle lifetime from now, keeps
      * the absolute deadline exactly where the sign-in put it, and issues a
      * refresh token that expires at the new idle deadline.
@@ -549,6 +614,24 @@ final class SessionLifetimeIntegrationTest extends TestCase
     private function bearer(#[\SensitiveParameter] string $token, string $path = '/me'): TestResponse
     {
         return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson($path);
+    }
+
+    /**
+     * Issue a token of the given type for the device through the `api` guard's
+     * token service.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @return string
+     *
+     * @throws \Random\RandomException
+     */
+    private function issue(TokenType $type, StubPrincipal $identity, Device $device): string
+    {
+        return $type === TokenType::ACCESS
+            ? $this->tokens()->issueAccessToken($identity, $identity, $device)
+            : $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
     }
 
     /**
