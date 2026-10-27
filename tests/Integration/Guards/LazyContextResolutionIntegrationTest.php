@@ -22,7 +22,8 @@ use Tests\TestCase;
 /**
  * On a route without authentication middleware, the first call to `Auth::id()`
  * or to any contextual accessor resolves the bearer token, as Laravel's own
- * guards do, instead of returning `null` until something calls `user()`.
+ * guards do, instead of returning `null` until something calls `user()`. A
+ * principal or device pinned before that first access stays pinned.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -142,6 +143,55 @@ final class LazyContextResolutionIntegrationTest extends TestCase
         $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/first-call')
             ->assertOk()
             ->assertExactJson(['value' => $expected[$accessor]]);
+    }
+
+    /**
+     * A principal and device pinned on a route without `auth` middleware,
+     * before anything resolved the request, stay pinned: the bearer token is
+     * resolved first and the pins replace its principal and device.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testPinsSetBeforeFirstAccessAreNotReplacedByTheBearerToken(): void
+    {
+        [$member, $membership, $tenant, $device] = $this->seedContext();
+
+        $otherMembership = new ActivatableTenantMembership;
+        $otherMembership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
+
+        $otherDevice = $device->replicate();
+        $otherDevice->save();
+
+        $manager = app('auth');
+
+        assert($manager instanceof AuthManager);
+
+        $token = $manager->jwt('api')->issueAccessToken($member, $membership, $device);
+
+        Route::get('/pin-first', static function () use ($otherMembership, $otherDevice): array {
+
+            $guard = app('auth')->guard('api');
+
+            assert($guard instanceof JwtGuard);
+
+            $guard->setPrincipal($otherMembership)->setDevice($otherDevice);
+
+            return [
+                'identity'  => $guard->identity()?->getAuthIdentifier(),
+                'principal' => $guard->principal()?->getPrincipalIdentifier(),
+                'device'    => $guard->device()?->getDeviceIdentifier(),
+            ];
+        });
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/pin-first')
+            ->assertOk()
+            ->assertExactJson([
+                'identity'  => $member->getKey(),
+                'principal' => $otherMembership->getKey(),
+                'device'    => $otherDevice->getKey(),
+            ]);
     }
 
     /**

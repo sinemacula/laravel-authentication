@@ -139,6 +139,42 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
+     * A principal pinned before anything resolved the request is pinned over
+     * the principal the request binds, not replaced by it on the next access.
+     *
+     * @return void
+     */
+    public function testSetPrincipalBeforeFirstAccessPinsOverTheResolvedPrincipal(): void
+    {
+        $pinned = \Mockery::mock(Principal::class);
+        $guard  = $this->makeResolvingGuard();
+
+        $guard->setPrincipal($pinned);
+
+        self::assertSame($pinned, $guard->principal());
+        self::assertSame($this->identity, $guard->identity());
+        self::assertSame($this->device, $guard->device());
+    }
+
+    /**
+     * A device pinned before anything resolved the request is pinned over the
+     * device the request binds, not replaced by it on the next access.
+     *
+     * @return void
+     */
+    public function testSetDeviceBeforeFirstAccessPinsOverTheResolvedDevice(): void
+    {
+        $pinned = \Mockery::mock(Device::class);
+        $guard  = $this->makeResolvingGuard();
+
+        $guard->setDevice($pinned);
+
+        self::assertSame($pinned, $guard->device());
+        self::assertSame($this->identity, $guard->identity());
+        self::assertSame($this->principal, $guard->principal());
+    }
+
+    /**
      * Build a guard whose `user()` binds the context on its first call, as a
      * request-resolving guard does.
      *
@@ -159,8 +195,11 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
             public function user(): ?Identity
             {
                 if ($this->pending !== null) {
-                    $this->login(...$this->pending);
+
+                    $pending       = $this->pending;
                     $this->pending = null;
+
+                    $this->login(...$pending);
                 }
 
                 return $this->identity;

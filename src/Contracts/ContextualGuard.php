@@ -86,7 +86,9 @@ interface ContextualGuard extends Guard
     public function type(): ?string;
 
     /**
-     * Pin the active principal for the current request.
+     * Pin the active principal for the current request, resolving the request
+     * first so the pin replaces the principal its credential binds rather than
+     * being replaced by it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return static
@@ -94,7 +96,9 @@ interface ContextualGuard extends Guard
     public function setPrincipal(Principal $principal): static;
 
     /**
-     * Pin the active device for the current request.
+     * Pin the active device for the current request, resolving the request
+     * first so the pin replaces the device its credential binds rather than
+     * being replaced by it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return static

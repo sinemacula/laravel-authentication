@@ -108,11 +108,19 @@ trait BindsContextualState
      * Pin the active principal for the current request and fire the
      * `PrincipalAssigned` custom event.
      *
+     * The request is resolved first, so the pin replaces the principal the
+     * request's credential binds instead of being replaced by it on the next
+     * access.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return static
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function setPrincipal(Principal $principal): static
     {
+        $this->user();
+
         $this->principal = $principal;
 
         $this->dispatcher()->dispatch(new PrincipalAssigned($this->name, $principal));
@@ -124,11 +132,19 @@ trait BindsContextualState
      * Pin the active device for the current request and fire the
      * `DeviceAuthenticated` custom event.
      *
+     * The request is resolved first, so the pin replaces the device the
+     * request's credential binds instead of being replaced by it on the next
+     * access.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return static
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function setDevice(Device $device): static
     {
+        $this->user();
+
         $this->device = $device;
 
         $this->dispatcher()->dispatch(new DeviceAuthenticated($this->name, $device));

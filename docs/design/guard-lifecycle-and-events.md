@@ -26,7 +26,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   the request. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request reads the
   identity, principal, tenant, and device live, from the write connection.
 - `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on
-  a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do.
+  a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()`
+  and `setDevice()` resolve the request first too, so a pin set before the first access replaces the principal or
+  device the request's token binds instead of being replaced by it.
 
 ## Success Path
 
@@ -113,7 +115,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Guards/MisconfiguredIdentityIntegrationTest.php`
   `testBearerRequestAnswersWithServerError`
 - `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`
-  `testAccessorResolvesBearerTokenWhenCalledFirst`
+  `testAccessorResolvesBearerTokenWhenCalledFirst`, `testPinsSetBeforeFirstAccessAreNotReplacedByTheBearerToken`
 - `tests/Integration/Guards/RequestResolutionIntegrationTest.php`
   `testRejectedBearerTokenIsAttemptedOncePerRequest`, `testLogoutKeepsTheRequestSignedOut`
 - `tests/Integration/Guards/ActingAsIntegrationTest.php`
