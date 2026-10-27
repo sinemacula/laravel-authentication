@@ -239,7 +239,7 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `HasDevices::devices()` must return an
-     * `Illuminate\Contracts\Database\Eloquent\Builder` so the JWT guard's
+     * `Illuminate\Contracts\Database\Eloquent\Builder` so the guards'
      * `resolveDeviceFromHint()` path can query through a uniform surface.
      *
      * @return void

@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
+use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPinnedContextGuard;
 
 /**
@@ -32,6 +33,9 @@ use Tests\Unit\Stubs\StubPinnedContextGuard;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 {
+    /** @var string A key with the shape of a `StubDevice` UUID key. */
+    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+
     /** @var array<int, class-string> Classes of the dispatched events. */
     private array $dispatched = [];
 
@@ -164,8 +168,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
      */
     public function testOwnedLivePinnedDeviceBindsTheIdentitysOwnRow(): void
     {
-        $pinned = $this->device('d-1', null);
-        $owned  = $this->device('d-1', null);
+        $pinned = $this->device(self::DEVICE_ID, null);
+        $owned  = $this->device(self::DEVICE_ID, null);
 
         $guard = $this->guardWithDevices($owned);
 
@@ -184,7 +188,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     {
         $guard = $this->guardWithDevices(null);
 
-        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device('d-1', null)), $guard);
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device(self::DEVICE_ID, null)), $guard);
     }
 
     /**
@@ -196,7 +200,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
      */
     public function testRevokedPinnedDeviceFailsTheAttempt(): void
     {
-        $revoked = $this->device('d-1', CarbonImmutable::now());
+        $revoked = $this->device(self::DEVICE_ID, CarbonImmutable::now());
 
         $guard = $this->guardWithDevices($revoked);
 
@@ -214,9 +218,9 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     public function testPinnedDeviceOfAnotherClassWithACollidingIdentifierFailsTheAttempt(): void
     {
         $pinned = \Mockery::mock(Device::class, CanBeActive::class);
-        $pinned->shouldReceive('getDeviceIdentifier')->andReturn('d-1');
+        $pinned->shouldReceive('getDeviceIdentifier')->andReturn(self::DEVICE_ID);
 
-        $guard = $this->guardWithDevices($this->device('d-1', null));
+        $guard = $this->guardWithDevices($this->device(self::DEVICE_ID, null));
 
         $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $pinned), $guard);
     }
@@ -232,6 +236,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     public function testPinnedDeviceWithoutIdentifierFailsTheAttempt(): void
     {
         $devices = \Mockery::mock(Builder::class);
+        $devices->shouldNotReceive('useWritePdo');
         $devices->shouldNotReceive('find');
 
         $identity = \Mockery::mock(Identity::class, HasDevices::class);
@@ -243,6 +248,30 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device(null, null)), $guard);
+    }
+
+    /**
+     * A pinned device whose identifier cannot be a key of the identity's device
+     * model fails the attempt without querying, as a malformed `did` does.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedDeviceWithMalformedIdentifierFailsTheAttemptWithoutQuerying(): void
+    {
+        $devices = $this->writerDevices();
+        $devices->shouldNotReceive('find');
+
+        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity->shouldReceive('devices')->andReturn($devices);
+
+        $this->acceptIdentity($identity);
+        $this->resolver->shouldReceive('resolve')->andReturn($this->principal('p-1'));
+
+        $guard = $this->makeGuard();
+
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device('not-a-uuid', null)), $guard);
     }
 
     /**
@@ -260,7 +289,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
         $guard = $this->makeGuard();
 
-        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device('d-1', null)), $guard);
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $this->device(self::DEVICE_ID, null)), $guard);
     }
 
     /**
@@ -282,8 +311,9 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * The pinned-principal and pinned-device checks are callable from a guard
-     * subclass, and return the identity's own instances.
+     * The pinned-principal, pinned-device, and device-hint checks are callable
+     * from a guard subclass, as `JwtGuard` calls the device-hint lookup, and
+     * return the identity's own instances.
      *
      * @return void
      */
@@ -293,10 +323,12 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
         $principal = $this->principal('p-1');
         $identity  = \Mockery::mock(Identity::class, HasDevices::class);
-        $device    = $this->device('d-1', null);
+        $device    = $this->device(self::DEVICE_ID, null);
 
         $devices = \Mockery::mock(Builder::class);
-        $devices->shouldReceive('find')->once()->with('d-1')->andReturn($device);
+        $devices->shouldReceive('useWritePdo')->twice()->andReturnSelf();
+        $devices->shouldReceive('getModel')->andReturn(new StubDevice);
+        $devices->shouldReceive('find')->twice()->with(self::DEVICE_ID)->andReturn($device);
 
         $identity->shouldReceive('devices')->andReturn($devices);
 
@@ -304,6 +336,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
         self::assertSame($principal, $guard->pinnedPrincipal($identity, $principal));
         self::assertSame($device, $guard->pinnedDevice($identity, $device));
+        self::assertSame($device, $guard->deviceFromHint($identity, self::DEVICE_ID));
     }
 
     /**
@@ -373,8 +406,8 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
      */
     private function guardWithDevices(?Device $owned): AbstractGuard
     {
-        $devices = \Mockery::mock(Builder::class);
-        $devices->shouldReceive('find')->once()->with('d-1')->andReturn($owned);
+        $devices = $this->writerDevices();
+        $devices->shouldReceive('find')->once()->with(self::DEVICE_ID)->andReturn($owned);
 
         $identity = \Mockery::mock(Identity::class, HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
@@ -383,6 +416,21 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($this->principal('p-1'));
 
         return $this->makeGuard();
+    }
+
+    /**
+     * Build a devices relation over `StubDevice` that expects to be routed to
+     * the write connection once.
+     *
+     * @return \Illuminate\Database\Eloquent\Builder<\Tests\Unit\Stubs\StubDevice>&\Mockery\MockInterface
+     */
+    private function writerDevices(): MockInterface
+    {
+        $devices = \Mockery::mock(Builder::class);
+        $devices->shouldReceive('useWritePdo')->once()->andReturnSelf();
+        $devices->shouldReceive('getModel')->andReturn(new StubDevice);
+
+        return $devices;
     }
 
     /**

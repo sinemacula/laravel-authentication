@@ -48,7 +48,7 @@ final class IntegrationIdentity extends Model implements CanBeActive, HasDevices
      * Eloquent relation builder for the identity's devices.
      *
      * Filters the shipped Device model by the polymorphic authenticatable
-     * columns so `JwtGuard::resolveDeviceFromHint()` can resolve a device by
+     * columns so the guard's `resolveDeviceFromHint()` can resolve a device by
      * its id through a real query.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder

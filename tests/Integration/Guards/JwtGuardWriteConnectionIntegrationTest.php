@@ -12,8 +12,10 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -47,12 +49,16 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(ModelProvider::class)]
 #[CoversClass(DefaultPrincipalResolver::class)]
+#[CoversTrait(VerifiesPinnedContext::class)]
 final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 {
     use InteractsWithLaggingReplica;
 
     /** @var string Plaintext rotation id stored on the seeded device. */
     private const string ROTATION_ID = 'stored-rotation-id';
+
+    /** @var string Plaintext password of the seeded identity. */
+    private const string PASSWORD = 'correct horse battery staple';
 
     /**
      * Freeze the clocks and create the identity and principal tables on the
@@ -160,6 +166,37 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
         self::assertNull($guard->user());
+    }
+
+    /**
+     * A device pinned on `attempt()` that is revoked on the primary while the
+     * replica still shows it live fails the attempt: the pinned device is read
+     * from the writer, like a bearer `did`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptRejectsPinnedDeviceRevokedOnThePrimaryWhileTheReplicaLags(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity);
+
+        $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+        $this->copyRowToReplica('stub_principals', $identity->getKey());
+        $this->copyRowToReplica('devices', $device->getKey());
+
+        $credentials = ['email' => 'writer@example.test', 'password' => self::PASSWORD];
+
+        self::assertTrue($this->guardForRequest(Request::create('/sign-in', 'POST'))->attempt($credentials, null, $device));
+
+        Device::query()->whereKey($device->getKey())->update(['revoked_at' => Carbon::now()]);
+
+        $guard = $this->guardForRequest(Request::create('/sign-in', 'POST'));
+
+        self::assertFalse($guard->attempt($credentials, null, $device));
+        self::assertFalse($guard->hasUser());
     }
 
     /**
@@ -286,6 +323,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             'driver' => 'model',
             'model'  => StubPrincipal::class,
         ]);
+
+        // Failed attempts wait out the timebox; keep it short.
+        $config->set('authentication.timebox.credentials_microseconds', 1);
     }
 
     /**

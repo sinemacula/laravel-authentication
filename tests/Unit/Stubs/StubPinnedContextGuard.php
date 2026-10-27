@@ -45,6 +45,18 @@ final class StubPinnedContextGuard extends AbstractGuard
     }
 
     /**
+     * Expose `resolveDeviceFromHint()`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     */
+    public function deviceFromHint(Identity $identity, mixed $hint): ?Device
+    {
+        return $this->resolveDeviceFromHint($identity, $hint);
+    }
+
+    /**
      * Expose `resolvePinnedDevice()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

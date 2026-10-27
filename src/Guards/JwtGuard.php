@@ -7,15 +7,11 @@ namespace SineMacula\Laravel\Authentication\Guards;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
-use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -176,36 +172,6 @@ final class JwtGuard extends AbstractGuard
         }
 
         return $this->resolveBearerToken($token);
-    }
-
-    /**
-     * Resolve a device for the identity from a hint (typically the `did`
-     * claim), reading from the write connection so a lagging replica cannot
-     * resolve a deleted or revoked device. Returns null when the identity does
-     * not implement `HasDevices`, the hint cannot be a key of the device model
-     * (no query is made), or the device is not found or has been revoked: a
-     * revoked device is treated exactly like a missing one, from the row
-     * already loaded.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
-     */
-    protected function resolveDeviceFromHint(Identity $identity, mixed $hint): ?Device
-    {
-        if ($hint === null || !$identity instanceof HasDevices) {
-            return null;
-        }
-
-        $devices = WriteConnection::query($identity->devices());
-
-        if (!DeviceKeyShape::matches($devices->getModel(), $hint)) {
-            return null;
-        }
-
-        $device = $devices->find($hint);
-
-        return $device instanceof Device && $device->getRevokedAt() === null ? $device : null;
     }
 
     /**

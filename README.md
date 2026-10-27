@@ -456,10 +456,10 @@ $guard->attempt(['email' => $email, 'password' => $password], $membership, $devi
 ```
 
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
-resolver returns for that identifier on the authenticated identity (same class, same identifier), and the device must
-be one of the identity's own devices (through `HasDevices`) and not revoked. A pin that fails either check fails the
-attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and device
-you have already proven belong to the identity.
+resolver returns for that identifier on the authenticated identity (same class, same identifier), and the device must be
+one of the identity's own devices (through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin
+that fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
+only pass it a principal and device you have already proven belong to the identity.
 
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 

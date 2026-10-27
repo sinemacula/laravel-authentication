@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Feature tests for the timebox budget, lifecycle state management, and
@@ -349,12 +350,16 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
+        $deviceId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+
         $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getDeviceIdentifier')->andReturn('d-1');
+        $device->shouldReceive('getDeviceIdentifier')->andReturn($deviceId);
         $device->shouldReceive('getRevokedAt')->andReturnNull();
 
         $devices = \Mockery::mock(Builder::class);
-        $devices->shouldReceive('find')->once()->with('d-1')->andReturn($device);
+        $devices->shouldReceive('useWritePdo')->once()->andReturnSelf();
+        $devices->shouldReceive('getModel')->andReturn(new StubDevice);
+        $devices->shouldReceive('find')->once()->with($deviceId)->andReturn($device);
 
         $identity = \Mockery::mock(Identity::class, HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);

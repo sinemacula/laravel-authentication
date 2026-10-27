@@ -11,7 +11,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `attempt()`, which must also come back as the same class.
 - A present bearer `did` must resolve to a real, unrevoked device owned by the resolved identity. A device with
   `revoked_at` set is treated exactly like a missing one, so revoking a device ends its access tokens at once; the check
-  reads the row the lookup already loaded, with no extra query.
+  reads the row the lookup already loaded, with no extra query. The same lookup verifies a device pinned on `attempt()`,
+  which must also come back as the same class.
 - Refresh is stricter than bearer auth: refresh always requires a valid `did`, because refresh is device-backed.
 - A `did` is checked against the device model's key format before any query; one that cannot be a key fails closed as
   an unresolved device, and a database error on a well-formed `did` propagates instead of reading as a missing device.
@@ -48,10 +49,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 
 ## Implementation Anchors
 
-- `src/Guards/JwtGuard.php`: `resolveContextFromToken()`, `resolveDeviceFromHint()`, `resolvePrincipalFromClaims()`,
-  `loadIdentityFromClaims()`.
-- `src/Guards/Concerns/VerifiesPinnedContext.php`: `matchesPidHint()`, shared by the bearer path and the
-  pinned-principal check in `attempt()`, plus `resolvePinnedPrincipal()` and `resolvePinnedDevice()`.
+- `src/Guards/JwtGuard.php`: `resolveContextFromToken()`, `resolvePrincipalFromClaims()`, `loadIdentityFromClaims()`.
+- `src/Guards/Concerns/VerifiesPinnedContext.php`: `matchesPidHint()` and `resolveDeviceFromHint()`, each shared by the
+  bearer path and the pinned-context check in `attempt()`, plus `resolvePinnedPrincipal()` and `resolvePinnedDevice()`.
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`,
   `matchesPidHint()`.
 - `src/Jwt/IdentifierCoercion.php`: `stringify()`.

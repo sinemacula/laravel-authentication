@@ -8,12 +8,14 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 
 /**
  * Proves that a principal or device someone else named belongs to an identity:
  * a principal hint (a `pid` claim or a principal pinned on `attempt()`) and a
- * device pinned on `attempt()`.
+ * device hint (a `did` claim or a device pinned on `attempt()`).
  *
  * Expects the using class to declare:
  * - `protected function resolvePrincipal(Identity $identity, mixed $hint =
@@ -76,9 +78,8 @@ trait VerifiesPinnedContext
 
     /**
      * Look a caller-supplied device up among the identity's own devices and
-     * return the live row. Returns `null` when the identity cannot own devices,
-     * owns no device of the same class with that identifier, or the device is
-     * revoked.
+     * return the live row. Returns `null` when the identity owns no live device
+     * of the same class with that identifier (see `resolveDeviceFromHint()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $pinned
@@ -86,16 +87,38 @@ trait VerifiesPinnedContext
      */
     protected function resolvePinnedDevice(Identity $identity, Device $pinned): ?Device
     {
-        $identifier = $pinned->getDeviceIdentifier();
+        $owned = $this->resolveDeviceFromHint($identity, $pinned->getDeviceIdentifier());
 
-        if ($identifier === null || !$identity instanceof HasDevices) {
+        return $owned !== null && $owned::class === $pinned::class ? $owned : null;
+    }
+
+    /**
+     * Resolve a device for the identity from a hint (a `did` claim or a pinned
+     * device's identifier), reading from the write connection so a lagging
+     * replica cannot resolve a deleted or revoked device. Returns null when the
+     * identity does not implement `HasDevices`, the hint cannot be a key of the
+     * device model (no query is made), or the device is not found or has been
+     * revoked: a revoked device is treated exactly like a missing one, from the
+     * row already loaded.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  mixed  $hint
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     */
+    protected function resolveDeviceFromHint(Identity $identity, mixed $hint): ?Device
+    {
+        if ($hint === null || !$identity instanceof HasDevices) {
             return null;
         }
 
-        $owned = $identity->devices()->find($identifier);
+        $devices = WriteConnection::query($identity->devices());
 
-        return $owned instanceof Device && $owned::class === $pinned::class && $owned->getRevokedAt() === null
-            ? $owned
-            : null;
+        if (!DeviceKeyShape::matches($devices->getModel(), $hint)) {
+            return null;
+        }
+
+        $device = $devices->find($hint);
+
+        return $device instanceof Device && $device->getRevokedAt() === null ? $device : null;
     }
 }
