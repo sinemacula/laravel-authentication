@@ -42,7 +42,9 @@ trait SignsInWithCredentials
     /**
      * Run an `attempt()` sign-in up to the bind: the audience policy's method
      * check and the attempt limits, then, inside the credential timebox, the
-     * password check and everything after it. The slots the attempt took are
+     * password check (refused before any lookup when the identifier is neither
+     * a string nor a query closure, and counted against the account the
+     * credentials find) and everything after it. The slots the attempt took are
      * given back only when it succeeds.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
@@ -77,11 +79,9 @@ trait SignsInWithCredentials
 
         $outcome = $this->timebox->call(function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $audience, $type): AdmittedSignIn|RefusedSignIn {
 
-            $user = $password->retrieve($this->provider, $credentials);
+            $user = $this->verifyAttemptedCredentials($password, $credentials);
 
-            $this->lastRetrievedUser = $user;
-
-            if (!$user instanceof Identity || !$password->accepts($this->provider, $user, $credentials)) {
+            if ($user === null) {
                 return new RefusedSignIn(SignInFailureReason::INVALID_CREDENTIALS);
             }
 
@@ -108,6 +108,33 @@ trait SignsInWithCredentials
         }
 
         return $outcome;
+    }
+
+    /**
+     * Return the identity the credentials of an `attempt()` find and whose
+     * password they match, or `null`. Credentials whose identifier is neither a
+     * string nor a query closure are never looked up; otherwise the account
+     * found is remembered for Laravel's `Failed` event, and its password check
+     * is counted against it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
+     * @param  array<string, mixed>  $credentials
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     */
+    private function verifyAttemptedCredentials(PasswordSignIn $password, #[\SensitiveParameter] array $credentials): ?Identity
+    {
+        if (!$password->hasUsableIdentifier($this->name, $credentials)) {
+            return null;
+        }
+
+        $user = $password->retrieve($this->provider, $credentials);
+
+        $this->lastRetrievedUser = $user;
+
+        return $user instanceof Identity && $password->verifyPassword($this->name, $this->provider, $user, $credentials) ? $user : null;
     }
 
     /**

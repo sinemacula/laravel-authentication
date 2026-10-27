@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -144,9 +145,9 @@ final class SignInPolicyEndToEndTest extends TestCase
      * A sign-in finds the identity whatever the casing and spacing of the
      * address, and every form of it counts against one limit: after a success
      * gives its slot back, five failures under different casings use the
-     * identifier's limit up, and the next sign-in is refused without its
-     * password being checked, with the wait to the end of the window. The
-     * limits store digests only.
+     * identifier's limit, and the account's, up, and the next sign-in is
+     * refused without its password being checked, with the wait to the end of
+     * the window. The limits store digests only.
      *
      * @return void
      *
@@ -178,14 +179,113 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $rows = DB::table('rate_limits')->orderBy('hits')->get();
 
-        self::assertCount(2, $rows);
-        self::assertSame([5, 5], $rows->pluck('hits')->map(static fn (mixed $hits): int => (int) $hits)->all()); // @phpstan-ignore cast.int
+        self::assertCount(3, $rows);
+        self::assertSame([5, 5, 5], $rows->pluck('hits')->map(static fn (mixed $hits): int => (int) $hits)->all()); // @phpstan-ignore cast.int
 
         foreach ($rows as $row) {
             self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $row->key);
         }
 
         self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * `attempt()` refuses a list of addresses under the identifier key before
+     * any lookup: once the address has used its limit up, the list cannot be
+     * used to keep guessing, nor to sign in with the right password.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAListOfIdentifiersCannotGetAroundTheIdentifiersLimit(): void
+    {
+        $this->seedPasswordIdentity('ada@example.test');
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            self::assertFalse($this->freshGuard()->attempt(['email' => 'ada@example.test', 'password' => 'wrong']));
+        }
+
+        $lookups = 0;
+
+        DB::listen(static function (QueryExecuted $query) use (&$lookups): void {
+            $lookups += str_contains($query->sql, 'verifiable_identities') ? 1 : 0;
+        });
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            self::assertFalse($this->freshGuard()->attempt(['email' => ['ada@example.test'], 'password' => 'wrong']));
+        }
+
+        $this->recordEvents([SignInFailed::class]);
+
+        self::assertFalse($this->freshGuard()->attempt(['email' => ['ada@example.test'], 'password' => self::PASSWORD]));
+        self::assertSame(0, $lookups);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->recordedEvent(SignInFailed::class)->reason);
+    }
+
+    /**
+     * Every password checked against an account counts against the account,
+     * however the attempt found it: after five wrong passwords through query
+     * closures (which name no identifier to count), the right password is
+     * refused, as a wrong one is, even through the plain address, until the
+     * window ends.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testEveryPasswordCheckedCountsAgainstTheAccountHoweverItWasFound(): void
+    {
+        $this->seedPasswordIdentity('ada@example.test');
+
+        $byClosure = static fn (Builder $query): Builder => $query->where('email', 'ada@example.test');
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            self::assertFalse($this->freshGuard()->attempt(['email' => $byClosure, 'password' => 'wrong']));
+        }
+
+        $this->recordEvents([SignInFailed::class]);
+
+        self::assertFalse($this->freshGuard()->attempt(['email' => $byClosure, 'password' => self::PASSWORD]));
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
+
+        Carbon::setTestNow(Carbon::now()->addSeconds(280));
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));
+
+        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
+    }
+
+    /**
+     * On MySQL, whose default collation compares accented, full-width and
+     * invisible variants of a letter as equal, every variant of an address
+     * finds the same account; five wrong passwords spread over five variants
+     * use the account's limit up, and a sixth variant with the right password
+     * is refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCollationVariantsOfAnAddressShareTheAccountsLimitOnMySql(): void
+    {
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            self::markTestSkipped('Only MySQL\'s default collation finds an account by these variants.');
+        }
+
+        $this->seedPasswordIdentity('victim@example.test');
+
+        $variants = ["v\u{00ED}ctim@example.test", "vic\u{200B}tim@example.test", "\u{FF56}ictim@example.test", "victi\u{0301}m@example.test", "victim@ex\u{00E1}mple.test"];
+
+        foreach ($variants as $variant) {
+            self::assertSame(1, VerifiableIdentity::query()->where('email', $variant)->count(), "MySQL no longer finds the account by {$variant}");
+            self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => $variant, 'password' => 'wrong'])->reason);
+        }
+
+        $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD]);
+
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $refused->reason);
+        self::assertSame(0, Device::query()->count());
     }
 
     /**

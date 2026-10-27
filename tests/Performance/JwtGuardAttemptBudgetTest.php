@@ -29,8 +29,11 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
  * counters. The first attempt of a window finds neither counter, so each
  * reservation is an update that changes nothing and the insert that creates the
  * counter: four writes. A later attempt in the window updates the two existing
- * counters: two writes. A successful attempt then gives both slots back: two
- * more. A failed attempt keeps them.
+ * counters: two writes. An attempt that finds an account reserves a slot on the
+ * account's counter too before its password is checked (two writes on a fresh
+ * window, one later) and gives it back when the password matches (one more). A
+ * successful attempt then gives the first two slots back: two more. A failed
+ * attempt keeps them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,8 +111,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A 2D sign-in reads the identity once, and writes only its limits: the two
-     * reservations of a fresh window and their release.
+     * A 2D sign-in reads the identity once, and writes only its limits: the
+     * three reservations of a fresh window and their release.
      *
      * @return void
      *
@@ -120,7 +123,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(1, 6, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertTrue($this->assertQueryBudget(1, 9, fn (): bool => $guard->attempt($this->credentials($identity->email))));
     }
 
     /**
@@ -143,25 +146,28 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(1, 7, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertTrue($this->assertQueryBudget(1, 10, fn (): bool => $guard->attempt($this->credentials($identity->email))));
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(1, 4, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertTrue($this->assertQueryBudget(1, 6, fn (): bool => $guard->attempt($this->credentials($identity->email))));
     }
 
     /**
-     * Rows of `[credentials, active]`: rejected sign-ins and whether the seeded
-     * identity is active.
+     * Rows of `[credentials, active, writes]`: rejected sign-ins, whether the
+     * seeded identity is active, and the writes each costs: an unknown
+     * identifier reserves only the identifier's and the IP address's slots, a
+     * wrong password the account's too, and an inactive identity, whose
+     * password matched, gives the account's back.
      *
-     * @return iterable<string, array{0: array<string, string>, 1: bool}>
+     * @return iterable<string, array{0: array<string, string>, 1: bool, 2: int}>
      */
     public static function provideRejectedCredentials(): iterable
     {
         yield from [
-            'unknown identifier' => [['email' => 'nobody@example.test', 'password' => self::PASSWORD], true],
-            'wrong password'     => [['email' => 'signer@example.test', 'password' => 'wrong'], true],
-            'inactive identity'  => [['email' => 'signer@example.test', 'password' => self::PASSWORD], false],
+            'unknown identifier' => [['email' => 'nobody@example.test', 'password' => self::PASSWORD], true, 4],
+            'wrong password'     => [['email' => 'signer@example.test', 'password' => 'wrong'], true, 6],
+            'inactive identity'  => [['email' => 'signer@example.test', 'password' => self::PASSWORD], false, 7],
         ];
     }
 
@@ -172,26 +178,27 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
      *
      * @param  array<string, string>  $credentials
      * @param  bool  $active
+     * @param  int  $writes
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideRejectedCredentials')]
-    public function testRejectedAttemptReadsOnceAndWritesOnlyItsLimits(array $credentials, bool $active): void
+    public function testRejectedAttemptReadsOnceAndWritesOnlyItsLimits(array $credentials, bool $active, int $writes): void
     {
         $this->seedIdentity($active);
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(1, 4, static fn (): bool => $guard->attempt($credentials)));
+        self::assertFalse($this->assertQueryBudget(1, $writes, static fn (): bool => $guard->attempt($credentials)));
         self::assertFalse($guard->hasUser());
     }
 
     /**
      * A pinned live device costs one read on top of the identity, plus the
      * first-use timestamp write besides the limits; a pinned revoked device
-     * costs the same reads, writes only its reservations, and fails the
-     * attempt.
+     * costs the same reads, writes only its reservations and the account's
+     * returned slot, and fails the attempt.
      *
      * @return void
      *
@@ -204,14 +211,14 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(2, 7, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
+        self::assertTrue($this->assertQueryBudget(2, 10, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
         self::assertSame($device->getKey(), $guard->device()?->getDeviceIdentifier());
 
         Device::query()->whereKey($device->getKey())->update(['revoked_at' => $this->now]);
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(2, 2, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
+        self::assertFalse($this->assertQueryBudget(2, 4, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
     }
 
     /**
@@ -228,7 +235,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::THREE_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(2, 6, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertTrue($this->assertQueryBudget(2, 9, fn (): bool => $guard->attempt($this->credentials($identity->email))));
     }
 
     /**
@@ -245,7 +252,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::THREE_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(3, 6, fn (): bool => $guard->attempt($this->credentials($identity->email), $principal)));
+        self::assertTrue($this->assertQueryBudget(3, 9, fn (): bool => $guard->attempt($this->credentials($identity->email), $principal)));
         self::assertSame($principal->getKey(), $guard->principal()?->getPrincipalIdentifier());
     }
 
@@ -253,7 +260,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
      * Pinning another identity's principal misses the hinted lookup; the
      * resolver falls back to the identity's default principal, whose id does
      * not match the pin, so the attempt fails without any owner read and keeps
-     * its reservations.
+     * its reservations; the account's slot went back when the password matched.
      *
      * @return void
      *
@@ -266,7 +273,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::THREE_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(3, 4, fn (): bool => $guard->attempt($this->credentials($identity->email), $foreignMember)));
+        self::assertFalse($this->assertQueryBudget(3, 7, fn (): bool => $guard->attempt($this->credentials($identity->email), $foreignMember)));
         self::assertFalse($guard->hasUser());
     }
 
@@ -310,7 +317,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     /**
      * A sign-in to an account stored without a password hash is rejected like a
      * wrong password: it reads the identity once, writes only the reservations
-     * it keeps, and waits out the real timebox.
+     * it keeps, the account's included, and waits out the real timebox.
      *
      * @return void
      *
@@ -323,7 +330,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(1, 4, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertFalse($this->assertQueryBudget(1, 6, fn (): bool => $guard->attempt($this->credentials($identity->email))));
 
         $this->useTimebox();
 

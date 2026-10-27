@@ -26,8 +26,9 @@ use Tests\Concerns\InteractsWithSessions;
  * on the identifier's and the IP address's counters (on a fresh window, for
  * each, an update that changes nothing and the insert that creates the counter;
  * later in the window, one update each), and a sign-in that succeeds or asks
- * for a further factor gives both back. `start()` and `complete()` are not
- * limited.
+ * for a further factor gives both back. A password checked against an account
+ * reserves a slot on the account's counter as well, given back when it matches.
+ * `start()` and `complete()` are not limited.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -73,9 +74,9 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in on a new device reads the identity once and writes the device
-     * once, besides the four reservation writes and two releases of its limits:
-     * binding it records no further use, since the device already records the
-     * sign-in as its last.
+     * once, besides the six reservation writes and three releases of its
+     * limits: binding it records no further use, since the device already
+     * records the sign-in as its last.
      *
      * @return void
      *
@@ -87,13 +88,13 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(1, 7, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(1, 10, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->isSignedIn());
     }
 
     /**
      * Continuing a proven device reads the identity and the device and writes
      * one compare-and-swap, besides reserving and releasing a slot on each of
-     * the counters the first sign-in created.
+     * the three counters the first sign-in created.
      *
      * @return void
      *
@@ -109,7 +110,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
         $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
-        $again    = $this->assertQueryBudget(2, 5, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
+        $again    = $this->assertQueryBudget(2, 7, static fn (): SignInResult => $sessions->signIn('password', self::credentials(), $context));
 
         self::assertFalse($again->session?->deviceCreated);
     }
@@ -159,7 +160,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         });
 
         $sessions = $this->sessions();
-        $pending  = $this->assertQueryBudget(1, 7, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
+        $pending  = $this->assertQueryBudget(1, 10, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
 
         self::assertNotNull($pending);
 
@@ -173,16 +174,17 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of `[credentials]`: sign-ins that fail, with and without a known
-     * identifier.
+     * Rows of `[credentials, writes]`: sign-ins that fail, with and without a
+     * known identifier, and the reservation writes each keeps (a wrong password
+     * also reserves the account's slot).
      *
-     * @return iterable<string, array{0: array<string, string>}>
+     * @return iterable<string, array{0: array<string, string>, 1: int}>
      */
     public static function provideFailedCredentials(): iterable
     {
         yield from [
-            'unknown identifier' => [['email' => 'nobody@example.test', 'password' => self::PASSWORD]],
-            'wrong password'     => [['email' => 'ada@example.test', 'password' => 'wrong']],
+            'unknown identifier' => [['email' => 'nobody@example.test', 'password' => self::PASSWORD], 4],
+            'wrong password'     => [['email' => 'ada@example.test', 'password' => 'wrong'], 6],
         ];
     }
 
@@ -192,18 +194,19 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
      * exists.
      *
      * @param  array<string, string>  $credentials
+     * @param  int  $writes
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideFailedCredentials')]
-    public function testAFailedSignInReadsOnceWritesOnlyItsLimitsAndWaitsOutTheTimebox(array $credentials): void
+    public function testAFailedSignInReadsOnceWritesOnlyItsLimitsAndWaitsOutTheTimebox(array $credentials, int $writes): void
     {
         $this->seedIdentity();
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(1, 4, static fn (): SignInResult => $sessions->signIn('password', $credentials))->isFailed());
+        self::assertTrue($this->assertQueryBudget(1, $writes, static fn (): SignInResult => $sessions->signIn('password', $credentials))->isFailed());
 
         $this->useTimebox();
 

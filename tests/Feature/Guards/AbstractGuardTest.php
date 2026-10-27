@@ -10,15 +10,16 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Stringable;
 use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -96,9 +97,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * A successful attempt asks the audience policy for the method first, then
-     * reserves an attempt, checks the password, admits the identity, rehashes
-     * the password with the credentials it signed in with, asks the factor
-     * policy, and gives the reservation back.
+     * reserves an attempt, finds the account, reserves an attempt on the
+     * account, checks the password and gives the account's slot back, admits
+     * the identity, rehashes the password with the credentials it signed in
+     * with, asks the factor policy, and gives the attempt's reservation back.
      *
      * @return void
      *
@@ -121,7 +123,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->audience->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
         $this->audience->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'email')->andReturnUsing(fn (): mixed => $this->record('admit', null));
 
-        $reservation = null;
+        $reservations = [];
 
         $this->limiter->shouldReceive('acquire')
             ->once()
@@ -129,22 +131,46 @@ final class AbstractGuardTest extends AbstractGuardTestCase
                 && $subject->flow                                                            === AttemptFlow::SIGN_IN
                 && $subject->identifier                                                      === 'Ada@Example.test'
                 && $subject->identifierType                                                  === 'email'
-                && $subject->ip                                                              === self::IP))
-            ->andReturnUsing(function (AttemptSubject $subject) use (&$reservation): AttemptReservation {
-                $reservation = new AttemptReservation($subject, null, ['k' => 'w']);
+                && $subject->ip                                                              === self::IP
+                && $subject->account                                                         === null))
+            ->andReturnUsing(function (AttemptSubject $subject) use (&$reservations): AttemptReservation {
+                $reservations['attempt'] = new AttemptReservation($subject, null, ['k' => 'w']);
 
-                return $this->record('acquire', $reservation);
+                return $this->record('acquire', $reservations['attempt']);
+            });
+        $this->limiter->shouldReceive('acquire')
+            ->once()
+            ->with(\Mockery::on(static fn (AttemptSubject $subject): bool => $subject->guard === self::GUARD_NAME
+                && $subject->flow                                                            === AttemptFlow::SIGN_IN
+                && $subject->identifier                                                      === null
+                && $subject->identifierType                                                  === null
+                && $subject->ip                                                              === null
+                && $subject->account                                                         === $identity::class . "\x001"))
+            ->andReturnUsing(function (AttemptSubject $subject) use (&$reservations): AttemptReservation {
+                $reservations['account'] = new AttemptReservation($subject, null, ['a' => 'w']);
+
+                return $this->record('acquire account', $reservations['account']);
             });
         $this->limiter->shouldReceive('release')
-            ->once()
-            ->with(\Mockery::on(static function (AttemptReservation $released) use (&$reservation): bool {
-                return $released === $reservation;
-            }))
-            ->andReturnUsing(fn (): mixed => $this->record('release', null));
+            ->twice()
+            ->andReturnUsing(function (AttemptReservation $released) use (&$reservations): mixed {
+                return $this->record($released === $reservations['account'] ? 'release account' : ($released === $reservations['attempt'] ? 'release' : 'release other'), null);
+            });
 
         self::assertTrue($this->makeGuard()->attempt(['email' => 'Ada@Example.test', 'password' => 'secret']));
         self::assertSame(
-            ['allowsMethod', 'acquire', 'retrieveByCredentials', 'validateCredentials', 'admit', 'rehashPasswordIfRequired', 'requiresAdditionalFactor', 'release'],
+            [
+                'allowsMethod',
+                'acquire',
+                'retrieveByCredentials',
+                'acquire account',
+                'validateCredentials',
+                'release account',
+                'admit',
+                'rehashPasswordIfRequired',
+                'requiresAdditionalFactor',
+                'release',
+            ],
             $this->calls,
         );
     }
@@ -255,8 +281,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $subjects = [];
 
-        $this->limiter->shouldReceive('acquire')->twice()->andReturnUsing(static function (AttemptSubject $subject) use (&$subjects): AttemptReservation {
-            $subjects[] = $subject;
+        $this->limiter->shouldReceive('acquire')->times(3)->andReturnUsing(static function (AttemptSubject $subject) use (&$subjects): AttemptReservation {
+            if ($subject->account === null) {
+                $subjects[] = $subject;
+            }
 
             return new AttemptReservation($subject, null);
         });
@@ -269,6 +297,136 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertSame(['ada', null], array_map(static fn (AttemptSubject $subject): ?string => $subject->identifier, $subjects));
         self::assertSame(['username', 'username'], array_map(static fn (AttemptSubject $subject): ?string => $subject->identifierType, $subjects));
+    }
+
+    /**
+     * Rows of `[identifier value]` that `attempt()` cannot count against the
+     * identifier's limit.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideIdentifiersThatAreNotStrings(): iterable
+    {
+        yield from [
+            'list'    => [['ada@example.test', 'bob@example.test']],
+            'integer' => [0],
+            'float'   => [0.0],
+            'boolean' => [true],
+            'null'    => [null],
+        ];
+    }
+
+    /**
+     * Credentials whose identifier key holds anything but a string, a
+     * `Stringable` or a query closure are refused before any lookup, as invalid
+     * credentials, and count against the IP address only: a list of addresses,
+     * or a number a database compares loosely, would otherwise check a password
+     * against accounts the identifier's limit never counts.
+     *
+     * @param  mixed  $identifier
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideIdentifiersThatAreNotStrings')]
+    public function testAnIdentifierThatIsNotAStringIsRefusedBeforeAnyLookup(mixed $identifier): void
+    {
+        $this->provider->shouldNotReceive('retrieveByCredentials');
+        $this->provider->shouldNotReceive('validateCredentials');
+        $this->limiter->shouldNotReceive('release');
+
+        $subjects = [];
+
+        $this->limiter->shouldReceive('acquire')->once()->andReturnUsing(static function (AttemptSubject $subject) use (&$subjects): AttemptReservation {
+            $subjects[] = $subject;
+
+            return new AttemptReservation($subject, null);
+        });
+
+        $events = $this->recordEvents();
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => $identifier, 'password' => 'secret']));
+        self::assertNull($subjects[0]->identifier);
+        self::assertSame(self::IP, $subjects[0]->ip);
+
+        $signIn = $events[count($events) - 1];
+
+        self::assertInstanceOf(SignInFailed::class, $signIn);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $signIn->reason);
+        self::assertNull($signIn->identifier);
+    }
+
+    /**
+     * A `Stringable` identifier is counted as its string and looked up as
+     * given, and a query closure under the identifier key still finds the
+     * account, which its password check is then counted against.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStringableOrAClosureIdentifierIsLookedUp(): void
+    {
+        $identity    = $this->mockIdentity();
+        $stringable  = new Stringable('ada@example.test');
+        $scope       = static fn (): null => null;
+        $subjects    = [];
+        $lookedUpFor = [];
+
+        $this->provider->shouldReceive('retrieveByCredentials')->twice()->andReturnUsing(static function (array $credentials) use ($identity, &$lookedUpFor): MockInterface {
+            $lookedUpFor[] = $credentials['email'];
+
+            return $identity;
+        });
+        $this->provider->shouldReceive('validateCredentials')->twice()->andReturnFalse();
+
+        $this->limiter->shouldReceive('acquire')->times(4)->andReturnUsing(static function (AttemptSubject $subject) use (&$subjects): AttemptReservation {
+            $subjects[] = $subject;
+
+            return new AttemptReservation($subject, null);
+        });
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => $stringable, 'password' => 'wrong']));
+        self::assertFalse($this->makeGuard()->attempt(['email' => $scope, 'password' => 'wrong']));
+        self::assertSame([$stringable, $scope], $lookedUpFor);
+        self::assertSame(['ada@example.test', null, null, null], array_map(static fn (AttemptSubject $subject): ?string => $subject->identifier, $subjects));
+        $account = $identity::class . "\x001";
+
+        self::assertSame([null, $account, null, $account], array_map(static fn (AttemptSubject $subject): ?string => $subject->account, $subjects));
+    }
+
+    /**
+     * An account whose own limit is used up is not checked at all: its password
+     * is never compared, and the attempt fails as a wrong password would, so
+     * the refusal does not tell anyone the account exists.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAccountWithNoAttemptsLeftFailsAsAWrongPasswordWithoutBeingChecked(): void
+    {
+        $identity = $this->mockIdentity();
+
+        $this->provider->shouldReceive('retrieveByCredentials')->once()->andReturn($identity);
+        $this->provider->shouldNotReceive('validateCredentials');
+        $this->limiter->shouldNotReceive('release');
+        $this->limiter->shouldReceive('acquire')->twice()->andReturnUsing(
+            static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, $subject->account === null ? null : 90),
+        );
+
+        $events = $this->recordEvents();
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
+
+        $failed = $events[count($events) - 2];
+        $signIn = $events[count($events) - 1];
+
+        self::assertInstanceOf(Failed::class, $failed);
+        self::assertSame($identity, $failed->user);
+        self::assertInstanceOf(SignInFailed::class, $signIn);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $signIn->reason);
+        self::assertNull($signIn->retryAfter);
     }
 
     /**
@@ -292,7 +450,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->audience->shouldReceive('admit')->once()->andReturn(SignInFailureReason::PRINCIPAL_INELIGIBLE);
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
-        $this->limiter->shouldNotReceive('release');
+        $this->expectOnlyTheAccountSlotGivenBack();
 
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
@@ -340,7 +498,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
             return true;
         });
-        $this->limiter->shouldNotReceive('release');
+        $this->expectOnlyTheAccountSlotGivenBack();
 
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
@@ -426,7 +584,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $devices->shouldReceive('getModel')->andReturn(new StubDevice);
         $devices->shouldReceive('find')->with($deviceId)->andReturn($device);
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $principal = $this->mockActivePrincipal();
@@ -610,7 +768,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      */
     public function testARefusedPrincipalFailsBeforeThePinnedDeviceIsLookedUp(): void
     {
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldNotReceive('devices');
 
         $pinned = $this->mockActivePrincipal();
@@ -644,6 +802,20 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     {
         $this->provider->shouldReceive('retrieveByCredentials')->once()->andReturnUsing(fn (): MockInterface => $this->record('retrieveByCredentials', $identity));
         $this->provider->shouldReceive('validateCredentials')->once()->andReturnUsing(fn (): bool => $this->record('validateCredentials', true));
+    }
+
+    /**
+     * Expect the attempt to give back only the slot its accepted password took
+     * on the account: the attempt's own reservation is kept, as for any
+     * failure.
+     *
+     * @return void
+     */
+    private function expectOnlyTheAccountSlotGivenBack(): void
+    {
+        $this->limiter->shouldReceive('release')
+            ->once()
+            ->with(\Mockery::on(static fn (AttemptReservation $released): bool => $released->subject->account !== null));
     }
 
     /**

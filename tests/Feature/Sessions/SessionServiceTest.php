@@ -357,7 +357,8 @@ final class SessionServiceTest extends TestCase
     /**
      * An attempt over its limit fails with the wait, without checking the
      * input; one under it takes a slot for the identifier as given, its type
-     * and the client's IP address, and a success gives the slot back.
+     * and the client's IP address, then one on the account its password is
+     * checked against, and a success gives both back.
      *
      * @return void
      *
@@ -394,12 +395,16 @@ final class SessionServiceTest extends TestCase
         self::assertCount(0, $released);
 
         self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
-        self::assertCount(1, $released);
+        self::assertCount(2, $released);
 
-        [$limitedSubject, , $successSubject] = $subjects->getArrayCopy();
-        [$release]                           = $released->getArrayCopy();
+        [$limitedSubject, , $wrongAccount, $successSubject, $successAccount] = $subjects->getArrayCopy();
+        [$accountRelease, $release]                                          = $released->getArrayCopy();
 
+        self::assertSame($successAccount, $accountRelease->subject);
         self::assertSame($successSubject, $release->subject);
+        self::assertSame(IntegrationIdentity::class . "\x001", $wrongAccount->account);
+        self::assertNull($wrongAccount->identifier);
+        self::assertNull($wrongAccount->ip);
         self::assertSame('api', $limitedSubject->guard);
         self::assertSame(AttemptFlow::SIGN_IN, $limitedSubject->flow);
         self::assertSame(' ADA@example.test ', $limitedSubject->identifier);
@@ -546,8 +551,8 @@ final class SessionServiceTest extends TestCase
 
         $limiter = $this->bindMock(AttemptLimiter::class);
         $limiter->shouldReceive('acquire')->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null));
-        $limiter->shouldReceive('release')->once()->andReturnUsing(static function () use (&$released): void {
-            $released++;
+        $limiter->shouldReceive('release')->twice()->andReturnUsing(static function (AttemptReservation $reservation) use (&$released): void {
+            $released += $reservation->subject->account === null ? 1 : 0;
         });
 
         $this->recordEvents([Failed::class, SignInFailed::class, DeviceCreated::class, SignedIn::class]);

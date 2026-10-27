@@ -10,7 +10,6 @@ use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\Unit\Stubs\StubDevice;
@@ -363,7 +362,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         $devices->shouldReceive('getModel')->andReturn(new StubDevice);
         $devices->shouldReceive('find')->once()->with($deviceId)->andReturn($device);
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $principal = $this->mockActivePrincipal();

@@ -109,13 +109,21 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of the Identity contract.
+     * Build a Mockery mock of the Identity contract, with any further
+     * capabilities, whose auth identifier (by which a checked password is
+     * counted against the account) is 1 unless a test says otherwise.
      *
+     * @param  class-string  ...$capabilities
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity
      */
-    protected function mockIdentity(): MockInterface
+    protected function mockIdentity(string ...$capabilities): MockInterface
     {
-        return \Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class, ...$capabilities);
+        $identity->shouldReceive('getAuthIdentifier')
+            ->byDefault()
+            ->andReturn(1);
+
+        return $identity;
     }
 
     /**

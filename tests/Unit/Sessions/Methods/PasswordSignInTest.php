@@ -5,16 +5,22 @@ declare(strict_types = 1);
 namespace Tests\Unit\Sessions\Methods;
 
 use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Stringable;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
@@ -36,8 +42,15 @@ final class PasswordSignInTest extends TestCase
     /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\IdentityProvider The guard's identity provider. */
     private MockInterface $provider;
 
+    /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\AttemptLimiter The attempt limiter the method resolves. */
+    private MockInterface $limiter;
+
+    /** @var \Illuminate\Container\Container Container the method resolves the limiter from. */
+    private Container $container;
+
     /**
-     * Build a fresh provider mock.
+     * Build a fresh provider mock, and a limiter that grants every account
+     * attempt unless a test says otherwise.
      *
      * @return void
      */
@@ -46,7 +59,16 @@ final class PasswordSignInTest extends TestCase
     {
         parent::setUp();
 
-        $this->provider = \Mockery::mock(IdentityProvider::class);
+        $this->provider  = \Mockery::mock(IdentityProvider::class);
+        $this->limiter   = \Mockery::mock(AttemptLimiter::class);
+        $this->container = new Container;
+
+        $this->limiter->shouldReceive('acquire')
+            ->byDefault()
+            ->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null));
+        $this->limiter->shouldReceive('release')->byDefault();
+
+        $this->container->instance(AttemptLimiter::class, $this->limiter);
     }
 
     /**
@@ -67,7 +89,7 @@ final class PasswordSignInTest extends TestCase
      */
     public function testIdentifierTypeIsTheConfiguredColumnOrEmail(): void
     {
-        self::assertSame('email', (new PasswordSignIn(new Repository))->identifierType('api'));
+        self::assertSame('email', (new PasswordSignIn(new Repository, $this->container))->identifierType('api'));
         self::assertSame('username', $this->method('username')->identifierType('api'));
         self::assertSame('login_2', $this->method('login_2')->identifierType('api'));
     }
@@ -132,7 +154,7 @@ final class PasswordSignInTest extends TestCase
                 'members' => ['driver' => 'jwt', 'sign_in' => []],
                 'api'     => ['driver' => 'jwt'],
             ]],
-        ]));
+        ]), $this->container);
 
         self::assertSame('username', $method->identifierType('staff'));
         self::assertSame('email', $method->identifierType('members'));
@@ -152,7 +174,7 @@ final class PasswordSignInTest extends TestCase
     #[DataProvider('provideInvalidIdentifierKeys')]
     public function testAGuardsOwnIdentifierColumnIsValidatedToo(mixed $key): void
     {
-        $method = new PasswordSignIn(new Repository(['auth' => ['guards' => ['staff' => ['sign_in' => ['password_identifier' => $key]]]]]));
+        $method = new PasswordSignIn(new Repository(['auth' => ['guards' => ['staff' => ['sign_in' => ['password_identifier' => $key]]]]]), $this->container);
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('auth.guards.staff.sign_in.password_identifier must name the identifier column');
@@ -184,7 +206,7 @@ final class PasswordSignInTest extends TestCase
     #[DataProvider('provideMalformedGuardSignInBlocks')]
     public function testAMalformedGuardSignInBlockFailsClosed(mixed $block): void
     {
-        $method = new PasswordSignIn(new Repository(['auth' => ['guards' => ['staff' => ['sign_in' => $block]]]]));
+        $method = new PasswordSignIn(new Repository(['auth' => ['guards' => ['staff' => ['sign_in' => $block]]]]), $this->container);
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('auth.guards.staff.sign_in must be an array that sets only `password_identifier`.');
@@ -217,7 +239,7 @@ final class PasswordSignInTest extends TestCase
      */
     public function testAuthenticatePassesOnlyTheIdentifierAndPassword(): void
     {
-        $identity    = \Mockery::mock(Identity::class);
+        $identity    = $this->identity();
         $credentials = ['email' => 'ada@example.test', 'password' => 'secret'];
 
         $this->provider->shouldReceive('retrieveByCredentials')->once()->with($credentials)->andReturn($identity);
@@ -234,23 +256,90 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * Input whose identifier or password is not a string is passed on as
-     * `null`, which the provider looks up and validates as nothing, so the
-     * sign-in fails as invalid credentials.
+     * Input whose identifier is not a string is refused as invalid credentials
+     * without a lookup, and a password that is not a string is passed on as
+     * `null`, which the provider validates as nothing.
      *
      * @return void
      */
-    public function testAuthenticatePassesNonStringValuesAsNull(): void
+    public function testAuthenticateRefusesAnIdentifierThatIsNotAStringWithoutALookup(): void
     {
+        $identity = $this->identity();
+
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
-            ->with(['email' => null, 'password' => null])
-            ->andReturnNull();
-        $this->provider->shouldNotReceive('validateCredentials');
+            ->with(['email' => 'ada@example.test', 'password' => null])
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')->once()->with($identity, ['email' => 'ada@example.test', 'password' => null])->andReturnFalse();
 
-        $outcome = $this->method('email')->authenticate($this->request(['email' => ['ada'], 'password' => 1234]));
+        $method = $this->method('email');
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $outcome);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['email' => ['ada'], 'password' => 'secret'])));
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['password' => 'secret'])));
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['email' => 'ada@example.test', 'password' => 1234])));
+    }
+
+    /**
+     * A password checked for a sign-in is counted against the account first:
+     * the account's slot is given back only when the password matches, and an
+     * account with no attempts left is refused without its password being
+     * compared.
+     *
+     * @return void
+     */
+    public function testVerifyPasswordCountsTheCheckAgainstTheAccount(): void
+    {
+        $identity    = $this->identity();
+        $credentials = ['email' => 'ada@example.test', 'password' => 'secret'];
+        $subjects    = [];
+        $released    = [];
+
+        $this->limiter->shouldReceive('acquire')->times(3)->andReturnUsing(static function (AttemptSubject $subject) use (&$subjects): AttemptReservation {
+            $subjects[] = $subject;
+
+            return new AttemptReservation($subject, count($subjects) === 3 ? 60 : null);
+        });
+        $this->limiter->shouldReceive('release')->once()->andReturnUsing(static function (AttemptReservation $reservation) use (&$released): void {
+            $released[] = $reservation;
+        });
+        $this->provider->shouldReceive('validateCredentials')->twice()->with($identity, $credentials)->andReturn(true, false);
+
+        $method = $this->method('email');
+
+        self::assertTrue($method->verifyPassword('staff', $this->provider, $identity, $credentials));
+        self::assertFalse($method->verifyPassword('staff', $this->provider, $identity, $credentials));
+        self::assertFalse($method->verifyPassword('staff', $this->provider, $identity, $credentials));
+
+        self::assertSame($subjects[0], $released[0]->subject);
+        self::assertSame('staff', $subjects[0]->guard);
+        self::assertSame(AttemptFlow::SIGN_IN, $subjects[0]->flow);
+        self::assertNull($subjects[0]->identifier);
+        self::assertNull($subjects[0]->identifierType);
+        self::assertNull($subjects[0]->ip);
+        self::assertSame($identity::class . "\x007", $subjects[0]->account);
+    }
+
+    /**
+     * `attempt()` may look credentials up when they leave the identifier key
+     * out or give it a string, a `Stringable` or a query closure, and not when
+     * the key holds anything else; the identifier counted is the string, or the
+     * `Stringable` as one.
+     *
+     * @return void
+     */
+    public function testOnlyAStringAStringableOrAClosureIsAUsableIdentifier(): void
+    {
+        $method = $this->method('email');
+
+        self::assertTrue($method->hasUsableIdentifier('api', ['email' => 'ada@example.test', 'password' => 'x']));
+        self::assertTrue($method->hasUsableIdentifier('api', ['email' => new Stringable('ada@example.test')]));
+        self::assertTrue($method->hasUsableIdentifier('api', ['email' => static fn (): null => null]));
+        self::assertTrue($method->hasUsableIdentifier('api', ['id' => 7, 'password' => 'x']));
+        self::assertFalse($method->hasUsableIdentifier('api', ['email' => ['ada@example.test']]));
+        self::assertFalse($method->hasUsableIdentifier('api', ['email' => 0]));
+        self::assertFalse($method->hasUsableIdentifier('api', ['email' => null]));
+        self::assertFalse($method->hasUsableIdentifier('api', ['email' => true]));
+        self::assertSame('ada@example.test', $method->identifier('api', ['email' => new Stringable('ada@example.test')]));
     }
 
     /**
@@ -260,7 +349,7 @@ final class PasswordSignInTest extends TestCase
      */
     public function testAuthenticateRejectsAWrongPassword(): void
     {
-        $identity = \Mockery::mock(Identity::class);
+        $identity = $this->identity();
 
         $this->provider->shouldReceive('retrieveByCredentials')->once()->andReturn($identity);
         $this->provider->shouldReceive('validateCredentials')->once()->andReturnFalse();
@@ -279,7 +368,7 @@ final class PasswordSignInTest extends TestCase
      */
     public function testVerifyCredentialsKeepsTheCallersCredentials(): void
     {
-        $identity    = \Mockery::mock(Identity::class);
+        $identity    = $this->identity();
         $scope       = static fn (): null => null;
         $credentials = ['email' => 'ada@example.test', 'password' => 'secret', 'active' => $scope];
 
@@ -367,12 +456,12 @@ final class PasswordSignInTest extends TestCase
     #[DataProvider('provideRehashSettings')]
     public function testRehashFollowsLaravelsRehashOnLoginSetting(mixed $setting, bool $asked): void
     {
-        $identity    = \Mockery::mock(Identity::class);
+        $identity    = $this->identity();
         $credentials = ['email' => 'ada@example.test', 'password' => 'secret'];
 
         $this->provider->shouldReceive('rehashPasswordIfRequired')->times($asked ? 1 : 0)->with($identity, $credentials);
 
-        (new PasswordSignIn(new Repository(['hashing' => ['rehash_on_login' => $setting]])))->rehash($this->provider, $identity, $credentials);
+        (new PasswordSignIn(new Repository(['hashing' => ['rehash_on_login' => $setting]]), $this->container))->rehash($this->provider, $identity, $credentials);
     }
 
     /**
@@ -382,11 +471,11 @@ final class PasswordSignInTest extends TestCase
      */
     public function testRehashIsOnByDefault(): void
     {
-        $identity = \Mockery::mock(Identity::class);
+        $identity = $this->identity();
 
         $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->with($identity, ['password' => 'secret']);
 
-        (new PasswordSignIn(new Repository))->rehash($this->provider, $identity, ['password' => 'secret']);
+        (new PasswordSignIn(new Repository, $this->container))->rehash($this->provider, $identity, ['password' => 'secret']);
     }
 
     /**
@@ -397,7 +486,7 @@ final class PasswordSignInTest extends TestCase
      */
     public function testVerifyingNeverRehashes(): void
     {
-        $identity = \Mockery::mock(Identity::class);
+        $identity = $this->identity();
 
         $this->provider->shouldReceive('retrieveByCredentials')->twice()->andReturn($identity);
         $this->provider->shouldReceive('validateCredentials')->twice()->andReturnTrue();
@@ -410,6 +499,19 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
+     * Build an identity whose auth identifier is 7.
+     *
+     * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    private function identity(): MockInterface
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        return $identity;
+    }
+
+    /**
      * Build the method with the given identifier key configured.
      *
      * @param  mixed  $identifier
@@ -417,7 +519,7 @@ final class PasswordSignInTest extends TestCase
      */
     private function method(mixed $identifier): PasswordSignIn
     {
-        return new PasswordSignIn(new Repository(['authentication' => ['sign_in' => ['password_identifier' => $identifier]]]));
+        return new PasswordSignIn(new Repository(['authentication' => ['sign_in' => ['password_identifier' => $identifier]]]), $this->container);
     }
 
     /**

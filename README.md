@@ -460,12 +460,12 @@ own `rate_limits` block:
 ],
 ```
 
-| Flow      | Scope            | Default            | Counts                                                     |
-|-----------|------------------|--------------------|------------------------------------------------------------|
-| `sign_in` | `per_identifier` | 5 per 300 seconds  | Every attempt for the identifier; a success is given back  |
-| `sign_in` | `per_ip`         | 50 per 300 seconds | Every attempt from the IP address; a success is given back |
-| `refresh` | `per_identifier` | 10 per 60 seconds  | Failed refreshes of the device                             |
-| `refresh` | `per_ip`         | 100 per 60 seconds | Failed refreshes from the IP address                       |
+| Flow      | Scope            | Default            | Counts                                                                                                   |
+|-----------|------------------|--------------------|----------------------------------------------------------------------------------------------------------|
+| `sign_in` | `per_identifier` | 5 per 300 seconds  | Every attempt for the identifier, and every password checked against an account; a success is given back |
+| `sign_in` | `per_ip`         | 50 per 300 seconds | Every attempt from the IP address; a success is given back                                               |
+| `refresh` | `per_identifier` | 10 per 60 seconds  | Failed refreshes of the device                                                                           |
+| `refresh` | `per_ip`         | 100 per 60 seconds | Failed refreshes from the IP address                                                                     |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -479,7 +479,15 @@ the key.
 A sign-in guesses a secret, so it reserves its slots before the method runs: a refused sign-in fails with
 `rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.
 Earlier failures are not forgiven: they count until their window ends, so concurrent attempts can never exceed `max`.
-When the IP address's limit is full, the slot just taken for the identifier is given back. A refresh cannot guess a
+When the IP address's limit is full, the slot just taken for the identifier is given back.
+
+The password method also counts every password it checks against the account it checks it for, under the same
+`per_identifier` limit, and gives that slot back when the password matches. A lookup can find one account by many
+spellings of its identifier (a column collation that ignores accents, widths or invisible characters, as MySQL's default
+`utf8mb4_unicode_ci` does, a query closure in `attempt()`, another column), and only the account's own count bounds the
+guesses made at its password whichever spelling they use. Once an account has no attempts left, its password is not
+checked until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal
+does not reveal that the account exists. A refresh cannot guess a
 secret (its tokens are signed and its rotation ids random), so it counts only its failures, per device and per IP
 address, and a successful refresh costs one read. A refresh refused for its failures answers `429` with a
 `Retry-After` header.
@@ -924,8 +932,12 @@ $guard->attempt(['email' => $email, 'password' => $password], $membership, $devi
 
 `attempt()` signs in through the password sign-in method and the guard's sign-in policies: the audience policy must
 allow the `password` method for the guard, the attempt takes a slot from the sign-in limits of the identifier (the
-`sign_in.password_identifier` key of the credentials, whatever else they hold) and of the request's IP address, and only
-then are the credentials checked, inside the timebox. After the password, the identity, the principal and its tenant
+guard's `sign_in.password_identifier` key of the credentials, whatever else they hold) and of the request's IP address,
+and only then are the credentials checked, inside the timebox. The identifier key may hold a string, a `Stringable` or a
+query closure, or be left out; anything else (a list of addresses, a number, `null`) fails as `invalid_credentials`
+before any lookup, so request input passed straight through cannot reach accounts the identifier's limit does not count.
+The password check itself is counted against the account it is made for (see [Rate limits](#rate-limits)). After the
+password, the identity, the principal and its tenant
 must be active, the pins must hold, the audience policy must admit the identity as that principal, the password is
 rehashed when its stored hash no longer matches the hasher's algorithm or cost (unless Laravel's
 `hashing.rehash_on_login` is off), and the additional-factor policy must not ask for a further factor: `attempt()`

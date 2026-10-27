@@ -12,7 +12,6 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
@@ -331,7 +330,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $identity = \Mockery::mock(Identity::class, CanBeActive::class);
+        $identity = $this->mockIdentity(CanBeActive::class);
         $identity->shouldReceive('isActive')->once()->andReturnFalse();
 
         $this->provider->shouldReceive('retrieveByCredentials')

@@ -21,6 +21,12 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  * trimmed, lower-cased value with invalid UTF-8 replaced. An IPv6 address is
  * counted by its /64 network, and an IPv4-mapped one as its IPv4 address.
  *
+ * An account a subject names gets a counter of its own, kept as given, under
+ * the identifier's limit. A lookup can find one account by many identifiers (a
+ * column collation that ignores accents, widths or invisible characters, a list
+ * of values, a query closure, another column), so the account's counter is what
+ * bounds the guesses made at its secret.
+ *
  * Counts change only through single statements (see `RateLimitStore`), and
  * reservations record the window each slot came from, so concurrent attempts
  * never exceed a limit and giving a slot back never touches a later window.
@@ -32,6 +38,9 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  */
 final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 {
+    /** @var string Scope of the counter kept per account, under the identifier's limit. */
+    private const string PER_ACCOUNT = 'per_account';
+
     /** @var string The first twelve bytes of an IPv4-mapped IPv6 address (`::ffff:0:0/96`). */
     private const string IPV4_MAPPED_PREFIX = "\0\0\0\0\0\0\0\0\0\0\xff\xff";
 
@@ -153,7 +162,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     /**
      * The counters the subject's attempt counts against, by key, with their
      * limits: the identifier's when there is one and its limit is on, then the
-     * IP address's likewise.
+     * account's under the same limit, then the IP address's likewise.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return array<string, \SineMacula\Laravel\Authentication\RateLimiting\AttemptLimit>
@@ -170,6 +179,10 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
             $identifier = $this->canonicalIdentifier($subject->identifier, $subject->identifierType);
 
             $counters[$this->key($subject, AttemptLimits::PER_IDENTIFIER, $identifier)] = $limits[AttemptLimits::PER_IDENTIFIER];
+        }
+
+        if ($subject->account !== null && $limits[AttemptLimits::PER_IDENTIFIER] !== null) {
+            $counters[$this->key($subject, self::PER_ACCOUNT, $subject->account)] = $limits[AttemptLimits::PER_IDENTIFIER];
         }
 
         if ($subject->ip !== null && $limits[AttemptLimits::PER_IP] !== null) {

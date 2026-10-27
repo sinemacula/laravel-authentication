@@ -184,7 +184,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
         $this->acceptIdentity($identity);
 
-        $other = \Mockery::mock(Identity::class, HasDevices::class);
+        $other = $this->mockIdentity(HasDevices::class);
         $other->shouldReceive('getAuthIdentifier')->andReturn(7);
 
         $pinned = $this->principal('p-1', $other);
@@ -502,7 +502,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $devices->shouldNotReceive('useWritePdo');
         $devices->shouldNotReceive('find');
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $this->acceptIdentity($identity);
@@ -526,7 +526,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $devices = $this->writerDevices();
         $devices->shouldNotReceive('find');
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $this->acceptIdentity($identity);
@@ -584,7 +584,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     {
         $guard = $this->makeStubGuard();
 
-        $identity  = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity  = $this->mockIdentity(HasDevices::class);
         $principal = $this->principal('p-1', $identity);
         $device    = $this->device(self::DEVICE_ID, null);
 
@@ -674,7 +674,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $devices = $this->writerDevices();
         $devices->shouldReceive('find')->once()->with(self::DEVICE_ID)->andReturn($owned);
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $this->acceptIdentity($identity);

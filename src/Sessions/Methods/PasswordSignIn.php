@@ -6,11 +6,16 @@ namespace SineMacula\Laravel\Authentication\Sessions\Methods;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Contracts\Container\Container;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
+use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -21,11 +26,19 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * `auth.guards.<name>.sign_in.password_identifier` when it sets one, otherwise
  * from `authentication.sign_in.password_identifier` (default `email`), so each
  * guard can sign in by the column its identities are found by. `authenticate()`
- * passes the provider only that key and `password`, so no other input key
- * reaches a query. `verifyCredentials()` is the credential path `attempt()` and
- * `validate()` use: it takes the caller's credentials as the provider
- * understands them, closures included. Neither rehashes: a sign-in that is
- * admitted calls `rehash()`.
+ * passes the provider only that key, with a string value, and `password`, so no
+ * other input key reaches a query.
+ *
+ * Every password checked for a sign-in is counted against the account it is
+ * checked for (`verifyPassword()`), on top of the identifier's and the IP
+ * address's limits the caller takes: a lookup can find one account by many
+ * spellings of its identifier, and the account's own count is what bounds the
+ * guesses made at its password.
+ *
+ * `verifyCredentials()` is the credential path `validate()` uses: it takes the
+ * caller's credentials as the provider understands them, closures included, and
+ * counts nothing. None of them rehashes: a sign-in that is admitted calls
+ * `rehash()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -57,11 +70,15 @@ final readonly class PasswordSignIn implements SignInMethod
      * Constructor.
      *
      * @param  \Illuminate\Contracts\Config\Repository  $config
+     * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
         /** Configuration the identifier keys are read from on every call. */
         private Repository $config,
+
+        /** Container the attempt limiter is resolved from when a password is checked. */
+        private Container $container,
     ) {}
 
     /**
@@ -94,7 +111,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /**
      * The identifier the input names under the guard's identifier key, when it
-     * is a string.
+     * is a string or a `Stringable`.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $input
@@ -107,30 +124,62 @@ final readonly class PasswordSignIn implements SignInMethod
     {
         $identifier = $input[$this->identifierType($guard)] ?? null;
 
-        return is_string($identifier) ? $identifier : null;
+        return is_string($identifier) || $identifier instanceof \Stringable ? (string) $identifier : null;
     }
 
     /**
-     * Verify the identifier and password the input carries. Anything else in
-     * the input is ignored.
+     * Whether credentials for `attempt()` may be looked up: they either leave
+     * the guard's identifier key out (and find the account by other keys) or
+     * give it a string, a `Stringable` or a query closure. Anything else under
+     * the key (a list of values, a number, `null`) would let one attempt reach
+     * accounts the identifier's limit never counts, so it is refused before any
+     * lookup.
+     *
+     * @param  string  $guard
+     * @param  array<array-key, mixed>  $credentials
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function hasUsableIdentifier(string $guard, #[\SensitiveParameter] array $credentials): bool
+    {
+        $key = $this->identifierType($guard);
+
+        return !array_key_exists($key, $credentials) || $this->identifier($guard, $credentials) !== null || $credentials[$key] instanceof \Closure;
+    }
+
+    /**
+     * Verify the identifier and password the input carries, counting the
+     * password check against the account the identifier finds. Anything else in
+     * the input is ignored, and an identifier that is not a string is refused
+     * without a lookup.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
     #[\Override]
     public function authenticate(SignInRequest $request): Identity|SignInFailureReason
     {
-        $key      = $this->identifierType($request->guard);
-        $password = $request->input[self::PASSWORD_KEY] ?? null;
+        $identifier = $this->identifier($request->guard, $request->input);
+        $password   = $request->input[self::PASSWORD_KEY] ?? null;
+
+        if ($identifier === null) {
+            return SignInFailureReason::INVALID_CREDENTIALS;
+        }
 
         $credentials = [
-            $key               => $this->identifier($request->guard, $request->input),
-            self::PASSWORD_KEY => is_string($password) ? $password : null,
+            $this->identifierType($request->guard) => $identifier,
+            self::PASSWORD_KEY                     => is_string($password) ? $password : null,
         ];
 
-        return $this->verifyCredentials($request->provider, $credentials) ?? SignInFailureReason::INVALID_CREDENTIALS;
+        $user = $this->retrieve($request->provider, $credentials);
+
+        return $user instanceof Identity && $this->verifyPassword($request->guard, $request->provider, $user, $credentials)
+            ? $user
+            : SignInFailureReason::INVALID_CREDENTIALS;
     }
 
     /**
@@ -180,6 +229,40 @@ final readonly class PasswordSignIn implements SignInMethod
     public function retrieve(IdentityProvider $provider, #[\SensitiveParameter] array $credentials): ?Authenticatable
     {
         return $provider->retrieveByCredentials($credentials);
+    }
+
+    /**
+     * Check the credentials' password for a sign-in to the guard, counted
+     * against the account: a slot of the account's limit (the guard's sign-in
+     * limit per identifier) is taken first, and given back only when the
+     * password matches. When the account has no attempts left, its password is
+     * not checked and the answer is `false`, as for a wrong password, so the
+     * refusal does not reveal that the account exists.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  array<array-key, mixed>  $credentials
+     * @return bool
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     *
+     * @imperative
+     */
+    public function verifyPassword(string $guard, IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): bool
+    {
+        $limiter     = $this->container->make(AttemptLimiter::class);
+        $account     = $identity::class . "\0" . IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $reservation = $limiter->acquire(new AttemptSubject($guard, AttemptFlow::SIGN_IN, null, null, null, $account));
+
+        if (!$reservation->granted() || !$provider->validateCredentials($identity, $credentials)) {
+            return false;
+        }
+
+        $limiter->release($reservation);
+
+        return true;
     }
 
     /**

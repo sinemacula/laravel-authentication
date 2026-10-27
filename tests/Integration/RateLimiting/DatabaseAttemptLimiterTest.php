@@ -388,6 +388,34 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
+     * An account a subject names is counted under its own key, as given, with
+     * the identifier's limit: three password checks use it up whatever
+     * identifier found the account, and it is not counted when the identifier
+     * limit is off.
+     *
+     * @return void
+     */
+    public function testAnAccountIsCountedUnderTheIdentifiersLimit(): void
+    {
+        $account = new AttemptSubject(self::GUARD, AttemptFlow::SIGN_IN, null, null, null, "App\\Models\\User\x0042");
+        $key     = hash('sha256', implode("\0", [self::GUARD, 'sign_in', 'per_account', "App\\Models\\User\x0042"]));
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            self::assertTrue($this->limiter()->acquire($account)->granted());
+        }
+
+        self::assertSame(150, $this->limiter()->acquire($account)->retryAfter);
+        self::assertEquals(3, DB::table('rate_limits')->where('key', $key)->value('hits'));
+        self::assertSame(1, DB::table('rate_limits')->count());
+
+        config()->set('auth.guards.' . self::GUARD . '.rate_limits.sign_in.per_identifier', null);
+        $this->statements = [];
+
+        self::assertTrue($this->limiter()->acquire($account)->granted());
+        self::assertSame([], $this->recordedStatements());
+    }
+
+    /**
      * A normaliser registered for the identifier's type gives the canonical
      * form, even where it differs from trimming and lower-casing.
      *

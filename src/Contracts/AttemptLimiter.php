@@ -12,8 +12,10 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
  *
  * Limits how often each identifier and each IP address may try a flow of a
  * guard, counted in the database so the limits hold across servers and without
- * a cache. A `null` identifier or IP address, or a limit the guard turns off,
- * is not counted.
+ * a cache. A subject that names an account is also counted against that
+ * account, under the identifier's limit, however the attempt found it. A `null`
+ * identifier, IP address or account, or a limit the guard turns off, is not
+ * counted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
