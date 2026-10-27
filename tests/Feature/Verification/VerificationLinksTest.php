@@ -280,6 +280,37 @@ final class VerificationLinksTest extends TestCase
     }
 
     /**
+     * A route that takes reserved names as placeholders would carry the link's
+     * fields in its path, where `consume()` never reads them, so every link to
+     * it would be refused: creating one fails instead, naming the placeholders.
+     *
+     * @return void
+     */
+    public function testRefusesARouteThatTakesReservedNamesAsPlaceholders(): void
+    {
+        Route::get('/verify/{type}/{hash}', fn (Request $request): array => ['outcome' => $this->links()->consume($request)?->value])->name('verification.placeholders');
+
+        $identity = self::seedVerifiableIdentity();
+
+        $this->assertRefused(
+            \InvalidArgumentException::class,
+            'Verification route [verification.placeholders] may not use the reserved names as placeholders: type, hash.',
+            fn (): string => $this->links()->create(self::GUARD, $identity, 'email', 'verification.placeholders'),
+        );
+
+        $signed = URL::temporarySignedRoute('verification.placeholders', Carbon::now()->addHour(), [
+            'guard'    => self::GUARD,
+            'identity' => $identity->id,
+            'type'     => 'email',
+            'purpose'  => VerificationLinks::PURPOSE,
+            'hash'     => hash('sha256', 'ben@example.com'),
+        ]);
+
+        $this->getJson($signed)->assertOk()->assertExactJson(['outcome' => null]);
+        self::assertNull(DB::table('verifiable_identities')->value('email_verified_at'));
+    }
+
+    /**
      * Link lifetimes, as configured or given, that are refused.
      *
      * @return iterable<string, array{0: mixed, 1: ?int}>

@@ -855,12 +855,13 @@ Route::get('/verify-email', function (Request $request, VerificationLinks $links
 ```
 
 A link is signed for its purpose (`verify_identifier`), its JWT guard, its identity, the identifier type and a SHA-256
-digest of the identifier in its normal form; it never carries the identifier itself. It stops working when it expires
-or when the identifier changes, and it verifies nothing for a guard that is not a JWT guard or an identity that cannot
+digest of the identifier in its normal form; it never carries the identifier itself. It stops working when it expires or
+when the identifier changes, and it verifies nothing for a guard that is not a JWT guard or an identity that cannot
 verify identifiers. `create()` takes the route's own parameters (but not the reserved `guard`, `identity`, `type`,
-`purpose`, `hash`, `expires` or `signature`) and an optional lifetime in minutes (1 to 10080, a week, like the
-configured one). Consuming a link loads the identity through the guard's identity provider from the write connection
-and verifies the identifier; it never signs anyone in. Following it again reports `already_verified`.
+`purpose`, `hash`, `expires` or `signature`, which the route's path may not use as placeholders either) and an optional
+lifetime in minutes (1 to 10080, a week, like the configured one). Consuming a link loads the identity through the
+guard's identity provider from the write connection and verifies the identifier; it never signs anyone in. Following it
+again reports `already_verified`.
 
 `Verification\IdentifierVerifier::verify($guard, $identity, $type, $identifier, $client)` is the step a link (or, later,
 a one-time code) ends in: the proven identifier must be the identity's current one, compared in its normal form. Only

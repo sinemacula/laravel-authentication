@@ -72,7 +72,9 @@ final readonly class VerificationLinks
      * identifier of the type for the guard. The route's own parameters are
      * kept, and the link expires after `$ttlMinutes`, or the configured
      * lifetime. An identity that cannot verify identifiers is a
-     * misconfiguration (`LogicException`).
+     * misconfiguration (`LogicException`), and so is a route whose path takes a
+     * reserved name as a placeholder (`InvalidArgumentException`): the link's
+     * fields must reach `consume()` in its query string.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -102,7 +104,7 @@ final readonly class VerificationLinks
             throw new \InvalidArgumentException('Verification link parameters may not use the reserved names: ' . implode(', ', $reserved) . '.');
         }
 
-        return $this->urls->temporarySignedRoute($route, CarbonImmutable::now()->addMinutes($this->ttl($ttlMinutes)), [
+        $link = $this->urls->temporarySignedRoute($route, CarbonImmutable::now()->addMinutes($this->ttl($ttlMinutes)), [
             ...$parameters,
             'guard'    => $guard,
             'identity' => $identity->getAuthIdentifier(),
@@ -110,6 +112,16 @@ final readonly class VerificationLinks
             'purpose'  => self::PURPOSE,
             'hash'     => $hash,
         ]);
+
+        parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
+
+        $placeholders = array_diff(self::RESERVED_PARAMETERS, array_keys($query));
+
+        if ($placeholders !== []) {
+            throw new \InvalidArgumentException("Verification route [{$route}] may not use the reserved names as placeholders: " . implode(', ', $placeholders) . '.');
+        }
+
+        return $link;
     }
 
     /**
