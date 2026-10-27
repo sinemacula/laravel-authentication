@@ -4,11 +4,15 @@ declare(strict_types = 1);
 
 namespace Tests\Feature;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -19,11 +23,13 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
@@ -291,6 +297,98 @@ final class AuthenticationServiceProviderTest extends TestCase
             'authentication-migrations',
             ServiceProvider::publishableGroups(),
         );
+    }
+
+    /**
+     * Laravel's `auth` middleware resolves to the package-aware subclass.
+     *
+     * @return void
+     */
+    public function testAuthMiddlewareResolvesToThePackageAwareSubclass(): void
+    {
+        self::assertInstanceOf(Authenticate::class, app(IlluminateAuthenticate::class));
+    }
+
+    /**
+     * The exception handler renders a guest on a package guard as a JSON `401`,
+     * even for an HTML request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testExceptionHandlerRendersPackageGuardGuestsAsUnauthorized(): void
+    {
+        $handler = app(ExceptionHandler::class);
+
+        $response = $handler->render(
+            Request::create('/guarded', 'GET', server: ['HTTP_ACCEPT' => 'text/html']),
+            new AuthenticationException('Unauthenticated.', ['api']),
+        );
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame('{"message":"Unauthenticated."}', $response->getContent());
+    }
+
+    /**
+     * A custom exception handler, not Laravel's foundation one, is left alone.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Container\EntryNotFoundException
+     * @throws \Illuminate\Contracts\Container\CircularDependencyException
+     */
+    public function testCustomExceptionHandlerIsLeftAlone(): void
+    {
+        $custom = new class implements ExceptionHandler {
+            /**
+             * Report nothing.
+             *
+             * @param  \Throwable  $e
+             * @return void
+             */
+            #[\Override]
+            public function report(\Throwable $e): void {}
+
+            /**
+             * Report nothing.
+             *
+             * @param  \Throwable  $e
+             * @return bool
+             */
+            #[\Override]
+            public function shouldReport(\Throwable $e): bool
+            {
+                return false;
+            }
+
+            /**
+             * Render a bare response.
+             *
+             * @param  mixed  $request
+             * @param  \Throwable  $e
+             * @return \Symfony\Component\HttpFoundation\Response
+             */
+            #[\Override]
+            public function render(mixed $request, \Throwable $e): Response
+            {
+                return new Response('', 500);
+            }
+
+            /**
+             * Render nothing to the console.
+             *
+             * @param  mixed  $output
+             * @param  \Throwable  $e
+             * @return void
+             */
+            #[\Override]
+            public function renderForConsole(mixed $output, \Throwable $e): void {}
+        };
+
+        app()->singleton(ExceptionHandler::class, static fn (): ExceptionHandler => $custom);
+
+        self::assertSame($custom, app()->get(ExceptionHandler::class));
     }
 
     /**

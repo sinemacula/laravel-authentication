@@ -128,6 +128,18 @@ Register guards and providers in `config/auth.php` exactly as you would with any
 ],
 ```
 
+### Unauthenticated requests
+
+A guest on a route that only package guards protect (`auth:api`, or `auth` when the default guard is a package guard)
+gets `401` with `{"message": "Unauthenticated."}`, whatever its `Accept` header. The guards are stateless, so there
+is no login page to redirect to, and an API without a `login` route no longer answers browser-style requests with a
+server error. Laravel's own guards keep their guest redirect, and so does a route that also accepts one of them
+(`auth:web,api`).
+
+The package binds its `SineMacula\Laravel\Authentication\Http\Middleware\Authenticate` in place of Laravel's `auth`
+middleware and registers the `401` as an exception-handler render callback, after any your application registers for
+`AuthenticationException`. If your application aliases its own `auth` middleware, extend the package's class.
+
 ### Per-guard JWT configuration
 
 Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
@@ -501,14 +513,16 @@ the published config:
 
 ## Extensibility
 
-All concrete classes in this package are `final`. Extension is through **composition and DI**, not inheritance:
+Concrete classes in this package are `final` unless noted below. Extension is through **composition and DI**, not
+inheritance:
 
 | Extension point                   | How                                                                    |
 |-----------------------------------|------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces) |
 | Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait               |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally              |
-| Custom identity retrieval         | Subclass `ModelProvider` (the one non-final service)                   |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                   |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                    |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.

@@ -42,6 +42,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 ## Failure / Edge Cases
 
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
+- A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
+  `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
+  `Http\UnauthenticatedResponse` renders it. Any other guard on the route keeps Laravel's response.
 - A failed `attempt()` emits `Attempting` and `Failed`, but not `Login` or `Authenticated`.
 - A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
   path and must come back as the same class with the same identifier (the bearer `pid` exact-match check), and the
@@ -72,7 +75,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`.
-- `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`.
+- `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, the `auth` middleware
+  binding, and the guest response render callback.
+- `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
 - `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
 
 ## Authoritative Tests
@@ -109,6 +114,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testActingAsBindsEachIdentitysDefaultPrincipal`
 - `tests/Integration/Events/StandardAuthEventsIntegrationTest.php`
   `testAttemptingAndFailedEventsCarryNoPasswordLikeCredentials`
+- `tests/Integration/Http/UnauthenticatedResponseIntegrationTest.php`
+  `testGuestOnPackageGuardGetsUnauthorized`, `testGuestOnSessionGuardKeepsLaravelsResponse`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
   `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersDeviceFailsTheAttempt`
 
@@ -119,6 +126,7 @@ Update this note when any of the following change:
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
   `DeviceAuthenticated`, `Refreshed`, or `RefreshFailed`
 - which credential keys are redacted from `Attempting` and `Failed`
+- the response a guest gets on a route protected by package guards
 - the decision to route bearer auth or refresh through `login()`
 - what `setUser()` binds
 - the listener or persistence behavior attached to `DeviceAuthenticated`
