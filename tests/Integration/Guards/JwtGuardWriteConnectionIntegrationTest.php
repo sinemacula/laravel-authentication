@@ -1010,10 +1010,10 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Write an identity with a device that derives its revocation and the end
-     * of its session from the `device_revocations` and `device_session_ends`
-     * tables through the split connection, creating those tables on the primary
-     * and the replica.
+     * Write an identity with a `revocation_log` device that derives its
+     * revocation and the end of its session from the `device_revocations` and
+     * `device_session_ends` tables through the split connection, creating those
+     * tables on the primary and the replica.
      *
      * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
      * @return array{0: \Tests\Integration\Fixtures\RevocationLogIdentity, 1: \SineMacula\Laravel\Authentication\Models\Device}
@@ -1040,7 +1040,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $device = new $model;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('revocation_log'),
             'authenticatable_type' => RevocationLogIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
@@ -1182,7 +1182,8 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Record the SQL of every update run from here on.
+     * Record the SQL of every update of the devices table run from here on (a
+     * failed refresh also counts the failure in the rate limits table).
      *
      * @return \ArrayObject<int, string>
      */
@@ -1192,7 +1193,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $updates = new \ArrayObject;
 
         DB::listen(static function (QueryExecuted $query) use ($updates): void {
-            if (!str_starts_with(strtolower($query->sql), 'update')) {
+            if (!str_starts_with(strtolower($query->sql), 'update "devices"')) {
                 return;
             }
 

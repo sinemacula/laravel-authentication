@@ -723,7 +723,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenDidHintNamesRevokedDevice(): void
     {
-        $this->assertDidHintIsRejected(new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID, 'revoked_at' => $this->now]));
+        $this->assertDidHintIsRejected(new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => $this->now]));
     }
 
     /**
@@ -785,7 +785,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('find')
             ->once()
             ->with(self::DEVICE_ID)
-            ->andReturn(new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID]));
+            ->andReturn(new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID]));
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
         $identity = \Mockery::mock(StubIdentity::class)->makePartial();
@@ -831,7 +831,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('getModel')->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->with(self::DEVICE_ID)
-            ->andReturn(new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID, 'revoked_at' => null]));
+            ->andReturn(new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => null]));
 
         $resolvers = [];
 
@@ -1070,7 +1070,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $device = new StubDevice([...self::liveSession(), 'id' => self::DEVICE_ID, 'revoked_at' => null]);
+        $device = new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => null]);
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')

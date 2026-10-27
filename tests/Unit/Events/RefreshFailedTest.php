@@ -35,15 +35,29 @@ final class RefreshFailedTest extends TestCase
     }
 
     /**
-     * The deviceId argument is optional and defaults to null.
+     * The deviceId and retryAfter arguments are optional and default to null.
      *
      * @return void
      */
-    public function testDeviceIdDefaultsToNull(): void
+    public function testDeviceIdAndRetryAfterDefaultToNull(): void
     {
         $event = new RefreshFailed('api', RefreshFailureReason::TOKEN_INVALID);
 
         self::assertNull($event->deviceId);
+        self::assertNull($event->retryAfter);
+    }
+
+    /**
+     * A rate-limited failure carries the seconds until refreshing may be tried
+     * again.
+     *
+     * @return void
+     */
+    public function testStoresTheRetryAfterOfARateLimitedFailure(): void
+    {
+        $event = new RefreshFailed('api', RefreshFailureReason::RATE_LIMITED, 'd-1', 42);
+
+        self::assertSame(42, $event->retryAfter);
     }
 
     /**
@@ -57,7 +71,9 @@ final class RefreshFailedTest extends TestCase
     {
         self::assertSame([
             'token_invalid',
+            'rate_limited',
             'device_unknown',
+            'device_guard_mismatch',
             'rotation_reuse',
             'rotation_conflict',
             'refresh_key_missing',
@@ -69,6 +85,8 @@ final class RefreshFailedTest extends TestCase
             'principal_mismatch',
             'principal_inactive',
             'tenant_inactive',
+            'method_not_allowed',
+            'principal_ineligible',
         ], array_map(static fn (RefreshFailureReason $reason): string => $reason->value, RefreshFailureReason::cases()));
     }
 }

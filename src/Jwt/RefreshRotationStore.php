@@ -9,15 +9,13 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
 /**
  * The writes and the locking re-read behind a refresh: each a single statement
  * on the device's own connection, guarded so that it only applies to the state
- * it was decided on. Also defers work until a write on that connection has
- * committed.
+ * it was decided on.
  *
  * Writes go through the query builder, so Eloquent observers do not fire and
  * unsaved in-memory attributes never reach the row; each successful write is
@@ -35,15 +33,11 @@ final readonly class RefreshRotationStore
      * Constructor.
      *
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connections
-     * @param  \Closure(): mixed  $transactions
      */
     public function __construct(
 
         /** Resolver for the device's own connection. */
         private ConnectionResolverInterface $connections,
-
-        /** Returns the current transactions manager, if any, when called. */
-        private \Closure $transactions,
     ) {}
 
     /**
@@ -134,24 +128,6 @@ final readonly class RefreshRotationStore
         $fresh = WriteConnection::during($device, static fn (): mixed => WriteConnection::query($device->newQuery())->lockForUpdate()->find($device->getKey()));
 
         return $fresh instanceof $device ? $fresh : null;
-    }
-
-    /**
-     * Run the callback once the writes made on the device's connection are
-     * committed: at once when that connection has no open transaction,
-     * otherwise when its transaction commits, and never when it is rolled back.
-     * A transaction open on another connection neither delays nor cancels it,
-     * since the device's writes were not made in it (see `AfterCommit`).
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \Closure(): void  $callback
-     * @return void
-     *
-     * @imperative
-     */
-    public function afterCommit(EloquentDevice&Model $device, \Closure $callback): void
-    {
-        (new AfterCommit($this->transactions))->run($device, $callback);
     }
 
     /**

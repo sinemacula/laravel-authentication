@@ -20,7 +20,8 @@ use SineMacula\Laravel\Authentication\Models\Device;
 final class PartiallySelectedDevice extends Device
 {
     /**
-     * Narrow every query to the columns the refresh digest check reads.
+     * Narrow every query to the columns the refresh digest check reads, with
+     * the guard and sign-in method every refresh is held to.
      *
      * @return void
      */
@@ -28,7 +29,7 @@ final class PartiallySelectedDevice extends Device
     protected static function booted(): void
     {
         self::addGlobalScope('refresh_columns', static function (Builder $query): void {
-            $query->select(['id', 'authenticatable_type', 'authenticatable_id', 'refresh_key']);
+            $query->select(['id', 'authenticatable_type', 'authenticatable_id', 'guard', 'sign_in_method', 'refresh_key']);
         });
     }
 }

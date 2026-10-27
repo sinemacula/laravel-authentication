@@ -103,6 +103,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   when that transaction commits. The transaction Laravel's testing traits wrap around each test is not counted, as it
   never commits. `DeviceRevoked` reports only the revocations the package makes, which today is replay detection: a
   device an application revokes by writing `revoked_at` itself fires no event.
+- A rate-limited refresh emits `Attempting`, `RefreshFailed` (`rate_limited`, with `retryAfter`), and `Failed`, and
+  then throws `ThrottleRequestsException` (a 429 with `Retry-After`) instead of returning `null`.
 - A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events
   as one that rotates, `Refreshed` included.
 - `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and
@@ -145,6 +147,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testAMethodTheGuardDoesNotAllowIsRefusedBeforeAnythingIsCounted`, `testARequiredFactorFailsTheAttempt`
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testLoginFiresValidatedEventBeforeBindingState`
+- `tests/Feature/Guards/JwtGuardTest.php`
+  `testARateLimitedRefreshFiresFailedAndThrowsA429`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserBindsIdentityPrincipalAndDeviceFromValidToken`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`

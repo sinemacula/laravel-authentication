@@ -84,11 +84,12 @@ trait VerifiesPinnedContext
      * Resolve a device for the identity from a hint (a `did` claim or a pinned
      * device's identifier). Returns null when the identity does not implement
      * `HasDevices`, the hint cannot be a key of the device model (no query is
-     * made), or the device is not found, has been revoked, or its session has
-     * ended (past its idle or absolute deadline, or without deadlines): a
-     * revoked or ended device is treated exactly like a missing one, from the
-     * row already loaded. The deadlines are checked against the current time
-     * with no leeway, so a token cannot outlive its session.
+     * made), or the device is not found, belongs to another guard's sessions
+     * (or to none), has been revoked, or its session has ended (past its idle
+     * or absolute deadline, or without deadlines): such a device is treated
+     * exactly like a missing one, from the row already loaded. The deadlines
+     * are checked against the current time with no leeway, so a token cannot
+     * outlive its session.
      *
      * Building the `devices()` relation, the lookup, and the revocation and
      * deadline reads all run inside `WriteConnection::during()` for the
@@ -107,7 +108,9 @@ trait VerifiesPinnedContext
             return null;
         }
 
-        return WriteConnection::during($identity, static function () use ($identity, $hint): ?Device {
+        $guard = $this->name;
+
+        return WriteConnection::during($identity, static function () use ($identity, $hint, $guard): ?Device {
 
             $devices = WriteConnection::query($identity->devices());
 
@@ -117,7 +120,12 @@ trait VerifiesPinnedContext
 
             $device = $devices->find($hint);
 
-            return $device instanceof Device && $device->getRevokedAt() === null && !TokenLifetimes::hasEnded($device, Carbon::now()) ? $device : null;
+            return $device instanceof Device
+                && $device->getRevokedAt() === null
+                && $device->getGuard()     === $guard
+                && !TokenLifetimes::hasEnded($device, Carbon::now())
+                ? $device
+                : null;
         });
     }
 }

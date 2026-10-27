@@ -178,6 +178,8 @@ final class AudiencePolicyIntegrationTest extends TestCase
         $device->forceFill([
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'guard'                => self::GUARD,
+            'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
             'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
             'absolute_expires_at'  => $absolute,

@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards;
 
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -12,6 +13,8 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -102,6 +105,9 @@ final class JwtGuard extends AbstractGuard
      * Delegates the round trip to `RefreshTokenExchange`, binds the resolved
      * contextual triple, and dispatches `Refreshed`. Returns `null` on failure;
      * the exchange has already dispatched `RefreshFailed` with a reason code.
+     * Once too many refreshes have failed for the token's device or from the
+     * request's IP address, `Failed` is dispatched and a
+     * `ThrottleRequestsException` (429 with `Retry-After`) is thrown instead.
      *
      * The presented token is rotated before the context is bound, so an
      * exception from a listener on the binding events or on `Refreshed`
@@ -112,6 +118,7 @@ final class JwtGuard extends AbstractGuard
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
      *
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
@@ -120,11 +127,13 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireAttemptingEvent([]);
 
-        $result = $this->exchange->exchange($refreshToken);
+        $result = $this->exchange->exchange($refreshToken, ClientContext::fromRequest($this->request));
 
-        if ($result === null) {
+        if ($result instanceof RefreshFailed) {
 
             $this->fireFailedEvent(null, []);
+
+            self::refuseIfRateLimited($result);
 
             return null;
         }
@@ -201,6 +210,23 @@ final class JwtGuard extends AbstractGuard
         }
 
         return $this->resolveBearerToken($token);
+    }
+
+    /**
+     * Answer a refresh the limits refused with a 429 carrying `Retry-After`,
+     * since `refresh()` cannot say so through its return value and a 401 would
+     * be wrong.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\RefreshFailed  $failure
+     * @return void
+     *
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
+     */
+    private static function refuseIfRateLimited(RefreshFailed $failure): void
+    {
+        if ($failure->retryAfter !== null) {
+            throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $failure->retryAfter]);
+        }
     }
 
     /**

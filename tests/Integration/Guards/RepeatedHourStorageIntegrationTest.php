@@ -394,6 +394,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
         $device->forceFill([
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'guard'                => 'api',
+            'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
             'idle_expires_at'      => $idle ?? $now->copy()->addHours(5),
             'absolute_expires_at'  => $now->copy()->addHours(9),
@@ -434,7 +436,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
      */
     private function store(): RefreshRotationStore
     {
-        return new RefreshRotationStore(app(ConnectionResolverInterface::class), static fn (): mixed => app('db.transactions'));
+        return new RefreshRotationStore(app(ConnectionResolverInterface::class));
     }
 
     /**

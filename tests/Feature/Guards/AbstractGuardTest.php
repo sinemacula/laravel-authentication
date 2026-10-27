@@ -416,6 +416,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')->andReturn($deviceId);
+        $device->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
         $device->shouldReceive('getRevokedAt')->andReturnNull();
         $device->shouldReceive('getIdleExpiresAt')->andReturn(Carbon::now()->addDays(90));
         $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(Carbon::now()->addDays(180));

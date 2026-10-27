@@ -151,7 +151,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     public function testRefreshTokenRotatesOnlyOnTheIssuingGuardWithSharedKeyAndModel(): void
     {
         $identity = $this->seedPrincipal('staff@staff.test');
-        $device   = $this->seedDevice($identity);
+        $device   = $this->seedDevice($identity, self::STAFF_GUARD);
 
         $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueRefreshToken($device, self::ROTATION_ID, $identity);
 
@@ -201,7 +201,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     public function testRefreshRejectsAnOwnerOfAnotherModelThatSharesTheKey(): void
     {
         $identity = $this->seedPrincipal('staff@staff.test');
-        $device   = $this->seedDevice($identity);
+        $device   = $this->seedDevice($identity, self::PARTNER_GUARD);
 
         $this->seedPartner();
 
@@ -226,8 +226,8 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         $jwt = $this->authManager()->jwt(self::CUSTOMER_GUARD);
 
-        $outsideToken = $jwt->issueRefreshToken($this->seedDevice($outside), self::ROTATION_ID);
-        $insideToken  = $jwt->issueRefreshToken($this->seedDevice($inside), self::ROTATION_ID);
+        $outsideToken = $jwt->issueRefreshToken($this->seedDevice($outside, self::CUSTOMER_GUARD), self::ROTATION_ID);
+        $insideToken  = $jwt->issueRefreshToken($this->seedDevice($inside, self::CUSTOMER_GUARD), self::ROTATION_ID);
 
         $this->assertRefreshFailsWith(self::CUSTOMER_GUARD, $outsideToken, RefreshFailureReason::AUTHENTICATABLE_MISSING);
 
@@ -323,17 +323,18 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     }
 
     /**
-     * Persist a device owned by the identity with a refresh digest for the
-     * shared rotation id.
+     * Persist a device of the guard owned by the identity with a refresh digest
+     * for the shared rotation id.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Models\Device
      */
-    private function seedDevice(Identity $identity): Device
+    private function seedDevice(Identity $identity, string $guard): Device
     {
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession($guard),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

@@ -51,7 +51,9 @@ device record live in the `devices` table so replay and stale credentials can be
   algorithms, type confusion, tokens from another guard, missing claims, and `pid` / `did` mismatches.
 - **Refresh-token rotation with replay detection**: constant-time digest verification, atomic per-device rotation, a
   short grace window for lost responses and parallel refreshes, revocation of the device when a rotated refresh token
-  is replayed, and machine-readable `RefreshFailed` and `DeviceRevoked` events for SIEM attribution.
+  is replayed, and machine-readable `RefreshFailed` and `DeviceRevoked` events for SIEM attribution. Every refresh is
+  held to the device's guard and the guard's audience policy, and failed refreshes are counted, with a 429 past the
+  limit.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
   it, so keys rotate without signing anyone out.
 - **A session service** per JWT guard, `Auth::sessions('api')`, that signs in through a method or starts a session for
@@ -368,7 +370,9 @@ The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticat
 the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
 and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
 every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()` and
-`getSignInMethod()` read the guard and method it recorded.
+`getSignInMethod()` read the guard and method it recorded. The bearer path and refresh honour a device only for the
+guard it records, and refresh only while that guard still allows the method it records, so a device written outside the
+session service must record both.
 
 Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
 device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
@@ -1051,6 +1055,19 @@ return [
 ];
 ```
 
+A refresh is held to the guard as well as the token. A device the row records for another guard (or for none) fails
+with `device_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
+is rejected as if the device were missing. The guard's audience policy is asked again on every refresh: the method that
+started the session (the device's `sign_in_method`) must still be one the guard allows (`method_not_allowed`; a device
+that records none fails too), and the policy must still admit the owner as the principal (`principal_ineligible`).
+Neither revokes the device, so the session refreshes again once the policy allows it. Each rotation moves the idle
+deadline by the idle lifetime the policy gives the principal's type.
+
+Failed refreshes are counted against the token's device and the request's IP address by the bound `AttemptLimiter`;
+successful ones are not. Once either count is full, `refresh()` dispatches `RefreshFailed` (`rate_limited`) and
+`Failed` without looking the device up, then throws Laravel's `ThrottleRequestsException`, which renders as a 429 with
+`Retry-After`.
+
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
 token valid for a retry. After the commit, `refresh()` binds the new context and dispatches `Refreshed`; an exception
 from a listener on those events loses the new pair, but a retry with the presented token inside the grace window still
@@ -1186,12 +1203,15 @@ and a `SignInFailureReason`. It never carries a password, code or token:
 | `additional_factor_required` | A further factor is required, which only `signIn()` can ask        |
 | `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's |
 
-`RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution:
+`RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution, and the wait in `retryAfter` for
+`rate_limited`:
 
 | Reason                    | Meaning                                              |
 |---------------------------|------------------------------------------------------|
 | `token_invalid`           | Decode, expiry, missing claim, typ, guard, iss, aud  |
+| `rate_limited`            | Too many failed refreshes for the device or IP       |
 | `device_unknown`          | Device id is not a device key or names no device     |
+| `device_guard_mismatch`   | Device is another guard's (or none's); not revoked   |
 | `rotation_reuse`          | Rotated token replayed; device revoked               |
 | `rotation_conflict`       | Device changed during the refresh; retry             |
 | `refresh_key_missing`     | Device holds no refresh credential                   |
@@ -1203,6 +1223,8 @@ and a `SignInFailureReason`. It never carries a password, code or token:
 | `principal_mismatch`      | Resolved principal does not match refresh token hint |
 | `principal_inactive`      | Resolved principal reported inactive                 |
 | `tenant_inactive`         | Principal's tenant inactive, or opted in and missing |
+| `method_not_allowed`      | Guard no longer allows the method of the session     |
+| `principal_ineligible`    | Audience policy no longer admits the principal       |
 
 ## Extensibility
 

@@ -21,10 +21,9 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Feature tests for the guarded refresh-state writes, the locking re-read, and
- * work deferred until the device's connection commits (whose rules
- * `AfterCommitTest` pins), against a real device table on whichever engine the
- * suite runs on, and a device kept on a second connection.
+ * Feature tests for the guarded refresh-state writes and the locking re-read,
+ * against a real device table on whichever engine the suite runs on, and a
+ * device kept on a second connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -298,35 +297,6 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Deferred work runs once the device's connection commits, as `AfterCommit`
-     * decides it on the store's transactions manager: at once outside a
-     * transaction, and on the commit inside one.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAfterCommitDefersUntilTheDeviceConnectionCommits(): void
-    {
-        $device = $this->device();
-        $calls  = new \ArrayObject;
-
-        $this->store()->afterCommit($device, self::counter($calls));
-
-        self::assertCount(1, $calls);
-
-        DB::beginTransaction();
-
-        $this->store()->afterCommit($device, self::counter($calls));
-
-        self::assertCount(1, $calls);
-
-        DB::commit();
-
-        self::assertCount(2, $calls);
-    }
-
-    /**
      * Add the second connection a device can be kept on.
      *
      * @param  mixed  $app
@@ -344,31 +314,13 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Build the store on the application's connections and its transactions
-     * manager, or on the given manager resolver.
+     * Build the store on the application's connections.
      *
-     * @param  (\Closure(): mixed)|null  $transactions
      * @return \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore
      */
-    private function store(?\Closure $transactions = null): RefreshRotationStore
+    private function store(): RefreshRotationStore
     {
-        return new RefreshRotationStore(
-            app(ConnectionResolverInterface::class),
-            $transactions ?? static fn (): mixed => app('db.transactions'),
-        );
-    }
-
-    /**
-     * A callback that records each call it receives.
-     *
-     * @param  \ArrayObject<int, true>  $calls
-     * @return \Closure(): void
-     */
-    private static function counter(\ArrayObject $calls): \Closure
-    {
-        return static function () use ($calls): void {
-            $calls->append(true);
-        };
+        return new RefreshRotationStore(app(ConnectionResolverInterface::class));
     }
 
     /**

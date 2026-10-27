@@ -183,9 +183,9 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A refresh for a member of a tenant that opts in reads the device, the
-     * owner, the principal and the tenant once each, and writes only the
-     * rotation.
+     * A refresh for a member of a tenant that opts in reads its refresh limits,
+     * the device, the owner, the principal and the tenant once each, and writes
+     * only the rotation.
      *
      * @param  string  $guard
      * @return void
@@ -193,23 +193,26 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideOptedInTenantGuards')]
-    public function testRefreshForAMemberOfAnOptedInTenantUsesFourReadsAndOneWrite(string $guard): void
+    public function testRefreshForAMemberOfAnOptedInTenantUsesFiveReadsAndOneWrite(string $guard): void
     {
         [$member, $membership] = $this->seedMembership($guard);
 
-        $device = $this->seedDevice($member);
+        $device = $this->seedDevice($member, $guard);
         $token  = $this->tokensFor($guard)->issueRefreshToken($device, self::ROTATION_ID, $membership);
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(4, 1, static fn (): ?RefreshResult => $resolved->refresh($token)));
+        self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(5, 1, static fn (): ?RefreshResult => $resolved->refresh($token)));
     }
 
     /**
-     * A refresh for a member of an inactive tenant spends the same four reads
+     * A refresh for a member of an inactive tenant spends the same five reads
      * to reach the tenant check, is rejected, and leaves the rotation alone.
+     * Its only writes count the failure against the device and the IP address:
+     * on a fresh window, an update that changes nothing and the insert that
+     * creates the counter, for each.
      *
      * @param  string  $guard
      * @return void
@@ -217,18 +220,18 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     #[DataProvider('provideOptedInTenantGuards')]
-    public function testRefreshForAMemberOfAnInactiveTenantIsRejectedInFourReadsAndNoWrites(string $guard): void
+    public function testRefreshForAMemberOfAnInactiveTenantIsRejectedInFiveReadsAndCountsTheFailure(string $guard): void
     {
         [$member, $membership] = $this->seedMembership($guard, false);
 
-        $device = $this->seedDevice($member);
+        $device = $this->seedDevice($member, $guard);
         $token  = $this->tokensFor($guard)->issueRefreshToken($device, self::ROTATION_ID, $membership);
 
         app()->instance('request', Request::create('/refresh', 'POST'));
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertNull($this->assertQueryBudget(4, 0, static fn (): ?RefreshResult => $resolved->refresh($token)));
+        self::assertNull($this->assertQueryBudget(5, 4, static fn (): ?RefreshResult => $resolved->refresh($token)));
     }
 
     /**
@@ -321,16 +324,17 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a device for the member holding the stored rotation.
+     * Persist a device of the guard for the member holding the stored rotation.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $member
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Models\Device
      */
-    private function seedDevice(Identity&Model $member): Device
+    private function seedDevice(Identity&Model $member, string $guard): Device
     {
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession($guard),
             'authenticatable_type' => $member::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

@@ -27,8 +27,9 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 /**
  * Query-budget and timing contracts for rejected bearer and refresh tokens: a
  * request whose token fails after a lookup is resolved once however often the
- * guard is asked, and a token for another guard or missing a required claim is
- * rejected before any query.
+ * guard is asked, a bearer token for another guard or missing a required claim
+ * is rejected before any query, and such a refresh token before any device or
+ * identity query, touching only the IP address's refresh limit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -205,36 +206,40 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 
     /**
      * A refresh token issued by another guard is rejected while parsing, before
-     * any device or identity query.
+     * any device or identity query. It names no device the guard can trust, so
+     * only the IP address's limit is read and, as a failure, counted: on a
+     * fresh window an update that changes nothing and the insert that creates
+     * the counter.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRefreshTokenFromAnotherGuardUsesNoQueries(): void
+    public function testRefreshTokenFromAnotherGuardTouchesOnlyTheIpAddressLimit(): void
     {
         $identity = $this->seedIdentity();
         $token    = $this->tokens(self::OTHER_GUARD)->issueRefreshToken($this->seedDevice($identity), self::ROTATION_ID, $identity);
 
         $guard = $this->refreshGuard();
 
-        self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => $guard->refresh($token)));
     }
 
     /**
      * A correctly signed refresh token missing its `did` is rejected while
-     * parsing, before any query.
+     * parsing, before any device or identity query, and counted against the IP
+     * address only.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRefreshTokenMissingARequiredClaimUsesNoQueries(): void
+    public function testRefreshTokenMissingARequiredClaimTouchesOnlyTheIpAddressLimit(): void
     {
         $token = $this->encode([Claims::TYPE->value => TokenType::REFRESH->value]);
         $guard = $this->refreshGuard();
 
-        self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(1, 2, static fn (): mixed => $guard->refresh($token)));
     }
 
     /**

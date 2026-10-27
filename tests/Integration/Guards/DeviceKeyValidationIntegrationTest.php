@@ -73,6 +73,8 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             $blueprint->string('id')->primary();
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
+            $blueprint->string('guard')->nullable();
+            $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->string('previous_refresh_key', 64)->nullable();
             $blueprint->dateTime('refresh_rotated_at', 0)->nullable();

@@ -114,6 +114,7 @@ abstract class JwtGuardTestCase extends TestCase
             30,
         );
 
+        // Every principal's sessions last as long as the token service says.
         self::bindSignInPolicyDoubles($this->app, $this->tokens->lifetimes());
 
         // Default: Timebox::call() invokes the callback directly so credential

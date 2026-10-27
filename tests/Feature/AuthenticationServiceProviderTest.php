@@ -330,6 +330,8 @@ final class AuthenticationServiceProviderTest extends TestCase
      */
     public function testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind(): void
     {
+        $this->migrateRateLimits();
+
         $guard = app('auth')->guard('api');
 
         self::assertInstanceOf(JwtGuard::class, $guard);
@@ -394,7 +396,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertInstanceOf(JwtGuard::class, $guard);
 
         $exchange     = $this->readObjectProperty($guard, 'exchange');
-        $transactions = $this->readObjectProperty($this->readObjectProperty($exchange, 'store'), 'transactions');
+        $transactions = $this->readObjectProperty($this->readObjectProperty($exchange, 'afterCommit'), 'transactions');
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
         self::assertInstanceOf(\Closure::class, $transactions);
