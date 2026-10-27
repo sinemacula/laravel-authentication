@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Firebase\JWT\ExpiredException;
 use Firebase\JWT\JWT;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -236,7 +237,42 @@ final class JwtTokenService
      */
     public function parse(#[\SensitiveParameter] string $token, ?TokenType $expectedType = null): ?array
     {
-        $decoded = $this->decodeToken($token);
+        return $this->verifiedClaims($token, $expectedType, false);
+    }
+
+    /**
+     * Decode and verify a refresh token a client offers as proof that it holds
+     * a device's session, accepting one that has expired.
+     *
+     * Every check `parse($token, TokenType::REFRESH)` makes applies (the
+     * signature and kid, `grd`, `iss` and `aud`, `typ`, the required claims,
+     * and an `iat` that is not in the future) except expiry: firebase/php-jwt
+     * verifies all of those before it rejects an expired token, so the payload
+     * of an expired one is as trustworthy as a live one's. Expiry is not
+     * enforced because the usual proof is from a client signing in again after
+     * its session ended; the device row decides what the proof is worth.
+     * Returns `null` on any other failure.
+     *
+     * @param  string  $token
+     * @return ?array<string, mixed>
+     */
+    public function parseRefreshProof(#[\SensitiveParameter] string $token): ?array
+    {
+        return $this->verifiedClaims($token, TokenType::REFRESH, true);
+    }
+
+    /**
+     * Decode and verify a token, optionally accepting an expired one, and
+     * return its claims when they match this service and the expected type.
+     *
+     * @param  string  $token
+     * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
+     * @param  bool  $acceptExpired
+     * @return ?array<string, mixed>
+     */
+    private function verifiedClaims(#[\SensitiveParameter] string $token, ?TokenType $expectedType, bool $acceptExpired): ?array
+    {
+        $decoded = $this->decodeToken($token, $acceptExpired);
 
         if ($decoded === null) {
             return null;
@@ -370,7 +406,9 @@ final class JwtTokenService
 
     /**
      * Run firebase/php-jwt with the configured leeway. Returns the decoded
-     * payload, or `null` on any decode/signature/expiry failure.
+     * payload, or `null` on any decode/signature/expiry failure; with
+     * `$acceptExpired`, the verified payload of a token whose only fault is
+     * that it has expired.
      *
      * `firebase/php-jwt` exposes leeway only via the public static
      * `JWT::$leeway`. The previous value is captured and restored around the
@@ -379,9 +417,10 @@ final class JwtTokenService
      * request-isolation model; this code does not lock.
      *
      * @param  string  $token
-     * @return ?\stdClass
+     * @param  bool  $acceptExpired
+     * @return ?object
      */
-    private function decodeToken(#[\SensitiveParameter] string $token): ?\stdClass
+    private function decodeToken(#[\SensitiveParameter] string $token, bool $acceptExpired): ?object
     {
         $previousLeeway = JWT::$leeway;
 
@@ -391,6 +430,12 @@ final class JwtTokenService
 
             return JWT::decode($token, $this->keyring->verificationKeys());
         } catch (\Throwable $e) {
+
+            // php-jwt checks the signature, kid, algorithm and iat before it
+            // rejects an expired token, so this payload is verified.
+            if ($acceptExpired && $e instanceof ExpiredException) {
+                return $e->getPayload();
+            }
 
             $this->logger->debug('JWT decode failed', [
                 'exception' => $e::class,
@@ -407,10 +452,10 @@ final class JwtTokenService
      * Convert the decoded payload into a string-keyed array, dropping any
      * numeric keys.
      *
-     * @param  \stdClass  $decoded
+     * @param  object  $decoded
      * @return array<string, mixed>
      */
-    private function normaliseClaims(\stdClass $decoded): array
+    private function normaliseClaims(object $decoded): array
     {
         return array_filter((array) $decoded, fn ($key) => is_string($key), ARRAY_FILTER_USE_KEY);
     }

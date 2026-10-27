@@ -38,6 +38,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
@@ -150,6 +151,13 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $app->make(Timebox::class),
             $tokens,
             $exchange,
+            static fn (JwtGuard $guard): SessionService => new SessionService(
+                $guard,
+                $tokens,
+                $app,
+                $app->make(ConnectionResolverInterface::class),
+                static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
+            ),
         );
 
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);

@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\BindsSignInPolicyDoubles;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
@@ -204,6 +205,13 @@ abstract class JwtGuardTestCase extends TestCase
             $this->timebox,
             $this->tokens,
             $exchange,
+            fn (JwtGuard $guard): SessionService => new SessionService(
+                $guard,
+                $this->tokens,
+                $app,
+                $app->make(ConnectionResolverInterface::class),
+                static fn (): mixed => $app->make('db.transactions'),
+            ),
         );
     }
 

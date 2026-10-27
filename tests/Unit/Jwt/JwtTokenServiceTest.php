@@ -457,6 +457,100 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * A refresh token offered as proof of a device is accepted after it has
+     * expired, with the same claims `parse()` returns for a live one, while
+     * `parse()` itself rejects it.
+     *
+     * @return void
+     */
+    public function testParseRefreshProofAcceptsAnExpiredRefreshToken(): void
+    {
+        $service = $this->makeService();
+        $device  = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addMinutes(10), $this->now->copy()->addMinutes(20));
+        $token   = $service->issueRefreshToken($device, 'rotation-id', $this->mockPrincipal('principal-3'));
+        $live    = $service->parseRefreshProof($token);
+
+        self::assertSame($service->parse($token, TokenType::REFRESH), $live);
+
+        $this->advanceClock(60 * 24 * 365);
+
+        self::assertNull($service->parse($token, TokenType::REFRESH));
+        self::assertSame($live, $service->parseRefreshProof($token));
+        self::assertSame('device-42', $live[Claims::DEVICE_ID->value] ?? null);
+        self::assertSame('rotation-id', $live[Claims::JWT_ID->value] ?? null);
+    }
+
+    /**
+     * Every check but expiry still applies to a proof: a token that is not a
+     * refresh token, that another guard issued, that is signed with another
+     * key, that is issued in the future, that lacks a claim a refresh token
+     * requires, or that is not a JWT at all, proves nothing; and a failure is
+     * logged as `parse()` logs it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testParseRefreshProofKeepsEveryOtherCheck(): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')->atLeast()->once();
+
+        $service = new JwtTokenService(
+            $this->makeKeyring(),
+            self::GUARD,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
+            30,
+            logger: $logger,
+        );
+
+        $claims = $this->completeClaims(TokenType::REFRESH);
+
+        unset($claims[Claims::DEVICE_ID->value]);
+
+        $future = $this->completeClaims(TokenType::REFRESH);
+
+        $future[Claims::ISSUED_AT->value] = $this->now->getTimestamp() + 3600;
+
+        $otherKey = new JwtTokenService($this->makeKeyring(str_repeat('k', 32)), self::GUARD, $service->lifetimes(), 30);
+
+        self::assertNull($service->parseRefreshProof($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null)));
+        self::assertNull($service->parseRefreshProof($this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id')));
+        self::assertNull($service->parseRefreshProof($otherKey->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id')));
+        self::assertNull($service->parseRefreshProof($this->encode($future)));
+        self::assertNull($service->parseRefreshProof($this->encode($claims)));
+        self::assertNull($service->parseRefreshProof('not-a-jwt'));
+        self::assertIsArray($service->parseRefreshProof($this->encode($this->completeClaims(TokenType::REFRESH))));
+    }
+
+    /**
+     * Checking a proof applies the service's leeway only while it decodes, and
+     * restores the leeway set before, whether the proof is accepted or not.
+     *
+     * @return void
+     */
+    public function testParseRefreshProofRestoresThePreviousLeeway(): void
+    {
+        $previous = JWT::$leeway;
+
+        JWT::$leeway = 7;
+
+        try {
+            $service = $this->makeService();
+
+            $service->parseRefreshProof($service->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id'));
+
+            self::assertSame(7, JWT::$leeway);
+
+            $service->parseRefreshProof('not-a-jwt');
+
+            self::assertSame(7, JWT::$leeway);
+        } finally {
+            JWT::$leeway = $previous;
+        }
+    }
+
+    /**
      * The service exposes the lifetimes it issues with, for code that stamps a
      * new device's deadlines.
      *

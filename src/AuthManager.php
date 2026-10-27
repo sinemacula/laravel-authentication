@@ -10,17 +10,20 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `device`, `tenant`, `type`) and guard-scoped
- * `jwt()` issuance directly on the manager. Each contextual accessor forwards
- * to the active guard when it implements `ContextualGuard`, otherwise returns
- * `null`. Bound to the `auth` container key by `AuthenticationServiceProvider`.
+ * (`identity`, `principal`, `device`, `tenant`, `type`), guard-scoped `jwt()`
+ * issuance and each JWT guard's `sessions()` directly on the manager. Each
+ * contextual accessor forwards to the active guard when it implements
+ * `ContextualGuard`, otherwise returns `null`. Bound to the `auth` container
+ * key by `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -72,6 +75,26 @@ class AuthManager extends IlluminateAuthManager
         $factory = $this->app->make(JwtTokenServiceFactory::class);
 
         return $factory->forGuard($guardName);
+    }
+
+    /**
+     * Return the session service of the named JWT guard, or of the current
+     * default guard when the name is omitted.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function sessions(?string $guard = null): SessionService
+    {
+        $resolved = $this->guard($guard);
+
+        if (!$resolved instanceof JwtGuard) {
+            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it has no session service.', $guard ?? $this->getDefaultDriver()));
+        }
+
+        return $resolved->sessions();
     }
 
     /**

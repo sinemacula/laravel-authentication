@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
  * Sessionless JWT bearer-token guard.
@@ -26,13 +27,17 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
  * device from the configured provider/resolver/model state before binding them.
  *
  * Exposes `refresh()` for refresh-credential exchange; the round trip is
- * delegated to `RefreshTokenExchange`.
+ * delegated to `RefreshTokenExchange`. `sessions()` returns the guard's session
+ * service, which starts sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class JwtGuard extends AbstractGuard
 {
+    /** @var ?\SineMacula\Laravel\Authentication\Sessions\SessionService The guard's session service, once built. */
+    private ?SessionService $sessions = null;
+
     /**
      * Constructor.
      *
@@ -44,6 +49,7 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
      */
     public function __construct(
 
@@ -70,8 +76,24 @@ final class JwtGuard extends AbstractGuard
 
         /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
+
+        /** Builds the guard's session service the first time it is asked for. */
+        private readonly \Closure $sessionFactory,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
+    }
+
+    /**
+     * Return the guard's session service, which signs in, creates or continues
+     * the device, and issues the first token pair. Built once per guard; it
+     * reads the guard's request, dispatcher, provider and resolver each time it
+     * runs, so it follows their rebinds.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
+     */
+    public function sessions(): SessionService
+    {
+        return $this->sessions ??= ($this->sessionFactory)($this);
     }
 
     /**

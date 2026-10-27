@@ -79,9 +79,10 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `Device` declares exactly the read surface the guards, the refresh
-     * exchange, and the package events depend on: the identifier, last use,
-     * both refresh digests and the rotation time, both deadlines, and the
-     * revocation.
+     * exchange, the session service, and the package events depend on: the
+     * identifier, last use, both refresh digests and the rotation time, both
+     * deadlines, the revocation, and the guard and sign-in method that started
+     * the session.
      *
      * @return void
      */
@@ -90,6 +91,7 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame([
             'getAbsoluteExpiresAt',
             'getDeviceIdentifier',
+            'getGuard',
             'getIdleExpiresAt',
             'getLastUsedAt',
             'getPreviousRefreshKey',
@@ -97,6 +99,7 @@ final class ContractDeclarationTest extends TestCase
             'getRefreshRotatedAt',
             'getRevokedAt',
             'getRevokedReason',
+            'getSignInMethod',
         ], self::declaredMethods(Device::class));
     }
 
@@ -115,9 +118,10 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `EloquentDevice` adds exactly the owner relation and the column names the
-     * refresh, revocation, and last-use writes need. The identifier has no
-     * column name: it is always the primary key.
+     * `EloquentDevice` adds exactly the owner and principal relations and the
+     * column names the session creation, refresh, revocation, and last-use
+     * writes need. The identifier has no column name: it is always the primary
+     * key.
      *
      * @return void
      */
@@ -126,31 +130,40 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame([
             'authenticatable',
             'getAbsoluteExpiresAtName',
+            'getClientNameName',
+            'getCreatedIpName',
+            'getCreatedUserAgentName',
+            'getGuardName',
             'getIdleExpiresAtName',
             'getLastUsedAtName',
             'getLastUsedIpName',
             'getLastUsedUserAgentName',
+            'getPlatformName',
             'getPreviousRefreshKeyName',
             'getRefreshKeyName',
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
+            'getSignInMethodName',
+            'principal',
         ], self::declaredMethods(EloquentDevice::class));
     }
 
     /**
-     * `EloquentDevice::authenticatable()` must return a MorphTo relation, and
-     * the persistence column-name accessors must return strings.
+     * `EloquentDevice::authenticatable()` and `principal()` must return MorphTo
+     * relations, and the persistence column-name accessors must return strings.
      *
      * @return void
      */
     public function testEloquentDeviceDeclaresExpectedReturnTypes(): void
     {
-        $authenticatableReturn = (new \ReflectionMethod(EloquentDevice::class, 'authenticatable'))->getReturnType();
-        self::assertInstanceOf(\ReflectionNamedType::class, $authenticatableReturn);
-        self::assertSame(MorphTo::class, $authenticatableReturn->getName());
+        foreach (['authenticatable', 'principal'] as $relation) {
+            $relationReturn = (new \ReflectionMethod(EloquentDevice::class, $relation))->getReturnType();
+            self::assertInstanceOf(\ReflectionNamedType::class, $relationReturn);
+            self::assertSame(MorphTo::class, $relationReturn->getName());
+        }
 
-        $columnNameAccessors = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable']);
+        $columnNameAccessors = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable', 'principal']);
 
         foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();

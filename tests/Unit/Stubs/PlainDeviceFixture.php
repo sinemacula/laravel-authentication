@@ -136,4 +136,26 @@ final readonly class PlainDeviceFixture implements Device
     {
         return null;
     }
+
+    /**
+     * Return the guard whose session the device holds, or null.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getGuard(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Return the sign-in method that started the session, or null.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getSignInMethod(): ?string
+    {
+        return null;
+    }
 }

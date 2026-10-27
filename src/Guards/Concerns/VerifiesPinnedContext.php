@@ -4,13 +4,13 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
@@ -19,10 +19,6 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
  * Proves that a principal or device someone else named belongs to an identity:
  * a principal hint (a `pid` claim or a principal pinned on `attempt()`) and a
  * device hint (a `did` claim or a device pinned on `attempt()`).
- *
- * Expects the using class to declare:
- * - `protected function resolvePrincipal(Identity $identity, mixed $hint =
- *   null): ?Principal`
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -52,14 +48,10 @@ trait VerifiesPinnedContext
 
     /**
      * Resolve a caller-supplied principal through the resolver's hinted path,
-     * with the exact-match check the bearer path applies to a `pid` claim, and
-     * return the resolver's instance. Returns `null` when the identity does not
-     * own a principal of the same class with that identifier.
-     *
-     * Ownership is checked here as well, rather than trusted to the resolver:
-     * the resolved principal's own identity must be the authenticated one, so a
-     * resolver whose hinted lookup is not scoped to the identity cannot bind
-     * another identity's principal.
+     * with the exact-match and ownership checks of
+     * `PinnedPrincipal::resolve()`, and return the resolver's instance. Returns
+     * `null` when the identity does not own a principal of the same class with
+     * that identifier.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $pinned
@@ -69,14 +61,7 @@ trait VerifiesPinnedContext
      */
     protected function resolvePinnedPrincipal(Identity $identity, Principal $pinned): ?Principal
     {
-        $hint     = $pinned->getPrincipalIdentifier();
-        $resolved = $this->resolvePrincipal($identity, $hint);
-
-        if ($resolved === null || $resolved::class !== $pinned::class || !$this->matchesPidHint($resolved, $hint)) {
-            return null;
-        }
-
-        return $this->isOwnedBy($resolved, $identity) ? $resolved : null;
+        return PinnedPrincipal::resolve($this->resolver, $identity, $pinned);
     }
 
     /**
@@ -134,44 +119,5 @@ trait VerifiesPinnedContext
 
             return $device instanceof Device && $device->getRevokedAt() === null && !TokenLifetimes::hasEnded($device, Carbon::now()) ? $device : null;
         });
-    }
-
-    /**
-     * Whether the principal's owning identity is the given identity: the same
-     * class with the same auth identifier. In 2D mode the principal is its own
-     * identity.
-     *
-     * An Eloquent principal's owner is read from its own stored key on a copy
-     * without loaded relations, so an identity relation the resolver already
-     * set (for example the inverse of the lookup it made) cannot vouch for the
-     * principal. A principal whose owner cannot be read (`getIdentity()` throws
-     * a `LogicException`, as `ActsAsPrincipal` does for a deleted owner or a
-     * model without an identity relation) is not owned, so the pin fails the
-     * attempt rather than the request. The copy may lazy-load its owner even
-     * when the principal was hydrated with lazy loading prevented (Eloquent
-     * strict mode), because the package re-reads the owner on purpose.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return bool
-     */
-    private function isOwnedBy(Principal $principal, Identity $identity): bool
-    {
-        $stored = $principal;
-
-        if ($principal instanceof Model) {
-            $stored = $principal->withoutRelations();
-
-            $stored->preventsLazyLoading = false;
-        }
-
-        try {
-            $owner = WriteConnection::during($stored, static fn (): Identity => $stored->getIdentity());
-        } catch (\LogicException) {
-            return false;
-        }
-
-        return $owner::class === $identity::class
-            && IdentifierCoercion::matches($owner->getAuthIdentifier(), $identity->getAuthIdentifier());
     }
 }

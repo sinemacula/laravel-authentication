@@ -37,6 +37,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 ## Success Path
 
 - `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`.
+- The session service's `signIn()` emits `Attempting`, then binds through `login()` (`Validated -> Login ->
+  Authenticated -> PrincipalAssigned -> DeviceAuthenticated`) once the session's transaction is done, and dispatches
+  `DeviceCreated` (new devices only) and `SignedIn` when the device's connection commits; `start()` does the same
+  without `Attempting` (see `session-service.md`).
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`

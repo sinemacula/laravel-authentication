@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
@@ -230,6 +231,13 @@ final class DeviceModelOverrideTest extends TestCase
             app(Timebox::class),
             $tokens,
             $exchange,
+            static fn (JwtGuard $guard): SessionService => new SessionService(
+                $guard,
+                $tokens,
+                app(),
+                app(ConnectionResolverInterface::class),
+                static fn (): mixed => app('db.transactions'),
+            ),
         );
     }
 }

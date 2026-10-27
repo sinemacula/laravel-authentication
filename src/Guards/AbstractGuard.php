@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
 use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
@@ -37,14 +38,15 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * Contextual binding is composed via `BindsContextualState`; the credential
  * event helpers via `ValidatesGuardCredentials`; the sign-in policy checks
  * behind `attempt()` via `SignsInWithCredentials`; ownership checks for
- * principal hints and pinned context via `VerifiesPinnedContext`.
+ * principal hints and pinned context via `VerifiesPinnedContext`; read access
+ * to the guard's collaborators via `ExposesCollaborators`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 abstract class AbstractGuard implements ContextualGuard
 {
-    use BindsContextualState, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
+    use BindsContextualState, ExposesCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
 
     /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;

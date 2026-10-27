@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -463,6 +464,13 @@ final class RefreshTokenExchangeBenchHarness
             $this->timebox,
             $this->tokens,
             $exchange,
+            fn (JwtGuard $guard): SessionService => new SessionService(
+                $guard,
+                $this->tokens,
+                new Container,
+                BenchDatabase::connectionResolver(),
+                static fn (): null => null,
+            ),
         );
     }
 }

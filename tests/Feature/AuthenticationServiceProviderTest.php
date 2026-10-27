@@ -347,6 +347,39 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * A JWT guard's session service is built for that guard, on the application
+     * container, and resolves the database transactions manager each time it
+     * defers its events, so a manager bound later is the one consulted and none
+     * is used when the container has none.
+     *
+     * @return void
+     */
+    public function testJwtGuardSessionServiceIsBuiltForTheGuardOnTheContainer(): void
+    {
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $sessions     = $guard->sessions();
+        $transactions = $this->readObjectProperty($this->readObjectProperty($sessions, 'afterCommit'), 'transactions');
+
+        self::assertSame($guard, $this->readObjectProperty($sessions, 'guard'));
+        self::assertSame(app(), $this->readObjectProperty($sessions, 'container'));
+        self::assertInstanceOf(\Closure::class, $transactions);
+        self::assertSame(app('db.transactions'), $transactions());
+
+        $replacement = new DatabaseTransactionsManager;
+
+        app()->instance('db.transactions', $replacement);
+
+        self::assertSame($replacement, $transactions());
+
+        app()->offsetUnset('db.transactions');
+
+        self::assertNull($transactions());
+    }
+
+    /**
      * The guard's refresh exchange resolves the database transactions manager
      * each time it defers a revocation event, so a manager bound later (as the
      * testing transaction traits bind one) is the one consulted, and none is

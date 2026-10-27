@@ -49,6 +49,21 @@ final class RenamedKeyDevice extends Model implements EloquentDevice
     }
 
     /**
+     * Polymorphic relation to the principal the device's session acts as.
+     *
+     * @formatter:off
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
+     *
+     * @formatter:on
+     */
+    #[\Override]
+    public function principal(): MorphTo
+    {
+        return $this->morphTo(); // @phpstan-ignore return.type
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

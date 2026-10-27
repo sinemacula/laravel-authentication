@@ -54,12 +54,15 @@ device record live in the `devices` table so replay and stale credentials can be
   is replayed, and machine-readable `RefreshFailed` and `DeviceRevoked` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
   it, so keys rotate without signing anyone out.
-- **Device records**, one per signed-in session: owner, optional principal and client metadata, the last use (time,
-  IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a reason. Refresh
-  digests are hidden from serialisation.
+- **A session service** per JWT guard, `Auth::sessions('api')`, that signs in through a method or starts a session for
+  an externally verified identity, creates the device (or continues the one a client proves it holds), issues the first
+  token pair, binds the guard, and reports `DeviceCreated` and `SignedIn` once committed.
+- **Device records**, one per signed-in session: owner, principal, guard, sign-in method and client metadata, the last
+  use (time, IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a
+  reason. Refresh digests are hidden from serialisation.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
-  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed` /
-  `DeviceRevoked`.
+  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` / `SignInFailed` /
+  `Refreshed` / `RefreshFailed` / `DeviceRevoked` / `IdentifierVerified`.
 - **Audiences per guard**: the sign-in methods and principal types each guard admits, and token and session lifetimes
   per principal type.
 - **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email by
@@ -68,8 +71,8 @@ device record live in the `devices` table so replay and stale credentials can be
   the write connection without a cache.
 - **Identifier verification**: signed verification links bound to their purpose and identifier, and an opt-in,
   per-guard requirement that sign-in identifiers be verified.
-- **Pluggable everywhere**: identity model, device model, principal resolver, audience policy, attempt limiter,
-  identifier normalisers, table names.
+- **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
+  policy, audience policy, attempt limiter, identifier normalisers, table names.
 
 ## Design Notes
 
@@ -81,6 +84,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/fail-closed-pid-did.md`
 - `docs/design/access-only-mode.md`
 - `docs/design/guard-bound-tokens.md`
+- `docs/design/session-service.md`
 
 ## Installation
 
@@ -362,9 +366,9 @@ session early, fail a refresh, or record extra uses; it never extends a session 
 The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
 the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
-and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The package does not yet act on the
-stored `guard`, principal, or sign-in method: a session is bound to its guard by the `grd` claim of its tokens, and
-refresh does not record the principal it resolves on the device.
+and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
+every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()` and
+`getSignInMethod()` read the guard and method it recorded.
 
 Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
 device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
@@ -909,52 +913,78 @@ from the principal's own stored key, even when Eloquent's strict mode prevents l
 relation the resolver already set, and a principal whose owner cannot be read (no relation, or an owner that has been
 deleted) fails the attempt.
 
-Issue tokens through the guard-scoped JWT service, then use the guard for refresh. A device must carry both deadlines
-before anything is issued for it; stamp them from the guard's lifetimes when the device is created:
+### Signing in: the session service
+
+Each JWT guard has a session service, `Auth::sessions('api')` (or `Auth::guard('api')->sessions()`), that signs in,
+creates the device, issues the first token pair and binds the guard in one call:
 
 ```php
-use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
-$tokens    = Auth::jwt('api');
-$lifetimes = $tokens->lifetimes();
-$absolute  = $lifetimes->absoluteDeadline(now());
-$rotation  = RefreshTokenHasher::generate();
-$client    = ClientContext::fromRequest($request);
-$described = $request->validate([
-    'client_name' => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
-    'platform'    => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
-]);
+$result = Auth::sessions('api')->signIn(
+    'password',
+    $request->only('email', 'password'),
+    SignInContext::fromRequest(
+        $request,
+        clientName: $request->input('client_name'),
+        platform: $request->input('platform'),
+        refreshToken: $request->input('refresh_token'),
+    ),
+);
 
-$device = new Device($described);
-$device->forceFill([
-    'authenticatable_type' => $identity->getMorphClass(),
-    'authenticatable_id'   => (string) $identity->getKey(),
-    'principal_type'       => $principal->getMorphClass(),
-    'principal_id'         => (string) $principal->getKey(),
-    'guard'                => 'api',
-    'created_ip'           => $client->ip,
-    'created_user_agent'   => $client->userAgent,
-    'refresh_key'          => RefreshTokenHasher::hash($rotation),
-    'idle_expires_at'      => $lifetimes->idleDeadline(now(), $absolute),
-    'absolute_expires_at'  => $absolute,
-])->save();
+if ($result->isFailed()) {
+    // Failed and SignInFailed were dispatched; $result->reason says why, and
+    // $result->retryAfter how long to wait when it is rate_limited.
+    abort(401);
+}
 
-$refreshToken = $tokens->issueRefreshToken($device, $rotation, $principal);
-$accessToken  = $tokens->issueAccessToken($identity, $principal, $device);
+return [
+    'access_token'  => $result->session->tokens->accessToken,
+    'refresh_token' => $result->session->tokens->refreshToken,
+];
 ```
 
-Until the package creates devices itself, the code that creates one is the only writer of its creation metadata: the
-guard, the principal it acts as, and the client it was created from. Record the client with
-`ClientContext::fromRequest()`, which cleans the IP address and user agent the way the package cleans them for last use:
-a raw user agent with invalid UTF-8 or more than 512 characters fails the insert on PostgreSQL and on MySQL in strict
-mode, and one with a NUL byte is cut short at it on PostgreSQL, which cannot store NUL in text. The client name and
-platform come from the client too, so validate them as above: invalid UTF-8 or more than 255 characters fails the insert
-in the same way, and a NUL byte cuts the value short on PostgreSQL. The `regex` rule rejects NUL bytes, and its `u` flag
-rejects invalid UTF-8.
+`signIn()` runs, in order: Laravel's `Attempting` (with only the identifier the method names, never the input); the
+guard's audience policy must allow the method (`method_not_allowed`, nothing counted); the identifier and the client's
+IP address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
+verify the input, the identity, the principal (the one the context names, verified like an `attempt()` pin, or the
+resolver's default) and its tenant must be active, and the audience policy must admit the identity as that principal; a
+password is rehashed when its hash is outdated; and the additional-factor policy must not ask for a further factor.
+Failures are results, not exceptions: Laravel's `Failed` and then `SignInFailed` report them, with the reason. An
+unknown method name, a misconfigured model and database errors still throw. A successful sign-in gives its attempt
+slots back.
 
-Then exchange the refresh token through the guard:
+`start($identity, $principal, $method, $context)` begins a session for an identity something else verified, such as an
+external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when that does not
+return the very same identity), the method must be allowed, the identity, principal and tenant are checked and
+admitted, and the additional-factor policy is asked, so a sign-in from outside cannot skip a required factor. No
+attempt limit or timebox applies. The principal is given as the argument or on the context, not both.
+
+A session starts on a new device that records the identity, the principal, the guard, the method, the client's name and
+platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as its
+last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes for the principal. The
+device is written and the pair issued in one transaction on the device's connection, so a failure while issuing leaves
+no device behind. The guard is then bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and
+`DeviceAuthenticated` fire at once), and `DeviceCreated` and `SignedIn` are dispatched once the device is committed on
+its own connection: at once outside a transaction, after your transaction commits inside one, and never when it is
+rolled back. Do not roll back around a sign-in: the guard stays bound. A listener that throws on a bind event fails the
+call after the device was committed, so the pair is lost; keep those listeners from throwing or queue them.
+
+A client that signs in again with its current refresh token in the context continues on the same device instead of
+creating another: the token proves the client holds that session, even when it has expired. It counts only when it is
+the device's current refresh token, validly signed for this guard, for a device the identity owns, of this guard, for
+the same principal, and not revoked; anything else simply creates a new device. Continuing a device starts a new
+session on it: a new rotation id (the earlier refresh tokens of the device become replays, see
+[Refresh token replay](#refresh-token-replay)), both deadlines from now, the method and the client's description
+recorded, and `DeviceCreated` not dispatched. If the device changes before it can be continued (a parallel refresh,
+say), the sign-in is reconsidered without it and starts on a new device. The additional-factor policy is told of the
+device the client proved, so a factor policy can trust a device it has seen a factor on.
+
+`attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. Access-only guards
+(identities without `HasDevices`) keep issuing access tokens with `Auth::jwt('api')->issueAccessToken()`.
+
+Exchange the refresh token through the guard:
 
 ```php
 $guard = auth()->guard('api');
@@ -1001,10 +1031,14 @@ again as it now is: usually that makes this refresh a grace retry; a deadline th
 `rotation_conflict`, without revoking anything, and the client can simply retry.
 
 A refresh token for a rotation id the device never held is a replay too, and that includes a token from an earlier
-refresh credential of the same device. Do not sign a client in again by giving an existing device a new
-`refresh_key`: any refresh token left from its earlier session stays validly signed until its own `exp` and, when it
-is presented, revokes the new session. Create a new device for each sign-in, as the example under
-[Usage](#usage) does.
+session of the same device. A client that signs in again on its device (see
+[Signing in](#signing-in-the-session-service)) starts a new session with a new rotation id, so the refresh tokens of
+its earlier session become replays: presenting one while the new session is live revokes the device. The client that
+proved the device with its current refresh token has just received the replacement; a client that loses the sign-in
+response and retries with the old token proves nothing, gets a new device, and leaves the old one to be revoked if
+that token is ever presented again. Restarting the deadlines cannot revive an access token: its `exp` was capped at
+the end of the session it was issued for. Do not give an existing device a new `refresh_key` yourself; let the session
+service do it.
 
 Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
 clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back after
@@ -1061,6 +1095,8 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 | `SineMacula\...\Events\DeviceRevoked`       | The package revoked a device (a replay); carries reason   |
 | `SineMacula\...\Events\SignInFailed`        | A sign-in failed (carries machine-readable reason)        |
+| `SineMacula\...\Events\DeviceCreated`       | The session service created a device, once committed      |
+| `SineMacula\...\Events\SignedIn`            | The session service started a session, once committed     |
 | `SineMacula\...\Events\IdentifierVerified`  | An identifier was verified (after commit); carries type   |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
@@ -1073,6 +1109,11 @@ the published config:
     'redacted_credential_keys' => ['secret', 'code'],
 ],
 ```
+
+`SignedIn` reports a real sign-in, with the method that proved who signed in, unlike Laravel's `Login` and
+`Authenticated`, which also fire when a refresh or a bearer request binds the guard; a refresh dispatches `Refreshed`
+instead. `DeviceCreated` precedes it for a new device. Both carry the guard, identity, principal, tenant, device,
+method and client (IP address and user agent), and never a token.
 
 `SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's client
 (IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a wrong
