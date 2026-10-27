@@ -57,6 +57,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\NormalisedEmailIdentity;
@@ -569,6 +570,42 @@ final class SessionServiceTest extends TestCase
         self::assertNull($failed->identity);
         self::assertSame('ada@example.test', $failed->identifier);
         self::assertNull($this->recordedEvent(Failed::class)->user);
+    }
+
+    /**
+     * A method that checks a secret although the account refused it the attempt
+     * is not trusted with the identity it returns: the sign-in fails as refused
+     * by the account's limit, starts no session, writes nothing, and gives no
+     * slot back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMethodThatIgnoresTheAccountsRefusalSignsNobodyIn(): void
+    {
+        $this->seedIdentity();
+
+        $limiter = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldReceive('acquire')->twice()->andReturnUsing(
+            static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, $subject->account === null ? null : 90),
+        );
+        $limiter->shouldReceive('release')->never();
+
+        $manager = app(SignInMethodManager::class);
+
+        $manager->forgetDrivers();
+        $manager->extend('trusted', fn (): SignInMethod => new RefusalIgnoringSignIn);
+
+        $this->recordEvents([SignInFailed::class, SignedIn::class, AdditionalFactorRequired::class]);
+
+        $result = $this->sessions()->signIn('trusted', self::credentials());
+
+        $this->assertSignInFails(SignInFailureReason::INVALID_CREDENTIALS, $result);
+        self::assertSame([SignInFailed::class], $this->recordedClasses());
+        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertSame(90, $this->recordedEvent(SignInFailed::class)->retryAfter);
+        self::assertSame(0, PendingSignIn::query()->count());
     }
 
     /**

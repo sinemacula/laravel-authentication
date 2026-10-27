@@ -352,10 +352,11 @@ final readonly class SessionService
 
     /**
      * Verify the request with the sign-in method and admit the identity it
-     * proves, cutting the timebox short only for an admitted sign-in. A method
-     * that failed after an account it checked had no attempts left is refused
-     * as `account_rate_limited`, with that account's wait, for the failure
-     * events; the result still says `invalid_credentials`.
+     * proves, cutting the timebox short only for an admitted sign-in. A sign-in
+     * in which an account the method checked had no attempts left is refused as
+     * `account_rate_limited`, with that account's wait, for the failure events
+     * (the result still says `invalid_credentials`), even when the method
+     * returned an identity regardless: it must not have checked that secret.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
@@ -381,8 +382,8 @@ final readonly class SessionService
         $verified = $driver->authenticate($request);
 
         $outcome = match (true) {
-            $verified instanceof Identity    => $this->admit($verified, $context->principal, $identifierType),
             $accounts->refusedFor() !== null => new RefusedSignIn(SignInFailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $accounts->refusedFor()),
+            $verified instanceof Identity    => $this->admit($verified, $context->principal, $identifierType),
             default                          => new RefusedSignIn($verified),
         };
 

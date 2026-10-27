@@ -1145,11 +1145,12 @@ work can take longer needs to do the same work whether or not the identifier exi
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
-attempts). A lookup can find one account by many spellings of its identifier, and through every guard whose provider
-returns it, so only the account's own count, held to the most permissive limit among those guards, bounds the guesses at
-its secret, and at a further factor its sign-in waits for. Reserve before each secret you check: a method that checks
-two (a password and a PIN, say) takes two slots. The slots belong to the sign-in: they are all given back when the
-session starts, or when its pending sign-in completes.
+attempts); the session service refuses the sign-in then even if the method returns an identity. A lookup can find one
+account by many spellings of its identifier, and through every guard whose provider returns it, so only the account's
+own count, held to the most permissive limit among those guards, bounds the guesses at its secret, and at a further
+factor its sign-in waits for. Reserve before each secret you check: a method that checks two (a password and a PIN, say)
+takes two slots. The slots belong to the sign-in: they are all given back when the session starts, or when its pending
+sign-in completes.
 
 To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
 account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request
