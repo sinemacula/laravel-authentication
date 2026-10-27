@@ -239,7 +239,7 @@ other rotated token as a replay that revokes the device.
   `testRotationAndReplayTouchOnlyTheirOwnDevice`
 - `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
   `testRefreshAndBearerUseTheDevicesOwnConnection`,
-  `testReplayIsReportedAtOnceWhatAnotherConnectionsTransactionDoes`,
+  `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,
   `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`
 - `tests/Integration/Guards/SessionLifetimeIntegrationTest.php`
   `testRefreshMovesTheIdleDeadlineAndKeepsTheAbsoluteDeadline`

@@ -146,7 +146,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
      * @throws \Random\RandomException
      * @throws \Throwable
      */
-    public function testReplayIsReportedAtOnceWhatAnotherConnectionsTransactionDoes(): void
+    public function testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes(): void
     {
         $replay = $this->replayableToken();
 

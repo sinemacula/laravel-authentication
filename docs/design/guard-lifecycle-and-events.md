@@ -178,7 +178,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
   `testReplayRevokesTheDeviceAndEndsItsAccessTokens`, `testRevocationIsReportedOnlyAfterCommit`
 - `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
-  `testReplayIsReportedAtOnceWhatAnotherConnectionsTransactionDoes`,
+  `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,
   `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`
 - `tests/Integration/Guards/DeviceUsageIntegrationTest.php`
   `testEachRequestRecordsItsOwnClientOutsideTheThrottleWindow`, `testRefreshRecordsTheClientItCameFrom`,
