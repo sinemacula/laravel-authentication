@@ -8,7 +8,10 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -22,8 +25,9 @@ use Tests\Concerns\InteractsWithSessions;
  * A sign-in through a method also writes its attempt limits: it reserves a slot
  * on the identifier's and the IP address's counters (on a fresh window, for
  * each, an update that changes nothing and the insert that creates the counter;
- * later in the window, one update each), and a sign-in that succeeds gives both
- * back. `start()` is not limited.
+ * later in the window, one update each), and a sign-in that succeeds or asks
+ * for a further factor gives both back. `start()` and `complete()` are not
+ * limited.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -124,6 +128,48 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
 
         self::assertTrue($this->assertQueryBudget(1, 1, static fn (): SignInResult => $sessions->start($identity, null, 'sso'))->isSignedIn());
+    }
+
+    /**
+     * A sign-in that needs a further factor reads the identity once and writes
+     * the pending sign-in once, besides its limits; looking that up reads it
+     * and the identity; and completing it reads them, deletes it and writes the
+     * device.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInCostsOneWriteToIssueAndTwoToComplete(): void
+    {
+        $this->seedIdentity();
+
+        app()->instance(AdditionalFactorPolicy::class, new class implements AdditionalFactorPolicy {
+            /**
+             * Always require a further factor.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
+             * @return bool
+             */
+            #[\Override]
+            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            {
+                return true;
+            }
+        });
+
+        $sessions = $this->sessions();
+        $pending  = $this->assertQueryBudget(1, 7, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
+
+        self::assertNotNull($pending);
+
+        $sessions = $this->sessions();
+
+        self::assertNotNull($this->assertQueryBudget(2, 0, static fn (): ?PendingFactor => $sessions->pending($pending->token)));
+
+        $sessions = $this->sessions();
+
+        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
     }
 
     /**

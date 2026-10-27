@@ -71,8 +71,9 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Run the package's shipped migrations so the default `devices` and
-     * `rate_limits` tables exist for tests that use the shipped models.
+     * Run the package's shipped migrations so the default `devices`,
+     * `pending_sign_ins` and `rate_limits` tables exist for tests that use the
+     * shipped models.
      *
      * With persistent databases (MySQL, PostgreSQL) the tables survive between
      * test classes, so they must be dropped on teardown to prevent the
@@ -91,9 +92,11 @@ abstract class TestCase extends OrchestraTestCase
         }
 
         $this->beforeApplicationDestroyed(function (): void {
+
             $config = app(ConfigRepository::class);
 
             Schema::dropIfExists($config->string('authentication.device.table', 'devices'));
+            Schema::dropIfExists($config->string('authentication.sign_in.pending_table', 'pending_sign_ins'));
             Schema::dropIfExists($config->string('authentication.rate_limits.table', 'rate_limits'));
         });
     }

@@ -42,10 +42,18 @@ return [
     | underscores) that does not contain `password`; anything else fails
     | closed when a password sign-in runs.
     |
+    | A sign-in the additional-factor policy asks a further factor of waits in
+    | `pending_table` (on the device model's connection) for at most
+    | `pending_ttl_seconds` (30 to 3600; an integer, or a digit string as
+    | `env()` returns one); anything else fails closed when a pending sign-in
+    | is issued.
+    |
     */
 
     'sign_in' => [
         'password_identifier' => env('AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER', 'email'),
+        'pending_table'       => env('AUTHENTICATION_SIGN_IN_PENDING_TABLE', 'pending_sign_ins'),
+        'pending_ttl_seconds' => env('AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS', 300),
     ],
 
     /*

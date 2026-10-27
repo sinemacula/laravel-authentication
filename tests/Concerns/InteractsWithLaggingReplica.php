@@ -76,8 +76,8 @@ trait InteractsWithLaggingReplica
     }
 
     /**
-     * Run the shipped migrations (devices and rate limits) against the primary
-     * and the replica.
+     * Run the shipped migrations (devices, pending sign-ins and rate limits)
+     * against the primary and the replica.
      *
      * @return void
      */
@@ -86,7 +86,7 @@ trait InteractsWithLaggingReplica
         /** @var \Illuminate\Database\DatabaseManager $manager */
         $manager = app(DatabaseManager::class);
 
-        foreach (['2026_04_06_000000_create_devices_table.php', '2026_04_06_000002_create_rate_limits_table.php'] as $file) {
+        foreach (['2026_04_06_000000_create_devices_table.php', '2026_04_06_000001_create_pending_sign_ins_table.php', '2026_04_06_000002_create_rate_limits_table.php'] as $file) {
 
             $migration = require __DIR__ . '/../../database/migrations/' . $file;
 

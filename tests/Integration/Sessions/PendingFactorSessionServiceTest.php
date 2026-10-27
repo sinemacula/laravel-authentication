@@ -1,0 +1,615 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Integration\Sessions;
+
+use Carbon\CarbonImmutable;
+use Firebase\JWT\JWT;
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Validated;
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
+use Mockery\MockInterface;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Events\DeviceCreated;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\TestCase;
+
+/**
+ * End-to-end tests for sign-ins that need a further factor: the pending sign-in
+ * the session service hands out instead of a session, looking it up, and
+ * completing it into a session once, with every check made again, against a
+ * real database.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+#[CoversClass(SessionService::class)]
+final class PendingFactorSessionServiceTest extends TestCase
+{
+    use InteractsWithSessions;
+
+    /** @var string IP address the completion request comes from. */
+    private const string COMPLETION_IP = '198.51.100.9';
+
+    /** @var \Carbon\CarbonImmutable Frozen clock reference. */
+    private CarbonImmutable $now;
+
+    /** @var list<?string> Device identifiers the factor policy was told of, in order. */
+    private array $proven = [];
+
+    /**
+     * Freeze the clocks, create the tables, require a factor of every sign-in,
+     * and add a route behind the `auth` middleware.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->freezeClocksAt(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
+
+        $this->createSessionTables();
+
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requiresAdditionalFactor')->byDefault()->andReturnUsing(function (AdditionalFactorContext $context): bool {
+            $this->proven[] = $context->provenDevice === null ? null : (string) $context->provenDevice->getDeviceIdentifier(); // @phpstan-ignore cast.string
+
+            return true;
+        });
+
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+    }
+
+    /**
+     * Release the clocks and drop the tables.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        $this->dropSessionTables();
+
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+
+        JWT::$timestamp = null;
+
+        parent::tearDown();
+    }
+
+    /**
+     * A sign-in that needs a factor starts no session and hands out a pending
+     * sign-in; looking it up does not use it up; completing it starts the
+     * session on a device that records the original sign-in's client, binds the
+     * guard, and dispatches the bind events, `DeviceCreated` and `SignedIn`,
+     * but no `Attempting`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInCompletesIntoASession(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = $this->pendingFor('password', 'Phone', 'iOS');
+
+        self::assertSame(0, Device::query()->count());
+
+        $looked = $this->sessions()->pending($pending->token);
+
+        self::assertNotNull($looked);
+        self::assertSame($pending->token, $looked->token);
+        self::assertSame('api', $looked->guard);
+        self::assertSame('password', $looked->method);
+        self::assertTrue($looked->identity instanceof IntegrationIdentity && $looked->identity->is($identity));
+        self::assertSame($looked->identity, $looked->principal);
+        self::assertSame($this->now->addMinutes(5)->getTimestamp(), $looked->expiresAt->getTimestamp());
+        self::assertNull($looked->provenDevice);
+        self::assertSame(1, PendingSignIn::query()->count());
+
+        $this->recordEvents([Attempting::class, Validated::class, Login::class, DeviceCreated::class, SignedIn::class, Failed::class, SignInFailed::class]);
+
+        $guard  = $this->completionGuard();
+        $result = $guard->sessions()->complete($pending->token);
+
+        self::assertTrue($result->isSignedIn());
+        self::assertSame([Validated::class, Login::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame('password', $this->recordedEvent(SignedIn::class)->method);
+        self::assertSame(self::CLIENT_IP, $this->recordedEvent(SignedIn::class)->client->ip);
+        self::assertSame(0, PendingSignIn::query()->count());
+
+        $session = $result->session;
+
+        self::assertNotNull($session);
+        self::assertSame($session->identity, $guard->user());
+        self::assertSame($session->device, $guard->device());
+
+        $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
+
+        self::assertSame('password', $device->getSignInMethod());
+        self::assertSame('Phone', $device->client_name);
+        self::assertSame('iOS', $device->platform);
+        self::assertSame(self::CLIENT_IP, $device->created_ip);
+        self::assertSame(self::CLIENT_AGENT, $device->created_user_agent);
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk()->assertJson(['device' => $device->getKey()]);
+    }
+
+    /**
+     * A pending sign-in completes once: a second completion, like any token
+     * that names no live pending sign-in of the guard, fails as
+     * `pending_invalid` without saying why, and `pending()` no longer finds it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingSignInCompletesOnlyOnce(): void
+    {
+        $this->seedIdentity();
+
+        $pending = $this->pendingFor();
+
+        self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
+
+        $this->recordEvents([Failed::class, SignInFailed::class]);
+
+        $again = $this->completionGuard()->sessions()->complete($pending->token);
+
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $again->reason);
+        self::assertNull($this->sessions()->pending($pending->token));
+        self::assertNull($this->recordedEvent(Failed::class)->user);
+        self::assertSame([], $this->recordedEvent(Failed::class)->credentials);
+
+        $failed = $this->recordedEvent(SignInFailed::class);
+
+        self::assertNull($failed->identity);
+        self::assertNull($failed->method);
+        self::assertSame(self::COMPLETION_IP, $failed->client->ip);
+        self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * An expired pending token, one for another guard, and one that is not a
+     * pending token at all all fail as `pending_invalid`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testExpiredForeignAndMalformedTokensAreInvalid(): void
+    {
+        $this->seedIdentity();
+
+        $pending = $this->pendingFor();
+
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions('admin')->complete($pending->token)->reason);
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete('not-a-pending-token')->reason);
+        self::assertNull($this->sessions('admin')->pending($pending->token));
+
+        $this->freezeClocksAt($this->now->addSeconds(300));
+
+        self::assertNull($this->sessions()->pending($pending->token));
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(0, Device::query()->count());
+    }
+
+    /**
+     * A pending token authenticates nothing: it is neither a bearer token nor a
+     * refresh token.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPendingTokenAuthenticatesNothing(): void
+    {
+        $this->seedIdentity();
+
+        $pending = $this->pendingFor();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $pending->token])->getJson('/me')->assertUnauthorized();
+
+        $this->recordEvents([RefreshFailed::class]);
+
+        self::assertNull($this->freshGuard()->refresh($pending->token));
+        self::assertSame(RefreshFailureReason::TOKEN_INVALID, $this->recordedEvent(RefreshFailed::class)->reason);
+        self::assertSame(1, PendingSignIn::query()->count());
+    }
+
+    /**
+     * Completion checks the sign-in again, and a check that fails still uses
+     * the pending sign-in up: an identity deactivated meanwhile, a method the
+     * guard no longer allows, and a principal the audience policy no longer
+     * admits each fail with their reason.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCompletionChecksTheSignInAgainAndUsesItUpWhateverTheOutcome(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $inactive = $this->pendingFor();
+
+        $identity->forceFill(['is_active' => false])->save();
+
+        $this->assertCompletionFails(SignInFailureReason::IDENTITY_INACTIVE, $inactive);
+
+        $identity->forceFill(['is_active' => true])->save();
+
+        $removed  = $this->pendingFor();
+        $audience = $this->audience();
+        $audience->shouldReceive('allowsMethod')->with('api', 'password')->andReturnFalse();
+
+        $this->assertCompletionFails(SignInFailureReason::METHOD_NOT_ALLOWED, $removed);
+
+        $audience   = $this->audience();
+        $ineligible = $this->pendingFor();
+        $audience->shouldReceive('admit')
+            ->once()
+            ->with('api', \Mockery::type(IntegrationIdentity::class), \Mockery::type(IntegrationIdentity::class), 'email')
+            ->andReturn(SignInFailureReason::IDENTIFIER_UNVERIFIED);
+
+        $this->assertCompletionFails(SignInFailureReason::IDENTIFIER_UNVERIFIED, $ineligible);
+    }
+
+    /**
+     * A session started elsewhere waits for its factor like any other, and is
+     * admitted on completion with no identifier type; a membership whose tenant
+     * was deactivated meanwhile does not complete.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCompletionChecksTheTenantAndKeepsTheIdentifierType(): void
+    {
+        [$member, , $tenant] = $this->seedMember();
+
+        $started = $this->sessions('members')->start($member, null, 'sso')->pending;
+
+        self::assertNotNull($started);
+
+        $audience = $this->audience();
+        $audience->shouldReceive('admit')->twice()->with('members', \Mockery::any(), \Mockery::any(), null)->andReturnNull();
+
+        self::assertTrue($this->sessions('members')->complete($started->token)->isSignedIn());
+
+        $pending = $this->sessions('members')->start($member, null, 'sso')->pending;
+
+        self::assertNotNull($pending);
+
+        $tenant->forceFill(['is_active' => false])->save();
+
+        $this->assertCompletionFails(SignInFailureReason::TENANT_INACTIVE, $pending, 'members');
+    }
+
+    /**
+     * A client that proved it holds a device, and was asked for a factor,
+     * continues on that device once it completes, and the factor policy was
+     * told of the device.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProvenDeviceIsContinuedOnCompletion(): void
+    {
+        $this->seedIdentity();
+
+        $first = $this->signedInWithoutAFactor();
+
+        $pending = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
+
+        self::assertSame([$first->device->getKey()], $this->proven);
+        self::assertSame($first->device->getKey(), $pending->provenDevice?->getDeviceIdentifier());
+
+        $session = $this->sessions()->complete($pending->token)->session;
+
+        self::assertNotNull($session);
+        self::assertFalse($session->deviceCreated);
+        self::assertSame($first->device->getKey(), $session->device->getKey());
+        self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A proven device that changes after the factor was asked for is not
+     * continued: a refresh before the completion makes it unknown to the
+     * pending sign-in, and one in the middle of the completion makes the swap
+     * miss; either way the completion starts on a new device.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAProvenDeviceThatChangedIsNotContinued(): void
+    {
+        $this->seedIdentity();
+
+        $first   = $this->signedInWithoutAFactor();
+        $before  = $this->pendingFor(refreshToken: $first->tokens->refreshToken);
+        $rotated = $this->freshGuard()->refresh($first->tokens->refreshToken);
+
+        self::assertNotNull($rotated);
+        self::assertNull($this->sessions()->pending($before->token)?->provenDevice);
+        self::assertTrue($this->sessions()->complete($before->token)->session?->deviceCreated);
+
+        $during = $this->pendingFor(refreshToken: $rotated->refreshToken);
+
+        $this->onStatement('delete from', static function () use ($first): void {
+            Device::query()->whereKey($first->device->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
+        });
+
+        $result = $this->sessions()->complete($during->token);
+
+        self::assertTrue($result->session?->deviceCreated);
+        self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey());
+    }
+
+    /**
+     * Two completions racing for one pending sign-in: the one whose delete
+     * finds the row already gone fails as `pending_invalid` and starts nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnlyOneOfTwoRacingCompletionsWins(): void
+    {
+        $this->seedIdentity();
+
+        $pending = $this->pendingFor();
+
+        $this->onStatement('delete from', static function (): void {
+            DB::table('pending_sign_ins')->delete();
+        });
+
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(0, Device::query()->count());
+    }
+
+    /**
+     * When the proven device changes before a sign-in can continue on it, the
+     * factor policy is asked again without the device, and a pending sign-in it
+     * then asks for carries no device.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorIsReconsideredWithoutADeviceThatChanged(): void
+    {
+        $this->seedIdentity();
+
+        $first = $this->signedInWithoutAFactor();
+
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requiresAdditionalFactor')->twice()->andReturnUsing(function (AdditionalFactorContext $context) use ($first): bool {
+
+            if ($context->provenDevice !== null) {
+
+                Device::query()->whereKey($first->device->getKey())->update(['refresh_key' => RefreshTokenHasher::hash('rotated-in-parallel')]);
+
+                return false;
+            }
+
+            return true;
+        });
+
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
+        $result  = $this->sessions()->signIn('password', self::credentials(), $context);
+
+        self::assertTrue($result->requiresFactor());
+        self::assertNull($result->pending?->provenDevice);
+        self::assertNull(PendingSignIn::query()->firstOrFail()->device_id);
+    }
+
+    /**
+     * Configure the guards.
+     *
+     * @param  mixed  $app
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof Application);
+
+        self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Sign in and return the pending sign-in the factor policy asked for.
+     *
+     * @param  string  $method
+     * @param  ?string  $clientName
+     * @param  ?string  $platform
+     * @param  ?string  $refreshToken
+     * @return \SineMacula\Laravel\Authentication\Sessions\PendingFactor
+     *
+     * @throws \Throwable
+     */
+    private function pendingFor(
+        string $method = 'password',
+        ?string $clientName = null,
+        ?string $platform = null,
+        #[\SensitiveParameter] ?string $refreshToken = null,
+    ): PendingFactor {
+        $context = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $clientName, $platform, null, $refreshToken);
+        $result  = $this->sessions()->signIn($method, self::credentials(), $context);
+
+        self::assertTrue($result->requiresFactor(), 'Expected a pending sign-in; got ' . $result->status->value);
+        self::assertNotNull($result->pending);
+
+        return $result->pending;
+    }
+
+    /**
+     * Sign in with the factor policy asking for nothing, then require a factor
+     * again.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
+     *
+     * @throws \Throwable
+     */
+    private function signedInWithoutAFactor(): SignedInSession
+    {
+        $factors = app(AdditionalFactorPolicy::class);
+
+        app()->instance(AdditionalFactorPolicy::class, new NeverRequireAdditionalFactor);
+
+        $session = $this->sessions()->signIn('password', self::credentials())->session;
+
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        self::assertNotNull($session);
+
+        return $session;
+    }
+
+    /**
+     * Assert that completing the pending sign-in fails with the reason, starts
+     * nothing, and uses the pending sign-in up.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PendingFactor  $pending
+     * @param  string  $guard
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private function assertCompletionFails(SignInFailureReason $reason, PendingFactor $pending, string $guard = 'api'): void
+    {
+        $devices = Device::query()->count();
+
+        $this->recordEvents([SignInFailed::class]);
+
+        $result = $this->sessions($guard)->complete($pending->token);
+
+        self::assertSame($reason, $result->reason);
+        self::assertSame($reason, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertSame($pending->method, $this->recordedEvent(SignInFailed::class)->method);
+        self::assertSame($devices, Device::query()->count());
+        self::assertNull($this->sessions($guard)->pending($pending->token));
+        self::assertSame(0, PendingSignIn::query()->whereKey(explode('.', $pending->token, 2)[0])->count());
+    }
+
+    /**
+     * Bind a permissive audience policy mock whose expectations a test can add
+     * to.
+     *
+     * @return \Mockery\MockInterface
+     */
+    private function audience(): MockInterface
+    {
+        $audience = \Mockery::mock(AudiencePolicy::class);
+        $audience->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
+        $audience->shouldReceive('admit')->byDefault()->andReturnNull();
+        $audience->shouldReceive('lifetimes')
+            ->byDefault()
+            ->andReturnUsing(static fn (string $guard): TokenLifetimes => app(JwtTokenServiceFactory::class)->forGuard($guard)->lifetimes());
+
+        app()->instance(AudiencePolicy::class, $audience);
+
+        return $audience;
+    }
+
+    /**
+     * Resolve the `api` guard for a completion request from another client.
+     *
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private function completionGuard(): JwtGuard
+    {
+        $guard = $this->freshGuard();
+
+        $guard->setRequest(Request::create('/factor', 'POST', server: ['REMOTE_ADDR' => self::COMPLETION_IP]));
+
+        return $guard;
+    }
+
+    /**
+     * Run the callback once, just before the first statement on the default
+     * connection that starts with the prefix.
+     *
+     * @param  string  $prefix
+     * @param  \Closure(): void  $callback
+     * @return void
+     */
+    private function onStatement(string $prefix, \Closure $callback): void
+    {
+        $done = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use ($prefix, $callback, &$done): void {
+
+            if ($done || !str_starts_with(strtolower($query), $prefix)) {
+                return;
+            }
+
+            $done = true;
+
+            $callback();
+        });
+    }
+
+    /**
+     * Move both clocks to the time.
+     *
+     * @param  \Carbon\CarbonImmutable  $time
+     * @return void
+     */
+    private function freezeClocksAt(CarbonImmutable $time): void
+    {
+        $this->now = $time;
+
+        Carbon::setTestNow($time);
+        CarbonImmutable::setTestNow($time);
+
+        JWT::$timestamp = $time->getTimestamp();
+    }
+}

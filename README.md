@@ -401,13 +401,17 @@ to describe it. Database errors are never read as an unknown device: they propag
 ```php
 'sign_in' => [
     'password_identifier' => 'email',
+    'pending_table'       => 'pending_sign_ins',
+    'pending_ttl_seconds' => 300,
 ],
 ```
 
 The password sign-in method looks identities up by `password_identifier`, which is also the identifier type the
 attempt limits count and a guard that requires verified identifiers checks. It must be a lower-case column name (a
 letter, then letters, digits, or underscores) that does not contain `password`; anything else fails with an
-`InvalidArgumentException` when a password sign-in runs.
+`InvalidArgumentException` when a password sign-in runs. A sign-in that needs a further factor waits in `pending_table`
+(on the device model's connection) for at most `pending_ttl_seconds`, an integer from 30 to 3600 (see
+[Additional factors](#additional-factors)).
 
 ### Rate limits
 
@@ -939,6 +943,11 @@ if ($result->isFailed()) {
     abort(401);
 }
 
+if ($result->requiresFactor()) {
+    // No session yet: hand the client the pending token to complete it with.
+    return ['pending_token' => $result->pending->token];
+}
+
 return [
     'access_token'  => $result->session->tokens->accessToken,
     'refresh_token' => $result->session->tokens->refreshToken,
@@ -950,10 +959,10 @@ guard's audience policy must allow the method (`method_not_allowed`, nothing cou
 IP address must have attempts left (`rate_limited`, with the wait); then, inside the credential timebox, the method must
 verify the input, the identity, the principal (the one the context names, verified like an `attempt()` pin, or the
 resolver's default) and its tenant must be active, and the audience policy must admit the identity as that principal; a
-password is rehashed when its hash is outdated; and the additional-factor policy must not ask for a further factor.
-Failures are results, not exceptions: Laravel's `Failed` and then `SignInFailed` report them, with the reason. An
-unknown method name, a misconfigured model and database errors still throw. A successful sign-in gives its attempt
-slots back.
+password is rehashed when its hash is outdated; and the additional-factor policy is asked whether a further factor is
+required (see [Additional factors](#additional-factors)). Failures are results, not exceptions: Laravel's `Failed` and
+then `SignInFailed` report them, with the reason. An unknown method name, a misconfigured model and database errors
+still throw. A successful sign-in gives its attempt slots back.
 
 `start($identity, $principal, $method, $context)` begins a session for an identity something else verified, such as an
 external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when that does not
@@ -980,6 +989,46 @@ session on it: a new rotation id (the earlier refresh tokens of the device becom
 recorded, and `DeviceCreated` not dispatched. If the device changes before it can be continued (a parallel refresh,
 say), the sign-in is reconsidered without it and starts on a new device. The additional-factor policy is told of the
 device the client proved, so a factor policy can trust a device it has seen a factor on.
+
+#### Additional factors
+
+The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that never asks for a factor; an MFA
+package or the application binds its own) is asked about every admitted sign-in, from `signIn()` and from `start()`,
+with the guard, identity, principal, tenant, method, client, and the device the client proved it holds, if any. When it
+requires a further factor, no session starts: the result's `pending` is a `PendingFactor` whose `token` completes the
+sign-in once, for this guard, within `sign_in.pending_ttl_seconds` (five minutes by default). The token is opaque (not a
+JWT), so it authenticates no request and refreshes nothing; only the digest of its secret is stored, in
+`pending_sign_ins`. The attempt slots are given back as for a session.
+
+The code that verifies the factor looks the pending sign-in up, verifies the factor for its identity and principal, and
+only then completes it. Possessing the token proves nothing about the factor: `complete()` is a trusted entry point,
+like `start()`.
+
+```php
+$sessions = Auth::sessions('api');
+$pending  = $sessions->pending($request->input('pending_token'));
+
+if ($pending === null || ! $factors->verify($pending->identity, $pending->principal, $request->input('code'))) {
+    abort(401);
+}
+
+$result = $sessions->complete($request->input('pending_token'));
+```
+
+`pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
+guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome,
+with a delete only one completion can make, checks it again in the same transaction (the method still allowed, the
+identity, principal and tenant active, and the audience policy admitting them with the identifier type the sign-in
+used; the factor policy is not asked again), and starts the session on the device the client proved it holds when that
+is unchanged, otherwise on a new one, recording the client the sign-in came from. A token that completes nothing fails
+as `pending_invalid`, without saying why.
+
+Pending sign-ins that were never completed expire; prune them with Laravel's pruning command, scheduled for the
+package's model (it is outside the application's models, so name it):
+
+```php
+Schedule::command('model:prune', ['--model' => [SineMacula\Laravel\Authentication\Models\PendingSignIn::class]])->daily();
+```
 
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. Access-only guards
 (identities without `HasDevices`) keep issuing access tokens with `Auth::jwt('api')->issueAccessToken()`.

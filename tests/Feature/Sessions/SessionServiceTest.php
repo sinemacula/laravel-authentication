@@ -307,7 +307,7 @@ final class SessionServiceTest extends TestCase
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
 
-        self::assertTrue($this->sessions()->signIn('password', self::credentials())->isFailed());
+        self::assertTrue($this->sessions()->signIn('password', self::credentials())->requiresFactor());
         self::assertSame([true, false, true], $early->getArrayCopy());
     }
 
@@ -522,7 +522,9 @@ final class SessionServiceTest extends TestCase
     /**
      * The additional-factor policy is asked about every admitted sign-in, with
      * the client's description and no proven device; a sign-in it asks a factor
-     * of starts no session.
+     * of starts no session: it hands out a pending sign-in for the identity and
+     * principal, which does not fail the sign-in and gives its attempt slot
+     * back.
      *
      * @return void
      *
@@ -540,10 +542,33 @@ final class SessionServiceTest extends TestCase
             return true;
         });
 
+        $released = 0;
+
+        $limiter = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldReceive('acquire')->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null));
+        $limiter->shouldReceive('release')->once()->andReturnUsing(static function () use (&$released): void {
+            $released++;
+        });
+
+        $this->recordEvents([Failed::class, SignInFailed::class, DeviceCreated::class, SignedIn::class]);
+
         $guard   = $this->freshGuard();
         $context = SignInContext::fromRequest(app('request'), 'Phone', 'iOS');
+        $result  = $guard->sessions()->signIn('password', self::credentials(), $context);
 
-        $this->assertSignInFails(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $guard->sessions()->signIn('password', self::credentials(), $context));
+        self::assertTrue($result->requiresFactor());
+        self::assertFalse($result->isSignedIn());
+        self::assertFalse($result->isFailed());
+        self::assertSame(SignInStatus::FACTOR_REQUIRED, $result->status);
+        self::assertNull($result->session);
+        self::assertNull($result->reason);
+        self::assertNotNull($result->pending);
+        self::assertSameModel($identity, $result->pending->identity);
+        self::assertSame('password', $result->pending->method);
+        self::assertSame('api', $result->pending->guard);
+        self::assertSame(1, $released);
+        self::assertSame(0, Device::query()->count());
+        self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());
 
         self::assertInstanceOf(AdditionalFactorContext::class, $asked);
@@ -664,8 +689,9 @@ final class SessionServiceTest extends TestCase
 
     /**
      * `start()` refuses an identity the guard's provider does not return as
-     * that very identity, a method the guard does not allow, and a sign-in the
-     * factor policy asks a factor of; each reports the identity.
+     * that very identity and a method the guard does not allow, and hands out a
+     * pending sign-in when the factor policy asks a factor of it, so a sign-in
+     * verified elsewhere cannot skip the factor.
      *
      * @return void
      *
@@ -692,7 +718,11 @@ final class SessionServiceTest extends TestCase
         $factors = $this->bindMock(AdditionalFactorPolicy::class);
         $factors->shouldReceive('requiresAdditionalFactor')->once()->andReturnTrue();
 
-        $this->assertSignInFails(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $this->sessions()->start($identity, null, 'otp'));
+        $pending = $this->sessions()->start($identity, null, 'otp');
+
+        self::assertTrue($pending->requiresFactor());
+        self::assertSame('otp', $pending->pending?->method);
+        self::assertSame(0, Device::query()->count());
     }
 
     /**

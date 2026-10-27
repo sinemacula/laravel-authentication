@@ -19,8 +19,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   the guard's credential timebox, cut short only for an admitted sign-in: the method verifies the input, the identity,
   the principal (the context's pin, verified like an `attempt()` pin, else the resolver's default) and its tenant must
   be active, and the audience policy must admit them with the method's identifier type; a password is rehashed; the
-  proof of a device is checked; the additional-factor policy is asked; the session is written. Only a success gives the
-  slots back.
+  proof of a device is checked; the additional-factor policy is asked; the session is written, or a pending sign-in is
+  issued. Only a success or a pending sign-in gives the slots back.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
@@ -51,8 +51,15 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Failure / Edge Cases
 
-- A required additional factor fails the sign-in as `additional_factor_required` until the pending-sign-in seam
-  (BL-23) hands out a pending credential instead.
+- A required additional factor starts no session: the service stores a pending sign-in (the digest of a single-use,
+  guard-bound token's secret, who, as whom, how, from which client, the proven device and the digest it was proven
+  against, and an expiry from `authentication.sign_in.pending_ttl_seconds`) and returns its token. The token is not a
+  JWT, so no guard authenticates a request or a refresh with it.
+- `pending()` finds a live pending sign-in of the guard (identity reloaded through the provider as the recorded owner,
+  principal through the hinted path as the recorded one, still owned) without using it up. `complete()` uses it up by a
+  `DELETE` on its id, digest and unexpired `expires_at` that only one completion can win, checks it again (method,
+  activity, tenant, `admit()` with the stored identifier type; not the factor policy), and writes the session in the
+  same transaction; a failed check still uses it up. Every lookup failure is `pending_invalid`.
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
   events wait for the caller's commit, and a rollback withdraws them with the device while the guard stays bound. Do not
   roll back around a sign-in.
@@ -67,6 +74,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `establish()`.
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
 - `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Jwt/DeviceLookup.php`.
+- `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
 - `src/Sessions/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Guards/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
 - `src/Guards/JwtGuard.php` (`sessions()`), `src/AuthManager.php` (`sessions()`), and the factory
@@ -77,6 +85,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Feature/Sessions/SessionServiceTest.php`
 - `tests/Integration/Sessions/SessionServiceTest.php`
 - `tests/Feature/Sessions/DeviceProofTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
+- `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
 - `tests/Performance/SessionServiceQueryBudgetTest.php`
 
 ## Change Triggers
@@ -88,3 +97,4 @@ Update this note when any of the following change:
 - what the session's transaction contains, or when the guard is bound
 - when `DeviceCreated` and `SignedIn` are dispatched, or what they carry
 - what reaches the events from the sign-in input
+- what a pending sign-in stores, how long it lives, what finds it, or what completing it checks

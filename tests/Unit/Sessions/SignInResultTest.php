@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -14,6 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
+use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 
@@ -50,6 +52,8 @@ final class SignInResultTest extends TestCase
         self::assertTrue($result->isSignedIn());
         self::assertFalse($result->isFailed());
         self::assertSame($session, $result->session);
+        self::assertFalse($result->requiresFactor());
+        self::assertNull($result->pending);
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
 
@@ -59,6 +63,28 @@ final class SignInResultTest extends TestCase
         self::assertSame($tokens, $session->tokens);
         self::assertSame('password', $session->method);
         self::assertTrue($session->deviceCreated);
+    }
+
+    /**
+     * A sign-in that needs a further factor carries the pending sign-in, and
+     * neither a session nor a reason.
+     *
+     * @return void
+     */
+    public function testAPendingFactorResultCarriesThePendingSignIn(): void
+    {
+        $pending = new PendingFactor('token', 'api', \Mockery::mock(Identity::class), \Mockery::mock(Principal::class), null, 'password', CarbonImmutable::now(), null);
+        $result  = SignInResult::pendingFactor($pending);
+
+        self::assertSame(SignInStatus::FACTOR_REQUIRED, $result->status);
+        self::assertTrue($result->requiresFactor());
+        self::assertFalse($result->isSignedIn());
+        self::assertFalse($result->isFailed());
+        self::assertSame($pending, $result->pending);
+        self::assertNull($result->session);
+        self::assertNull($result->reason);
+        self::assertNull($result->retryAfter);
+        self::assertFalse(SignInResult::failed(SignInFailureReason::INVALID_CREDENTIALS)->requiresFactor());
     }
 
     /**
@@ -97,6 +123,6 @@ final class SignInResultTest extends TestCase
      */
     public function testStatusValues(): void
     {
-        self::assertSame(['signed_in', 'failed'], array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases()));
+        self::assertSame(['signed_in', 'factor_required', 'failed'], array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases()));
     }
 }
