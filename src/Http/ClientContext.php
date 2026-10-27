@@ -19,7 +19,9 @@ use Illuminate\Http\Request;
  *
  * The package records last use with it. Code that creates a device records the
  * client it was created from (`created_ip`, `created_user_agent`) with
- * `fromRequest()` too, so those columns are cleaned the same way.
+ * `fromRequest()` too, so those columns are cleaned the same way. Values taken
+ * from elsewhere (a queued job that carried them, say) are cleaned by the
+ * constructor in the same way.
  *
  * @api
  *
@@ -31,20 +33,26 @@ final readonly class ClientContext
     /** @var int Longest user agent kept, in characters. */
     private const int USER_AGENT_MAX_LENGTH = 512;
 
+    /** @var ?string Validated IP address the client came from. */
+    public ?string $ip;
+
+    /** @var ?string Cleaned user agent the client sent. */
+    public ?string $userAgent;
+
     /**
      * Constructor.
+     *
+     * Cleans the raw IP address and user agent, so every instance holds values
+     * that are safe to store, however it was built.
      *
      * @param  ?string  $ip
      * @param  ?string  $userAgent
      */
-    public function __construct(
-
-        /** Validated IP address the request came from. */
-        public ?string $ip,
-
-        /** Cleaned user agent the request sent. */
-        public ?string $userAgent,
-    ) {}
+    public function __construct(?string $ip, ?string $userAgent)
+    {
+        $this->ip        = self::cleanIp($ip);
+        $this->userAgent = self::cleanUserAgent($userAgent);
+    }
 
     /**
      * Read the client context of a request.
@@ -54,7 +62,7 @@ final readonly class ClientContext
      */
     public static function fromRequest(Request $request): self
     {
-        return new self(self::cleanIp($request->ip()), self::cleanUserAgent($request->userAgent()));
+        return new self($request->ip(), $request->userAgent());
     }
 
     /**

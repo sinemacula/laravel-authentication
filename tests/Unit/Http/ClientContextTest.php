@@ -11,7 +11,8 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * Unit tests for the client context read from a request.
+ * Unit tests for the client context, read from a request or built from raw
+ * values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -100,5 +101,33 @@ final class ClientContextTest extends TestCase
         }
 
         self::assertSame($expected, ClientContext::fromRequest($request)->userAgent);
+    }
+
+    /**
+     * An IP address handed to the constructor is kept only when it is valid, as
+     * one read from a request is, so no instance holds an unsafe one.
+     *
+     * @param  ?string  $ip
+     * @param  ?string  $expected
+     * @return void
+     */
+    #[DataProvider('provideRemoteAddresses')]
+    public function testConstructorKeepsOnlyAValidIpAddress(?string $ip, ?string $expected): void
+    {
+        self::assertSame($expected, (new ClientContext($ip, null))->ip);
+    }
+
+    /**
+     * A user agent handed to the constructor is cleaned as one read from a
+     * request is, so no instance holds an unsafe one.
+     *
+     * @param  ?string  $userAgent
+     * @param  ?string  $expected
+     * @return void
+     */
+    #[DataProvider('provideUserAgents')]
+    public function testConstructorCleansTheUserAgent(?string $userAgent, ?string $expected): void
+    {
+        self::assertSame($expected, (new ClientContext(null, $userAgent))->userAgent);
     }
 }
