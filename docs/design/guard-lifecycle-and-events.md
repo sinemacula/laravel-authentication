@@ -14,10 +14,13 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `PrincipalAssigned` is emitted only after the identity is bound.
 - `DeviceAuthenticated` is emitted only when a non-null device is bound.
 - Rebinding clears any previously cached identity, principal, and device state before the new lifecycle begins.
-- Request-local memoization is always on. There is no cross-request cache: every bearer and refresh request reads the
+- Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
+  rejected token fires `Attempting` and `Failed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
+  or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
+  the request. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request reads the
   identity, principal, and device live.
-- `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on a
-  request authenticates it even on a route without `auth` middleware, as Laravel's own guards do.
+- `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on
+  a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do.
 
 ## Success Path
 
@@ -27,7 +30,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - Bearer `user()` resolution emits `Attempting` and routes through `login()`, so a successful bearer request follows
   the direct `login()` sequence.
 - Successful `refresh()` emits `Attempting`, then routes through `login()`, then emits the package `Refreshed` event.
-- `logout()` emits Laravel's `Logout` event only when an identity was actually bound, then clears contextual state.
+- `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
+  then clears contextual state.
 
 ## Failure / Edge Cases
 
@@ -50,12 +54,12 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 - `src/Guards/Concerns/ValidatesGuardCredentials.php`: `hasValidCredentials()`, `fireAttemptingEvent()`,
   `fireValidatedEvent()`, `fireFailedEvent()`.
-- `src/Guards/AbstractGuard.php`: `attempt()`, `login()`, `logout()`, `bindAuthenticationLifecycle()`,
-  `resolveContextForCredentials()`.
+- `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `login()`, `logout()`,
+  `setRequest()`, `bindAuthenticationLifecycle()`, `resolveContextForCredentials()`.
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
 - `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
   `clearContextualState()`.
-- `src/Guards/JwtGuard.php`: `resolveBearerToken()`, `refresh()`.
+- `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`.
 - `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
 
@@ -87,6 +91,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testBearerRequestAnswersWithServerError`
 - `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`
   `testAccessorResolvesBearerTokenWhenCalledFirst`
+- `tests/Integration/Guards/RequestResolutionIntegrationTest.php`
+  `testRejectedBearerTokenIsAttemptedOncePerRequest`, `testLogoutKeepsTheRequestSignedOut`
 
 ## Change Triggers
 

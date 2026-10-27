@@ -41,6 +41,9 @@ abstract class AbstractGuard implements ContextualGuard
     /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
 
+    /** @var bool Whether the current request is settled: resolved, successfully or not, or signed out. */
+    protected bool $requestResolved = false;
+
     /**
      * Constructor.
      *
@@ -99,14 +102,32 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Return the authenticated identity bound to the guard, if any.
+     * Return the authenticated identity, resolving it from the current request
+     * on first access.
+     *
+     * Resolution runs at most once per request, whether it succeeds or fails,
+     * so a bad credential is not re-parsed, re-queried, or re-reported on every
+     * call. After `logout()` the guard stays signed out for the rest of the
+     * request, as Laravel's session guard does. An explicit `login()`,
+     * `attempt()`, or `setUser()` still binds an identity, and `setRequest()`
+     * starts over for the next request.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     #[\Override]
     public function user(): ?Identity
     {
-        return $this->identity;
+        if ($this->identity !== null || $this->requestResolved) {
+            return $this->identity;
+        }
+
+        // Recorded before resolving, so a failure is not retried and a listener
+        // that calls user() during resolution does not re-enter it.
+        $this->requestResolved = true;
+
+        return $this->resolveUserFromRequest();
     }
 
     /**
@@ -254,20 +275,25 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Clear all bound state and fire the standard Laravel `Logout` event when
-     * an identity was previously bound.
+     * Sign the request out: fire the standard Laravel `Logout` event when the
+     * request is authenticated, resolving it first as Laravel's session guard
+     * does, then clear all bound state. The guard stays signed out for the rest
+     * of the request instead of resolving the request's credential again.
      *
      * @return void
      */
     public function logout(): void
     {
-        $identity = $this->identity;
+        $identity = $this->user();
 
         if ($identity !== null) {
             $this->events->dispatch(new Logout($this->name, $identity));
         }
 
         $this->clearContextualState();
+
+        // Settles the request, so its credential is not resolved again.
+        $this->requestResolved = true;
     }
 
     /**
@@ -281,8 +307,9 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Rebind the current HTTP request onto the guard. Called by the service
-     * provider on each container-resolve cycle.
+     * Rebind the current HTTP request onto the guard and forget everything
+     * resolved for the previous one. Called by the service provider on each
+     * container-resolve cycle.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return static
@@ -291,6 +318,7 @@ abstract class AbstractGuard implements ContextualGuard
     {
         $this->request           = $request;
         $this->lastRetrievedUser = null;
+        $this->requestResolved   = false;
         $this->clearContextualState();
 
         return $this;
@@ -360,6 +388,22 @@ abstract class AbstractGuard implements ContextualGuard
         return $hint === null
             ? $this->resolver->resolve($identity)
             : $this->resolver->resolve($identity, $hint);
+    }
+
+    /**
+     * Resolve the identity carried by the current request and bind its context,
+     * returning `null` when the request carries no valid credential.
+     *
+     * Called by `user()` at most once per request. The base guard reads no
+     * request credential; request-authenticating guards override this.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    protected function resolveUserFromRequest(): ?Identity
+    {
+        return null;
     }
 
     /**

@@ -78,34 +78,6 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Return the authenticated identity, resolving it from the request's bearer
-     * token if necessary.
-     *
-     * Fail-closed: a token that claims a specific `pid` or `did` but does not
-     * resolve to that exact principal/device is rejected rather than silently
-     * downgraded.
-     *
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    #[\Override]
-    public function user(): ?Identity
-    {
-        if ($this->identity !== null) {
-            return $this->identity;
-        }
-
-        $token = $this->request->bearerToken();
-
-        if ($token === null || $token === '') {
-            return null;
-        }
-
-        return $this->resolveBearerToken($token);
-    }
-
-    /**
      * Exchange a refresh token for a new access token + rotated refresh token.
      *
      * Delegates the round trip to `RefreshTokenExchange`, binds the resolved
@@ -162,6 +134,30 @@ final class JwtGuard extends AbstractGuard
         $this->exchange->setPrincipalResolver($resolver);
 
         return $this;
+    }
+
+    /**
+     * Resolve the identity from the request's bearer token. `user()` calls this
+     * at most once per request.
+     *
+     * Fail-closed: a token that claims a specific `pid` or `did` but does not
+     * resolve to that exact principal/device is rejected rather than silently
+     * downgraded.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    #[\Override]
+    protected function resolveUserFromRequest(): ?Identity
+    {
+        $token = $this->request->bearerToken();
+
+        if ($token === null || $token === '') {
+            return null;
+        }
+
+        return $this->resolveBearerToken($token);
     }
 
     /**

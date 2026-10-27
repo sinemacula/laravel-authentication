@@ -388,7 +388,8 @@ Auth::type();           // string|null     - the tenant's type when HasType is d
 ```
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
-routes without `auth` middleware.
+routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
+and after `Auth::logout()` it stays signed out for the rest of the request.
 
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 

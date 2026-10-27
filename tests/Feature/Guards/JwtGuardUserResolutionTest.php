@@ -100,6 +100,39 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * A rejected token is attempted once per request: repeated `user()`,
+     * `check()` and accessor calls neither re-run the lookups nor re-fire
+     * `Attempting` and `Failed`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserAttemptsARejectedTokenOncePerRequest(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-missing']);
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-missing')
+            ->andReturnNull();
+
+        self::assertNull($guard->user());
+        self::assertNull($guard->user());
+        self::assertFalse($guard->check());
+        self::assertNull($guard->principal());
+        self::assertSame([Attempting::class, Failed::class], $dispatched);
+    }
+
+    /**
      * A token whose claims array lacks `sub` fires Attempting+Failed and
      * returns null.
      *
