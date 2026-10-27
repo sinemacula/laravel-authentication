@@ -123,8 +123,6 @@ final class PrincipalReferenceTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
-
-        self::assertInstanceOf(PrincipalReference::class, $instance);
     }
 
     /**

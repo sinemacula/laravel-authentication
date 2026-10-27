@@ -126,8 +126,6 @@ final class DeviceLookupTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
-
-        self::assertInstanceOf(DeviceLookup::class, $instance);
     }
 
     /**

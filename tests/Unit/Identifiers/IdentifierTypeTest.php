@@ -86,7 +86,5 @@ final class IdentifierTypeTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
-
-        self::assertInstanceOf(IdentifierType::class, $instance);
     }
 }

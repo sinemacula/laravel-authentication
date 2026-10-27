@@ -121,8 +121,6 @@ final class PrincipalTypeTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
-
-        self::assertInstanceOf(PrincipalType::class, $instance);
     }
 
     /**

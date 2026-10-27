@@ -53,7 +53,5 @@ final class ClientTextTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
-
-        self::assertInstanceOf(ClientText::class, $instance);
     }
 }

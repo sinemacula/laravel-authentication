@@ -122,8 +122,6 @@ final class SessionPreconditionsTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
-
-        self::assertInstanceOf(SessionPreconditions::class, $instance);
     }
 
     /**

@@ -174,8 +174,6 @@ final class PinnedPrincipalTest extends TestCase
 
         $instance = $reflection->newInstanceWithoutConstructor();
         $constructor->invoke($instance);
-
-        self::assertInstanceOf(PinnedPrincipal::class, $instance);
     }
 
     /**
