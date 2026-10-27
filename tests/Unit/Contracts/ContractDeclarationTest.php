@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
@@ -210,6 +211,18 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
+     * `AudiencePolicy` declares exactly the three questions the session layer
+     * asks a guard's audience: may this method start a session, may this
+     * principal hold one, and for how long.
+     *
+     * @return void
+     */
+    public function testAudiencePolicyDeclaresExactlyItsChecks(): void
+    {
+        self::assertSame(['admit', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
+    }
+
+    /**
      * A type is a capability a principal or a tenant opts into: `HasType`
      * declares only `getType()`, and neither `Principal` nor `Tenant` declares
      * it.
@@ -218,12 +231,7 @@ final class ContractDeclarationTest extends TestCase
      */
     public function testTypeIsDeclaredOnlyByTheHasTypeCapability(): void
     {
-        $methods = array_map(
-            static fn (\ReflectionMethod $method): string => $method->getName(),
-            (new \ReflectionClass(HasType::class))->getMethods(),
-        );
-
-        self::assertSame(['getType'], $methods);
+        self::assertSame(['getType'], self::declaredMethods(HasType::class));
         self::assertFalse((new \ReflectionClass(Principal::class))->hasMethod('getType'));
         self::assertFalse((new \ReflectionClass(Tenant::class))->hasMethod('getType'));
     }

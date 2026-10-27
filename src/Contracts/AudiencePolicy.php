@@ -1,0 +1,63 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace SineMacula\Laravel\Authentication\Contracts;
+
+use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+
+/**
+ * Audience policy contract.
+ *
+ * An audience is a guard: each guard decides which sign-in methods may start
+ * its sessions, which principals may hold them, whether the identifier a
+ * sign-in used must be verified, and how long its sessions and tokens last for
+ * each principal type. The session service consults it before it issues
+ * anything, and the refresh exchange before it rotates.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ */
+interface AudiencePolicy
+{
+    /**
+     * Whether the guard lets the sign-in method start its sessions.
+     *
+     * @param  string  $guard
+     * @param  string  $method
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function allowsMethod(string $guard, string $method): bool;
+
+    /**
+     * Decide whether the identity may hold a session of the guard as the
+     * principal: `null` when it may, otherwise why not. The caller has already
+     * checked that the identity, the principal and its tenant are active. An
+     * identifier type of `null` (a sign-in that used no identifier, or a
+     * refresh) is not subject to the verified-identifier requirement.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?string  $identifierType
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?SignInFailureReason;
+
+    /**
+     * The token and session lifetimes of the guard for the principal's type.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function lifetimes(string $guard, Principal $principal): TokenLifetimes;
+}

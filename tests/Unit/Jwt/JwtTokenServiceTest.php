@@ -299,6 +299,49 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * A service without lifetimes per principal type gives every principal the
+     * guard's lifetimes without reading its type, so a guard that does not key
+     * lifetimes on types never loads a tenant for them.
+     *
+     * @return void
+     */
+    public function testLifetimesForWithoutPerTypeLifetimesNeverReadsTheType(): void
+    {
+        $service   = $this->makeService();
+        $principal = \Mockery::mock(Principal::class, HasType::class);
+        $principal->shouldNotReceive('getType');
+        $principal->shouldNotReceive('getTenant');
+
+        self::assertSame($service->lifetimes(), $service->lifetimesFor($principal));
+    }
+
+    /**
+     * With lifetimes per principal type, a principal of a listed type gets its
+     * type's lifetimes, its tenant's type counting as its own, and any other
+     * principal, or none, gets the guard's.
+     *
+     * @return void
+     */
+    public function testLifetimesForSelectsThePrincipalTypesLifetimes(): void
+    {
+        $staff   = new TokenLifetimes(2, 60, 600, 30);
+        $service = new JwtTokenService(
+            $this->makeKeyring(),
+            self::GUARD,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
+            30,
+            principalTypeLifetimes: ['staff' => $staff],
+        );
+
+        $tenant = \Mockery::mock(Tenant::class, HasType::class);
+        $tenant->shouldReceive('getType')->andReturn('staff');
+
+        self::assertSame($staff, $service->lifetimesFor(new PlainPrincipalFixture(1, tenant: $tenant)));
+        self::assertSame($service->lifetimes(), $service->lifetimesFor(new PlainPrincipalFixture(2)));
+        self::assertSame($service->lifetimes(), $service->lifetimesFor(null));
+    }
+
+    /**
      * Issuing reports a principal whose tenant cannot be loaded instead of
      * issuing a token without its type.
      *

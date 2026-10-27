@@ -129,5 +129,33 @@ return [
 
         'issuer'   => env('AUTHENTICATION_JWT_ISSUER'),
         'audience' => env('AUTHENTICATION_JWT_AUDIENCE'),
+
+        // Lifetimes per principal type are set per guard only, in
+        // `auth.guards.<name>.jwt.by_principal_type.<type>`, with any of
+        // `access_ttl_minutes`, `refresh_idle_ttl_minutes` and
+        // `refresh_absolute_ttl_minutes`; each falls back to the guard's value.
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Audiences
+    |---------------------------------------------------------------------------
+    |
+    | An audience is a guard. These are the defaults every guard starts from;
+    | a guard overrides any of them in an `audience` block on its
+    | `config/auth.php` entry, where a key that is present wins, `null`
+    | included. `methods` lists the sign-in methods that may start the guard's
+    | sessions (a non-empty list of names). `principal_types` lists the
+    | principal types that may hold them (a non-empty list), or is `null` to
+    | admit any principal, typed or not; with a list, an untyped principal is
+    | refused. A malformed value, or an unknown key, fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | policy is first used.
+    |
+    */
+
+    'audience' => [
+        'methods'         => ['password'],
+        'principal_types' => null,
     ],
 ];

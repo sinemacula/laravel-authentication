@@ -32,8 +32,9 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  * - `pty` claim carries the principal's type on access tokens, when it has one
  * - configurable clock skew via `leewaySeconds` on every verification
  * - optional strict `iss` / `aud` verification
- * - token lifetimes from the guard's `TokenLifetimes`; a token for a device
- *   mirrors the device's session and is never issued for one that has ended
+ * - token lifetimes from the guard's `TokenLifetimes`, or those it sets for the
+ *   principal's type; a token for a device mirrors the device's session and is
+ *   never issued for one that has ended
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,6 +54,7 @@ final class JwtTokenService
      * @param  ?string  $issuer
      * @param  ?string  $audience
      * @param  ?\Psr\Log\LoggerInterface  $logger
+     * @param  array<string, \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes>  $principalTypeLifetimes
      *
      * @throws \InvalidArgumentException
      */
@@ -79,6 +81,9 @@ final class JwtTokenService
         // Optional PSR-3 logger for parse-failure debug traces; defaults to
         // NullLogger.
         ?LoggerInterface $logger = null,
+
+        /** Lifetimes for principals of a type, keyed by type; other principals get the guard's. */
+        private array $principalTypeLifetimes = [],
     ) {
         if ($guard === '') {
             throw new \InvalidArgumentException('JWT token service requires a non-empty guard name.');
@@ -99,15 +104,37 @@ final class JwtTokenService
     }
 
     /**
+     * The lifetimes for a principal: the guard's `by_principal_type` entry for
+     * the principal's type (see `Audience\PrincipalType`) when it has one,
+     * otherwise the guard's own, which a `null` principal gets too. A guard
+     * without per-type lifetimes never reads the principal's type.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
+     *
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     */
+    public function lifetimesFor(?Principal $principal): TokenLifetimes
+    {
+        if ($principal === null || $this->principalTypeLifetimes === []) {
+            return $this->lifetimes;
+        }
+
+        return $this->lifetimesOfType(PrincipalType::of($principal));
+    }
+
+    /**
      * Encode an access-token payload for the given context.
      *
-     * The token expires after the access lifetime, and never after the end of
-     * the device's session when a device is given: the earlier of its idle and
-     * absolute deadlines, from which the bearer path rejects the token anyway.
-     * An idle lifetime shorter than the access lifetime therefore shortens the
-     * token to match. `$issuedAt` (default now, cut to the whole second) sets
-     * `iat` and the start of the lifetime, so a caller that has just judged the
-     * device at a given time issues at that same time.
+     * The token expires after the access lifetime for the principal's type (see
+     * `lifetimesFor()`), and never after the end of the device's session when a
+     * device is given: the earlier of its idle and absolute deadlines, from
+     * which the bearer path rejects the token anyway. An idle lifetime shorter
+     * than the access lifetime therefore shortens the token to match.
+     * `$issuedAt` (default now, cut to the whole second) sets `iat` and the
+     * start of the lifetime, so a caller that has just judged the device at a
+     * given time issues at that same time.
      *
      * The token carries the principal's type in `pty` when it has one (see
      * `Audience\PrincipalType`), read when the token is issued; a principal
@@ -137,8 +164,9 @@ final class JwtTokenService
         $issuedAt   = $this->issueTime($issuedAt);
         $sessionEnd = $device === null ? null : $this->sessionEnd($device, $issuedAt);
         $type       = PrincipalType::of($principal);
+        $expiresAt  = $this->lifetimesOfType($type)->accessExpiry($issuedAt, $sessionEnd);
 
-        $payload = $this->baseClaims($issuedAt, $this->lifetimes->accessExpiry($issuedAt, $sessionEnd)->getTimestamp(), TokenType::ACCESS);
+        $payload = $this->baseClaims($issuedAt, $expiresAt->getTimestamp(), TokenType::ACCESS);
 
         $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
         $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
@@ -217,6 +245,18 @@ final class JwtTokenService
         $claims = $this->normaliseClaims($decoded);
 
         return $this->matchesExpectedClaims($claims, $expectedType) ? $claims : null;
+    }
+
+    /**
+     * The lifetimes for principals of the type: its own when the guard sets
+     * them, otherwise the guard's.
+     *
+     * @param  ?string  $type
+     * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
+     */
+    private function lifetimesOfType(?string $type): TokenLifetimes
+    {
+        return $type === null ? $this->lifetimes : $this->principalTypeLifetimes[$type] ?? $this->lifetimes;
     }
 
     /**

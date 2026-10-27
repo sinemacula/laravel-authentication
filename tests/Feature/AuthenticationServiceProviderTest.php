@@ -19,8 +19,10 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
@@ -159,6 +161,18 @@ final class AuthenticationServiceProviderTest extends TestCase
             DefaultPrincipalResolver::class,
             app(PrincipalResolver::class),
         );
+    }
+
+    /**
+     * The `AudiencePolicy` contract resolves to the package policy, one
+     * instance for the application.
+     *
+     * @return void
+     */
+    public function testAudiencePolicyIsBoundToThePackagePolicyAsASingleton(): void
+    {
+        self::assertInstanceOf(GuardAudiencePolicy::class, app(AudiencePolicy::class));
+        self::assertSame(app(AudiencePolicy::class), app(AudiencePolicy::class));
     }
 
     /**

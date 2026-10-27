@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -37,8 +39,9 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  *
  * Registers configuration, the package `AuthManager` singleton, the `model`
  * user provider driver, the `jwt` guard driver, the default principal resolver
- * binding, the package-aware `auth` middleware and `401` guest response, the
- * `DeviceAuthenticated` listener, and the config + migration publishing tags.
+ * and audience policy bindings, the package-aware `auth` middleware and `401`
+ * guest response, the `DeviceAuthenticated` listener, and the config +
+ * migration publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,6 +62,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         );
 
         $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
+        $this->app->singleton(AudiencePolicy::class, GuardAudiencePolicy::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,

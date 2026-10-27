@@ -222,6 +222,63 @@ or a string of digits (as `env()` returns it) within its range. A value that is 
 fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
 service is resolved; the defaults live only in the published config.
 
+### Audiences
+
+An audience is a guard. Each guard decides which sign-in methods may start its sessions and which principal types may
+hold them, and can give each principal type its own token and session lifetimes. The defaults live in the package
+`audience` block, and a guard overrides any key in an `audience` block of its own:
+
+```php
+'guards' => [
+    'console' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'audience' => [
+            'methods'         => ['password'],
+            'principal_types' => ['staff', 'client_admin'],
+        ],
+    ],
+    'mobile' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'audience' => [
+            'methods'         => ['phone_code'],
+            'principal_types' => ['client_staff'],
+        ],
+        'jwt' => [
+            'by_principal_type' => [
+                'client_staff' => ['refresh_absolute_ttl_minutes' => 60 * 24 * 365],
+            ],
+        ],
+    ],
+],
+```
+
+| Key               | Default        | Meaning                                                                               |
+|-------------------|----------------|---------------------------------------------------------------------------------------|
+| `methods`         | `['password']` | The sign-in methods that may start the guard's sessions (a non-empty list of names)   |
+| `principal_types` | `null`         | `null` admits any principal; a non-empty list admits only principals of those types   |
+
+A principal's type is its own or its tenant's (see [Principal type](#principal-type)); with a list, a principal without
+a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method the guard does
+not list fails with `method_not_allowed`, and a principal whose type it does not admit with `principal_ineligible`, at
+sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a session in another.
+
+A guard key that is present wins, `null` included, so a guard can admit any principal although the package default
+lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
+both blocks, a value of the wrong shape, an empty list, or a key the policy does not know fails closed with an
+`InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
+`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide
+differently.
+
+Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
+`access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the guard's
+own). Each key a type leaves out, or sets to `null`, is the guard's value; the refresh grace window and the leeway stay
+the guard's, because a refresh judges them before it knows the principal. Any other key, or a map that is not keyed by
+type names, fails closed with an `InvalidJwtConfigurationException` when the guard is resolved. Access tokens expire
+after their principal type's access lifetime, `Auth::jwt('api')->lifetimesFor($principal)` returns the lifetimes for a
+principal, and a guard without per-type lifetimes never reads a principal's type for them.
+
 ### Per-guard principal resolvers
 
 By default, every guard uses the app-wide `PrincipalResolver` binding. Any guard may override it locally:
@@ -823,6 +880,7 @@ inheritance:
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                   |
 | Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                    |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
+| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                |
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
