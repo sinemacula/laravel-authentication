@@ -11,6 +11,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `attempt()`, which must also come back as the same class.
 - A present bearer `did` must resolve to a real device owned by the resolved identity.
 - Refresh is stricter than bearer auth: refresh always requires a valid `did`, because refresh is device-backed.
+- A `did` is checked against the device model's key format before any query; one that cannot be a key fails closed as
+  an unresolved device, and a database error on a well-formed `did` propagates instead of reading as a missing device.
 - Unsupported or transient identifiers stringify to `null` and therefore fail matching rather than being tolerated.
 - Failure attribution should still point at the already resolved identity when `pid` or `did` rejection happens late in
   the bearer flow.
@@ -50,6 +52,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`,
   `matchesPidHint()`.
 - `src/Jwt/IdentifierCoercion.php`: `stringify()`.
+- `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, and device reads to
   the write connection.
 - `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behavior that the guard hardens with explicit pid
@@ -73,6 +76,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testUserRejectsTokenWhenDidHintCannotBeResolved`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved`
+- `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
+  `testUserRejectsMalformedDidHintWithoutQueryingDevices`
+- `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
+  `testUserPropagatesDatabaseErrorFromDeviceLookup`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshReturnsNullWhenPrincipalIsUnresolved`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
@@ -97,6 +104,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 Update this note when any of the following change:
 
 - how `pid` and `did` are matched or coerced
+- how a `did` is checked against the device model's key format before the lookup
 - whether hinted principal resolution can short-circuit through `ResolvesHintedPrincipal`
 - whether bearer `did` remains identity-scoped through `HasDevices`
 - whether refresh `did` remains backed by the configured device model

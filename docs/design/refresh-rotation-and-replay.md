@@ -30,7 +30,10 @@ stateful per-device credentials with server-side replay detection.
 ## Failure / Edge Cases
 
 - Missing or malformed claims produce `token_invalid`.
-- Unknown device ids produce `device_unknown`.
+- Unknown device ids produce `device_unknown`, and so does a `did` that cannot be a key of the device model, which is
+  rejected before any query.
+- Database errors are not a failure reason: they propagate to the caller as server errors, so an outage is never
+  reported as an unknown device.
 - A digest mismatch on a token that is already stale produces `rotation_mismatch`.
 - `rotation_reuse` is narrower than `rotation_mismatch`: it is reserved for the branch where the token verified against
   the in-memory digest but lost the CAS race before rotation completed.
@@ -44,6 +47,8 @@ stateful per-device credentials with server-side replay detection.
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()`, `extractRefreshClaims()`, `loadDeviceForRefresh()`,
   `hydrateRefreshContext()`, `completeExchange()`, `atomicallyRotateRefreshKey()`, `revokeDevice()`.
 - `src/Jwt/RefreshTokenHasher.php`: digest generation and constant-time verification.
+- `src/Jwt/DeviceKeyShape.php` and `src/Contracts/ValidatesDeviceKey.php`: the `did` shape check run before the device
+  lookup.
 - `src/Database/WriteConnection.php`: pins the device and owner reads to the write connection.
 - `src/Jwt/JwtTokenService.php`: `issueRefreshToken()` and `issueAccessToken()`.
 - `src/Events/Enums/RefreshFailureReason.php`: failure taxonomy.
@@ -73,6 +78,10 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshRejectsTokenWhenDeviceIsDeletedAfterIssuance`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testRefreshReadsDeviceAndIdentityFromTheWriteConnection`
+- `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
+  `testExchangeRejectsMalformedDeviceIdWithoutQuerying`
+- `tests/Integration/Guards/JwtGuardDatabaseFailureIntegrationTest.php`
+  `testRefreshPropagatesAConnectionFailureDuringDeviceLookup`
 
 ## Change Triggers
 
@@ -80,7 +89,8 @@ Update this note when any of the following change:
 
 - the digest algorithm or the decision to store digests rather than plaintext rotation ids
 - the CAS predicate used for rotation
-- the meanings of `rotation_mismatch`, `rotation_reuse`, or `device_revoked`
+- the meanings of `rotation_mismatch`, `rotation_reuse`, `device_revoked`, or `device_unknown`
+- whether database errors still propagate instead of mapping to a failure reason
 - whether replay revokes one device row or a broader credential family
 - whether refresh still preserves `pid` across the rotated pair
 - whether refresh ever starts consulting shared cross-request caches

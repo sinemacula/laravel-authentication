@@ -47,6 +47,8 @@ use Tests\Unit\Stubs\StubInjectableDevice;
  * - resolver throws `UnresolvableIdentityException` -> the misconfiguration
  *   propagates out of the exchange instead of becoming a refresh failure.
  * - device model outside the explicit `EloquentDevice` boundary is rejected.
+ * - a `did` that cannot be a key of the device model is `device_unknown`
+ *   without a query, and a database error on a well-formed `did` propagates.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,6 +78,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /** @var string Guard name forwarded to the exchange constructor. */
     private const string GUARD_NAME = 'jwt-test';
+
+    /** @var string Well-formed device id for lookups that reach the builder. */
+    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
     /** @var \Mockery\MockInterface Resolver mock. */
     private MockInterface $resolver;
@@ -429,24 +434,18 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * When the device lookup throws a `QueryException` (e.g. PostgreSQL
-     * rejecting a non-UUID string on a UUID column), the exchange catches it
-     * and surfaces `device_unknown` rather than propagating a 500.
+     * A `did` that cannot be a key of the configured device model names no
+     * device: the exchange reports `device_unknown` without querying.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangeHandlesQueryExceptionDuringDeviceLookup(): void
+    public function testExchangeRejectsMalformedDeviceIdWithoutQuerying(): void
     {
         $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('useWritePdo')
-            ->once()
-            ->andReturnSelf();
-        $builder->shouldReceive('find')
-            ->once()
-            ->andThrow(new QueryException('testing', 'select', [], new \Exception('invalid UUID')));
+        $builder->shouldNotReceive('find');
 
         StubInjectableDevice::$injectedBuilder = $builder;
 
@@ -468,6 +467,46 @@ final class RefreshTokenExchangeTest extends TestCase
             );
 
         self::assertNull($exchange->exchange($token));
+    }
+
+    /**
+     * A database error on a well-formed `did` propagates to the caller as a
+     * server error instead of being reported as an unknown device.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangePropagatesQueryExceptionDuringDeviceLookup(): void
+    {
+        $failure = new QueryException('testing', 'select', [], new \PDOException('server has gone away'));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andThrow($failure);
+
+        StubInjectableDevice::$injectedBuilder = $builder;
+
+        config()->set('authentication.device.model', StubInjectableDevice::class);
+
+        $exchange = $this->makeExchange();
+
+        $token = $this->encodeRefreshToken([
+            'did' => self::DEVICE_ID,
+            'jti' => 'rotation-id',
+        ]);
+
+        $this->events->shouldNotReceive('dispatch');
+
+        $this->expectExceptionObject($failure);
+
+        $exchange->exchange($token);
     }
 
     /**

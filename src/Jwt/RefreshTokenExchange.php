@@ -7,7 +7,6 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
@@ -262,6 +261,9 @@ final class RefreshTokenExchange
      * from the write connection so a lagging replica cannot serve a stale
      * digest or revocation state.
      *
+     * An id that cannot be a key of the device model names no device and is
+     * rejected without a query; database errors on a well-formed id propagate.
+     *
      * @param  mixed  $id
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
      *
@@ -274,17 +276,13 @@ final class RefreshTokenExchange
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $model */
         $model = new $class;
 
-        try {
-            $device = WriteConnection::query($model->newQuery())->find($id);
-        } catch (QueryException) { // @phpstan-ignore catch.neverThrown
+        if (!DeviceKeyShape::matches($model, $id)) {
             return null;
         }
 
-        if (!$device instanceof Model) {
-            return null;
-        }
+        $device = WriteConnection::query($model->newQuery())->find($id);
 
-        return $device;
+        return $device instanceof Model ? $device : null;
     }
 
     /**

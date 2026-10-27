@@ -209,6 +209,11 @@ or swap `device.model` entirely - custom models must implement the `EloquentDevi
 that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates
 the default names, so a model that renames a column needs its own migration.
 
+Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
+ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
+treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`
+to describe it. Database errors are never read as an unknown device: they propagate as server errors.
+
 ### Credential validation timing
 
 `attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels:
@@ -526,7 +531,7 @@ the published config:
 | Reason                    | Meaning                                              |
 |---------------------------|------------------------------------------------------|
 | `token_invalid`           | Decode, expiry, typ, iss, or aud failure             |
-| `device_unknown`          | Device id did not resolve                            |
+| `device_unknown`          | Device id is not a device key or names no device     |
 | `rotation_mismatch`       | Digest did not match the stored refresh key          |
 | `rotation_reuse`          | Replay or concurrent rotation; device revoked        |
 | `device_revoked`          | Device row marked revoked                            |

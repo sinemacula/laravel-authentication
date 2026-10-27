@@ -11,6 +11,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -37,6 +38,12 @@ use Tests\Unit\Stubs\StubIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 {
+    /** @var string Well-formed id of the device the token names. */
+    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+
+    /** @var string Well-formed id that names no stored device. */
+    private const string MISSING_DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
+
     /**
      * A request with no Authorization header returns null from `user()` without
      * firing Attempting or Failed (there is nothing to attempt).
@@ -622,7 +629,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-missing']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_DEVICE_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -630,9 +637,12 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('useWritePdo')
             ->once()
             ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->once()
-            ->with('d-missing')
+            ->with(self::MISSING_DEVICE_ID)
             ->andReturnNull();
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
@@ -668,6 +678,132 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * A `did` that cannot be a key of the identity's device model is rejected
+     * without querying the devices relation, and `Failed` still names the
+     * resolved identity.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserRejectsMalformedDidHintWithoutQueryingDevices(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'not-a-uuid']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
+        $builder->shouldNotReceive('find');
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $failedEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
+                if (!$event instanceof Failed) {
+                    return;
+                }
+
+                $failedEvent = $event;
+            });
+
+        self::assertNull($guard->user());
+        self::assertInstanceOf(Failed::class, $failedEvent);
+        self::assertSame($identity, $failedEvent->user);
+    }
+
+    /**
+     * A database error while looking up a well-formed `did` propagates as a
+     * server error instead of reading as a missing device.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserPropagatesDatabaseErrorFromDeviceLookup(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $failure = new QueryException('testing', 'select', [], new \PDOException('server has gone away'));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andThrow($failure);
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldNotReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
+
+        $this->expectExceptionObject($failure);
+
+        $guard->user();
+    }
+
+    /**
      * When the `did` fail-closed branch rejects a token after `sub` already
      * resolved, the `Failed` event carries that resolved identity for
      * attribution.
@@ -678,7 +814,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-missing']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_DEVICE_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -686,9 +822,12 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $builder->shouldReceive('useWritePdo')
             ->once()
             ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->once()
-            ->with('d-missing')
+            ->with(self::MISSING_DEVICE_ID)
             ->andReturnNull();
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
@@ -743,19 +882,22 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserBindsIdentityPrincipalAndDeviceFromValidToken(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $device = new StubDevice(['id' => 'd-1']);
+        $device = new StubDevice(['id' => self::DEVICE_ID]);
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
             ->once()
             ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->once()
-            ->with('d-1')
+            ->with(self::DEVICE_ID)
             ->andReturn($device);
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
