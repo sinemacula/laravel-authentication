@@ -38,16 +38,20 @@ use Tests\Unit\Stubs\StubPrincipal;
  *
  * The times are stored as wall-clock times in the application timezone, as
  * Laravel stores `datetime` columns. With UTC, the documented setting, they
- * round-trip exactly. With a timezone that observes daylight saving, a time in
- * the second pass of the repeated hour reads back an hour early, so a session
- * can end early or a refresh fail, but a session never ends late. In
- * `America/New_York` the clocks go back at 06:00 UTC on 1 November 2026: 01:00
- * to 01:59 local is 05:00 to 05:59 UTC the first time and 06:00 to 06:59 UTC
- * the second.
+ * round-trip exactly. With a timezone that observes daylight saving, both
+ * passes through the repeated hour store the same value, which reads back as
+ * the first pass, so a session can end early or a refresh fail, but a session
+ * never ends late and a grace window never stays open late. In
+ * `America/New_York` the clocks go back at 06:00 UTC on 1 November 2026, so
+ * 01:00 to 01:59 local is 05:00 to 05:59 UTC the first time and 06:00 to 06:59
+ * UTC the second; in `Europe/London` they go back at 01:00 UTC on 25 October
+ * 2026, so 01:00 to 01:59 local is 00:00 to 00:59 UTC and then 01:00 to 01:59
+ * UTC.
  *
- * Carbon's test clock itself resolves a time in the second pass to the first,
- * so the clock is only ever moved to times outside it, and a rotation in it is
- * written through the store with its time given.
+ * Carbon's test clock reads a time in the repeated hour as PHP does, as the
+ * first pass in New York and as the second in London, so the clock is only
+ * moved to times it reads correctly, and rotations in the repeated hour are
+ * written through the store with their time given.
  *
  * The `api` guard has a 1-hour idle lifetime, a 10-hour absolute lifetime, and
  * a 30-second grace window.
@@ -68,6 +72,9 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
     /** @var string A timezone whose clocks go back at 06:00 UTC on 1 November 2026. */
     private const string DAYLIGHT_SAVING_ZONE = 'America/New_York';
+
+    /** @var string A timezone whose clocks go back at 01:00 UTC on 25 October 2026. */
+    private const string LONDON = 'Europe/London';
 
     /** @var string The application timezone before the test changed it. */
     private string $timezone;
@@ -113,42 +120,47 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
-     * Rows of `[a time (UTC), the wall-clock time stored in New York, seconds
+     * Rows of `[timezone, a time (UTC), the wall-clock time stored, seconds
      * early it reads back]`: either side of the repeated hour and in each pass
-     * through it.
+     * through it, in a timezone where PHP reads the repeated hour as the first
+     * pass and in one where it reads it as the second.
      *
-     * @return iterable<string, array{0: string, 1: string, 2: int}>
+     * @return iterable<string, array{0: string, 1: string, 2: string, 3: int}>
      */
     public static function provideTimesAroundTheRepeatedHour(): iterable
     {
         yield from [
-            'before'          => ['2026-11-01 04:30:00', '2026-11-01 00:30:00', 0],
-            'the first pass'  => ['2026-11-01 05:30:00', '2026-11-01 01:30:00', 0],
-            'the second pass' => ['2026-11-01 06:30:00', '2026-11-01 01:30:00', 3600],
-            'after'           => ['2026-11-01 07:30:00', '2026-11-01 02:30:00', 0],
+            'New York, before'          => [self::DAYLIGHT_SAVING_ZONE, '2026-11-01 04:30:00', '2026-11-01 00:30:00', 0],
+            'New York, the first pass'  => [self::DAYLIGHT_SAVING_ZONE, '2026-11-01 05:30:00', '2026-11-01 01:30:00', 0],
+            'New York, the second pass' => [self::DAYLIGHT_SAVING_ZONE, '2026-11-01 06:30:00', '2026-11-01 01:30:00', 3600],
+            'New York, after'           => [self::DAYLIGHT_SAVING_ZONE, '2026-11-01 07:30:00', '2026-11-01 02:30:00', 0],
+            'London, the first pass'    => [self::LONDON, '2026-10-25 00:30:00', '2026-10-25 01:30:00', 0],
+            'London, the second pass'   => [self::LONDON, '2026-10-25 01:30:00', '2026-10-25 01:30:00', 3600],
+            'London, after'             => [self::LONDON, '2026-10-25 02:30:00', '2026-10-25 02:30:00', 0],
         ];
     }
 
     /**
      * With a timezone that observes daylight saving, a rotation stores its time
      * and the new idle deadline as wall-clock times without an offset, so both
-     * passes through the repeated hour store the same value, and one in the
-     * second pass reads back as the first, an hour early. No time reads back
-     * late.
+     * passes through the repeated hour store the same value, which reads back
+     * as the first pass: one in the second pass reads back an hour early. No
+     * time reads back late.
      *
+     * @param  string  $timezone
      * @param  string  $utc
      * @param  string  $wallClock
      * @param  int  $earlyBy
      * @return void
      */
     #[DataProvider('provideTimesAroundTheRepeatedHour')]
-    public function testTimesInTheSecondPassOfTheRepeatedHourReadBackAnHourEarly(string $utc, string $wallClock, int $earlyBy): void
+    public function testTimesInTheRepeatedHourReadBackAsTheFirstPass(string $timezone, string $utc, string $wallClock, int $earlyBy): void
     {
-        $at = $this->atUtc('2026-11-01 00:00:00', self::DAYLIGHT_SAVING_ZONE);
+        $at = $this->atUtc('2026-10-24 12:00:00', $timezone);
 
-        [, $device] = $this->signIn($at);
+        [, $device] = $this->signIn($at, $at->copy()->addDays(2));
 
-        $time = CarbonImmutable::parse($utc, 'UTC')->setTimezone(self::DAYLIGHT_SAVING_ZONE);
+        $time = CarbonImmutable::parse($utc, 'UTC')->setTimezone($timezone);
 
         self::assertTrue($this->store()->rotate($device, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $time, $time));
 
@@ -193,6 +205,32 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     public function testWithDaylightSavingARotationInTheSecondPassLeavesNoGraceWindow(): void
     {
         [$token, $device] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry(self::DAYLIGHT_SAVING_ZONE);
+
+        self::assertSame(RefreshFailureReason::ROTATION_REUSE, $this->refreshFailure($token));
+        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+    }
+
+    /**
+     * In a timezone where PHP reads the repeated hour as the second pass, a
+     * rotation in the first pass still reads back at its own time, so a replay
+     * of the rotated token fifty minutes later, when the clocks have gone back,
+     * is past the grace window: it revokes the device rather than being handed
+     * the current credential.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testWithDaylightSavingAReplayAfterARotationInTheFirstPassIsNotAGraceRetry(): void
+    {
+        $replayAt = $this->atUtc('2026-10-25 01:20:00', self::LONDON);
+
+        [$identity, $device] = $this->signIn($replayAt);
+
+        $token     = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $rotatedAt = $replayAt->toImmutable()->subMinutes(50);
+
+        self::assertTrue($this->store()->rotate($device, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHours(3), $rotatedAt));
 
         self::assertSame(RefreshFailureReason::ROTATION_REUSE, $this->refreshFailure($token));
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());

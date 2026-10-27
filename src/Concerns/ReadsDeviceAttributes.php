@@ -58,14 +58,43 @@ trait ReadsDeviceAttributes
     }
 
     /**
-     * Convert a stored timestamp, cast or raw, to a Carbon instance.
+     * Convert a stored timestamp, cast or raw, to a Carbon instance, read as
+     * the earliest instant its wall-clock time could be.
      *
      * @param  mixed  $value
      * @return ?\Carbon\CarbonInterface
      */
     private function toDeviceTimestamp(mixed $value): ?CarbonInterface
     {
-        return $value === null || $value instanceof CarbonInterface ? $value : $this->asDateTime($value);
+        if ($value === null) {
+            return null;
+        }
+
+        return self::earliestInstantOf($value instanceof CarbonInterface ? $value : $this->asDateTime($value));
+    }
+
+    /**
+     * The earliest instant showing the same wall-clock time as the given time
+     * in its timezone.
+     *
+     * Times are stored without an offset, so one in the hour that repeats when
+     * the clocks go back could be either pass through it, and PHP resolves it
+     * to the first pass in some timezones and to the second in others. Taking
+     * the first pass means the ambiguity can only end a session or a grace
+     * window early, never late. The first pass is found from the offset a day
+     * earlier, before any change of the clocks that could have made the time
+     * ambiguous.
+     *
+     * @param  \Carbon\CarbonInterface  $time
+     * @return \Carbon\CarbonInterface
+     */
+    private static function earliestInstantOf(CarbonInterface $time): CarbonInterface
+    {
+        $offset  = $time->getOffset();
+        $before  = $time->toImmutable()->subDay()->getOffset();
+        $earlier = $time::createFromTimestamp($time->getTimestamp() - ($before - $offset), $time->getTimezone());
+
+        return $before > $offset && $earlier->getOffset() === $before ? $earlier : $time;
     }
 
     /**

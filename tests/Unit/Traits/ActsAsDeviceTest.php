@@ -146,6 +146,62 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
+     * Rows of `[timezone, stored value, the instant it reads as]` around the
+     * hour that repeats when the clocks go back. PHP reads such a wall-clock
+     * time as the first pass in New York and as the second in London, Berlin
+     * and Lord Howe (where the shift is 30 minutes); it always reads as the
+     * first. Times outside the repeated hour read as they are.
+     *
+     * @return iterable<string, array{0: string, 1: \Carbon\CarbonInterface|string, 2: string}>
+     */
+    public static function provideRepeatedHourTimes(): iterable
+    {
+        yield from [
+            'New York, repeated hour'        => ['America/New_York', '2026-11-01 01:30:00', '2026-11-01T01:30:00-04:00'],
+            'New York, second-pass instance' => ['America/New_York', CarbonImmutable::createFromTimestamp(1793514600, 'America/New_York'), '2026-11-01T01:30:00-04:00'],
+            'London, start of repeated hour' => ['Europe/London', '2026-10-25 01:00:00', '2026-10-25T01:00:00+01:00'],
+            'London, end of repeated hour'   => ['Europe/London', '2026-10-25 01:59:59', '2026-10-25T01:59:59+01:00'],
+            'London, just before'            => ['Europe/London', '2026-10-25 00:59:59', '2026-10-25T00:59:59+01:00'],
+            'London, just after'             => ['Europe/London', '2026-10-25 02:00:00', '2026-10-25T02:00:00+00:00'],
+            'London, later the same day'     => ['Europe/London', '2026-10-25 12:00:00', '2026-10-25T12:00:00+00:00'],
+            'Berlin, repeated hour'          => ['Europe/Berlin', '2026-10-25 02:30:00', '2026-10-25T02:30:00+02:00'],
+            'Lord Howe, repeated half hour'  => ['Australia/Lord_Howe', '2026-04-05 01:45:00', '2026-04-05T01:45:00+11:00'],
+        ];
+    }
+
+    /**
+     * A stored time in the hour that repeats when the clocks go back reads as
+     * the earlier of the two instants it could be, in the application timezone
+     * and as the kind of Carbon instance it was stored or cast as.
+     *
+     * @param  string  $timezone
+     * @param  \Carbon\CarbonInterface|string  $stored
+     * @param  string  $expected
+     * @return void
+     */
+    #[DataProvider('provideRepeatedHourTimes')]
+    public function testTimestampGetterReadsARepeatedHourTimeAsItsEarlierInstant(string $timezone, CarbonInterface|string $stored, string $expected): void
+    {
+        $default = date_default_timezone_get();
+
+        date_default_timezone_set($timezone);
+
+        try {
+            $device = new StubUncastDevice;
+
+            $device->setRawAttributes(['refresh_rotated_at' => $stored]);
+
+            $read = $device->getRefreshRotatedAt();
+
+            self::assertInstanceOf($stored instanceof CarbonInterface ? $stored::class : Carbon::class, $read);
+            self::assertSame($expected, $read->format(\DATE_ATOM));
+            self::assertSame($timezone, $read->getTimezone()->getName());
+        } finally {
+            date_default_timezone_set($default);
+        }
+    }
+
+    /**
      * Rows of `[getter, column]` for the string getters.
      *
      * @return iterable<string, array{0: \Closure(\Tests\Unit\Stubs\StubUncastDevice): mixed, 1: string}>

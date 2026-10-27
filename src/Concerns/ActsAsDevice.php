@@ -16,7 +16,9 @@ use Carbon\CarbonInterface;
  * missing value as `null`, so a partial select surfaces as a misconfiguration
  * instead of admitting an ended or revoked device, or reading a current refresh
  * token as a replay. Timestamps stored without a `datetime` cast (the raw value
- * the database returns) are converted rather than ignored.
+ * the database returns) are converted rather than ignored. Any timestamp in the
+ * hour that repeats when the clocks go back is read as its first pass, so a
+ * deadline or rotation time never reads late.
  *
  * Both digests are hidden from `toArray()` and `toJson()`, under whatever
  * column names the model uses.
