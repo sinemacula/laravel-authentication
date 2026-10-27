@@ -7,10 +7,8 @@ namespace Tests\Integration\Guards;
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -23,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
@@ -48,6 +47,8 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class AudiencePolicyIntegrationTest extends TestCase
 {
+    use InteractsWithTypedPrincipals;
+
     /** @var string Guard the tests authenticate with. */
     private const string GUARD = 'api';
 
@@ -67,26 +68,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
         Carbon::setTestNow(Carbon::createStrict(2026, 5, 1, 9, 0, 0));
         JWT::$timestamp = Carbon::now()->getTimestamp();
 
-        Schema::create('typed_identities', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email');
-            $blueprint->string('password');
-            $blueprint->timestamps();
-        });
-
-        Schema::create('typed_tenants', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('category')->nullable();
-            $blueprint->timestamps();
-        });
-
-        Schema::create('typed_memberships', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->unsignedInteger('identity_id');
-            $blueprint->unsignedInteger('tenant_id')->nullable();
-            $blueprint->string('type')->nullable();
-            $blueprint->timestamps();
-        });
+        self::createTypedPrincipalTables();
 
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['type' => Auth::type()]);
     }
@@ -99,9 +81,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('typed_memberships');
-        Schema::dropIfExists('typed_tenants');
-        Schema::dropIfExists('typed_identities');
+        self::dropTypedPrincipalTables();
 
         Carbon::setTestNow();
         JWT::$timestamp = null;

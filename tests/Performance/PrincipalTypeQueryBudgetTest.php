@@ -5,13 +5,12 @@ declare(strict_types = 1);
 namespace Tests\Performance;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
@@ -29,6 +28,8 @@ use Tests\Integration\Fixtures\TypedTenant;
 #[CoversClass(JwtTokenService::class)]
 final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
 {
+    use InteractsWithTypedPrincipals;
+
     /** @var string Guard the budgets are measured on. */
     private const string GUARD = 'typed_api';
 
@@ -42,26 +43,7 @@ final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
     {
         parent::setUp();
 
-        Schema::create('typed_identities', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email');
-            $blueprint->string('password');
-            $blueprint->timestamps();
-        });
-
-        Schema::create('typed_tenants', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('category')->nullable();
-            $blueprint->timestamps();
-        });
-
-        Schema::create('typed_memberships', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->unsignedInteger('identity_id');
-            $blueprint->unsignedInteger('tenant_id')->nullable();
-            $blueprint->string('type')->nullable();
-            $blueprint->timestamps();
-        });
+        self::createTypedPrincipalTables();
     }
 
     /**
@@ -72,9 +54,7 @@ final class PrincipalTypeQueryBudgetTest extends PerformanceContractTestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('typed_memberships');
-        Schema::dropIfExists('typed_tenants');
-        Schema::dropIfExists('typed_identities');
+        self::dropTypedPrincipalTables();
 
         parent::tearDown();
     }

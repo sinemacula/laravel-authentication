@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -67,7 +68,7 @@ final readonly class PasswordSignIn implements SignInMethod
     {
         $key = $this->config->get(self::IDENTIFIER_KEY, self::DEFAULT_IDENTIFIER);
 
-        if (!is_string($key) || preg_match('/^[a-z][a-z0-9_]*$/D', $key) !== 1 || str_contains($key, self::PASSWORD_KEY)) {
+        if (!is_string($key) || !IdentifierType::isValid($key) || str_contains($key, self::PASSWORD_KEY)) {
 
             $message = sprintf(
                 '%s must name the identifier column in lower case (a letter, then letters, digits or underscores) and must not contain `password`.',

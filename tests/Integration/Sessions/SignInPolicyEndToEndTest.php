@@ -9,7 +9,6 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Contracts\Hashing\Hasher;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -36,6 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
@@ -68,7 +68,7 @@ use Tests\TestCase;
 #[CoversClass(VerificationLinks::class)]
 final class SignInPolicyEndToEndTest extends TestCase
 {
-    use InteractsWithSessions, InteractsWithVerifiableIdentities;
+    use InteractsWithSessions, InteractsWithTypedPrincipals, InteractsWithVerifiableIdentities;
 
     /** @var int Access lifetime of a `client_staff` principal, in minutes. */
     private const int CLIENT_STAFF_ACCESS_MINUTES = 2;
@@ -99,26 +99,7 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         self::createVerifiableIdentitiesTable();
 
-        Schema::create('typed_identities', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email');
-            $blueprint->string('password');
-            $blueprint->timestamps();
-        });
-
-        Schema::create('typed_tenants', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('category')->nullable();
-            $blueprint->timestamps();
-        });
-
-        Schema::create('typed_memberships', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->unsignedInteger('identity_id');
-            $blueprint->unsignedInteger('tenant_id')->nullable();
-            $blueprint->string('type')->nullable();
-            $blueprint->timestamps();
-        });
+        self::createTypedPrincipalTables();
 
         Route::middleware('auth:members')->get('/type', static fn (): array => ['type' => Auth::type()]);
 
@@ -146,9 +127,9 @@ final class SignInPolicyEndToEndTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        foreach (['typed_memberships', 'typed_tenants', 'typed_identities', 'verifiable_identities'] as $table) {
-            Schema::dropIfExists($table);
-        }
+        self::dropTypedPrincipalTables();
+
+        Schema::dropIfExists('verifiable_identities');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();

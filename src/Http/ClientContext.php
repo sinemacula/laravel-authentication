@@ -48,7 +48,7 @@ final readonly class ClientContext
     public function __construct(?string $ip, ?string $userAgent)
     {
         $this->ip        = self::cleanIp($ip);
-        $this->userAgent = self::cleanUserAgent($userAgent);
+        $this->userAgent = self::cleanText($userAgent, self::USER_AGENT_MAX_LENGTH);
     }
 
     /**
@@ -63,6 +63,27 @@ final readonly class ClientContext
     }
 
     /**
+     * Make a value the client supplied safe to store in a UTF-8 text column of
+     * the given length, as the user agent is: NUL bytes removed, invalid UTF-8
+     * replaced, cut to `$maxLength` characters, and `null` when nothing is
+     * left.
+     *
+     * @param  ?string  $value
+     * @param  int  $maxLength
+     * @return ?string
+     */
+    public static function cleanText(?string $value, int $maxLength): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $cleaned = mb_substr(mb_scrub(str_replace("\0", '', $value), 'UTF-8'), 0, $maxLength, 'UTF-8');
+
+        return $cleaned === '' ? null : $cleaned;
+    }
+
+    /**
      * Keep an IP address only when it is a valid IPv4 or IPv6 address.
      *
      * @param  ?string  $ip
@@ -71,23 +92,5 @@ final readonly class ClientContext
     private static function cleanIp(?string $ip): ?string
     {
         return $ip !== null && filter_var($ip, FILTER_VALIDATE_IP) !== false ? $ip : null;
-    }
-
-    /**
-     * Make a user agent safe to store in a UTF-8 text column of the maximum
-     * length.
-     *
-     * @param  ?string  $userAgent
-     * @return ?string
-     */
-    private static function cleanUserAgent(?string $userAgent): ?string
-    {
-        if ($userAgent === null) {
-            return null;
-        }
-
-        $cleaned = mb_substr(mb_scrub(str_replace("\0", '', $userAgent), 'UTF-8'), 0, self::USER_AGENT_MAX_LENGTH, 'UTF-8');
-
-        return $cleaned === '' ? null : $cleaned;
     }
 }

@@ -67,8 +67,8 @@ final readonly class SignInContext
         /** Refresh token the client holds for the device it signed in on before. */
         #[\SensitiveParameter] public ?string $refreshToken = null,
     ) {
-        $this->clientName = self::clean($clientName);
-        $this->platform   = self::clean($platform);
+        $this->clientName = ClientContext::cleanText($clientName, self::DESCRIPTION_MAX_LENGTH);
+        $this->platform   = ClientContext::cleanText($platform, self::DESCRIPTION_MAX_LENGTH);
     }
 
     /**
@@ -89,23 +89,5 @@ final readonly class SignInContext
         #[\SensitiveParameter] ?string $refreshToken = null,
     ): self {
         return new self(ClientContext::fromRequest($request), $clientName, $platform, $principal, $refreshToken);
-    }
-
-    /**
-     * Make a client-described value safe to store in a UTF-8 text column of the
-     * maximum length.
-     *
-     * @param  ?string  $value
-     * @return ?string
-     */
-    private static function clean(?string $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        $cleaned = mb_substr(mb_scrub(str_replace("\0", '', $value), 'UTF-8'), 0, self::DESCRIPTION_MAX_LENGTH, 'UTF-8');
-
-        return $cleaned === '' ? null : $cleaned;
     }
 }
