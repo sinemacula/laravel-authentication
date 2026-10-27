@@ -190,16 +190,14 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         self::assertSame($threeDPrincipal->getKey(), $principal3d->getPrincipalIdentifier());
 
         // Request rebinding must clear the previously-bound 2D guard so no
-        // request-local auth state leaks across requests.
-        self::assertNull($guard2d->identity());
-        self::assertNull($guard2d->principal());
+        // request-local auth state leaks across requests. `hasUser()` reads the
+        // bound state without resolving the new request.
+        self::assertFalse($guard2d->hasUser());
 
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->identity());
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->principal());
 
-        // The active guard exposes its own identity key; the rebound 2D guard
-        // has been cleared.
-        self::assertNull($guard2d->id());
+        // The active guard exposes its own identity key.
         self::assertSame($threeDIdentity->getKey(), $guard3d->id());
     }
 

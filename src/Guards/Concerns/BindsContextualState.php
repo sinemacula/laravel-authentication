@@ -17,6 +17,10 @@ use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
  * Holds the identity -> principal -> device triple bound to a guard and exposes
  * accessors plus setters that fire the contextual events.
  *
+ * Every accessor goes through the host guard's `user()`, so the first access on
+ * a request resolves it, as Laravel's own guards do, even on a route without
+ * authentication middleware.
+ *
  * Expects the using class to declare:
  * - `protected string $name`
  * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
@@ -41,32 +45,38 @@ trait BindsContextualState
     protected ?Device $device = null;
 
     /**
-     * Return the authenticated identity, if any.
+     * Return the authenticated identity, if any, resolving the request on first
+     * access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     public function identity(): ?Identity
     {
-        return $this->identity;
+        return $this->user();
     }
 
     /**
-     * Return the active principal, if any.
+     * Return the active principal, if any, resolving the request on first
+     * access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     public function principal(): ?Principal
     {
+        $this->user();
+
         return $this->principal;
     }
 
     /**
-     * Return the pinned device, if any.
+     * Return the pinned device, if any, resolving the request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
      */
     public function device(): ?Device
     {
+        $this->user();
+
         return $this->device;
     }
 
@@ -84,13 +94,14 @@ trait BindsContextualState
     }
 
     /**
-     * Return the tenant the active principal acts within, if any.
+     * Return the tenant the active principal acts within, if any, resolving the
+     * request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
     public function tenant(): ?Tenant
     {
-        return $this->principal?->getTenant();
+        return $this->principal()?->getTenant();
     }
 
     /**

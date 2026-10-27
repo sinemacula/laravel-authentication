@@ -387,6 +387,9 @@ Auth::tenant();         // Tenant|null     - the tenant the principal acts withi
 Auth::type();           // string|null     - the tenant's type when HasType is declared
 ```
 
+Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
+routes without `auth` middleware.
+
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 
 ```php

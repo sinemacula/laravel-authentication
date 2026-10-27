@@ -110,14 +110,15 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Return the auth identifier of the bound identity, if any.
+     * Return the auth identifier of the authenticated identity, if any,
+     * resolving the request on first access.
      *
      * @return int|string|null
      */
     #[\Override]
     public function id(): int|string|null
     {
-        $identifier = $this->identity?->getAuthIdentifier();
+        $identifier = $this->user()?->getAuthIdentifier();
 
         if ($identifier === null || is_int($identifier) || is_string($identifier)) {
             return $identifier;

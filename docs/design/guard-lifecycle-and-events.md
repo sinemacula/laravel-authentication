@@ -16,6 +16,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - Rebinding clears any previously cached identity, principal, and device state before the new lifecycle begins.
 - Request-local memoization is always on. There is no cross-request cache: every bearer and refresh request reads the
   identity, principal, and device live.
+- `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on a
+  request authenticates it even on a route without `auth` middleware, as Laravel's own guards do.
 
 ## Success Path
 
@@ -51,7 +53,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/AbstractGuard.php`: `attempt()`, `login()`, `logout()`, `bindAuthenticationLifecycle()`,
   `resolveContextForCredentials()`.
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
-- `src/Guards/Concerns/BindsContextualState.php`: `setPrincipal()`, `setDevice()`, `clearContextualState()`.
+- `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
+  `clearContextualState()`.
 - `src/Guards/JwtGuard.php`: `resolveBearerToken()`, `refresh()`.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`.
 - `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
@@ -82,6 +85,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testBearerRejectsMemberOfTenantDeactivatedAfterIssue`
 - `tests/Integration/Guards/MisconfiguredIdentityIntegrationTest.php`
   `testBearerRequestAnswersWithServerError`
+- `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`
+  `testAccessorResolvesBearerTokenWhenCalledFirst`
 
 ## Change Triggers
 
