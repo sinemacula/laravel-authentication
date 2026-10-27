@@ -91,6 +91,75 @@ final class RefreshTokenHasherTest extends TestCase
     }
 
     /**
+     * `successor()` derives the next rotation id deterministically: the same id
+     * always has the same successor, which is shaped like a generated id (43
+     * URL-safe characters) and differs from the id and from its digest.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testSuccessorIsADeterministicRotationIdOfTheSameShape(): void
+    {
+        $rotationId = RefreshTokenHasher::generate();
+        $successor  = RefreshTokenHasher::successor($rotationId);
+
+        self::assertSame($successor, RefreshTokenHasher::successor($rotationId));
+        self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/', $successor);
+        self::assertSame(strlen($rotationId), strlen($successor));
+        self::assertNotSame($rotationId, $successor);
+        self::assertNotSame(RefreshTokenHasher::hash($rotationId), $successor);
+    }
+
+    /**
+     * `successor()` is an HMAC-SHA256 keyed by the id over the package's
+     * domain-separation label, so it matches a known vector and is not a plain
+     * hash of the id.
+     *
+     * @return void
+     */
+    public function testSuccessorIsTheLabelledHmacOfTheRotationId(): void
+    {
+        $expected = rtrim(strtr(base64_encode(hash_hmac('sha256', 'sinemacula.laravel-authentication.refresh-rotation.v1', 'rotation-id', true)), '+/', '-_'), '=');
+
+        self::assertSame($expected, RefreshTokenHasher::successor('rotation-id'));
+        self::assertNotSame(rtrim(strtr(base64_encode(hash('sha256', 'rotation-id', true)), '+/', '-_'), '='), RefreshTokenHasher::successor('rotation-id'));
+    }
+
+    /**
+     * Different ids have different successors, and following a chain of
+     * successors does not return to an earlier id.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testSuccessorChainsDoNotRepeat(): void
+    {
+        self::assertNotSame(RefreshTokenHasher::successor('rotation-a'), RefreshTokenHasher::successor('rotation-b'));
+
+        $chain = [RefreshTokenHasher::generate()];
+
+        for ($rotation = 0; $rotation < 16; $rotation++) {
+            $chain[] = RefreshTokenHasher::successor($chain[array_key_last($chain)]);
+        }
+
+        self::assertSame($chain, array_values(array_unique($chain)));
+    }
+
+    /**
+     * The plaintext id never appears in a stack trace through `successor()`.
+     *
+     * @return void
+     */
+    public function testSuccessorMarksItsParameterSensitive(): void
+    {
+        $parameter = (new \ReflectionMethod(RefreshTokenHasher::class, 'successor'))->getParameters()[0];
+
+        self::assertNotSame([], $parameter->getAttributes(\SensitiveParameter::class));
+    }
+
+    /**
      * The class is intentionally not instantiable - construction is forbidden
      * via the private constructor so consumers cannot accidentally hold a
      * stateful hasher instance. Reflection invokes the private constructor so

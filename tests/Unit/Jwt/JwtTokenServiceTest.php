@@ -326,7 +326,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $verifier = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             null,
             null,
@@ -359,7 +359,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
      */
     public function testExposesItsLifetimes(): void
     {
-        $lifetimes = new TokenLifetimes(7, 70, 700);
+        $lifetimes = new TokenLifetimes(7, 70, 700, 30);
 
         $service = new JwtTokenService($this->makeKeyring(), self::GUARD, $lifetimes, 30);
 
@@ -541,7 +541,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         return new JwtTokenService(
             $this->makeKeyring(),
             $guard,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
         );
     }
@@ -593,7 +593,7 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         return new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES),
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             null,
             null,

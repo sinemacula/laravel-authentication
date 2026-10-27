@@ -46,15 +46,17 @@ device record live in the `devices` table so replay and stale credentials can be
   `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), and fail-closed
   behaviour on empty or short keys, unsupported algorithms, type confusion, tokens from another guard, missing claims,
   and `pid` / `did` mismatches.
-- **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
-  machine-readable `RefreshFailed` events for SIEM attribution.
+- **Refresh-token rotation with replay detection**: constant-time digest verification, atomic per-device rotation, a
+  short grace window for lost responses and parallel refreshes, revocation of the device when a rotated refresh token
+  is replayed, and machine-readable `RefreshFailed` and `DeviceRevoked` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
   it, so keys rotate without signing anyone out.
 - **Device records**, one per signed-in session: owner, optional principal and client metadata, the last use (time,
   IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a reason. Refresh
   digests are hidden from serialisation.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
-  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`.
+  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed` /
+  `DeviceRevoked`.
 - **Pluggable everywhere**: identity model, device model, principal resolver, table names.
 
 ## Design Notes
@@ -182,9 +184,10 @@ through its own user provider, so the provider's scoping applies and an owner it
 row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
 identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
 with `authenticatable_missing`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
-`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `leeway_seconds`,
-`issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys` should also set
-`active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no overrides).
+`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
+`leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
+should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
+overrides).
 
 ### Token and session lifetimes
 
@@ -197,6 +200,7 @@ sessions:
 | `access_ttl_minutes`           | 5       | 1 to 1440    | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
 | `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
 | `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
+| `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
 | `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
 
 A session is a device. It ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
@@ -279,14 +283,16 @@ that renames a column needs its own migration.
 
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
-than when its access tokens expire. A device whose session has ended, past its idle or absolute deadline, is rejected
-the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired` (see
-[Token and session lifetimes](#token-and-session-lifetimes)). `ActsAsDevice` reads any stored timestamp as a value, with
-or without a `datetime`
-cast on the column, and throws a `LogicException` when the device was loaded without one of its refresh or revocation
-state columns (both digests, the rotation time, both deadlines, and the revocation time), for example through a
-`devices()` relation or a global scope that selects other columns, so a partial select is reported instead of being read
-as a device that is not revoked or has no deadline.
+than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
+both refresh digests; it never deletes the row. The refresh exchange revokes a device when it detects a replay, and
+`RefreshTokenExchange::revokeDevice($device, RevocationReason::ROTATION_REUSE)` is idempotent: a device that is already
+revoked keeps its first revocation. A device whose session has ended, past its idle or absolute deadline, is rejected
+the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired` (see [Token and session
+lifetimes](#token-and-session-lifetimes)). `ActsAsDevice` reads any stored timestamp as a value, with or without a
+`datetime` cast on the column, and throws a `LogicException` when the device was loaded without one of its refresh or
+revocation state columns (both digests, the rotation time, both deadlines, and the revocation time), for example through
+a `devices()` relation or a global scope that selects other columns, so a partial select is reported instead of being
+read as a device that is not revoked or has no deadline.
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
@@ -618,8 +624,36 @@ return [
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
 token valid for a retry. After the commit, `refresh()` binds the new context and dispatches `Refreshed`; an exception
-from a listener on those events loses the new pair, and the presented token then fails with `rotation_mismatch`, so
-keep those listeners from throwing or queue them.
+from a listener on those events loses the new pair, but a retry with the presented token inside the grace window still
+gets the current credential (see [Refresh token replay](#refresh-token-replay)). Keep those listeners from throwing or
+queue them, so a retry is never needed.
+
+### Refresh token replay
+
+Refresh tokens stay signed JWTs, and each one carries the device's rotation id, which the device stores only as a
+SHA-256 digest. Every successful refresh rotates the device to the next rotation id and remembers the one it replaced,
+with the time of the rotation. A validly signed refresh token for a live device then carries one of three ids:
+
+- the current one: the refresh rotates it and returns a new pair;
+- the one the current one replaced, presented within `refresh_grace_seconds` (30 by default) of that rotation: the
+  refresh returns a new pair carrying the device's current rotation id, and writes nothing, so a client that lost the
+  response, or a second tab that refreshed at the same moment, keeps its session, and retries never extend the window;
+- any other id: the token was rotated before, so it has been replayed, perhaps stolen. The device is revoked at once
+  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `DeviceRevoked` and `RefreshFailed`
+  (`rotation_reuse`) are dispatched, and every token of the device stops working, access tokens included.
+
+Only the immediately previous id is honoured: after two quick refreshes, a delayed retry of the first token is a
+replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A device that holds no refresh
+credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the device is
+left alone. When a parallel refresh changes the device between this refresh's read and its write, the row is judged
+again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
+`rotation_conflict`, without revoking anything, and the client can simply retry.
+
+Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
+clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back
+after a failed refresh: a rollback also undoes a replay revocation (`DeviceRevoked` is dispatched only after commit,
+so a rolled-back revocation is never reported). Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits
+first makes this one fail with a serialization error, which surfaces as a server error for you to retry.
 
 ## Key Rotation
 
@@ -664,6 +698,7 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\DeviceAuthenticated` | Device hydrated and bound; listeners may persist metadata |
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
+| `SineMacula\...\Events\DeviceRevoked`       | A device was revoked (after commit; carries the reason)   |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -682,8 +717,9 @@ the published config:
 |---------------------------|------------------------------------------------------|
 | `token_invalid`           | Decode, expiry, missing claim, typ, guard, iss, aud  |
 | `device_unknown`          | Device id is not a device key or names no device     |
-| `rotation_mismatch`       | Digest did not match the stored refresh key          |
-| `rotation_reuse`          | Replay or concurrent rotation; device revoked        |
+| `rotation_reuse`          | Rotated token replayed; device revoked               |
+| `rotation_conflict`       | Device changed during the refresh; retry             |
+| `refresh_key_missing`     | Device holds no refresh credential                   |
 | `device_revoked`          | Device row marked revoked                            |
 | `session_expired`         | Device's idle or absolute deadline reached, or unset |
 | `authenticatable_missing` | Guard's provider did not return the device owner     |

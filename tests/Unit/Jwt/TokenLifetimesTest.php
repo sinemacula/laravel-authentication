@@ -58,56 +58,63 @@ final class TokenLifetimesTest extends TestCase
      */
     public function testExposesTheLifetimes(): void
     {
-        $lifetimes = new TokenLifetimes(self::ACCESS, self::IDLE, self::ABSOLUTE);
+        $lifetimes = new TokenLifetimes(self::ACCESS, self::IDLE, self::ABSOLUTE, 30);
 
         self::assertSame(self::ACCESS, $lifetimes->accessTtlMinutes);
         self::assertSame(self::IDLE, $lifetimes->refreshIdleTtlMinutes);
         self::assertSame(self::ABSOLUTE, $lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertSame(30, $lifetimes->refreshGraceSeconds);
     }
 
     /**
-     * Rows of `[access, idle, absolute, accepted]` at and beyond each range
-     * bound.
+     * Rows of `[access, idle, absolute, grace, accepted]` at and beyond each
+     * range bound.
      *
-     * @return iterable<string, array{0: int, 1: int, 2: int, 3: bool}>
+     * @return iterable<string, array{0: int, 1: int, 2: int, 3: int, 4: bool}>
      */
     public static function provideLifetimeBounds(): iterable
     {
         yield from [
-            'all at the minimum'         => [1, 1, 1, true],
-            'all at the maximum'         => [1440, 5256000, 5256000, true],
-            'access below the minimum'   => [0, 1, 1, false],
-            'access above the maximum'   => [1441, 1, 1, false],
-            'idle below the minimum'     => [1, 0, 1, false],
-            'idle above the maximum'     => [1, 5256001, 1, false],
-            'absolute below the minimum' => [1, 1, 0, false],
-            'absolute above the maximum' => [1, 1, 5256001, false],
-            'negative'                   => [-5, 1, 1, false],
+            'all at the minimum'         => [1, 1, 1, 0, true],
+            'all at the maximum'         => [1440, 5256000, 5256000, 300, true],
+            'access below the minimum'   => [0, 1, 1, 0, false],
+            'access above the maximum'   => [1441, 1, 1, 0, false],
+            'idle below the minimum'     => [1, 0, 1, 0, false],
+            'idle above the maximum'     => [1, 5256001, 1, 0, false],
+            'absolute below the minimum' => [1, 1, 0, 0, false],
+            'absolute above the maximum' => [1, 1, 5256001, 0, false],
+            'grace below the minimum'    => [1, 1, 1, -1, false],
+            'grace above the maximum'    => [1, 1, 1, 301, false],
+            'negative'                   => [-5, 1, 1, 0, false],
         ];
     }
 
     /**
      * Each lifetime must lie within its range, so a hand-built instance can
      * hold neither a zero lifetime nor one long enough to overflow a stored
-     * timestamp.
+     * timestamp, and the grace window stays short.
      *
      * @param  int  $access
      * @param  int  $idle
      * @param  int  $absolute
+     * @param  int  $grace
      * @param  bool  $accepted
      * @return void
      */
     #[DataProvider('provideLifetimeBounds')]
-    public function testRejectsALifetimeOutsideItsRange(int $access, int $idle, int $absolute, bool $accepted): void
+    public function testRejectsALifetimeOutsideItsRange(int $access, int $idle, int $absolute, int $grace, bool $accepted): void
     {
         if (!$accepted) {
             $this->expectException(\InvalidArgumentException::class);
-            $this->expectExceptionMessageMatches('/^The (access token|idle session|absolute session) lifetime must be from 1 to (1440|5256000) minutes, -?\d+ given\.$/');
+            $this->expectExceptionMessageMatches(
+                '/^The (access token lifetime|idle session lifetime|absolute session lifetime|refresh grace window)'
+                . ' must be from (0|1) to (300|1440|5256000) (minutes|seconds), -?\d+ given\.$/',
+            );
         }
 
-        $lifetimes = new TokenLifetimes($access, $idle, $absolute);
+        $lifetimes = new TokenLifetimes($access, $idle, $absolute, $grace);
 
-        self::assertSame($access, $lifetimes->accessTtlMinutes);
+        self::assertSame($grace, $lifetimes->refreshGraceSeconds);
     }
 
     /**
@@ -208,6 +215,51 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
+     * A replaced rotation id is inside the grace window up to, but not
+     * including, the second the window ends.
+     *
+     * @return void
+     */
+    public function testGraceWindowEndsAtItsLastSecond(): void
+    {
+        $lifetimes = $this->lifetimes();
+        $rotatedAt = $this->now->startOfSecond();
+
+        self::assertTrue($lifetimes->isWithinGrace($rotatedAt, $rotatedAt));
+        self::assertTrue($lifetimes->isWithinGrace($rotatedAt, $rotatedAt->addSeconds(29)->addMilliseconds(999)));
+        self::assertFalse($lifetimes->isWithinGrace($rotatedAt, $rotatedAt->addSeconds(30)));
+        self::assertFalse($lifetimes->isWithinGrace($rotatedAt, $rotatedAt->addSeconds(31)));
+    }
+
+    /**
+     * A grace window of 0 never applies, not even to a rotation stamped later
+     * than now by a server whose clock runs ahead.
+     *
+     * @return void
+     */
+    public function testZeroGraceWindowNeverApplies(): void
+    {
+        $lifetimes = new TokenLifetimes(self::ACCESS, self::IDLE, self::ABSOLUTE, 0);
+        $rotatedAt = $this->now->startOfSecond();
+
+        self::assertFalse($lifetimes->isWithinGrace($rotatedAt, $rotatedAt));
+        self::assertFalse($lifetimes->isWithinGrace($rotatedAt->addSeconds(10), $rotatedAt));
+    }
+
+    /**
+     * A rotation stamped later than now by a server whose clock runs ahead is
+     * still inside a non-zero window: the window counts from the stamp.
+     *
+     * @return void
+     */
+    public function testGraceWindowCountsFromAStampAheadOfNow(): void
+    {
+        $rotatedAt = $this->now->startOfSecond();
+
+        self::assertTrue($this->lifetimes()->isWithinGrace($rotatedAt->addSeconds(10), $rotatedAt));
+    }
+
+    /**
      * Rows of `[seconds from now to the idle deadline or null, seconds from
      * now to the absolute deadline or null, whether the session has ended]`.
      *
@@ -268,7 +320,7 @@ final class TokenLifetimesTest extends TestCase
      */
     private function lifetimes(): TokenLifetimes
     {
-        return new TokenLifetimes(self::ACCESS, self::IDLE, self::ABSOLUTE);
+        return new TokenLifetimes(self::ACCESS, self::IDLE, self::ABSOLUTE, 30);
     }
 
     /**

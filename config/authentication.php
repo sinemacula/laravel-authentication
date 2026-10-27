@@ -112,6 +112,13 @@ return [
         'refresh_idle_ttl_minutes'     => env('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES', 60 * 24 * 90),
         'refresh_absolute_ttl_minutes' => env('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES', 60 * 24 * 180),
 
+        // Seconds (0 to 300) after a refresh during which the refresh token it
+        // replaced still gets the session's current credential, so a lost
+        // response or a parallel refresh does not sign the client out. After
+        // the window, or with 0, presenting a replaced refresh token is treated
+        // as theft and revokes the device. Overridable per guard.
+        'refresh_grace_seconds' => env('AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS', 30),
+
         // Clock-skew tolerance, in seconds (0 to 300), on every token's `exp`
         // and `iat`. It never stretches a session: a device past its idle or
         // absolute deadline is rejected however recent its access token.

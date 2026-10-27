@@ -112,7 +112,8 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the guard's token and session lifetimes.
+     * Resolve the guard's token and session lifetimes and its refresh grace
+     * window.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
@@ -126,6 +127,7 @@ final class JwtTokenServiceFactory
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'access_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_ACCESS_TTL_MINUTES),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_idle_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_REFRESH_TTL_MINUTES),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_absolute_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_REFRESH_TTL_MINUTES),
+            $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_grace_seconds', 0, TokenLifetimes::MAX_GRACE_SECONDS),
         );
     }
 

@@ -106,7 +106,7 @@ abstract class JwtGuardTestCase extends TestCase
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
             self::GUARD_NAME,
-            new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180),
+            new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, 30),
             30,
         );
 

@@ -134,7 +134,7 @@ final class RefreshTokenExchangeBenchHarness
         $this->tokens = new JwtTokenService(
             JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'),
             'api',
-            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180),
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
         );
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);

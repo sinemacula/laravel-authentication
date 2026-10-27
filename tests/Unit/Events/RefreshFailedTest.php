@@ -27,10 +27,10 @@ final class RefreshFailedTest extends TestCase
      */
     public function testStoresGuardReasonAndDeviceIdOnConstruction(): void
     {
-        $event = new RefreshFailed('api', RefreshFailureReason::ROTATION_MISMATCH, 'd-1');
+        $event = new RefreshFailed('api', RefreshFailureReason::ROTATION_REUSE, 'd-1');
 
         self::assertSame('api', $event->guard);
-        self::assertSame(RefreshFailureReason::ROTATION_MISMATCH, $event->reason);
+        self::assertSame(RefreshFailureReason::ROTATION_REUSE, $event->reason);
         self::assertSame('d-1', $event->deviceId);
     }
 
@@ -55,16 +55,20 @@ final class RefreshFailedTest extends TestCase
      */
     public function testReasonEnumCoversEveryFailurePath(): void
     {
-        self::assertSame('token_invalid', RefreshFailureReason::TOKEN_INVALID->value);
-        self::assertSame('device_unknown', RefreshFailureReason::DEVICE_UNKNOWN->value);
-        self::assertSame('rotation_mismatch', RefreshFailureReason::ROTATION_MISMATCH->value);
-        self::assertSame('rotation_reuse', RefreshFailureReason::ROTATION_REUSE->value);
-        self::assertSame('device_revoked', RefreshFailureReason::DEVICE_REVOKED->value);
-        self::assertSame('authenticatable_missing', RefreshFailureReason::AUTHENTICATABLE_MISSING->value);
-        self::assertSame('identity_inactive', RefreshFailureReason::IDENTITY_INACTIVE->value);
-        self::assertSame('principal_unresolved', RefreshFailureReason::PRINCIPAL_UNRESOLVED->value);
-        self::assertSame('principal_mismatch', RefreshFailureReason::PRINCIPAL_MISMATCH->value);
-        self::assertSame('principal_inactive', RefreshFailureReason::PRINCIPAL_INACTIVE->value);
-        self::assertSame('tenant_inactive', RefreshFailureReason::TENANT_INACTIVE->value);
+        self::assertSame([
+            'token_invalid',
+            'device_unknown',
+            'rotation_reuse',
+            'rotation_conflict',
+            'refresh_key_missing',
+            'device_revoked',
+            'session_expired',
+            'authenticatable_missing',
+            'identity_inactive',
+            'principal_unresolved',
+            'principal_mismatch',
+            'principal_inactive',
+            'tenant_inactive',
+        ], array_map(static fn (RefreshFailureReason $reason): string => $reason->value, RefreshFailureReason::cases()));
     }
 }

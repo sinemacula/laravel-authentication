@@ -785,6 +785,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'access lifetime'   => ['access_ttl_minutes', 12],
             'idle lifetime'     => ['refresh_idle_ttl_minutes', 1234],
             'absolute lifetime' => ['refresh_absolute_ttl_minutes', 5678],
+            'grace window'      => ['refresh_grace_seconds', 45],
             'leeway'            => ['leeway_seconds', 7],
         ];
     }
@@ -916,6 +917,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
             ['access_ttl_minutes', 1, 1440],
             ['refresh_idle_ttl_minutes', 1, 5256000],
             ['refresh_absolute_ttl_minutes', 1, 5256000],
+            ['refresh_grace_seconds', 0, 300],
             ['leeway_seconds', 0, 300],
         ];
 
@@ -1142,7 +1144,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, (string) array_key_first($keys), 'HS256'),
             $guard,
-            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180),
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
             null,
             $audience,
@@ -1183,6 +1185,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
             'access_ttl_minutes'           => $lifetimes->accessTtlMinutes,
             'refresh_idle_ttl_minutes'     => $lifetimes->refreshIdleTtlMinutes,
             'refresh_absolute_ttl_minutes' => $lifetimes->refreshAbsoluteTtlMinutes,
+            'refresh_grace_seconds'        => $lifetimes->refreshGraceSeconds,
             default                        => $this->observedLeeway($service),
         };
     }

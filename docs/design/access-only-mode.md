@@ -47,8 +47,6 @@ principal auth without device tracking or refresh rotation.
 ## Authoritative Tests
 
 - `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
-  `testPackageBootsWithoutDevicesTable`
-- `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
   `testAccessTokenFlowSucceedsWithoutDevice`
 - `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
   `testForgedDeviceHintFailsClosedWithoutDevicesTable`

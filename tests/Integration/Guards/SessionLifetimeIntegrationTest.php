@@ -333,14 +333,16 @@ final class SessionLifetimeIntegrationTest extends TestCase
     /**
      * The rotation compares both deadlines with what it read: a deadline moved
      * by another writer between the read and the rotation, even to a time still
-     * in the future, makes the rotation miss, and the presented token is then
-     * treated as a lost race.
+     * in the future, makes the rotation miss. The token is still the current
+     * one, so that proves nothing: the refresh fails as `rotation_conflict`
+     * without writing or revoking, and a retry succeeds under the moved
+     * deadline.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testRotationMissesWhenADeadlineMovesBeforeItCommits(): void
+    public function testRotationConflictsWhenADeadlineMovesBeforeItCommits(): void
     {
         [$identity, $device] = $this->signIn();
 
@@ -349,8 +351,15 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->beforeTheRotation(fn () => $this->setDeadlines($device, $this->signedInAt->copy()->addHour(), $shortened));
 
-        self::assertSame(RefreshFailureReason::ROTATION_REUSE, $this->refreshFailure($token));
+        self::assertSame(RefreshFailureReason::ROTATION_CONFLICT, $this->refreshFailure($token));
+        self::assertNull($this->stored($device)->getRevokedAt());
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($device)->getRefreshKey());
+
+        $pair = $this->guard()->refresh($token);
+
+        self::assertNotNull($pair);
         self::assertSame($shortened->getTimestamp(), $this->stored($device)->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertSame($this->signedInAt->getTimestamp() + 3600, $this->claims($pair->refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
     }
 
     /**

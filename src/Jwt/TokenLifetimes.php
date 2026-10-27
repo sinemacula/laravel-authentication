@@ -18,6 +18,11 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  * deadline to the idle lifetime from now, never past the absolute deadline,
  * which is fixed when the session starts.
  *
+ * A refresh token that was just rotated stays usable for a short grace window,
+ * so a client that lost the response, or a second tab refreshing at the same
+ * moment, gets the session's current credential instead of being treated as a
+ * replay.
+ *
  * All arithmetic is on whole seconds, the precision the deadlines are stored
  * at, and a deadline has passed from the second it names: a session whose
  * deadline is `12:00:00` has ended at `12:00:00`.
@@ -36,12 +41,16 @@ final readonly class TokenLifetimes
     /** @var int Longest idle or absolute session lifetime, in minutes (ten years). */
     public const int MAX_REFRESH_TTL_MINUTES = 5256000;
 
+    /** @var int Longest refresh grace window, in seconds. */
+    public const int MAX_GRACE_SECONDS = 300;
+
     /**
      * Constructor.
      *
      * @param  int  $accessTtlMinutes
      * @param  int  $refreshIdleTtlMinutes
      * @param  int  $refreshAbsoluteTtlMinutes
+     * @param  int  $refreshGraceSeconds
      *
      * @throws \InvalidArgumentException
      */
@@ -55,10 +64,14 @@ final readonly class TokenLifetimes
 
         /** How long a session stays signed in however often it is refreshed, in minutes. */
         public int $refreshAbsoluteTtlMinutes,
+
+        /** How long a just-rotated refresh token still gets the current credential, in seconds; 0 disables it. */
+        public int $refreshGraceSeconds,
     ) {
-        self::assertWithin('access token lifetime', $accessTtlMinutes, self::MAX_ACCESS_TTL_MINUTES);
-        self::assertWithin('idle session lifetime', $refreshIdleTtlMinutes, self::MAX_REFRESH_TTL_MINUTES);
-        self::assertWithin('absolute session lifetime', $refreshAbsoluteTtlMinutes, self::MAX_REFRESH_TTL_MINUTES);
+        self::assertWithin('access token lifetime', $accessTtlMinutes, self::MIN_TTL_MINUTES, self::MAX_ACCESS_TTL_MINUTES, 'minutes');
+        self::assertWithin('idle session lifetime', $refreshIdleTtlMinutes, self::MIN_TTL_MINUTES, self::MAX_REFRESH_TTL_MINUTES, 'minutes');
+        self::assertWithin('absolute session lifetime', $refreshAbsoluteTtlMinutes, self::MIN_TTL_MINUTES, self::MAX_REFRESH_TTL_MINUTES, 'minutes');
+        self::assertWithin('refresh grace window', $refreshGraceSeconds, 0, self::MAX_GRACE_SECONDS, 'seconds');
     }
 
     /**
@@ -144,6 +157,22 @@ final readonly class TokenLifetimes
     }
 
     /**
+     * Whether a refresh token whose rotation id was replaced at `$rotatedAt` is
+     * still inside the grace window at `$now`. The window is anchored at the
+     * rotation itself, so retries cannot extend it, and a window of 0 never
+     * applies, even to a rotation another server stamped ahead of this one's
+     * clock.
+     *
+     * @param  \Carbon\CarbonInterface  $rotatedAt
+     * @param  \Carbon\CarbonInterface  $now
+     * @return bool
+     */
+    public function isWithinGrace(CarbonInterface $rotatedAt, CarbonInterface $now): bool
+    {
+        return $this->refreshGraceSeconds > 0 && $now->getTimestamp() < $rotatedAt->getTimestamp() + $this->refreshGraceSeconds;
+    }
+
+    /**
      * The whole second the given number of minutes after a time, in that time's
      * timezone. Counted in elapsed seconds, so a daylight saving change neither
      * stretches nor shortens a lifetime.
@@ -174,16 +203,18 @@ final readonly class TokenLifetimes
      * Reject a lifetime outside its range.
      *
      * @param  string  $lifetime
-     * @param  int  $minutes
+     * @param  int  $value
+     * @param  int  $min
      * @param  int  $max
+     * @param  string  $unit
      * @return void
      *
      * @throws \InvalidArgumentException
      */
-    private static function assertWithin(string $lifetime, int $minutes, int $max): void
+    private static function assertWithin(string $lifetime, int $value, int $min, int $max, string $unit): void
     {
-        if ($minutes < self::MIN_TTL_MINUTES || $minutes > $max) {
-            throw new \InvalidArgumentException(sprintf('The %s must be from %d to %d minutes, %d given.', $lifetime, self::MIN_TTL_MINUTES, $max, $minutes));
+        if ($value < $min || $value > $max) {
+            throw new \InvalidArgumentException(sprintf('The %s must be from %d to %d %s, %d given.', $lifetime, $min, $max, $unit, $value));
         }
     }
 }

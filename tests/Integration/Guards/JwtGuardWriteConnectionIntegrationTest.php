@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -184,6 +185,91 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
 
         self::assertNull($guard->user());
+    }
+
+    /**
+     * A device whose session ended on the primary while the replica still shows
+     * it live rejects the bearer token: the deadlines are read from the writer.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsDeviceWhoseSessionEndedOnThePrimaryWhileTheReplicaLags(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity);
+
+        $this->copyRowToReplica('stub_principals', $identity->getKey());
+        $this->copyRowToReplica('devices', $device->getKey());
+
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $device);
+
+        Device::query()->whereKey($device->getKey())->update(['idle_expires_at' => Carbon::now()]);
+
+        $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
+
+        self::assertNull($guard->user());
+    }
+
+    /**
+     * A retry of the previous rotation id is recognised from the primary while
+     * the replica still shows that id as current: the exchange hands back the
+     * current credential without attempting a rotation the replica's stale
+     * state would have led it to.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testGraceRetryIsJudgedFromThePrimaryWhileTheReplicaLags(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity);
+
+        $device->forceFill(['last_used_at' => Carbon::now()])->save();
+
+        $this->copyRowToReplica('stub_principals', $identity->getKey());
+        $this->copyRowToReplica('devices', $device->getKey());
+
+        $this->rotateOnThePrimary($device, Carbon::now()->subSeconds(5));
+
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $updates      = $this->recordUpdates();
+
+        $pair = $this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken);
+
+        self::assertNotNull($pair);
+        self::assertSame(RefreshTokenHasher::successor(self::ROTATION_ID), $this->authManager()->jwt('api')->parse($pair->refreshToken)['jti'] ?? null);
+        self::assertSame([], $updates->getArrayCopy());
+    }
+
+    /**
+     * A replay is recognised from the primary while the replica still shows the
+     * replayed id as current: the device is revoked without first attempting
+     * the rotation the replica's stale state would have led to.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testReplayIsJudgedFromThePrimaryWhileTheReplicaLags(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity);
+
+        $this->copyRowToReplica('stub_principals', $identity->getKey());
+        $this->copyRowToReplica('devices', $device->getKey());
+
+        $this->rotateOnThePrimary($device, Carbon::now()->subHour());
+
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $updates      = $this->recordUpdates();
+
+        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken));
+        self::assertCount(1, $updates);
+        self::assertStringContainsString('revoked_reason', $updates[0]);
+        self::assertSame('rotation_reuse', DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('revoked_reason'));
     }
 
     /**
@@ -835,5 +921,43 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         assert($guard instanceof JwtGuard);
 
         return $guard;
+    }
+
+    /**
+     * Rotate the device on the primary from `ROTATION_ID` to its successor at
+     * the given time, leaving the replica behind.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  \Carbon\Carbon  $rotatedAt
+     * @return void
+     */
+    private function rotateOnThePrimary(Device $device, Carbon $rotatedAt): void
+    {
+        Device::query()->whereKey($device->getKey())->update([
+            'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor(self::ROTATION_ID)),
+            'previous_refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID),
+            'refresh_rotated_at'   => $rotatedAt,
+        ]);
+    }
+
+    /**
+     * Record the SQL of every update run from here on.
+     *
+     * @return \ArrayObject<int, string>
+     */
+    private function recordUpdates(): \ArrayObject
+    {
+        /** @var \ArrayObject<int, string> $updates */
+        $updates = new \ArrayObject;
+
+        DB::listen(static function (QueryExecuted $query) use ($updates): void {
+            if (!str_starts_with(strtolower($query->sql), 'update')) {
+                return;
+            }
+
+            $updates->append($query->sql);
+        });
+
+        return $updates;
     }
 }

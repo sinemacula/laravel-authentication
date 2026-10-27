@@ -77,7 +77,12 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   set but whose type is empty cannot be loaded either. A tenant that does not opt in is never checked, and a relation to
   a model that is not a `Tenant` reports no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
-  machine-readable reason.
+  machine-readable reason. A refresh that revokes the device because its token was replayed (`rotation_reuse`) also
+  emits `DeviceRevoked` before `RefreshFailed`. `DeviceRevoked` is dispatched only by the call that revoked the device,
+  never for one already revoked, and only after the surrounding transaction commits, so a rolled-back revocation is
+  never reported.
+- A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events
+  as one that rotates, `Refreshed` included.
 - `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and
   user agent of the use, at most once per `authentication.device.last_used_throttle_seconds`. Only persisted
   `EloquentDevice` instances participate in that write path. The listener is resolved from the container on every
@@ -102,6 +107,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   keep the exchange on the guard's dispatcher and resolver.
 - `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
 - `src/Listeners/RecordDeviceUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound devices.
+- `src/Jwt/RefreshTokenExchange.php`: `revokeDevice()` and the `DeviceRevoked` dispatch; `src/Events/DeviceRevoked.php`.
 
 ## Authoritative Tests
 
@@ -163,6 +169,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttemptUnderStrictMode`
 - `tests/Feature/AuthenticationServiceProviderTest.php`
   `testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind`
+- `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
+  `testReplayRevokesTheDeviceAndEndsItsAccessTokens`, `testRevocationIsReportedOnlyAfterCommit`
 - `tests/Integration/Guards/DeviceUsageIntegrationTest.php`
   `testEachRequestRecordsItsOwnClientOutsideTheThrottleWindow`, `testRefreshRecordsTheClientItCameFrom`,
   `testCraftedUserAgentIsStoredCleaned`
@@ -172,7 +180,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `DeviceAuthenticated`, `Refreshed`, or `RefreshFailed`
+  `DeviceAuthenticated`, `Refreshed`, `RefreshFailed`, or `DeviceRevoked`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards
 - the decision to route bearer auth or refresh through `login()`

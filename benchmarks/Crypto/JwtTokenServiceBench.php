@@ -58,7 +58,7 @@ final readonly class JwtTokenServiceBench
         $this->service = new JwtTokenService(
             JwtKeyring::fromKeyMap(['bench' => 'benchmark-jwt-secret-key-with-at-least-32-bytes!'], 'bench', 'HS256'),
             'api',
-            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180),
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
         );
 

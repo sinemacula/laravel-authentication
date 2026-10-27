@@ -32,9 +32,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
   principal, and device lookups run inside `WriteConnection::during()`, which pins their model's connection and every
   connection a model resolves while they run, so relations they eager-load (a `$with` tenant, say) come from the writer
   too, not only the lookup's own query, even on another connection; so does each `CanBeActive::isActive()` check, the
-  tenant read, and a device's revocation and deadline reads, whether or not the subject is an Eloquent model. The identity's
-  `devices()` relation is built inside the identity's window, so a relation that queries while it is built reads the
-  writer as well.
+  tenant read, and a device's revocation and deadline reads, whether or not the subject is an Eloquent model. The
+  identity's `devices()` relation is built inside the identity's window, so a relation that queries while it is built
+  reads the writer as well.
 
 ## Success Path
 
@@ -68,9 +68,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Guards/JwtGuard.php`: `resolveContextFromToken()`, `resolvePrincipalFromClaims()`, `loadIdentityFromClaims()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: `matchesPidHint()` and `resolveDeviceFromHint()`, each shared by the
   bearer path and the pinned-context check in `attempt()`, plus `resolvePinnedPrincipal()` and `resolvePinnedDevice()`.
-- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`.
-- `src/Jwt/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind `matchesPidHint()` and the
-  refresh `pid` check.
+- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `findDeviceById()`, `classify()`,
+  `resolveRefreshPrincipal()`.
+- `src/Jwt/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind `matchesPidHint()` and
+  the refresh `pid` check.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
 - `src/Jwt/TokenLifetimes.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and issuance share.

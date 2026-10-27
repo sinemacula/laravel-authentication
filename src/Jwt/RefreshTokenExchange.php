@@ -9,38 +9,58 @@ use Carbon\CarbonInterface;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 
 /**
  * Refresh-token exchange service.
  *
- * Encapsulates the refresh round trip: parse the token, verify the rotation id
- * against the device's stored digest in constant time, reload the device's
- * owner through the guard's identity provider (so the provider's scopes apply
- * and an owner the guard does not serve is rejected), resolve the principal,
- * rotate the digest server-side, and issue a new access + refresh token pair.
+ * Encapsulates the refresh round trip: parse the token, find the device it
+ * names, judge the presented rotation id against the device's refresh
+ * credential in constant time, reload the device's owner through the guard's
+ * identity provider (so the provider's scopes apply and an owner the guard does
+ * not serve is rejected), resolve the principal, and issue a new access +
+ * refresh token pair.
  *
- * Failure paths dispatch `RefreshFailed` events with machine-readable reason
- * codes for SIEM attribution.
+ * A validly signed token for a live device carries one of three rotation ids:
+ * - the current one: the exchange rotates it to its successor with a
+ *   compare-and-swap that also moves the session's idle deadline;
+ * - the one the current one replaced, inside the grace window: the exchange
+ *   hands back the current credential (a fresh pair whose refresh token carries
+ *   the current rotation id) and writes no rotation state, so retries
+ *   neither extend the window nor disturb the swap;
+ * - any other: the token was rotated before, so it is a replay, and the device
+ *   is revoked (`rotation_reuse`). A device that holds no refresh credential
+ *   cannot tell a replay from anything else, so its tokens are rejected without
+ *   revoking it.
+ *
+ * Every check uses one time per exchange, taken after the token is parsed and
+ * cut to the whole second. Failure paths dispatch `RefreshFailed` events with
+ * machine-readable reason codes for SIEM attribution.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class RefreshTokenExchange
 {
+    /** @var \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore Guarded writes and locking reads of the device's refresh state. */
+    private readonly RefreshRotationStore $store;
+
     /**
      * Constructor.
      *
@@ -59,8 +79,8 @@ final class RefreshTokenExchange
         /** The guard's identity provider, which reloads the device owner. */
         private readonly IdentityProvider $provider,
 
-        /** Connection resolver for raw CAS digest rotation. */
-        private readonly ConnectionResolverInterface $connections,
+        // Connection resolver for the device's refresh state writes.
+        ConnectionResolverInterface $connections,
 
         /** Event dispatcher for RefreshFailed events. */
         private Dispatcher $events,
@@ -68,9 +88,11 @@ final class RefreshTokenExchange
         /** Resolver mapping identity to acting principal. */
         private PrincipalResolver $resolver,
 
-        /** Guard name carried on every RefreshFailed event. */
+        /** Guard name carried on every RefreshFailed and DeviceRevoked event. */
         private readonly string $guardName,
-    ) {}
+    ) {
+        $this->store = new RefreshRotationStore($connections);
+    }
 
     /**
      * Rebind the principal resolver used by refresh exchanges.
@@ -86,9 +108,10 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Rebind the event dispatcher that receives `RefreshFailed`, so a
-     * dispatcher swapped in after the guard resolved (e.g. `Event::fake()`)
-     * receives the exchange's events as well as the guard's.
+     * Rebind the event dispatcher that receives `RefreshFailed` and
+     * `DeviceRevoked`, so a dispatcher swapped in after the guard resolved
+     * (e.g. `Event::fake()`) receives the exchange's events as well as the
+     * guard's.
      *
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @return self
@@ -101,14 +124,14 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Exchange a refresh token for a new access + refresh token pair, rotating
-     * the device's stored digest. Returns `null` on any failure path; a
-     * `RefreshFailed` event is dispatched first.
+     * Exchange a refresh token for a new access + refresh token pair. Returns
+     * `null` on any failure path; a `RefreshFailed` event is dispatched first.
      *
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
@@ -123,14 +146,25 @@ final class RefreshTokenExchange
 
         [$rawDeviceId, $rotationId, $principalHint] = $claims;
 
-        $now     = CarbonImmutable::now()->startOfSecond();
-        $session = $this->loadDeviceForRefresh($rawDeviceId, $rotationId, $now);
+        $now      = CarbonImmutable::now()->startOfSecond();
+        $deviceId = IdentifierCoercion::stringify($rawDeviceId);
+        $device   = $this->findDeviceById($rawDeviceId);
 
-        if ($session === null) {
+        if ($device === null) {
+
+            $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_UNKNOWN, $deviceId);
+
             return null;
         }
 
-        [$device, $absolute] = $session;
+        $verdict = $this->classify($device, $rotationId, $now);
+
+        if ($verdict instanceof RefreshFailureReason) {
+
+            $this->fail($device, $verdict, $now);
+
+            return null;
+        }
 
         $context = $this->hydrateRefreshContext($device, $principalHint);
 
@@ -140,31 +174,27 @@ final class RefreshTokenExchange
 
         [$identity, $principal] = $context;
 
-        return $this->completeExchange($device, $identity, $principal, $rotationId, $now, $absolute);
+        return $verdict[0] === RotationMatch::CURRENT
+            ? $this->rotate($device, $identity, $principal, $rotationId, $now, $verdict[1])
+            : $this->reissue($device, $identity, $principal, $rotationId, $now);
     }
 
     /**
-     * Mark a device revoked by setting its `revoked_at` and clearing its
-     * refresh-key digest. Uses a raw query-builder update so Eloquent observers
-     * do not fire and in-memory attributes do not leak into the persisted
-     * write.
+     * Revoke a device with the given reason: its tokens stop working at once,
+     * on the bearer path and on refresh. Idempotent: an already revoked device
+     * keeps its first revocation's time and reason. Returns whether this call
+     * revoked the device; when it did, the revocation is mirrored on the
+     * in-memory device and `DeviceRevoked` is dispatched after commit.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return void
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @return bool
+     *
+     * @imperative
      */
-    public function revokeDevice(EloquentDevice&Model $device): void
+    public function revokeDevice(EloquentDevice&Model $device, RevocationReason $reason): bool
     {
-        $refreshKeyColumn = $this->refreshKeyColumn($device);
-        $revokedAtColumn  = $this->revokedAtColumn($device);
-
-        $this->connections
-            ->connection($device->getConnectionName())
-            ->table($device->getTable())
-            ->where($device->getKeyName(), $device->getKey())
-            ->update([
-                $refreshKeyColumn => null,
-                $revokedAtColumn  => Carbon::now(),
-            ]);
+        return $this->revoke($device, $reason, CarbonImmutable::now()->startOfSecond());
     }
 
     /**
@@ -216,45 +246,75 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Load the device named by the `did` claim and verify the supplied rotation
-     * id against its stored digest in constant time. Returns the device with
-     * its absolute deadline, which the rotation keeps.
+     * Report a failed exchange for the device, first revoking the device when
+     * the failure proves its refresh token was replayed.
      *
-     * Rejects revoked devices, devices whose session has ended at `$now` (past
-     * either deadline, or without deadlines), and devices with no refresh
-     * credential before the constant-time verification, so such a row cannot be
-     * used to time-probe the valid rotation-id space. An ended session is not
-     * revoked: it simply cannot be refreshed.
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return void
+     */
+    private function fail(EloquentDevice&Model $device, RefreshFailureReason $reason, CarbonImmutable $now): void
+    {
+        if ($reason === RefreshFailureReason::ROTATION_REUSE) {
+            $this->revoke($device, RevocationReason::ROTATION_REUSE, $now);
+        }
+
+        $this->dispatchRefreshFailure($reason, IdentifierCoercion::stringify($device->getDeviceIdentifier()));
+    }
+
+    /**
+     * Revoke the device at the given time, and report it when this call did.
      *
-     * The revocation time, the deadlines, and the digest are read inside
-     * `WriteConnection::during()` for the device, so a device that derives any
-     * of them from a relation or another table reads it from the writer as
-     * well.
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return bool
+     *
+     * @imperative
+     */
+    private function revoke(EloquentDevice&Model $device, RevocationReason $reason, CarbonImmutable $now): bool
+    {
+        $revoked = $this->store->revoke($device, $reason, $now);
+
+        if ($revoked) {
+            $this->events->dispatch(new DeviceRevoked($this->guardName, $device, $reason));
+        }
+
+        return $revoked;
+    }
+
+    /**
+     * Judge the presented rotation id against the device at `$now`.
+     *
+     * In order: a revoked device fails as `device_revoked`; a session past
+     * either deadline, or without one, as `session_expired` (an ended session
+     * is not revoked: it simply cannot be refreshed); a device holding no
+     * refresh credential as `refresh_key_missing`. Only then is the rotation id
+     * compared, in constant time: the current one, with the absolute
+     * deadline the rotation keeps; the previous one inside the grace window;
+     * or anything else, which is a replay (`rotation_reuse`). Nothing is
+     * compared before the device is known to be live, so such a row cannot be
+     * used to time-probe the valid rotation-id space.
+     *
+     * The device's state is read inside `WriteConnection::during()` for the
+     * device, so a device that derives any of it from a relation or another
+     * table reads it from the writer as well.
      *
      * @formatter:off
      *
-     * @param  mixed  $rawDeviceId
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
-     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice, 1: \Carbon\CarbonInterface}|null
+     * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: \Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
      *
      * @formatter:on
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
-    private function loadDeviceForRefresh(mixed $rawDeviceId, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): ?array
+    private function classify(EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): array|RefreshFailureReason
     {
-        $deviceId = IdentifierCoercion::stringify($rawDeviceId);
-        $device   = $this->findDeviceById($rawDeviceId);
+        $lifetimes = $this->tokens->lifetimes();
 
-        if ($device === null) {
-
-            $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_UNKNOWN, $deviceId);
-
-            return null;
-        }
-
-        $outcome = WriteConnection::during($device, static function () use ($device, $rotationId, $now): CarbonInterface|RefreshFailureReason {
+        return WriteConnection::during($device, static function () use ($device, $rotationId, $now, $lifetimes): array|RefreshFailureReason {
 
             if ($device->getRevokedAt() !== null) {
                 return RefreshFailureReason::DEVICE_REVOKED;
@@ -266,31 +326,46 @@ final class RefreshTokenExchange
                 return RefreshFailureReason::SESSION_EXPIRED;
             }
 
-            return self::matchesCurrentRotation($device, $rotationId) ? $deadlines[1] : RefreshFailureReason::ROTATION_MISMATCH;
+            $current = $device->getRefreshKey();
+
+            if ($current === null) {
+                return RefreshFailureReason::REFRESH_KEY_MISSING;
+            }
+
+            $match = match (true) {
+                RefreshTokenHasher::verify($rotationId, $current)                    => RotationMatch::CURRENT,
+                self::isGraceRetry($device, $rotationId, $current, $lifetimes, $now) => RotationMatch::PREVIOUS,
+                default                                                              => null,
+            };
+
+            return $match === null ? RefreshFailureReason::ROTATION_REUSE : [$match, $deadlines[1]];
         });
-
-        if ($outcome instanceof RefreshFailureReason) {
-
-            $this->dispatchRefreshFailure($outcome, $deviceId);
-
-            return null;
-        }
-
-        return [$device, $outcome];
     }
 
     /**
-     * Whether the rotation id is the device's current one.
+     * Whether the rotation id is the one the device's current id replaced,
+     * presented inside the grace window. The current id must also be its
+     * successor: a row whose digests were changed outside a rotation does not
+     * honour the previous id.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
+     * @param  string  $current
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
+     * @param  \Carbon\CarbonImmutable  $now
      * @return bool
      */
-    private static function matchesCurrentRotation(EloquentDevice $device, #[\SensitiveParameter] string $rotationId): bool
+    private static function isGraceRetry(Device $device, #[\SensitiveParameter] string $rotationId, string $current, TokenLifetimes $lifetimes, CarbonImmutable $now): bool
     {
-        $storedDigest = $device->getRefreshKey();
+        $previous  = $device->getPreviousRefreshKey();
+        $rotatedAt = $device->getRefreshRotatedAt();
 
-        return $storedDigest !== null && RefreshTokenHasher::verify($rotationId, $storedDigest);
+        if ($previous === null || $rotatedAt === null || !$lifetimes->isWithinGrace($rotatedAt, $now)) {
+            return false;
+        }
+
+        return RefreshTokenHasher::verify($rotationId, $previous)
+            && RefreshTokenHasher::verify(RefreshTokenHasher::successor($rotationId), $current);
     }
 
     /**
@@ -459,27 +534,21 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Issue the new token pair, then atomically rotate the digest and move the
-     * idle deadline forward via a compare-and-swap UPDATE, and assemble the
-     * DTO. Does NOT bind any state on a guard.
+     * Rotate the presented current rotation id to its successor and issue the
+     * pair for it.
      *
      * The new idle deadline is the idle lifetime from `$now`, never past the
      * absolute deadline, which a rotation never moves. Both tokens are issued
-     * at `$now`, the time the device was judged at, before the CAS, so a
-     * failure while issuing (signing, randomness, an identifier that cannot be
-     * read) propagates before anything is written and the presented refresh
-     * token stays valid. The pair is only returned once the CAS has committed.
-     *
-     * Returns `null` when the CAS affects zero rows: the token verified earlier
-     * but a concurrent refresh (or a stolen-token replay) has rotated the
-     * digest, or the device's deadlines changed, in between. The issued pair is
-     * discarded, the whole device is revoked, and `rotation_reuse` is
-     * dispatched.
+     * at `$now`, the time the device was judged at, before anything is written,
+     * so a failure while issuing (signing, randomness, an identifier that
+     * cannot be read) leaves the presented refresh token valid. The pair is
+     * only returned once the compare-and-swap has committed; when the swap
+     * misses, the row changed under the exchange and is judged again.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  string  $oldRotationId
+     * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \Carbon\CarbonInterface  $absolute
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
@@ -488,133 +557,122 @@ final class RefreshTokenExchange
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    private function completeExchange(
+    private function rotate(
         EloquentDevice&Model $device,
         Identity $identity,
         Principal $principal,
-        #[\SensitiveParameter] string $oldRotationId,
+        #[\SensitiveParameter] string $rotationId,
         CarbonImmutable $now,
         CarbonInterface $absolute,
     ): ?ExchangedRefresh {
-        $newRotationId = RefreshTokenHasher::generate();
-        $readDeadlines = $this->storedDeadlines($device);
-        $idleColumn    = $device->getIdleExpiresAtName();
-        $idle          = $device->fromDateTime($this->tokens->lifetimes()->idleDeadline($now, $absolute));
+        $next = RefreshTokenHasher::successor($rotationId);
+        $idle = $this->tokens->lifetimes()->idleDeadline($now, $absolute);
 
-        $device->setAttribute($idleColumn, $idle);
+        $device->setAttribute($device->getIdleExpiresAtName(), $idle);
 
         $tokens = new RefreshResult(
             $this->tokens->issueAccessToken($identity, $principal, $device, $now),
-            $this->tokens->issueRefreshToken($device, $newRotationId, $principal, $now),
+            $this->tokens->issueRefreshToken($device, $next, $principal, $now),
         );
 
-        $rotated = $this->atomicallyRotateRefreshKey($device, $oldRotationId, $newRotationId, $readDeadlines, $idle);
+        if ($this->store->rotate($device, $rotationId, $next, $idle, $now)) {
+            return new ExchangedRefresh($identity, $principal, $device, $tokens);
+        }
 
-        if (!$rotated) {
+        return $this->afterLostRotation($device, $identity, $principal, $rotationId, $now);
+    }
 
-            $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
+    /**
+     * Judge the presented rotation id again against the row as it now is, after
+     * the compare-and-swap missed, with the same `$now`. There is never a
+     * second swap.
+     *
+     * The usual cause is a parallel refresh with the same token that rotated
+     * first; its successor is this exchange's, so this one is a grace retry and
+     * gets the current credential. A replay is revoked, and a device that was
+     * revoked, deleted, or ended in between fails for that reason. A token that
+     * is still the current one means other security state changed in between (a
+     * deadline, say): that proves nothing, so it fails as `rotation_conflict`
+     * without revoking, and the client can retry. Before any success the fresh
+     * row must still belong to the identity the exchange hydrated.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $rotationId
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     */
+    private function afterLostRotation(
+        EloquentDevice&Model $device,
+        Identity $identity,
+        Principal $principal,
+        #[\SensitiveParameter] string $rotationId,
+        CarbonImmutable $now,
+    ): ?ExchangedRefresh {
+        $fresh = $this->store->reload($device);
 
-            $this->revokeDevice($device);
-            $this->dispatchRefreshFailure(RefreshFailureReason::ROTATION_REUSE, $deviceId);
+        if ($fresh === null) {
+
+            $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_UNKNOWN, IdentifierCoercion::stringify($device->getDeviceIdentifier()));
 
             return null;
         }
 
-        $device->setAttribute($this->refreshKeyColumn($device), RefreshTokenHasher::hash($newRotationId));
-        $device->syncOriginalAttributes([$this->refreshKeyColumn($device), $idleColumn]);
+        $verdict = $this->classify($fresh, $rotationId, $now);
+
+        if (is_array($verdict)) {
+            $verdict = match (true) {
+                $verdict[0] === RotationMatch::CURRENT       => RefreshFailureReason::ROTATION_CONFLICT,
+                !DeviceOwnership::isOwner($fresh, $identity) => RefreshFailureReason::AUTHENTICATABLE_MISSING,
+                default                                      => null,
+            };
+        }
+
+        if ($verdict !== null) {
+
+            $this->fail($fresh, $verdict, $now);
+
+            return null;
+        }
+
+        return $this->reissue($fresh, $identity, $principal, $rotationId, $now);
+    }
+
+    /**
+     * Hand a grace retry the session's current credential: a new pair, issued
+     * at `$now`, whose refresh token carries the current rotation id (the
+     * successor of the presented one) and expires at the stored idle deadline.
+     * No rotation state is written, so the grace window stays anchored at the
+     * rotation that opened it.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $rotationId
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     */
+    private function reissue(
+        EloquentDevice&Model $device,
+        Identity $identity,
+        Principal $principal,
+        #[\SensitiveParameter] string $rotationId,
+        CarbonImmutable $now,
+    ): ExchangedRefresh {
+        $tokens = new RefreshResult(
+            $this->tokens->issueAccessToken($identity, $principal, $device, $now),
+            $this->tokens->issueRefreshToken($device, RefreshTokenHasher::successor($rotationId), $principal, $now),
+        );
 
         return new ExchangedRefresh($identity, $principal, $device, $tokens);
-    }
-
-    /**
-     * The device's idle and absolute deadlines exactly as they were loaded,
-     * keyed by column, for the compare-and-swap to match by equality.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return array<string, mixed>
-     */
-    private function storedDeadlines(EloquentDevice&Model $device): array
-    {
-        $idle     = $device->getIdleExpiresAtName();
-        $absolute = $device->getAbsoluteExpiresAtName();
-
-        return [
-            $idle     => $device->getRawOriginal($idle),
-            $absolute => $device->getRawOriginal($absolute),
-        ];
-    }
-
-    /**
-     * Rotate the device's stored digest and move its idle deadline forward via
-     * a single compare-and-swap UPDATE keyed on the device id, the old digest,
-     * a null `revoked_at`, and both deadlines exactly as they were read.
-     * Returns `true` when exactly one row was affected. `false` signals a
-     * concurrent rotation, revocation, or deadline change, and the caller
-     * treats it as refresh reuse.
-     *
-     * Raw query-builder update bypasses Eloquent events; consumer side effects
-     * should trigger on the `Refreshed` package event.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  string  $oldRotationId
-     * @param  string  $newRotationId
-     * @param  array<string, mixed>  $readDeadlines
-     * @param  ?string  $idle
-     * @return bool
-     *
-     * @imperative
-     */
-    private function atomicallyRotateRefreshKey(
-        EloquentDevice&Model $device,
-        #[\SensitiveParameter] string $oldRotationId,
-        #[\SensitiveParameter] string $newRotationId,
-        array $readDeadlines,
-        ?string $idle,
-    ): bool {
-        $column     = $this->refreshKeyColumn($device);
-        $revokedCol = $this->revokedAtColumn($device);
-        $idleColumn = $device->getIdleExpiresAtName();
-
-        $affected = $this->connections
-            ->connection($device->getConnectionName())
-            ->table($device->getTable())
-            ->where($device->getKeyName(), $device->getKey())
-            ->where($column, RefreshTokenHasher::hash($oldRotationId))
-            ->whereNull($revokedCol)
-            ->where($readDeadlines)
-            ->update([
-                $column     => RefreshTokenHasher::hash($newRotationId),
-                $idleColumn => $idle,
-            ]);
-
-        return $affected === 1;
-    }
-
-    /**
-     * Resolve the refresh-key column for the device via the explicit
-     * `EloquentDevice` column-name contract.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return string
-     */
-    private function refreshKeyColumn(EloquentDevice $device): string
-    {
-        $column = $device->getRefreshKeyName();
-
-        return $column === '' ? 'refresh_key' : $column;
-    }
-
-    /**
-     * Resolve the revoked-at column for the device via the explicit
-     * `EloquentDevice` column-name contract.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return string
-     */
-    private function revokedAtColumn(EloquentDevice $device): string
-    {
-        $column = $device->getRevokedAtName();
-
-        return $column === '' ? 'revoked_at' : $column;
     }
 }
