@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\ClientText;
 
 /**
  * Where a sign-in comes from and what it asks for: the client (its IP address
@@ -67,8 +68,8 @@ final readonly class SignInContext
         /** Refresh token the client holds for the device it signed in on before. */
         #[\SensitiveParameter] public ?string $refreshToken = null,
     ) {
-        $this->clientName = ClientContext::cleanText($clientName, self::DESCRIPTION_MAX_LENGTH);
-        $this->platform   = ClientContext::cleanText($platform, self::DESCRIPTION_MAX_LENGTH);
+        $this->clientName = ClientText::clean($clientName, self::DESCRIPTION_MAX_LENGTH);
+        $this->platform   = ClientText::clean($platform, self::DESCRIPTION_MAX_LENGTH);
     }
 
     /**

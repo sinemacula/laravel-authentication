@@ -9,6 +9,7 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
@@ -62,17 +63,81 @@ final class JwtGuardTest extends JwtGuardTestCase
             $this->timebox,
             $this->tokens,
             $exchange,
-            function (JwtGuard $guard) use (&$built, $app): SessionService {
-                $built[] = $guard;
+            function (JwtGuard $guard, \Closure $timebox) use (&$built, $app): SessionService {
+                $built[] = [$guard, $timebox];
 
-                return new SessionService($guard, $this->tokens, $app, $app->make(ConnectionResolverInterface::class), static fn (): null => null);
+                return new SessionService($guard, $timebox, $this->tokens, $app, $app->make(ConnectionResolverInterface::class), static fn (): null => null);
             },
         );
 
         $sessions = $guard->sessions();
 
         self::assertSame($sessions, $guard->sessions());
-        self::assertSame([$guard], $built);
+        self::assertCount(1, $built);
+        self::assertSame($guard, $built[0][0]);
+    }
+
+    /**
+     * The session service is handed a runner for the guard's own credential
+     * timebox, with the configured budget, which returns what the callback
+     * returns.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testHandsItsSessionServiceItsCredentialTimebox(): void
+    {
+        config()->set('authentication.timebox.credentials_microseconds', 750000);
+
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $given  = new Timebox;
+        $runner = null;
+
+        $this->timebox->shouldReceive('call')
+            ->once()
+            ->with(\Mockery::type(\Closure::class), 750000)
+            ->andReturnUsing(static fn (\Closure $callback): mixed => $callback($given));
+
+        $guard = new JwtGuard(
+            self::GUARD_NAME,
+            $this->provider,
+            $this->resolver,
+            $this->events,
+            Request::create('/'),
+            $this->timebox,
+            $this->tokens,
+            new RefreshTokenExchange(
+                $this->tokens,
+                $this->provider,
+                $app->make(ConnectionResolverInterface::class),
+                static fn (): null => null,
+                $this->events,
+                $this->resolver,
+                self::GUARD_NAME,
+            ),
+            function (JwtGuard $guard, \Closure $timebox) use (&$runner, $app): SessionService {
+                $runner = $timebox;
+
+                return new SessionService($guard, $timebox, $this->tokens, $app, $app->make(ConnectionResolverInterface::class), static fn (): null => null);
+            },
+        );
+
+        $guard->sessions();
+
+        self::assertInstanceOf(\Closure::class, $runner);
+
+        $received = null;
+
+        self::assertSame('outcome', $runner(static function (Timebox $timebox) use (&$received): string {
+            $received = $timebox;
+
+            return 'outcome';
+        }));
+        self::assertSame($given, $received);
     }
 
     /**

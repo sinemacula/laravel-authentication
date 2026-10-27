@@ -158,8 +158,9 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $app->make(Timebox::class),
             $tokens,
             $exchange,
-            static fn (JwtGuard $guard): SessionService => new SessionService(
+            static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
+                $timebox,
                 $tokens,
                 $app,
                 $app->make(ConnectionResolverInterface::class),

@@ -44,6 +44,10 @@ final class JwtGuard extends AbstractGuard
     /**
      * Constructor.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  string  $name
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
@@ -52,7 +56,11 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
-     * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public function __construct(
 
@@ -80,7 +88,7 @@ final class JwtGuard extends AbstractGuard
         /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
 
-        /** Builds the guard's session service the first time it is asked for. */
+        /** Builds the guard's session service, given the guard and its credential timebox, the first time it is asked for. */
         private readonly \Closure $sessionFactory,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
@@ -88,15 +96,16 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * Return the guard's session service, which signs in, creates or continues
-     * the device, and issues the first token pair. Built once per guard; it
-     * reads the guard's request, dispatcher, provider and resolver each time it
-     * runs, so it follows their rebinds.
+     * the device, and issues the first token pair. Built once per guard and
+     * handed the guard's credential timebox, so its sign-ins take as long as
+     * `attempt()`'s; it reads the guard's request, dispatcher, provider and
+     * resolver each time it runs, so it follows their rebinds.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
      */
     public function sessions(): SessionService
     {
-        return $this->sessions ??= ($this->sessionFactory)($this);
+        return $this->sessions ??= ($this->sessionFactory)($this, fn (\Closure $callback): mixed => $this->timebox->call($callback, $this->timeboxMicroseconds()));
     }
 
     /**

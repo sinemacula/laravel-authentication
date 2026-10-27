@@ -78,6 +78,7 @@ final readonly class SessionService
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connections
@@ -87,6 +88,9 @@ final readonly class SessionService
 
         /** The guard whose sessions the service starts. */
         private JwtGuard $guard,
+
+        /** Runs a callback inside the guard's credential timebox, so a failed sign-in takes as long as any other. */
+        private \Closure $timebox,
 
         // The guard's token service.
         JwtTokenService $tokens,
@@ -303,7 +307,8 @@ final readonly class SessionService
             return new RefusedSignIn(SignInFailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
-        $admitted = $this->guard->callInCredentialTimebox(
+        /** @var \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn $admitted */
+        $admitted = ($this->timebox)(
             fn (Timebox $timebox): AdmittedSignIn|RefusedSignIn => $this->verify($driver, $input, $context, $subject->identifierType, $timebox),
         );
 

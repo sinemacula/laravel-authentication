@@ -464,8 +464,9 @@ final class RefreshTokenExchangeBenchHarness
             $this->timebox,
             $this->tokens,
             $exchange,
-            fn (JwtGuard $guard): SessionService => new SessionService(
+            fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
+                $timebox,
                 $this->tokens,
                 new Container,
                 BenchDatabase::connectionResolver(),

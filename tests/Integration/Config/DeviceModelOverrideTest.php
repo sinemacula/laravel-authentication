@@ -235,8 +235,9 @@ final class DeviceModelOverrideTest extends TestCase
             app(Timebox::class),
             $tokens,
             $exchange,
-            static fn (JwtGuard $guard): SessionService => new SessionService(
+            static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
                 $guard,
+                $timebox,
                 $tokens,
                 app(),
                 app(ConnectionResolverInterface::class),

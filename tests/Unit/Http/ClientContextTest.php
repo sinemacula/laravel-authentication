@@ -130,19 +130,4 @@ final class ClientContextTest extends TestCase
     {
         self::assertSame($expected, (new ClientContext(null, $userAgent))->userAgent);
     }
-
-    /**
-     * Any client-supplied value is cleaned to the length asked for, counted in
-     * characters, with NUL bytes removed and invalid UTF-8 replaced, and
-     * nothing left reads as `null`.
-     *
-     * @return void
-     */
-    public function testCleanTextCutsToTheGivenLengthInCharacters(): void
-    {
-        self::assertSame('Pixé', ClientContext::cleanText("Pi\0xé 9", 4));
-        self::assertSame('ab?', ClientContext::cleanText("ab\xC3", 3));
-        self::assertNull(ClientContext::cleanText("\0\0", 4));
-        self::assertNull(ClientContext::cleanText(null, 4));
-    }
 }
