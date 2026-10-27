@@ -88,11 +88,17 @@ final class JwtTokenService
     /**
      * Encode an access-token payload for the given context.
      *
+     * Refuses to issue a token that `parse()` would reject or that would lose
+     * part of its context: the identity and principal, and the device when one
+     * is given, must each have an identifier that can be written into its claim
+     * (a saved model's scalar key).
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return string
      *
+     * @throws \InvalidArgumentException
      * @throws \Random\RandomException
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device): string
@@ -101,9 +107,9 @@ final class JwtTokenService
 
         $payload = $this->baseClaims($now, $now + ($this->accessTtlMinutes * 60), TokenType::ACCESS);
 
-        $payload[Claims::SUBJECT->value]      = IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $payload[Claims::PRINCIPAL_ID->value] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
-        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier());
+        $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
+        $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
+        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
         $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
 
         return $this->encode($payload);
@@ -113,12 +119,17 @@ final class JwtTokenService
      * Encode a refresh-token payload bound to a specific device.
      *
      * The caller MUST hash the supplied plaintext `$rotationId` before
-     * persisting it on the device row.
+     * persisting it on the device row. Refuses to issue a token that `parse()`
+     * would reject or that would lose its principal: the device, and the
+     * principal when one is given, must each have an identifier that can be
+     * written into its claim, and the rotation id must not be empty.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return string
+     *
+     * @throws \InvalidArgumentException
      */
     public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null): string
     {
@@ -126,11 +137,11 @@ final class JwtTokenService
 
         $payload = $this->baseClaims($now, $now + ($this->refreshTtlMinutes * 60), TokenType::REFRESH);
 
-        $payload[Claims::DEVICE_ID->value] = IdentifierCoercion::stringify($device->getDeviceIdentifier());
-        $payload[Claims::JWT_ID->value]    = $rotationId;
+        $payload[Claims::DEVICE_ID->value] = $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
+        $payload[Claims::JWT_ID->value]    = $this->requireClaimValue(Claims::JWT_ID, $rotationId);
 
         if ($principal !== null) {
-            $payload[Claims::PRINCIPAL_ID->value] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
+            $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
         }
 
         return $this->encode($payload);
@@ -189,6 +200,35 @@ final class JwtTokenService
         }
 
         return $claims;
+    }
+
+    /**
+     * Stringify the value of a claim the token cannot do without, throwing
+     * instead of issuing a token whose claim would be missing: `null` (an
+     * unsaved model's identifier, or one that is not a scalar) and the empty
+     * string both read as missing to `parse()`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\Claims  $claim
+     * @param  mixed  $value
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function requireClaimValue(Claims $claim, #[\SensitiveParameter] mixed $value): string
+    {
+        $stringified = IdentifierCoercion::stringify($value);
+
+        if ($stringified === null || $stringified === '') {
+
+            $message = sprintf(
+                'Cannot issue a token without its `%s` claim: the identifier is null (is the model saved?), empty, or not a scalar.',
+                $claim->value,
+            );
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        return $stringified;
     }
 
     /**

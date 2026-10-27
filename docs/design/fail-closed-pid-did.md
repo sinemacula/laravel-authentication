@@ -27,6 +27,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 
 - An access token must carry `pid`: one without it fails to parse, so the bearer path never falls back to the resolver's
   default principal. A refresh token may omit `pid`, in which case refresh uses the default principal policy.
+- Issuing enforces the same claims: `issueAccessToken()` and `issueRefreshToken()` throw an `InvalidArgumentException`
+  instead of minting a token with an empty `sub`, `pid`, `did`, or `jti` (an unsaved model or a non-scalar identifier),
+  so a token that could never authenticate, or would silently drop its device or principal, is never issued.
 - If no bearer `did` is present, auth can still succeed with `device = null`.
 - If `pid` is present and the resolver returns the exact matching principal, auth continues normally.
 - If refresh carries `pid`, the same exact-match rule is applied before the rotated pair is issued.
@@ -73,6 +76,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testUserRejectsTokenWithoutPrincipalClaimInsteadOfUsingTheDefault`
 - `tests/Unit/Jwt/JwtTokenServiceTest.php`
   `testParseRejectsATokenMissingARequiredClaim`
+- `tests/Unit/Jwt/JwtTokenServiceIssueTest.php`
+  `testIssueAccessTokenRefusesAPrincipalWithoutUsableIdentifier`
+- `tests/Unit/Jwt/JwtTokenServiceIssueTest.php`
+  `testIssueRefreshTokenRefusesADeviceWithoutUsableIdentifier`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsTokenWhenPidHintResolvesToNullPrincipal`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`

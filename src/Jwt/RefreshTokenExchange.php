@@ -106,6 +106,7 @@ final class RefreshTokenExchange
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
+     * @throws \InvalidArgumentException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
@@ -463,6 +464,7 @@ final class RefreshTokenExchange
      * @param  string  $oldRotationId
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
+     * @throws \InvalidArgumentException
      * @throws \Random\RandomException
      */
     private function completeExchange(EloquentDevice&Model $device, Identity $identity, Principal $principal, #[\SensitiveParameter] string $oldRotationId): ?ExchangedRefresh

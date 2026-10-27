@@ -84,6 +84,7 @@ final class JwtGuard extends AbstractGuard
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
      *
+     * @throws \InvalidArgumentException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */

@@ -132,10 +132,10 @@ abstract class JwtTokenServiceTestCase extends TestCase
      * Build an Identity mock whose getAuthIdentifier() returns the supplied
      * value.
      *
-     * @param  string  $id
+     * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      */
-    protected function mockIdentity(string $id): Identity
+    protected function mockIdentity(mixed $id): Identity
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
         $identity = \Mockery::mock(Identity::class);
@@ -149,10 +149,10 @@ abstract class JwtTokenServiceTestCase extends TestCase
      * Build a Principal mock whose getPrincipalIdentifier() returns the
      * supplied value.
      *
-     * @param  string  $id
+     * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Principal
      */
-    protected function mockPrincipal(string $id): Principal
+    protected function mockPrincipal(mixed $id): Principal
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
         $principal = \Mockery::mock(Principal::class);
@@ -166,10 +166,10 @@ abstract class JwtTokenServiceTestCase extends TestCase
      * Build a Device mock whose getDeviceIdentifier() returns the supplied
      * value.
      *
-     * @param  string  $id
+     * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Device
      */
-    protected function mockDevice(string $id): Device
+    protected function mockDevice(mixed $id): Device
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device $device */
         $device = \Mockery::mock(Device::class);
