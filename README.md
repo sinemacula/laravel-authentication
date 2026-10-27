@@ -278,11 +278,11 @@ hold them, and can give each principal type its own token and session lifetimes.
 ],
 ```
 
-| Key                           | Default        | Meaning                                                                             |
-|-------------------------------|----------------|-------------------------------------------------------------------------------------|
-| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions (a non-empty list of names) |
-| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types |
-| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                   |
+| Key                           | Default        | Meaning                                                                                        |
+|-------------------------------|----------------|------------------------------------------------------------------------------------------------|
+| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions (a non-empty list of lower-case names) |
+| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types            |
+| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                              |
 
 A principal's type is its own or its tenant's (see [Principal type](#principal-type)); with a list, a principal without
 a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method the guard does

@@ -48,6 +48,18 @@ final class SignInMethodManager extends Manager
     }
 
     /**
+     * Whether the name is one a sign-in method can be registered under: a
+     * lower-case letter, then lower-case letters, digits or underscores.
+     *
+     * @param  string  $name
+     * @return bool
+     */
+    public static function isValidName(string $name): bool
+    {
+        return preg_match(self::NAME_PATTERN, $name) === 1;
+    }
+
+    /**
      * Register a sign-in method under the name, which must be lower case (a
      * letter, then letters, digits or underscores), so each method has one
      * spelling to be recorded and allowed under. The package's `password`
@@ -66,7 +78,7 @@ final class SignInMethodManager extends Manager
     #[\Override]
     public function extend(mixed $driver, \Closure $callback): self
     {
-        if (!is_string($driver) || preg_match(self::NAME_PATTERN, $driver) !== 1) {
+        if (!is_string($driver) || !self::isValidName($driver)) {
             throw new \InvalidArgumentException('A sign-in method name must be lower case: a letter, then letters, digits or underscores.');
         }
 

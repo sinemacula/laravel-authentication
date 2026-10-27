@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
@@ -146,8 +147,8 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
             }
         }
 
-        if (!self::isNameList($settings['methods'])) {
-            throw new \InvalidArgumentException(self::message($guard, 'methods', 'a non-empty list of sign-in method names'));
+        if (!self::isNameList($settings['methods']) || !self::areMethodNames($settings['methods'])) {
+            throw new \InvalidArgumentException(self::message($guard, 'methods', 'a non-empty list of lower-case sign-in method names'));
         }
 
         if ($settings['principal_types'] !== null && !self::isNameList($settings['principal_types'])) {
@@ -225,6 +226,26 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
 
         foreach ($value as $name) {
             if (!is_string($name) || $name === '') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether every name is one a sign-in method can be registered under, so a
+     * name no method can have (a casing slip such as `Password`) fails closed
+     * as misconfiguration rather than refusing every sign-in as
+     * `method_not_allowed`.
+     *
+     * @param  non-empty-list<non-empty-string>  $names
+     * @return bool
+     */
+    private static function areMethodNames(array $names): bool
+    {
+        foreach ($names as $name) {
+            if (!SignInMethodManager::isValidName($name)) {
                 return false;
             }
         }

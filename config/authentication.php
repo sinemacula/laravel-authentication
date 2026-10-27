@@ -171,18 +171,19 @@ return [
     | Audiences
     |---------------------------------------------------------------------------
     |
-    | An audience is a guard. These are the defaults every guard starts from;
-    | a guard overrides any of them in an `audience` block on its
+    | An audience is a guard. These are the defaults every guard starts from; a
+    | guard overrides any of them in an `audience` block on its
     | `config/auth.php` entry, where a key that is present wins, `null`
     | included. `methods` lists the sign-in methods that may start the guard's
-    | sessions (a non-empty list of names). `principal_types` lists the
-    | principal types that may hold them (a non-empty list), or is `null` to
-    | admit any principal, typed or not; with a list, an untyped principal is
-    | refused. `require_verified_identifier` refuses a sign-in with an
-    | identifier (an email address, say) the identity has not verified; sign-ins
-    | that use no identifier, such as SSO, are not affected. A malformed value,
-    | or an unknown key, fails closed with an `InvalidArgumentException` naming
-    | the guard and the key when the guard's policy is first used.
+    | sessions (a non-empty list of the lower-case names they are registered
+    | under). `principal_types` lists the principal types that may hold them (a
+    | non-empty list), or is `null` to admit any principal, typed or not; with a
+    | list, an untyped principal is refused. `require_verified_identifier`
+    | refuses a sign-in with an identifier (an email address, say) the identity
+    | has not verified; sign-ins that use no identifier, such as SSO, are not
+    | affected. A malformed value, or an unknown key, fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | policy is first used.
     |
     */
 

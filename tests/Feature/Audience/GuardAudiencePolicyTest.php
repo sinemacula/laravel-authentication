@@ -223,7 +223,7 @@ final class GuardAudiencePolicyTest extends TestCase
      */
     public static function provideMalformedSettings(): iterable
     {
-        $methods = 'Audience `methods` for guard [api] must be a non-empty list of sign-in method names:'
+        $methods = 'Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
             . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.';
         $types = 'Audience `principal_types` for guard [api] must be null or a non-empty list of principal types:'
             . ' set `authentication.audience.principal_types` or the guard\'s `audience.principal_types` override.';
@@ -237,6 +237,10 @@ final class GuardAudiencePolicyTest extends TestCase
             'methods keyed'              => ['methods', ['main' => 'password'], $methods],
             'methods with an empty name' => ['methods', ['password', ''], $methods],
             'methods with a non-string'  => ['methods', ['password', 1], $methods],
+            'methods with a capital'     => ['methods', ['Password'], $methods],
+            'methods with a hyphen'      => ['methods', ['password', 'pass-word'], $methods],
+            'methods with a space'       => ['methods', ['password '], $methods],
+            'methods with a digit first' => ['methods', ['2fa'], $methods],
             'types empty'                => ['principal_types', [], $types],
             'types a string'             => ['principal_types', 'staff', $types],
             'types keyed'                => ['principal_types', [1 => 'staff'], $types],

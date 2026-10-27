@@ -231,6 +231,23 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
+     * The name check the audience policy shares accepts exactly the names a
+     * method can be registered under.
+     *
+     * @return void
+     */
+    public function testIsValidNameAcceptsOnlyRegistrableNames(): void
+    {
+        foreach (['password', 'sso', 'magic_link', 'totp2'] as $name) {
+            self::assertTrue(SignInMethodManager::isValidName($name), $name);
+        }
+
+        foreach (['Password', 'SSO', 'magic-link', '2fa', '_sso', "sso\n", 'magic link', ''] as $name) {
+            self::assertFalse(SignInMethodManager::isValidName($name), $name);
+        }
+    }
+
+    /**
      * A registered method that does not implement `SignInMethod` fails as a
      * misconfiguration naming the method and what it resolved to.
      *
