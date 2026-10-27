@@ -154,6 +154,31 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
+     * A device id that cannot be a key of the device model is rejected before
+     * the device lookup, so the failure costs no query at all.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testMalformedDeviceIdRefreshFailureUsesNoQueries(): void
+    {
+        $malformedDevice = new Device;
+        $malformedDevice->forceFill(['id' => 'not-a-uuid']);
+
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        $token = $jwt->issueRefreshToken($malformedDevice, 'malformed-device-rotation');
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        $result = $this->assertQueryBudget(0, 0, static fn () => $guard->refresh($token));
+
+        self::assertNull($result);
+    }
+
+    /**
      * Rotation-mismatch refresh failures should do the device lookup but avoid
      * authenticatable hydration and writes.
      *
