@@ -16,10 +16,11 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  * Dispatched when the session service holds a sign-in for a further factor
  * instead of starting its session: the sign-in method proved the identity (or,
  * through `start()`, something outside the guard did), the identity, principal
- * and tenant were admitted, and the additional-factor policy asked for more. It
- * is the outcome of that sign-in's `Attempting`; completing the pending sign-in
- * dispatches `SignedIn`, and discarding it `SignInFailed` with
- * `additional_factor_failed`.
+ * and tenant were admitted, and the additional-factor policy asked for more.
+ * From `signIn()` it is the outcome of that sign-in's `Attempting`; from
+ * `start()`, which dispatches no `Attempting`, it is the only event. Completing
+ * the pending sign-in dispatches `SignedIn`, and discarding it `SignInFailed`
+ * with `additional_factor_failed`.
  *
  * Dispatched once the pending sign-in is committed on its connection (the
  * device model's): at once when that connection has no open transaction, after

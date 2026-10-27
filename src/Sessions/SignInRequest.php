@@ -62,12 +62,12 @@ final readonly class SignInRequest
      * A method that looks an identity up and then checks a secret it was given
      * calls this once it has the identity: a lookup can find one account by
      * many spellings of an identifier, and through every guard whose provider
-     * returns it, so only the account's own count bounds the guesses at its
-     * secret. Call it before each secret checked: a method that checks two
-     * takes two slots. Every slot is the sign-in's: given back when it starts a
-     * session, kept by a pending sign-in until that completes, and left counted
-     * when it fails. A limit configured wrongly throws its
-     * `InvalidArgumentException` from here.
+     * returns it, so only the account's own count, held to the most permissive
+     * limit among those guards, bounds the guesses at its secret. Call it
+     * before each secret checked: a method that checks two takes two slots.
+     * Every slot is the sign-in's: given back when it starts a session, kept by
+     * a pending sign-in until that completes, and left counted when it fails. A
+     * limit configured wrongly throws its `InvalidArgumentException` from here.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return bool

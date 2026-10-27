@@ -74,8 +74,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   a request or a refresh with it. The slots stay taken until the pending sign-in completes, the one the method's check
   took on the account (`SignInRequest::reserveAccountAttempt()`) among them, and `discard()` uses one up without a
   session (as when its factor fails), so each guess at a factor costs a sign-in attempt. For the password method the
-  guesses are bounded by the account's limit, whatever spelling of the identifier or guard the sign-ins used; for a
-  method that counts no account, only by its identifier's and the IP address's limits. A pending sign-in from
+  guesses are bounded by the account's one count, whatever spelling of the identifier or guard the sign-ins used, held
+  to the most permissive `per_identifier` limit among the guards that check the account (see `audience-policy.md`); for
+  a method that counts no account, only by its identifier's and the IP address's limits. A pending sign-in from
   `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - `pending()` finds a live pending sign-in of the guard (identity reloaded through the provider as the recorded owner,
   principal through the hinted path as the recorded one, still owned) without using it up. `complete()` uses it up by a

@@ -221,22 +221,23 @@ return [
     |---------------------------------------------------------------------------
     |
     | Limits on each flow, per identifier and per IP address, counted in the
-    | `table` on the write PDO of `connection` (`null` for the default), so
-    | they hold across servers without a cache. Each limit allows `max`
-    | attempts (at least 1) in each window of `decay_seconds` (1 to 86400),
-    | windows aligned to the clock; `null` turns it off. Sign-in counts every
-    | attempt and gives a successful one back; a password checked against an
-    | account also counts against that account under `per_identifier`, however
-    | the account was found, in one count the account keeps across guards. An
-    | IPv6 address counts by its /64 network, and one that carries an IPv4
-    | client's address (IPv4-mapped, or the NAT64 well-known prefix
-    | `64:ff9b::/96`) as that IPv4 address. Refresh, which cannot guess a
-    | secret, counts only failures, per device and per IP address. Counts on
-    | `connection` are rolled back with any transaction a caller opened there
-    | around a sign-in. A guard overrides any limit in a `rate_limits` block on
-    | its `config/auth.php` entry, where a scope that is present wins, `null`
-    | included, and a flow set to `null` turns both of its limits off. A
-    | malformed limit or an unknown key fails closed with an
+    | `table` on the write PDO of `connection` (`null` for the default), so they
+    | hold across servers without a cache. Each limit allows `max` attempts (at
+    | least 1) in each window of `decay_seconds` (1 to 86400), windows aligned
+    | to the clock; `null` turns it off. Sign-in counts every attempt and gives
+    | a successful one back; a secret a method checks against an account also
+    | counts against that account under `per_identifier`, however the account
+    | was found, in one count the account keeps across guards, which each guard
+    | holds to its own limit, so the guard with the most permissive limit bounds
+    | the account's guesses. An IPv6 address counts by its /64 network, and one
+    | that carries an IPv4 client's address (IPv4-mapped, or the NAT64
+    | well-known prefix `64:ff9b::/96`) as that IPv4 address. Refresh, which
+    | cannot guess a secret, counts only failures, per device and per IP
+    | address. Counts on `connection` are rolled back with any transaction a
+    | caller opened there around a sign-in. A guard overrides any limit in a
+    | `rate_limits` block on its `config/auth.php` entry, where a scope that is
+    | present wins, `null` included, and a flow set to `null` turns both of its
+    | limits off. A malformed limit or an unknown key fails closed with an
     | `InvalidArgumentException` naming the guard and the key. Counters are
     | stored under digests keyed from `app.key`, so rotating it starts every
     | window afresh. Prune ended windows with `model:prune`.

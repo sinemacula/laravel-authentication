@@ -461,12 +461,12 @@ own `rate_limits` block:
 ],
 ```
 
-| Flow      | Scope            | Default            | Counts                                                                                                   |
-|-----------|------------------|--------------------|----------------------------------------------------------------------------------------------------------|
-| `sign_in` | `per_identifier` | 5 per 300 seconds  | Every attempt for the identifier, and every password checked against an account; a success is given back |
-| `sign_in` | `per_ip`         | 50 per 300 seconds | Every attempt from the IP address; a success is given back                                               |
-| `refresh` | `per_identifier` | 10 per 60 seconds  | Failed refreshes of the device                                                                           |
-| `refresh` | `per_ip`         | 100 per 60 seconds | Failed refreshes from the IP address                                                                     |
+| Flow      | Scope            | Default            | Counts                                                                                                         |
+|-----------|------------------|--------------------|----------------------------------------------------------------------------------------------------------------|
+| `sign_in` | `per_identifier` | 5 per 300 seconds  | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
+| `sign_in` | `per_ip`         | 50 per 300 seconds | Every attempt from the IP address; a success is given back                                                     |
+| `refresh` | `per_identifier` | 10 per 60 seconds  | Failed refreshes of the device                                                                                 |
+| `refresh` | `per_ip`         | 100 per 60 seconds | Failed refreshes from the IP address                                                                           |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -491,15 +491,18 @@ ignores accents, widths or invisible characters, as MySQL's default `utf8mb4_uni
 whichever guard checks it. An Eloquent identity's account is the row it is stored in (its connection, that connection's
 database, its table and its key), so two model classes over one table (an `Admin` model over the users table, say) count
 the same account once, and the same key in another tenant's database is another account; any other identity's account is
-its class and auth identifier. Only the account's count bounds the guesses made at its password whichever spelling and
-guard they use: two guards on one provider allow no more guesses than one. Each guard holds the count to its own `max`,
-so a stricter guard stops sooner, and a guard whose `per_identifier` is `null` neither checks nor counts it. Once an
-account has no attempts left, its password is not checked until the window ends, and the sign-in fails as
-`invalid_credentials`, as a wrong password would, so the refusal does not reveal that the account exists. Only your own
-listeners are told why: `SignInFailed` carries `account_rate_limited` and the wait, so a lockout notice or a SIEM can
-tell a locked account from a wrong password. A refresh cannot guess a secret (its tokens are signed and its rotation ids
-random), so it counts only its failures, per device and per IP address, and a successful refresh costs one read. A
-refresh refused for its failures answers `429` with a `Retry-After` header.
+its class and auth identifier. Each guard holds that one count to its own `per_identifier` limit, so the guesses at an
+account's password are bounded by the most permissive limit among the guards that check it: at most the largest `max` in
+each window of the shortest `decay_seconds`, whichever spelling and guard each guess uses. A guard with a looser limit
+therefore raises the bound for every guard, while a stricter one only stops its own sign-ins sooner, and guards with the
+same limit allow no more guesses together than one alone. A guard whose `per_identifier` is `null` neither checks nor
+counts the account, so it adds guesses of its own. Once an account has no attempts left, its password is not checked
+until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal does
+not reveal that the account exists. Only your own listeners are told why: `SignInFailed` carries `account_rate_limited`
+and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A refresh cannot guess a
+secret (its tokens are signed and its rotation ids random), so it counts only its failures, per device and per IP
+address, and a successful refresh costs one read. A refresh refused for its failures answers `429` with a `Retry-After`
+header.
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
@@ -1138,9 +1141,10 @@ work can take longer needs to do the same work whether or not the identifier exi
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
 attempts). A lookup can find one account by many spellings of its identifier, and through every guard whose provider
-returns it, so only the account's own count bounds the guesses at its secret, and at a further factor its sign-in waits
-for. Reserve before each secret you check: a method that checks two (a password and a PIN, say) takes two slots. The
-slots belong to the sign-in: they are all given back when the session starts, or when its pending sign-in completes.
+returns it, so only the account's own count, held to the most permissive limit among those guards, bounds the guesses at
+its secret, and at a further factor its sign-in waits for. Reserve before each secret you check: a method that checks
+two (a password and a PIN, say) takes two slots. The slots belong to the sign-in: they are all given back when the
+session starts, or when its pending sign-in completes.
 
 To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
 account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request
@@ -1178,8 +1182,9 @@ JWT), so it authenticates no request and refreshes nothing; only the digest of i
 `pending_sign_ins`. The sign-in's attempt slots stay taken while it waits, the one its password check took on the
 account included, and are given back only when it completes: a pending sign-in that is discarded or expires leaves them
 counted, so each guess at a further factor costs a sign-in attempt. With the password method the guesses are therefore
-bounded by the account's own limit, whichever spelling of the identifier and whichever guard each sign-in used, so a
-further factor can be guessed no more often than the password. A method that does not count the account it checks (see
+bounded by the account's own count, whichever spelling of the identifier and whichever guard each sign-in used, held to
+the most permissive `per_identifier` limit among the guards that check the account (see [Rate limits](#rate-limits)), so
+a further factor can be guessed no more often than the password. A method that does not count the account it checks (see
 [Writing a sign-in method](#writing-a-sign-in-method)) bounds them by its identifier's and the IP address's limits only.
 A sign-in that `start()` holds for a factor took no slots, since nothing was guessed: the external verifier that proved
 the identity bounds how often it can be repeated.
@@ -1387,8 +1392,9 @@ binds the guard; a refresh dispatches `Refreshed` instead. `attempt()` starts no
 Laravel's `Login` reports its sign-ins, and code that calls `start()` after `attempt()` reports the sign-in once.
 `DeviceCreated` precedes it for a new device. Both carry the guard, identity, principal, tenant, device, method and
 client (IP address and user agent), and never a token. A sign-in the additional-factor policy holds for a further
-factor dispatches `AdditionalFactorRequired` instead, once committed, and so answers its `Attempting`; completing it
-dispatches `SignedIn`, and discarding it `SignInFailed` with `additional_factor_failed`.
+factor dispatches `AdditionalFactorRequired` instead, once committed: from `signIn()` it answers the sign-in's
+`Attempting`, and from `start()`, which dispatches no `Attempting`, it is the only event. Completing it dispatches
+`SignedIn`, and discarding it `SignInFailed` with `additional_factor_failed`.
 
 `SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's
 client (IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a
@@ -1465,7 +1471,12 @@ different password scheme under a name of its own and allow that name in the gua
 (a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
 so one method never has a second spelling for a guard to allow or a device to record.
 
-An `AttemptLimiter` of your own records in each granted reservation's `windows` everything its `release()` needs to give
+An `AttemptLimiter` of your own counts a subject's `account` in one counter that every guard shares, held to each
+guard's `per_identifier` limit (and not counted where that limit is `null`), as well as the identifier's and the IP
+address's counters of the guard. Without that, the account bounds under [Rate limits](#rate-limits) and
+[Additional factors](#additional-factors) do not hold: a limiter keyed only by guard, identifier and IP address (one
+built on Laravel's `RateLimiter`, say) lets every spelling of an identifier, and every guard, guess an account's password
+and its further factor anew. It records in each granted reservation's `windows` everything its `release()` needs to give
 the slots back (string keys and values), and gives them back from the windows alone. A sign-in that waits for a further
 factor stores the windows of each reservation it holds and, when it completes, gives each back through a reservation
 rebuilt from its own windows, whose subject carries the guard, the flow, the identifier type and the IP address but no

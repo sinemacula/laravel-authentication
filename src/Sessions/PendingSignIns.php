@@ -43,11 +43,12 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
  * only a completed one gives them back. One that is discarded (its factor
  * failed) or expires leaves them counted, so each guess at a further factor
  * costs a sign-in attempt. With a method that counts the account it checks (the
- * password method does), the guesses are bounded by the account's limit
- * whatever spelling of the identifier or guard each sign-in used; with one that
- * does not, by the identifier's and the IP address's limits. A pending sign-in
- * that `start()` issued took no slots, since nothing was guessed, and the
- * external verifier bounds its sign-ins.
+ * password method does), the guesses are bounded by the account's one count
+ * whatever spelling of the identifier or guard each sign-in used, held to the
+ * most permissive identifier limit among the guards that check the account;
+ * with one that does not, by the identifier's and the IP address's limits. A
+ * pending sign-in that `start()` issued took no slots, since nothing was
+ * guessed, and the external verifier bounds its sign-ins.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

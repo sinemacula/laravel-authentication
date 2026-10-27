@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
+use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
@@ -58,6 +59,7 @@ use Tests\TestCase;
  * - `by_number`: the same identities, signing in by their `id` with a password.
  * - `sso_only`: the same identities, the `sso` method only.
  * - `staff`: the same rows read as another model class, with a password.
+ * - `loose`: the same identities, ten sign-ins per identifier a window.
  * - `verified`: the same identities, verified identifiers required.
  * - `members`: typed memberships; only `staff` and `client_staff` principals,
  *   with shorter lifetimes for `client_staff`, and at most three failed
@@ -307,6 +309,36 @@ final class SignInPolicyEndToEndTest extends TestCase
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));
 
         self::assertTrue($this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber)->isSignedIn());
+    }
+
+    /**
+     * Each guard holds the account's one count to its own limit, so the most
+     * permissive guard bounds the account: after five wrong passwords through
+     * `api` (five per window), `loose` (ten per window, same provider) still
+     * checks five more, and then refuses the right password too, without
+     * checking it; `api` had stopped at its own five.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheMostPermissiveGuardBoundsTheAccount(): void
+    {
+        $this->seedPasswordIdentity('ada@example.test');
+
+        $wrong = ['email' => 'ada@example.test', 'password' => 'wrong'];
+
+        foreach (['api', 'loose'] as $guard) {
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions($guard)->signIn('password', $wrong)->reason);
+            }
+        }
+
+        $this->recordEvents([SignInFailed::class]);
+
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions('loose')->signIn('password', self::credentials())->reason);
+        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertSame(10, self::counterHits('sign_in', 'per_account', AccountAttempts::account(VerifiableIdentity::query()->sole())));
     }
 
     /**
@@ -676,6 +708,11 @@ final class SignInPolicyEndToEndTest extends TestCase
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['password', 'sso']]]);
         $config->set('auth.guards.by_number', ['driver' => 'jwt', 'provider' => 'verifiable', 'sign_in' => ['password_identifier' => 'id']]);
         $config->set('auth.guards.staff', ['driver' => 'jwt', 'provider' => 'verifiable_staff']);
+        $config->set('auth.guards.loose', [
+            'driver'      => 'jwt',
+            'provider'    => 'verifiable',
+            'rate_limits' => ['sign_in' => ['per_identifier' => ['max' => 10, 'decay_seconds' => 300]]],
+        ]);
         $config->set('auth.guards.sso_only', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['sso']]]);
         $config->set('auth.guards.verified', [
             'driver'   => 'jwt',

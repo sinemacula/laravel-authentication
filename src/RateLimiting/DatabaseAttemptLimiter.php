@@ -30,8 +30,11 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  * identifiers (a column collation that ignores accents, widths or invisible
  * characters, a list of values, a query closure, another column), and through
  * every guard whose provider returns it, so the account's one counter is what
- * bounds the guesses made at its secret: a guard with a lower limit stops at
- * its own, and one whose identifier limit is off neither checks nor counts it.
+ * bounds the guesses made at its secret, to the most permissive limit among the
+ * guards that check it (the largest `max`, in windows of the shortest
+ * `decay_seconds`): a guard with a looser limit raises the bound for every
+ * guard, one with a lower limit only stops sooner itself, and one whose
+ * identifier limit is off neither checks nor counts it.
  *
  * Counts change only through single statements (see `RateLimitStore`), and
  * reservations record the window each slot came from, so concurrent attempts

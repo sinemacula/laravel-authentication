@@ -29,8 +29,9 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * checked for, on top of the identifier's and the IP address's limits the
  * caller takes, and the slot is the sign-in's to give back: a lookup can find
  * one account by many spellings of its identifier, and through every guard
- * whose provider returns it, so the account's own count is what bounds the
- * guesses made at its password, and at a further factor its sign-in waits for.
+ * whose provider returns it, so the account's own count, held to the most
+ * permissive limit among those guards, is what bounds the guesses made at its
+ * password, and at a further factor its sign-in waits for.
  *
  * `verifyCredentials()` is the credential path `validate()` uses: it takes the
  * caller's credentials as the provider understands them, closures included, and

@@ -14,9 +14,12 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
  * guard, counted in the database so the limits hold across servers and without
  * a cache. A subject that names an account is also counted against that
  * account, under the guard's identifier limit, however the attempt found it and
- * through whichever guard: an account's count is its own, not the guard's. A
- * `null` identifier, IP address or account, or a limit the guard turns off, is
- * not counted.
+ * through whichever guard: an account's count is its own, one counter that
+ * every guard counts in and holds to its own identifier limit, not the guard's.
+ * A limiter that counts accounts per guard, or not at all, lets each guard, and
+ * each spelling of an identifier, guess an account's secret anew. A `null`
+ * identifier, IP address or account, or a limit the guard turns off, is not
+ * counted.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,10 +27,12 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 interface AttemptLimiter
 {
     /**
-     * Reserve one attempt on the identifier's and the IP address's limits
-     * before an attempt that guesses a secret runs. The reservation is granted
-     * when both had room, and both slots are then taken; otherwise it carries
-     * the seconds until the full limit's window ends, and nothing is taken.
+     * Reserve one attempt on each limit the subject counts against (its
+     * identifier's, its account's and its IP address's, whichever it names)
+     * before an attempt that guesses a secret runs, all or none: the
+     * reservation is granted when every one had room, and a slot of each is
+     * then taken; otherwise it carries the seconds until the full limit's
+     * window ends, and nothing is taken.
      *
      * A granted reservation records in its `windows` everything `release()`
      * needs to give its slots back (a key and a value per slot, both strings):
@@ -59,7 +64,7 @@ interface AttemptLimiter
 
     /**
      * For a flow that cannot guess a secret and counts only its failures:
-     * `null` while the identifier and the IP address are under their limits,
+     * `null` while every limit the subject counts against is under its maximum,
      * otherwise the seconds, at least 1, until the full limit's window ends.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
@@ -70,7 +75,8 @@ interface AttemptLimiter
     public function blocked(AttemptSubject $subject): ?int;
 
     /**
-     * Count one failure of the flow against the identifier and the IP address.
+     * Count one failure of the flow against each limit the subject counts
+     * against.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return void
