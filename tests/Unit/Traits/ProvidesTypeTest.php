@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
@@ -150,5 +151,85 @@ final class ProvidesTypeTest extends TestCase
         $principal->setRawAttributes(['type' => 'ignored', 'role' => 'client_admin']);
 
         self::assertSame('client_admin', $principal->getType());
+    }
+
+    /**
+     * Asserts a model loaded without its type attribute throws instead of
+     * reporting no type, which would hand a principal its tenant's type.
+     *
+     * @return void
+     */
+    public function testGetTypeThrowsWhenTheAttributeIsNotLoaded(): void
+    {
+        $tenant = new StubTenant;
+        $tenant->setRawAttributes(['id' => 1]);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(
+            'Cannot read the type of ' . StubTenant::class . ': its `type` attribute is not loaded. Select the column or override getTypeAttributeName().',
+        );
+
+        $tenant->getType();
+    }
+
+    /**
+     * Asserts the check follows the attribute `getTypeAttributeName()` names,
+     * so a model with that one loaded reads it although it has no `type`.
+     *
+     * @return void
+     */
+    public function testGetTypeChecksTheAttributeTheNameHookNames(): void
+    {
+        $principal = new class extends Model implements HasType {
+            use ProvidesType;
+
+            /**
+             * Column name holding the type.
+             *
+             * @return string
+             */
+            protected function getTypeAttributeName(): string
+            {
+                return 'role';
+            }
+        };
+
+        $principal->setRawAttributes(['role' => null]);
+
+        self::assertSame('', $principal->getType());
+
+        $principal->setRawAttributes(['type' => 'staff']);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `role` attribute is not loaded');
+
+        $principal->getType();
+    }
+
+    /**
+     * Asserts a type computed by an accessor is read although no column of that
+     * name was loaded.
+     *
+     * @return void
+     */
+    public function testGetTypeReadsAnAccessorWithoutAColumn(): void
+    {
+        $principal = new class extends Model implements HasType {
+            use ProvidesType;
+
+            /**
+             * The type, derived rather than stored.
+             *
+             * @return \Illuminate\Database\Eloquent\Casts\Attribute<string, never>
+             */
+            protected function type(): Attribute
+            {
+                return Attribute::get(static fn (): string => 'derived');
+            }
+        };
+
+        $principal->setRawAttributes(['role' => 'admin']);
+
+        self::assertSame('derived', $principal->getType());
     }
 }

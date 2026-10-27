@@ -733,8 +733,10 @@ class AppMembership extends Model implements CanBeActive, HasType, PrincipalCont
 
 The principal's type is its own when it implements `HasType` and reports one, otherwise the type of the tenant it acts
 within when that tenant implements `HasType`, otherwise `null`; an empty string counts as no type, so a membership with
-an empty `type` column takes its tenant's. The tenant is loaded only when the principal has no type of its own, and both
-are read from the write connection. `Audience\PrincipalType::of($principal)` reads it the same way outside a request.
+an empty `type` column takes its tenant's. `ProvidesType` throws a `LogicException` for a model loaded without its type
+column (a resolver that selects only some columns, say), rather than reading it as untyped and handing it its tenant's
+type. The tenant is loaded only when the principal has no type of its own, and both are read from the write
+connection. `Audience\PrincipalType::of($principal)` reads it the same way outside a request.
 
 Every access token carries the type in its `pty` claim when there is one (`typ` stays the token type, `access` or
 `refresh`); refresh tokens never carry it, so a refreshed access token carries the type the principal has at the
