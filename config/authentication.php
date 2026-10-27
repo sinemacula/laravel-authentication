@@ -107,7 +107,8 @@ return [
         // lives `access_ttl_minutes` (1 to 1440). A session (a device) ends
         // `refresh_idle_ttl_minutes` after its last refresh, and in any case
         // `refresh_absolute_ttl_minutes` after it started (each 1 to 5256000,
-        // ten years); a refresh token expires when its session would. Values
+        // ten years). No token outlives its session: a refresh token, and an
+        // access token whose lifetime is longer, expire when it would. Values
         // must be integers, or digit strings as `env()` returns them; anything
         // else fails closed when the guard is resolved.
         'access_ttl_minutes'           => env('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES', 5),

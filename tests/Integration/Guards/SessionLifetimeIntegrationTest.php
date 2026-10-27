@@ -42,7 +42,9 @@ use Tests\Unit\Stubs\StubPrincipal;
  * pins, and refresh, whatever its tokens say.
  *
  * The `api` guard uses 5-minute access tokens, a 1-hour idle lifetime, a
- * 10-hour absolute lifetime, and 30 seconds of leeway.
+ * 10-hour absolute lifetime, and 30 seconds of leeway. The `brief` guard keeps
+ * the access lifetime and the leeway but has a 2-minute idle lifetime, shorter
+ * than its access tokens'.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,6 +63,9 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
     /** @var string Password of the seeded identity. */
     private const string PASSWORD = 'correct horse battery staple';
+
+    /** @var string Guard whose idle lifetime is shorter than its access lifetime. */
+    private const string BRIEF = 'brief';
 
     /** @var \Carbon\Carbon When the session starts. */
     private Carbon $signedInAt;
@@ -89,6 +94,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         });
 
         Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:' . self::BRIEF)->get('/brief', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
     }
 
     /**
@@ -158,6 +164,48 @@ final class SessionLifetimeIntegrationTest extends TestCase
         self::assertSame($this->signedInAt->getTimestamp() + 36000, $stored->getAbsoluteExpiresAt()?->getTimestamp());
         self::assertSame($later->getTimestamp() + 3600, $this->claims($pair->refreshToken, TokenType::REFRESH)[Claims::EXPIRES_AT->value]);
         self::assertSame($later->getTimestamp() + 300, $this->claims($pair->accessToken, TokenType::ACCESS)[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * With an idle lifetime shorter than the access lifetime, an access token
+     * expires at the session's idle deadline rather than after the access
+     * lifetime, since the bearer path rejects it from that second: no token
+     * outlives the session. A client that refreshes before the deadline keeps
+     * the session alive, and each new access token stops at the new deadline.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAccessTokensNeverOutliveAnIdleLifetimeShorterThanTheirOwn(): void
+    {
+        [$identity, $device] = $this->signIn(self::BRIEF);
+
+        $access  = $this->tokens(self::BRIEF)->issueAccessToken($identity, $identity, $device);
+        $refresh = $this->tokens(self::BRIEF)->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $idle    = $this->signedInAt->getTimestamp() + 120;
+
+        self::assertSame($idle, $this->claims($access, TokenType::ACCESS, self::BRIEF)[Claims::EXPIRES_AT->value]);
+        self::assertSame($idle, $this->claims($refresh, TokenType::REFRESH, self::BRIEF)[Claims::EXPIRES_AT->value]);
+
+        $refreshedAt = $this->signedInAt->copy()->addSeconds(90);
+
+        $this->moveClockTo($refreshedAt);
+
+        $this->bearer($access, '/brief')->assertOk()->assertExactJson(['device' => $device->getKey()]);
+
+        $pair = $this->guard(self::BRIEF)->refresh($refresh);
+
+        self::assertNotNull($pair);
+        self::assertSame($refreshedAt->getTimestamp() + 120, $this->claims($pair->accessToken, TokenType::ACCESS, self::BRIEF)[Claims::EXPIRES_AT->value]);
+
+        $this->moveClockTo($refreshedAt->copy()->addSeconds(119));
+
+        $this->bearer($pair->accessToken, '/brief')->assertOk()->assertExactJson(['device' => $device->getKey()]);
+
+        $this->moveClockTo($refreshedAt->copy()->addSeconds(120));
+
+        $this->bearer($pair->accessToken, '/brief')->assertUnauthorized();
     }
 
     /**
@@ -388,6 +436,16 @@ final class SessionLifetimeIntegrationTest extends TestCase
                 'leeway_seconds'               => 30,
             ],
         ]);
+        $config->set('auth.guards.' . self::BRIEF, [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'access_ttl_minutes'           => 5,
+                'refresh_idle_ttl_minutes'     => 2,
+                'refresh_absolute_ttl_minutes' => 600,
+                'leeway_seconds'               => 30,
+            ],
+        ]);
     }
 
     /**
@@ -395,9 +453,10 @@ final class SessionLifetimeIntegrationTest extends TestCase
      * guard's lifetimes as an application does before the device is created by
      * the package.
      *
+     * @param  string  $guard
      * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device}
      */
-    private function signIn(): array
+    private function signIn(string $guard = 'api'): array
     {
         $identity            = new StubPrincipal;
         $identity->email     = 'session@example.test';
@@ -405,7 +464,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $identity->is_active = true;
         $identity->save();
 
-        $lifetimes = $this->tokens()->lifetimes();
+        $lifetimes = $this->tokens($guard)->lifetimes();
         $absolute  = $lifetimes->absoluteDeadline(Carbon::now());
 
         $device = new Device(['client_name' => 'Phone', 'platform' => 'iOS']);
@@ -481,14 +540,15 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * Send a bearer request to the protected route.
+     * Send a bearer request to a protected route.
      *
      * @param  string  $token
+     * @param  string  $path
      * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
      */
-    private function bearer(#[\SensitiveParameter] string $token): TestResponse
+    private function bearer(#[\SensitiveParameter] string $token, string $path = '/me'): TestResponse
     {
-        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/me');
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson($path);
     }
 
     /**
@@ -496,11 +556,12 @@ final class SessionLifetimeIntegrationTest extends TestCase
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
+     * @param  string  $guard
      * @return array<string, mixed>
      */
-    private function claims(#[\SensitiveParameter] string $token, TokenType $type): array
+    private function claims(#[\SensitiveParameter] string $token, TokenType $type, string $guard = 'api'): array
     {
-        $claims = $this->tokens()->parse($token, $type);
+        $claims = $this->tokens($guard)->parse($token, $type);
 
         self::assertIsArray($claims);
 
@@ -543,13 +604,14 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * The `api` guard's token service.
+     * The given guard's token service.
      *
+     * @param  string  $guard
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
-    private function tokens(): JwtTokenService
+    private function tokens(string $guard = 'api'): JwtTokenService
     {
-        $tokens = Auth::jwt('api');
+        $tokens = Auth::jwt($guard);
 
         self::assertNotNull($tokens);
 
@@ -557,11 +619,12 @@ final class SessionLifetimeIntegrationTest extends TestCase
     }
 
     /**
-     * A fresh `api` guard.
+     * A fresh instance of the given guard.
      *
+     * @param  string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function guard(): JwtGuard
+    private function guard(string $name = 'api'): JwtGuard
     {
         $manager = app('auth');
 
@@ -569,7 +632,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $manager->forgetGuards();
 
-        $guard = $manager->guard('api');
+        $guard = $manager->guard($name);
 
         assert($guard instanceof JwtGuard);
 

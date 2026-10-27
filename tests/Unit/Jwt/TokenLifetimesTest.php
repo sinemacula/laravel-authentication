@@ -182,34 +182,34 @@ final class TokenLifetimesTest extends TestCase
     }
 
     /**
-     * Rows of `[seconds from now to the absolute deadline or null, seconds from
-     * now to the expected access expiry]`.
+     * Rows of `[seconds from now to the end of the session or null, seconds
+     * from now to the expected access expiry]`.
      *
      * @return iterable<string, array{0: ?int, 1: int}>
      */
     public static function provideAccessCaps(): iterable
     {
         yield from [
-            'no device'                    => [null, 300],
-            'absolute after the lifetime'  => [301, 300],
-            'absolute at the lifetime'     => [300, 300],
-            'absolute before the lifetime' => [299, 299],
+            'no session'                       => [null, 300],
+            'session ends after the lifetime'  => [301, 300],
+            'session ends at the lifetime'     => [300, 300],
+            'session ends before the lifetime' => [299, 299],
         ];
     }
 
     /**
      * An access token expires after the access lifetime, and never after the
-     * absolute deadline of its device's session.
+     * end of its device's session.
      *
-     * @param  ?int  $absoluteIn
+     * @param  ?int  $sessionEndsIn
      * @param  int  $expectedIn
      * @return void
      */
     #[DataProvider('provideAccessCaps')]
-    public function testAccessExpiryIsCappedAtTheAbsoluteDeadline(?int $absoluteIn, int $expectedIn): void
+    public function testAccessExpiryIsCappedAtTheSessionEnd(?int $sessionEndsIn, int $expectedIn): void
     {
         $now    = $this->now->startOfSecond();
-        $expiry = $this->lifetimes()->accessExpiry($this->now, $absoluteIn === null ? null : $now->addSeconds($absoluteIn));
+        $expiry = $this->lifetimes()->accessExpiry($this->now, $sessionEndsIn === null ? null : $now->addSeconds($sessionEndsIn));
 
         self::assertSame($now->getTimestamp() + $expectedIn, $expiry->getTimestamp());
     }

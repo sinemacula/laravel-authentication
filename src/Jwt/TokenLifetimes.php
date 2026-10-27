@@ -12,11 +12,11 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
  * A guard's token and session lifetimes, and the deadline arithmetic every
  * token and device follows.
  *
- * An access token lives for the access lifetime. A session (a device) ends at
- * its idle deadline unless a refresh moves that deadline forward, and at its
- * absolute deadline however often it is refreshed: each refresh sets the idle
- * deadline to the idle lifetime from now, never past the absolute deadline,
- * which is fixed when the session starts.
+ * An access token lives for the access lifetime, never past the end of its
+ * session. A session (a device) ends at its idle deadline unless a refresh
+ * moves that deadline forward, and at its absolute deadline however often it is
+ * refreshed: each refresh sets the idle deadline to the idle lifetime from now,
+ * never past the absolute deadline, which is fixed when the session starts.
  *
  * A refresh token that was just rotated stays usable for a short grace window,
  * so a client that lost the response, or a second tab refreshing at the same
@@ -142,18 +142,19 @@ final readonly class TokenLifetimes
 
     /**
      * When an access token issued at the given time expires: the access
-     * lifetime from then, but never past the session's absolute deadline when
-     * the token belongs to one.
+     * lifetime from then, but never past the end of the session it belongs to,
+     * when it belongs to one (the earlier of the session's idle and absolute
+     * deadlines).
      *
      * @param  \Carbon\CarbonInterface  $issuedAt
-     * @param  ?\Carbon\CarbonInterface  $absolute
+     * @param  ?\Carbon\CarbonInterface  $sessionEnd
      * @return \Carbon\CarbonImmutable
      */
-    public function accessExpiry(CarbonInterface $issuedAt, ?CarbonInterface $absolute): CarbonImmutable
+    public function accessExpiry(CarbonInterface $issuedAt, ?CarbonInterface $sessionEnd): CarbonImmutable
     {
         $expiry = self::after($issuedAt, $this->accessTtlMinutes);
 
-        return $absolute === null ? $expiry : self::earliest($expiry, $absolute);
+        return $sessionEnd === null ? $expiry : self::earliest($expiry, $sessionEnd);
     }
 
     /**

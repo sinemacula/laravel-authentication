@@ -27,7 +27,8 @@ other rotated token as a replay that revokes the device.
   bearer path, sign-in pins, and issuance). A rotation moves the idle deadline to `idleDeadline($now, absolute)`, the
   idle lifetime from `$now` capped at the absolute deadline, and never writes the absolute deadline, so it is kept
   across rotations. A refresh token expires at the earlier of the two deadlines, and an access token after the access
-  lifetime but never after the absolute deadline.
+  lifetime but never after the earlier of the two deadlines, from which the bearer path rejects it, so no token outlives
+  its session even when the idle lifetime is shorter than the access lifetime.
 - The rotation is a single compare-and-swap `UPDATE` on the device's own connection that applies only while the row
   still holds the presented id as current, is not revoked, and has both deadlines exactly as they were loaded (equality
   on the raw stored values, exact because the columns are whole-second). It records the presented digest as previous,

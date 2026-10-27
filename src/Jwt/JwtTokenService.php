@@ -98,11 +98,13 @@ final class JwtTokenService
     /**
      * Encode an access-token payload for the given context.
      *
-     * The token expires after the access lifetime, and never after the absolute
-     * deadline of the device's session when a device is given. `$issuedAt`
-     * (default now, cut to the whole second) sets `iat` and the start of the
-     * lifetime, so a caller that has just judged the device at a given time
-     * issues at that same time.
+     * The token expires after the access lifetime, and never after the end of
+     * the device's session when a device is given: the earlier of its idle and
+     * absolute deadlines, from which the bearer path rejects the token anyway.
+     * An idle lifetime shorter than the access lifetime therefore shortens the
+     * token to match. `$issuedAt` (default now, cut to the whole second) sets
+     * `iat` and the start of the lifetime, so a caller that has just judged the
+     * device at a given time issues at that same time.
      *
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, and the device when one
@@ -122,14 +124,10 @@ final class JwtTokenService
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt = null): string
     {
-        $issuedAt = $this->issueTime($issuedAt);
-        $absolute = null;
+        $issuedAt   = $this->issueTime($issuedAt);
+        $sessionEnd = $device === null ? null : $this->sessionEnd($device, $issuedAt);
 
-        if ($device !== null) {
-            [, $absolute] = $this->liveSession($device, $issuedAt);
-        }
-
-        $payload = $this->baseClaims($issuedAt, $this->lifetimes->accessExpiry($issuedAt, $absolute)->getTimestamp(), TokenType::ACCESS);
+        $payload = $this->baseClaims($issuedAt, $this->lifetimes->accessExpiry($issuedAt, $sessionEnd)->getTimestamp(), TokenType::ACCESS);
 
         $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
         $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
@@ -165,10 +163,9 @@ final class JwtTokenService
      */
     public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null, ?CarbonInterface $issuedAt = null): string
     {
-        $issuedAt          = $this->issueTime($issuedAt);
-        [$idle, $absolute] = $this->liveSession($device, $issuedAt);
+        $issuedAt = $this->issueTime($issuedAt);
 
-        $payload = $this->baseClaims($issuedAt, min($idle->getTimestamp(), $absolute->getTimestamp()), TokenType::REFRESH);
+        $payload = $this->baseClaims($issuedAt, $this->sessionEnd($device, $issuedAt)->getTimestamp(), TokenType::REFRESH);
 
         $payload[Claims::DEVICE_ID->value] = $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
         $payload[Claims::JWT_ID->value]    = $this->requireClaimValue(Claims::JWT_ID, $rotationId);
@@ -219,21 +216,23 @@ final class JwtTokenService
     }
 
     /**
-     * Return the device's idle and absolute deadlines, refusing to issue for a
-     * device whose session has ended at the issue time or that has no
-     * deadlines: a token for it could never be used, and must not be able to
-     * extend a session that is over.
+     * Return when the device's session ends, the earlier of its idle and
+     * absolute deadlines, refusing to issue for a device whose session has
+     * ended at the issue time or that has no deadlines: a token for it could
+     * never be used, and must not be able to extend a session that is over.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  \Carbon\CarbonInterface  $issuedAt
-     * @return array{0: \Carbon\CarbonInterface, 1: \Carbon\CarbonInterface}
+     * @return \Carbon\CarbonImmutable
      *
      * @throws \InvalidArgumentException
      */
-    private function liveSession(Device $device, CarbonInterface $issuedAt): array
+    private function sessionEnd(Device $device, CarbonInterface $issuedAt): CarbonImmutable
     {
-        return TokenLifetimes::liveDeadlines($device, $issuedAt)
+        [$idle, $absolute] = TokenLifetimes::liveDeadlines($device, $issuedAt)
             ?? throw new \InvalidArgumentException('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+
+        return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));
     }
 
     /**

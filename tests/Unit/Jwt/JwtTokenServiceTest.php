@@ -431,6 +431,25 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * An access token never expires after the idle deadline of its device's
+     * session either, from which the bearer path rejects it: an idle lifetime
+     * shorter than the access lifetime shortens the token to match.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAccessTokenExpiresAtTheIdleDeadlineWhenItComesFirst(): void
+    {
+        foreach ([120, 1] as $idleIn) {
+
+            $device = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addSeconds($idleIn), $this->now->copy()->addDay());
+
+            self::assertSame($this->now->getTimestamp() + $idleIn, $this->accessExpiry($device));
+        }
+    }
+
+    /**
      * A caller that judged the device at a given time issues at that time:
      * `iat` and the access lifetime count from it, cut to the whole second.
      *

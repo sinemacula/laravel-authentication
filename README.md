@@ -209,10 +209,12 @@ sessions:
 A session is a device. It ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
 deadline however often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past
 the absolute deadline, and never moves the absolute deadline. Tokens mirror the device: a refresh token expires at the
-device's idle deadline, and an access token after the access lifetime but never after the device's absolute deadline.
-A device past either deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it
-cannot be pinned on sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a
-session this way does not revoke the device.
+device's idle deadline, and an access token after the access lifetime but never after the device's idle or absolute
+deadline. With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline,
+together with the refresh token, so clients must refresh before their access token expires. A device past either
+deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
+sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a session this way does
+not revoke the device.
 
 A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
 or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
