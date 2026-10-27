@@ -27,6 +27,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
+- `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`
+  for the identity and its default principal, without `Validated` or `Login`. An identity with no default principal is
+  rejected with an `InvalidArgumentException` and the previous context is kept.
 - Bearer `user()` resolution emits `Attempting` and routes through `login()`, so a successful bearer request follows
   the direct `login()` sequence.
 - Successful `refresh()` emits `Attempting`, then routes through `login()`, then emits the package `Refreshed` event.
@@ -93,6 +96,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testAccessorResolvesBearerTokenWhenCalledFirst`
 - `tests/Integration/Guards/RequestResolutionIntegrationTest.php`
   `testRejectedBearerTokenIsAttemptedOncePerRequest`, `testLogoutKeepsTheRequestSignedOut`
+- `tests/Integration/Guards/ActingAsIntegrationTest.php`
+  `testActingAsBindsEachIdentitysDefaultPrincipal`
 
 ## Change Triggers
 
@@ -101,6 +106,7 @@ Update this note when any of the following change:
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
   `DeviceAuthenticated`, `Refreshed`, or `RefreshFailed`
 - the decision to route bearer auth or refresh through `login()`
+- what `setUser()` binds
 - the listener or persistence behavior attached to `DeviceAuthenticated`
 - the rule that prior contextual state is cleared before rebinding
 - the rule that bearer and refresh resolution read live state with no cross-request cache

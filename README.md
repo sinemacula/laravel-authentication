@@ -391,6 +391,10 @@ Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on
 routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
 and after `Auth::logout()` it stays signed out for the rest of the request.
 
+`setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
+principal (and no device), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
+`login($identity, $principal, $device)` to bind a specific principal or a device.
+
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 
 ```php

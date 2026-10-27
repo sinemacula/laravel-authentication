@@ -190,7 +190,13 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Bind an authenticated identity to the guard.
+     * Bind an authenticated identity to the guard with its default principal.
+     *
+     * The trusted bind behind Laravel's `actingAs()`. The previous identity's
+     * principal and device are cleared and the resolver's default principal for
+     * the new identity is bound, so the guard never pairs one identity with
+     * another's principal or device. Use `login()` to bind a specific principal
+     * or a device.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @return $this
@@ -204,7 +210,16 @@ abstract class AbstractGuard implements ContextualGuard
             throw new \InvalidArgumentException(sprintf('Guard %s expected an Identity instance, got %s.', $this->name, $user::class));
         }
 
+        $principal = $this->resolvePrincipal($user);
+
+        if ($principal === null) {
+            throw new \InvalidArgumentException(sprintf('Guard %s could not resolve a default principal for identity %s; bind one with login().', $this->name, $user::class));
+        }
+
+        $this->clearContextualState();
+
         $this->setIdentity($user);
+        $this->setPrincipal($principal);
 
         return $this;
     }
