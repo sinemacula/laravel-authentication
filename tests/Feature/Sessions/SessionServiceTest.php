@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
@@ -966,6 +967,41 @@ final class SessionServiceTest extends TestCase
             self::assertSame(1, PendingSignIn::query()->count());
             self::assertSame(0, Device::query()->count());
         }
+    }
+
+    /**
+     * Whatever limiter is bound, one that throws when a completed sign-in gives
+     * its slots back has its error reported, not thrown: the completion returns
+     * its session, the guard is bound, and the slots after the one that failed
+     * are not given back either.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCompleteReportsALimiterThatCannotGiveTheSlotsBack(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
+            'api',
+            new AdmittedSignIn($identity, $identity, null),
+            'password',
+            'email',
+            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            CarbonImmutable::now()->startOfSecond(),
+            [['identifier' => 'window'], ['account' => 'window']],
+        );
+
+        $failure    = new \RuntimeException('The counters are unreachable.');
+        $exceptions = Exceptions::fake([\RuntimeException::class]);
+        $limiter    = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldReceive('release')->once()->andThrow($failure);
+
+        $result = Auth::sessions('api')->complete($pending->token);
+
+        self::assertTrue($result->isSignedIn());
+        self::assertSame($identity->getKey(), Auth::guard('api')->id());
+        self::assertSame([$failure], $exceptions->reported());
     }
 
     /**

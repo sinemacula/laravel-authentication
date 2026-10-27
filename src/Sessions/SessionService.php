@@ -9,6 +9,7 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Timebox;
@@ -224,8 +225,9 @@ final readonly class SessionService
      * The pending sign-in is used up whatever the outcome, by a delete that
      * only one completion can make, and gives the attempt-limit slots its
      * sign-in took back only when the session starts, once the delete is
-     * committed on the pending sign-in's connection. In the same transaction it
-     * is checked again (the method still allowed, the identity, principal and
+     * committed on the pending sign-in's connection, and reports a failure to
+     * give them back to the exception handler. In the same transaction it is
+     * checked again (the method still allowed, the identity, principal and
      * tenant active, and the audience policy admitting them with the identifier
      * type the sign-in used) and the session is written, continuing the proven
      * device when it is unchanged and otherwise creating one. The factor policy
@@ -259,13 +261,9 @@ final readonly class SessionService
 
         // A rolled-back completion restores the pending sign-in, whose token
         // can then be completed again: giving its slots back before the commit,
-        // on a counter connection of its own, would give them back twice. They
-        // are given back after the session's events are queued, so a release
-        // that fails cannot keep a committed session from being reported.
+        // on a counter connection of its own, would give them back twice.
         $this->afterCommit->run($found->pending, function () use ($found): void {
-            foreach (PendingSignIns::reservations($found->pending) as $reservation) {
-                $this->collaborator(AttemptLimiter::class)->release($reservation);
-            }
+            $this->giveBack($found->pending);
         });
 
         return $result;
@@ -304,6 +302,31 @@ final readonly class SessionService
         $this->fail($refused, $discarded->sign_in_method, SignInContext::fromRequest($this->guard->getRequest()), null, []);
 
         return true;
+    }
+
+    /**
+     * Give back the attempt-limit slots a committed completion's sign-in took.
+     *
+     * A failure is reported, not thrown: the session already stands, and
+     * Laravel runs a commit's callbacks in order without catching, so a throw
+     * here would stop the callbacks queued after this one (another session's
+     * events, the caller's own) from running. The slots not given back stay
+     * counted.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function giveBack(PendingSignIn $pending): void
+    {
+        try {
+            foreach (PendingSignIns::reservations($pending) as $reservation) {
+                $this->collaborator(AttemptLimiter::class)->release($reservation);
+            }
+        } catch (\Throwable $exception) {
+            $this->collaborator(ExceptionHandler::class)->report($exception);
+        }
     }
 
     /**

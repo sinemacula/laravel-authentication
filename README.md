@@ -517,7 +517,9 @@ account, the flow and the account, without the guard. An IP address, an identifi
 a plain digest of one could be reversed by anyone who reads the table (from a backup or a replica, say); a keyed one
 cannot without your application key. Rotating `app.key` starts every counter afresh, and with no `app.key` the limiter
 fails closed with an `InvalidArgumentException`. Every change to a count is one statement the database applies
-atomically. A database error propagates as a server error: a limiter that cannot count lets nothing through.
+atomically. A database error propagates as a server error: a limiter that cannot count lets nothing through. The one
+exception is giving back a completed further factor's slots after its commit, which is reported instead (see
+[Writing a sign-in method](#writing-a-sign-in-method)).
 
 > **Transactions:** the counters live on `rate_limits.connection`, the default connection when `null`. Counts written on
 > the same connection as a transaction you open around a sign-in are rolled back with it, so a sign-in that your code
@@ -1153,7 +1155,9 @@ factor its sign-in waits for. Reserve before each secret you check: a method tha
 takes two slots. The slots belong to the sign-in: they are all given back when the session starts, or when its pending
 sign-in's completion commits. A completion that your transaction rolls back gives nothing back, since the pending
 sign-in it used comes back with the rollback and can be completed again. If giving them back fails after the commit,
-the error propagates from it: the session stands and is reported, and the slots not given back stay counted.
+the error is reported to your exception handler rather than thrown: the session already stands, and a throw would stop
+the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from running. The slots not
+given back stay counted.
 
 To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
 account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request

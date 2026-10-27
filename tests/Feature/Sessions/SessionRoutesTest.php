@@ -5,10 +5,14 @@ declare(strict_types = 1);
 namespace Tests\Feature\Sessions;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -198,6 +202,45 @@ final class SessionRoutesTest extends TestCase
 
         $this->bearer($access)->assertOk()->assertExactJson(['email' => 'ada@example.test']);
         $this->send('/factor', ['pending_token' => $pending, 'code' => self::CODE])->assertUnauthorized();
+    }
+
+    /**
+     * A further factor completed while its slots cannot be given back still
+     * answers with a token pair whose access token authenticates: the counters'
+     * error is reported, not thrown, since the session already stands, and the
+     * slots stay counted.
+     *
+     * @return void
+     */
+    public function testACompletionWhoseSlotsCannotBeGivenBackStillAnswersWithItsTokens(): void
+    {
+        $this->seedIdentity();
+
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+
+        app()->instance(AdditionalFactorPolicy::class, $factors);
+
+        $pending = $this->send('/sign-in', self::credentials())->assertOk()->json('pending_token');
+
+        self::assertIsString($pending);
+
+        $exceptions = Exceptions::fake([QueryException::class]);
+
+        Schema::rename('rate_limits', 'unreachable_rate_limits');
+
+        try {
+            $access = $this->send('/factor', ['pending_token' => $pending, 'code' => self::CODE])->assertOk()->json('access_token');
+        } finally {
+            Schema::rename('unreachable_rate_limits', 'rate_limits');
+        }
+
+        self::assertIsString($access);
+        self::assertCount(1, $exceptions->reported());
+        self::assertSame(3, DB::table('rate_limits')->count());
+        self::assertSame(3, DB::table('rate_limits')->where('hits', 1)->count());
+
+        $this->bearer($access)->assertOk()->assertExactJson(['email' => 'ada@example.test']);
     }
 
     /**

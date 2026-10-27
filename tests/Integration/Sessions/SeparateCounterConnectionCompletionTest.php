@@ -11,6 +11,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -22,6 +24,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -33,8 +36,9 @@ use Tests\TestCase;
  * advises for callers who may roll back: a completion gives its slots back only
  * once its use of the pending sign-in commits, so rolling it back, which
  * restores the pending sign-in, gives nothing back, and completing it again
- * gives the slots back once. A release that fails after the commit leaves the
- * session standing and reported.
+ * gives the slots back once. A release that fails after the commit is reported,
+ * not thrown, so it keeps no committed session, nor any other callback of the
+ * commit, from being reported.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -162,38 +166,127 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
 
     /**
      * A completion whose slots cannot be given back once its transaction
-     * commits fails with the counters' error, but its session stands and is
-     * reported, and the slots stay counted.
+     * commits reports the counters' error instead of throwing it: its session
+     * stands and is reported, and the slots stay counted.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACompletionWhoseSlotsCannotBeGivenBackStillReportsItsSession(): void
+    public function testACompletionWhoseSlotsCannotBeGivenBackReportsTheErrorAndItsSession(): void
     {
-        $identity = $this->seedHeldSignIn();
-        $token    = $this->pendingToken($identity);
+        $identity   = $this->seedHeldSignIn();
+        $token      = $this->pendingToken($identity);
+        $exceptions = Exceptions::fake([QueryException::class]);
 
         $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->makeCountersUnreachable();
 
-        Schema::connection(self::COUNTERS)->rename('rate_limits', 'unreachable_rate_limits');
+        $result = DB::transaction(fn (): SignInResult => $this->sessions()->complete($token));
 
-        try {
-            DB::transaction(function () use ($token): void {
-                self::assertTrue($this->sessions()->complete($token)->isSignedIn());
-            });
+        $this->restoreCounters();
 
-            self::fail('Giving the slots back should have failed after the commit.');
-        } catch (QueryException $exception) {
-            self::assertStringContainsString('rate_limits', $exception->getMessage());
-        }
-
-        Schema::connection(self::COUNTERS)->rename('unreachable_rate_limits', 'rate_limits');
-
+        self::assertTrue($result->isSignedIn());
         self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame([2, 2, 2], $this->hits($identity));
         self::assertSame(1, Device::query()->count());
         self::assertSame(0, PendingSignIn::query()->count());
+        self::assertCount(1, $exceptions->reported());
+
+        Exceptions::assertReported(static fn (QueryException $exception): bool => str_contains($exception->getMessage(), 'rate_limits'));
+    }
+
+    /**
+     * Two completions in one transaction, the first of which cannot give its
+     * slots back: the second session is still reported and gives its own slots
+     * back, and a callback the caller queued after both still runs.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedReleaseLetsTheCallbacksQueuedAfterItRun(): void
+    {
+        $identity   = $this->seedHeldSignIn();
+        $first      = $this->pendingToken($identity);
+        $second     = $this->pendingToken($identity, 3);
+        $exceptions = Exceptions::fake([QueryException::class]);
+        $signedIn   = 0;
+        $callerRan  = false;
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+
+        Event::listen(SignedIn::class, function () use (&$signedIn): void {
+            if (++$signedIn !== 2) {
+                return;
+            }
+
+            $this->restoreCounters();
+        });
+
+        $this->makeCountersUnreachable();
+
+        DB::transaction(function () use ($first, $second, &$callerRan): void {
+
+            self::assertTrue($this->sessions()->complete($first)->isSignedIn());
+            self::assertTrue($this->sessions()->complete($second)->isSignedIn());
+
+            DB::afterCommit(static function () use (&$callerRan): void {
+                $callerRan = true;
+            });
+        });
+
+        self::assertTrue($callerRan);
+        self::assertSame([DeviceCreated::class, SignedIn::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([2, 2, 2], $this->hits($identity));
+        self::assertSame(2, Device::query()->count());
+        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertCount(1, $exceptions->reported());
+    }
+
+    /**
+     * A completion inside a savepoint whose slots cannot be given back, whose
+     * callbacks Laravel runs before those of the transaction around it, keeps
+     * neither the earlier completion's session nor the caller's own callback
+     * from being reported; each failed release is reported and its slots stay
+     * counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedReleaseInASavepointLetsTheOuterCallbacksRun(): void
+    {
+        $identity   = $this->seedHeldSignIn();
+        $outer      = $this->pendingToken($identity);
+        $inner      = $this->pendingToken($identity, 3);
+        $exceptions = Exceptions::fake([QueryException::class]);
+        $callerRan  = false;
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+        $this->makeCountersUnreachable();
+
+        DB::transaction(function () use ($outer, $inner, &$callerRan): void {
+
+            self::assertTrue($this->sessions()->complete($outer)->isSignedIn());
+
+            DB::transaction(function () use ($inner): void {
+                self::assertTrue($this->sessions()->complete($inner)->isSignedIn());
+            });
+
+            DB::afterCommit(static function () use (&$callerRan): void {
+                $callerRan = true;
+            });
+        });
+
+        $this->restoreCounters();
+
+        self::assertTrue($callerRan);
+        self::assertSame([DeviceCreated::class, SignedIn::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([3, 3, 3], $this->hits($identity));
+        self::assertSame(2, Device::query()->count());
+        self::assertSame(0, PendingSignIn::query()->count());
+        self::assertCount(2, $exceptions->reported());
     }
 
     /**
@@ -242,21 +335,43 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
 
     /**
      * Sign in and return the token of the pending sign-in the factor policy
-     * asked for, which holds a second slot on each counter.
+     * asked for, which holds one more slot on each counter, so each then holds
+     * the given number.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  int  $held
      * @return string
      *
      * @throws \Throwable
      */
-    private function pendingToken(IntegrationIdentity $identity): string
+    private function pendingToken(IntegrationIdentity $identity, int $held = 2): string
     {
         $pending = $this->sessions()->signIn('password', self::credentials())->pending;
 
         self::assertNotNull($pending);
-        self::assertSame([2, 2, 2], $this->hits($identity));
+        self::assertSame([$held, $held, $held], $this->hits($identity));
 
         return $pending->token;
+    }
+
+    /**
+     * Move the counters' table out of reach, so giving a slot back fails.
+     *
+     * @return void
+     */
+    private function makeCountersUnreachable(): void
+    {
+        Schema::connection(self::COUNTERS)->rename('rate_limits', 'unreachable_rate_limits');
+    }
+
+    /**
+     * Bring the counters' table back.
+     *
+     * @return void
+     */
+    private function restoreCounters(): void
+    {
+        Schema::connection(self::COUNTERS)->rename('unreachable_rate_limits', 'rate_limits');
     }
 
     /**
