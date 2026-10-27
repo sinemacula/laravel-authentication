@@ -28,9 +28,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   the identity signing in. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request
   reads the identity, principal, tenant, and device live, from the write connection.
 - `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on
-  a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()`
-  and `setDevice()` resolve the request first too, so a pin set before the first access replaces the principal or
-  device the request's token binds instead of being replaced by it.
+  a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()` and
+  `setDevice()` resolve the request first too, so a principal or device set before the first access replaces the one the
+  request's token binds instead of being replaced by it. They are trusted binds, like `login()`: they check neither
+  ownership nor activity, so a caller verifies what it passes them first.
 
 ## Success Path
 
@@ -58,8 +59,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
   identity's own `HasDevices` devices, of the same class and not revoked. The owner is read from the principal's stored
   key, ignoring an identity relation the resolver set and even when lazy loading is prevented, and an owner that cannot
-  be read fails the check. The resolved instances are bound; a failed check fails the attempt. `login()` stays the
-  trusted entry point.
+  be read fails the check. The resolved instances are bound; a failed check fails the attempt. `login()`,
+  `setPrincipal()`, and `setDevice()` stay trusted binds.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null` or resolves a
   principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same thing as
   "fully bound".

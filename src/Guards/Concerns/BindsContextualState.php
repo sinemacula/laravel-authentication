@@ -88,11 +88,13 @@ trait BindsContextualState
 
     /**
      * Return the active tenant's type string, if the tenant declares the
-     * `HasType` capability, resolving the request on first access.
+     * `HasType` capability, resolving the request on first access. Throws as
+     * `tenant()` does.
      *
      * @return ?string
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function type(): ?string
@@ -107,13 +109,17 @@ trait BindsContextualState
      * request on first access.
      *
      * Throws `TenantUnavailableException` when the principal names a tenant
-     * that opts into activation but cannot be loaded. The authentication paths
-     * reject such a principal, so this is reached only for one bound through
-     * the trusted `login()` or `setUser()`, or a tenant deleted since.
+     * that opts into activation but cannot be loaded, and a `LogicException`
+     * when the principal was loaded without that tenant's key (or polymorphic
+     * type). The authentication paths reject such a principal, so this is
+     * reached only for one bound through the trusted `login()`, `setUser()`, or
+     * `setPrincipal()`, which skip the activity check, or through a custom
+     * `getTenant()` that reads the tenant again.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant
@@ -122,12 +128,18 @@ trait BindsContextualState
     }
 
     /**
-     * Pin the active principal for the current request and fire the
+     * Bind the active principal for the current request and fire the
      * `PrincipalAssigned` custom event.
      *
-     * The request is resolved first, so the pin replaces the principal the
+     * The request is resolved first, so the principal replaces the one the
      * request's credential binds instead of being replaced by it on the next
      * access.
+     *
+     * A trusted bind, like `login()`: the principal is bound as given, with no
+     * check that it belongs to the identity, is active, or acts within an
+     * active tenant. A principal taken from request input must be proven to
+     * belong to the identity first, as `attempt()` does for the principal
+     * pinned on it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return static
@@ -146,12 +158,17 @@ trait BindsContextualState
     }
 
     /**
-     * Pin the active device for the current request and fire the
+     * Bind the active device for the current request and fire the
      * `DeviceAuthenticated` custom event.
      *
-     * The request is resolved first, so the pin replaces the device the
+     * The request is resolved first, so the device replaces the one the
      * request's credential binds instead of being replaced by it on the next
      * access.
+     *
+     * A trusted bind, like `login()`: the device is bound as given, with no
+     * check that it belongs to the identity or is not revoked. A device taken
+     * from request input must be proven to be one of the identity's live
+     * devices first, as `attempt()` does for the device pinned on it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return static

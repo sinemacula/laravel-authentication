@@ -475,9 +475,9 @@ Auth::type();           // string|null     - the tenant's type when HasType is d
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
 routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
 and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` and `Auth::type()` throw a
-`TenantUnavailableException` for a principal whose opted-in tenant cannot be loaded; sign-in, bearer requests and
-refresh reject such a principal, so that only happens for one bound through `login()` or `setUser()`, or for a tenant
-deleted during the request.
+`TenantUnavailableException` for a principal whose opted-in tenant cannot be loaded, and a `LogicException` for one
+loaded without that tenant's key (or polymorphic type). Sign-in, bearer requests and refresh reject such a principal, so
+that only happens for one bound through `login()`, `setUser()` or `setPrincipal()`, which skip the activity check.
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no device), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
@@ -496,8 +496,10 @@ The pins are verified rather than trusted, because they often come from request 
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
 (through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin that fails either check fails the
-attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
-only pass it a principal and device you have already proven belong to the identity.
+attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and device
+you have already proven belong to the identity. `setPrincipal()` and `setDevice()` are trusted binds in the same way:
+they do not check ownership, activity or revocation, so a principal or device taken from request input (a header that
+switches the acting membership, say) must be verified first, as `attempt()` verifies its pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again

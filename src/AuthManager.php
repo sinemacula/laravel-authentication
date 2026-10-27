@@ -122,6 +122,7 @@ class AuthManager extends IlluminateAuthManager
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant
@@ -137,6 +138,7 @@ class AuthManager extends IlluminateAuthManager
      * @return ?string
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function type(): ?string
