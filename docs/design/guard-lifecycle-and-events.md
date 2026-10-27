@@ -70,8 +70,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   tenant is read from the write connection, also when it lives on another connection than the principal. A principal
   whose tenant key names a tenant that opts in (`CanBeActive`) but cannot be loaded (deleted, soft-deleted, or scoped
   out) fails like one in an inactive tenant: `getTenant()` throws `TenantUnavailableException` rather than reporting no
-  tenant, and a principal loaded without that tenant's key throws a `LogicException`. A tenant that does not opt in is
-  never checked, and a relation to a model that is not a `Tenant` reports no tenant.
+  tenant or a `withDefault()` placeholder for the missing row, and a principal loaded without that tenant's key, or
+  without the type column of a polymorphic tenant relation, throws a `LogicException`; a polymorphic tenant whose key is
+  set but whose type is empty cannot be loaded either. A tenant that does not opt in is never checked, and a relation to
+  a model that is not a `Tenant` reports no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
   machine-readable reason.
 - `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`
@@ -122,6 +124,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testBearerRejectsMemberOfTenantDeactivatedAfterIssue`, `testBearerRejectsMemberOfSoftDeletedTenant`
 - `tests/Integration/Guards/TenantActivityIntegrationTest.php`
   `testTenantCheckReportsAMembershipLoadedWithoutItsTenantKey`
+- `tests/Integration/Guards/TenantActivityIntegrationTest.php`
+  `testTenantCheckReportsAMorphMembershipLoadedWithoutItsTenantType`,
+  `testTenantCheckRejectsAMorphMembershipWhoseTenantTypeIsEmpty`,
+  `testTenantCheckRejectsAWithDefaultMembershipOfASoftDeletedTenant`
 - `tests/Integration/Guards/TenantOptInIntegrationTest.php`
   `testUserWhoseTenantRelationIsNotATenantActsWithinNoTenant`, `testUserWhoseNonActivatableTenantIsDeletedStillSignsIn`
 - `tests/Integration/Guards/MisconfiguredIdentityIntegrationTest.php`

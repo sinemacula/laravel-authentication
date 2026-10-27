@@ -4,7 +4,9 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Concerns;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -79,7 +81,16 @@ trait ActsAsPrincipal
      * returning `null`, which would read as acting within no tenant and skip
      * the tenant's activity check. For the same reason a principal loaded
      * without that key (a partial select) throws a `LogicException` instead of
-     * reading the missing key as "no tenant".
+     * reading the missing key as "no tenant". A placeholder such a relation
+     * returns for a missing row (the unsaved default model of `withDefault()`)
+     * is not a tenant the principal acts within, so it is treated the same way
+     * as a tenant that cannot be loaded.
+     *
+     * A polymorphic (`MorphTo`) tenant relation only says which model it names
+     * through its type column, so a principal loaded without that column throws
+     * a `LogicException` as well, and one whose key is set but whose type is
+     * empty throws `TenantUnavailableException`: in neither case can the tenant
+     * be told apart from one that opts in.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
@@ -96,7 +107,7 @@ trait ActsAsPrincipal
 
         $tenant = $this->getAttribute($name);
 
-        if ($tenant instanceof Tenant) {
+        if ($tenant instanceof Tenant && !$this->isActivatableTenantPlaceholder($tenant, $name)) {
             return $tenant;
         }
 
@@ -158,14 +169,7 @@ trait ActsAsPrincipal
         $key = $relation->getForeignKeyName();
 
         if (!array_key_exists($key, $this->getAttributes())) {
-            $message = sprintf(
-                'Cannot determine the tenant %s acts within: its `%s` attribute is not loaded.'
-                . ' Select the column so the tenant can be checked.',
-                static::class,
-                $key,
-            );
-
-            throw new \LogicException($message);
+            throw new \LogicException($this->unloadedTenantAttributeMessage($key));
         }
 
         if ($this->getAttribute($key) === null) {
@@ -182,10 +186,29 @@ trait ActsAsPrincipal
     }
 
     /**
+     * Whether the tenant is a model that was never stored (the default model a
+     * `withDefault()` relation returns for a missing row) standing in for a
+     * tenant that opts into activation, which must not read as a present
+     * tenant.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  string  $name
+     * @return bool
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
+     */
+    private function isActivatableTenantPlaceholder(Tenant $tenant, string $name): bool
+    {
+        return $tenant instanceof Model && !$tenant->exists && $this->activatableTenantRelation($name) !== null;
+    }
+
+    /**
      * Return the tenant relation when it is a `BelongsTo` to a tenant that opts
      * into activation (its related model implements both `Tenant` and
      * `CanBeActive`): the only tenant whose absence must not read as acting
-     * within no tenant.
+     * within no tenant. A `MorphTo` relation must first say which model it
+     * names (see `assertNamesTenantType()`).
      *
      * @formatter:off
      *
@@ -193,6 +216,9 @@ trait ActsAsPrincipal
      * @return ?\Illuminate\Database\Eloquent\Relations\BelongsTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>
      *
      * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      */
     private function activatableTenantRelation(string $name): ?BelongsTo
     {
@@ -202,8 +228,83 @@ trait ActsAsPrincipal
 
         $relation = $this->{$name}();
 
+        if ($relation instanceof MorphTo) {
+            $this->assertNamesTenantType($relation, $name);
+        }
+
         return $relation instanceof BelongsTo
             && $relation->getRelated() instanceof Tenant
             && $relation->getRelated() instanceof CanBeActive ? $relation : null;
+    }
+
+    /**
+     * Throw when a polymorphic tenant relation cannot say which model it names.
+     *
+     * Without the type, Eloquent builds the relation against the principal's
+     * own model, which would read as naming no tenant at all. So a principal
+     * loaded without the type column throws a `LogicException`, as for a
+     * missing key, and one whose type is empty while its key is set names a
+     * tenant that cannot be loaded. An empty type with an empty key names no
+     * tenant.
+     *
+     * @formatter:off
+     *
+     * @param  \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>  $relation
+     * @param  string  $name
+     * @return void
+     *
+     * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
+     */
+    private function assertNamesTenantType(MorphTo $relation, string $name): void
+    {
+        $attributes = $this->getAttributes();
+        $type       = $relation->getMorphType();
+
+        if (!array_key_exists($type, $attributes)) {
+            throw new \LogicException($this->unloadedTenantAttributeMessage($type));
+        }
+
+        if ($attributes[$type] !== null && $attributes[$type] !== '') {
+            return;
+        }
+
+        $key = $relation->getForeignKeyName();
+
+        if (!array_key_exists($key, $attributes)) {
+            throw new \LogicException($this->unloadedTenantAttributeMessage($key));
+        }
+
+        if ($this->getAttribute($key) === null) {
+            return;
+        }
+
+        $message = sprintf(
+            'Principal %s names a tenant through `%s` without its `%s` type, so it cannot be loaded.',
+            static::class,
+            $name,
+            $type,
+        );
+
+        throw new TenantUnavailableException($message);
+    }
+
+    /**
+     * Build the message reporting a tenant attribute the principal was loaded
+     * without.
+     *
+     * @param  string  $attribute
+     * @return string
+     */
+    private function unloadedTenantAttributeMessage(string $attribute): string
+    {
+        return sprintf(
+            'Cannot determine the tenant %s acts within: its `%s` attribute is not loaded.'
+            . ' Select the column so the tenant can be checked.',
+            static::class,
+            $attribute,
+        );
     }
 }

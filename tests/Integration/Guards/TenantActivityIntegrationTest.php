@@ -23,6 +23,8 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
+use Tests\Integration\Fixtures\DefaultTenantMembership;
+use Tests\Integration\Fixtures\MorphTenantMembership;
 use Tests\TestCase;
 
 /**
@@ -78,6 +80,14 @@ final class TenantActivityIntegrationTest extends TestCase
             $blueprint->unsignedInteger('tenant_id');
             $blueprint->timestamps();
         });
+
+        Schema::create('morph_tenant_memberships', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->string('tenant_type')->nullable();
+            $blueprint->unsignedInteger('tenant_id')->nullable();
+            $blueprint->timestamps();
+        });
     }
 
     /**
@@ -88,6 +98,7 @@ final class TenantActivityIntegrationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Schema::dropIfExists('morph_tenant_memberships');
         Schema::dropIfExists('activatable_tenant_memberships');
         Schema::dropIfExists('activatable_tenant_members');
         Schema::dropIfExists('activatable_tenants');
@@ -281,6 +292,76 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
+     * A membership whose tenant is a polymorphic relation, loaded without its
+     * type column, is reported rather than read as acting within no tenant:
+     * without the type Eloquent builds the relation against the membership's
+     * own model, so an inactive tenant would otherwise be skipped.
+     *
+     * @return void
+     */
+    public function testTenantCheckReportsAMorphMembershipLoadedWithoutItsTenantType(): void
+    {
+        $membership = $this->seedMorphMembership();
+
+        $full = MorphTenantMembership::query()->find($membership->getKey());
+
+        self::assertInstanceOf(MorphTenantMembership::class, $full);
+        self::assertFalse(ActivationPolicy::isTenantActive($full));
+
+        $partial = MorphTenantMembership::query()->select(['id', 'identity_id', 'tenant_id'])->find($membership->getKey());
+
+        self::assertInstanceOf(MorphTenantMembership::class, $partial);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `tenant_type` attribute is not loaded');
+
+        ActivationPolicy::isTenantActive($partial);
+    }
+
+    /**
+     * A polymorphic tenant whose key is set but whose type is empty cannot be
+     * loaded, so the membership is rejected rather than read as acting within
+     * no tenant.
+     *
+     * @return void
+     */
+    public function testTenantCheckRejectsAMorphMembershipWhoseTenantTypeIsEmpty(): void
+    {
+        $membership = $this->seedMorphMembership();
+
+        MorphTenantMembership::query()->whereKey($membership->getKey())->update(['tenant_type' => null]);
+
+        $stored = MorphTenantMembership::query()->find($membership->getKey());
+
+        self::assertInstanceOf(MorphTenantMembership::class, $stored);
+        self::assertFalse(ActivationPolicy::isTenantActive($stored));
+    }
+
+    /**
+     * A tenant relation declared with `withDefault()` does not turn a deleted
+     * tenant into a present, active one: the unsaved placeholder it returns
+     * reads as a tenant that cannot be loaded.
+     *
+     * @return void
+     */
+    public function testTenantCheckRejectsAWithDefaultMembershipOfASoftDeletedTenant(): void
+    {
+        [, $membership, $tenant] = $this->seedMembership();
+
+        $active = DefaultTenantMembership::query()->find($membership->getKey());
+
+        self::assertInstanceOf(DefaultTenantMembership::class, $active);
+        self::assertTrue(ActivationPolicy::isTenantActive($active));
+
+        $tenant->delete();
+
+        $orphaned = DefaultTenantMembership::query()->find($membership->getKey());
+
+        self::assertInstanceOf(DefaultTenantMembership::class, $orphaned);
+        self::assertFalse(ActivationPolicy::isTenantActive($orphaned));
+    }
+
+    /**
      * Refresh for a member of a soft-deleted tenant fails with the
      * `tenant_inactive` reason.
      *
@@ -375,6 +456,27 @@ final class TenantActivityIntegrationTest extends TestCase
         ])->save();
 
         return [$member, $membership, $tenant];
+    }
+
+    /**
+     * Persist a member with a polymorphic membership in an inactive tenant.
+     *
+     * @return \Tests\Integration\Fixtures\MorphTenantMembership
+     */
+    private function seedMorphMembership(): MorphTenantMembership
+    {
+        [$member, , $tenant] = $this->seedMembership();
+
+        $tenant->forceFill(['is_active' => false])->save();
+
+        $membership = new MorphTenantMembership;
+        $membership->forceFill([
+            'identity_id' => $member->getKey(),
+            'tenant_type' => ActivatableTenant::class,
+            'tenant_id'   => $tenant->getKey(),
+        ])->save();
+
+        return $membership;
     }
 
     /**

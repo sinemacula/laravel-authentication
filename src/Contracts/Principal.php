@@ -53,13 +53,16 @@ interface Principal
      * implements `CanBeActive`) and that tenant cannot be loaded (deleted,
      * soft-deleted, or hidden by a scope), throw `TenantUnavailableException`,
      * which the activity check treats as an inactive tenant; `null` would let
-     * the principal authenticate as if it had no tenant. Likewise, do not read
-     * a key the principal was loaded without as "no tenant". Any other
-     * principal may return `null` for a tenant it cannot load.
+     * the principal authenticate as if it had no tenant, and a stand-in for the
+     * missing row as if the tenant were there. Likewise, throw a
+     * `LogicException` rather than read a key (or polymorphic type) the
+     * principal was loaded without as "no tenant". Any other principal may
+     * return `null` for a tenant it cannot load.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      */
     public function getTenant(): ?Tenant;
 }

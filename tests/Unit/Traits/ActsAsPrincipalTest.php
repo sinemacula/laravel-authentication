@@ -8,9 +8,11 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -117,7 +119,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetTenantReturnsRelatedTenant(): void
     {
-        $tenant = \Mockery::mock(Tenant::class);
+        $tenant = $this->storedTenant();
 
         $principal = new Stub3dPrincipal;
         $principal->setRelation('tenant', $tenant);
@@ -167,7 +169,7 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetTenantReadsTenantExposedThroughAttributeAccessor(): void
     {
-        $tenant = \Mockery::mock(Tenant::class);
+        $tenant = $this->storedTenant();
 
         $principal = new class extends Stub3dPrincipal {
             /** @var ?\SineMacula\Laravel\Authentication\Contracts\Tenant Tenant returned by the accessor. */
@@ -325,6 +327,207 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
+     * The unsaved placeholder a `withDefault()` relation returns for a missing
+     * row of a tenant that opts into activation is not a present tenant: with
+     * the key set, the tenant cannot be loaded.
+     *
+     * @return void
+     */
+    public function testGetTenantThrowsForThePlaceholderOfAnActivatableTenantThatCannotBeLoaded(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), ['tenant_id' => 5]);
+        $principal->setRelation('tenant', new StubActivatableTenant);
+
+        $this->expectException(TenantUnavailableException::class);
+        $this->expectExceptionMessage('names a tenant through `tenant` that cannot be loaded');
+
+        $principal->getTenant();
+    }
+
+    /**
+     * Without a key, the placeholder of a tenant that opts into activation
+     * reads as no tenant rather than as a present tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullForThePlaceholderOfAnActivatableTenantWithoutAKey(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), ['tenant_id' => null]);
+        $principal->setRelation('tenant', new StubActivatableTenant);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
+     * A stored tenant that opts into activation is returned as loaded.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsAStoredActivatableTenant(): void
+    {
+        $tenant         = new StubActivatableTenant;
+        $tenant->exists = true;
+
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), ['tenant_id' => 5]);
+        $principal->setRelation('tenant', $tenant);
+
+        self::assertSame($tenant, $principal->getTenant());
+    }
+
+    /**
+     * A tenant that is not an Eloquent model (a custom `Tenant`) is never a
+     * placeholder, even on a relation to a tenant that opts into activation:
+     * only an unsaved model stands in for a missing row.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsATenantThatIsNotAModelOnAnActivatableRelation(): void
+    {
+        $tenant = new class implements Tenant {
+            /** @var bool Looks like an unsaved model's flag, but the tenant is not a model. */
+            public bool $exists = false;
+
+            /**
+             * Return the tenant's identifier.
+             *
+             * @return mixed
+             */
+            #[\Override]
+            public function getTenantIdentifier(): mixed
+            {
+                return 5;
+            }
+        };
+
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), ['tenant_id' => 5]);
+        $principal->setRelation('tenant', $tenant);
+
+        self::assertSame($tenant, $principal->getTenant());
+    }
+
+    /**
+     * The placeholder of a tenant that does not opt into activation is still
+     * returned: that tenant is never checked.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsThePlaceholderOfATenantThatDoesNotOptIn(): void
+    {
+        $placeholder = new StubTenant;
+
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubTenant), ['tenant_id' => 5]);
+        $principal->setRelation('tenant', $placeholder);
+
+        self::assertSame($placeholder, $principal->getTenant());
+    }
+
+    /**
+     * A principal loaded without the type column of a polymorphic tenant
+     * relation is reported: without the type, the tenant cannot be told apart
+     * from one that opts into activation.
+     *
+     * @return void
+     */
+    public function testGetTenantThrowsWhenTheMorphTypeIsNotLoaded(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->morphTo(new Stub3dPrincipal), ['tenant_id' => 5]);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('acts within: its `tenant_type` attribute is not loaded. Select the column so the tenant can be checked.');
+
+        $principal->getTenant();
+    }
+
+    /**
+     * Rows of `[type]`: the empty values of a polymorphic type column.
+     *
+     * @return iterable<string, array{0: ?string}>
+     */
+    public static function provideEmptyMorphTypes(): iterable
+    {
+        yield from [
+            'null'         => [null],
+            'empty string' => [''],
+        ];
+    }
+
+    /**
+     * A polymorphic tenant whose key is set but whose type is empty names a
+     * tenant that cannot be loaded.
+     *
+     * @param  ?string  $type
+     * @return void
+     */
+    #[DataProvider('provideEmptyMorphTypes')]
+    public function testGetTenantThrowsWhenTheMorphTypeIsEmptyAndTheKeyIsSet(?string $type): void
+    {
+        $principal = $this->principalWithTenantRelation($this->morphTo(new Stub3dPrincipal), ['tenant_type' => $type, 'tenant_id' => 5]);
+
+        $this->expectException(TenantUnavailableException::class);
+        $this->expectExceptionMessage('names a tenant through `tenant` without its `tenant_type` type, so it cannot be loaded.');
+
+        $principal->getTenant();
+    }
+
+    /**
+     * A polymorphic tenant with an empty type and an empty key names no tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWhenTheMorphTypeAndKeyAreEmpty(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->morphTo(new Stub3dPrincipal), ['tenant_type' => null, 'tenant_id' => null]);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
+     * A polymorphic tenant with an empty type, loaded without its key, is
+     * reported rather than read as naming no tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantThrowsWhenTheMorphTypeIsEmptyAndTheKeyIsNotLoaded(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->morphTo(new Stub3dPrincipal), ['tenant_type' => null]);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('acts within: its `tenant_id` attribute is not loaded.');
+
+        $principal->getTenant();
+    }
+
+    /**
+     * A polymorphic tenant whose type names a tenant that opts into activation
+     * is checked like a `BelongsTo` one: a set key that loads nothing cannot be
+     * loaded.
+     *
+     * @return void
+     */
+    public function testGetTenantThrowsWhenTheMorphTypeNamesAnActivatableTenantThatCannotBeLoaded(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->morphTo(new StubActivatableTenant), ['tenant_type' => StubActivatableTenant::class, 'tenant_id' => 5]);
+
+        $this->expectException(TenantUnavailableException::class);
+        $this->expectExceptionMessage('names a tenant through `tenant` that cannot be loaded');
+
+        $principal->getTenant();
+    }
+
+    /**
+     * A polymorphic tenant whose type names a tenant that does not opt in is
+     * never checked, so one that cannot be loaded reads as no tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWhenTheMorphTypeNamesATenantThatDoesNotOptIn(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->morphTo(new StubTenant), ['tenant_type' => StubTenant::class, 'tenant_id' => 5]);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
      * Build a `BelongsTo` relation double whose related model is the supplied
      * model.
      *
@@ -334,6 +537,36 @@ final class ActsAsPrincipalTest extends TestCase
     private function belongsTo(Model $related): BelongsTo
     {
         $relation = \Mockery::mock(BelongsTo::class);
+        $relation->shouldReceive('getRelated')->andReturn($related);
+
+        return $relation;
+    }
+
+    /**
+     * Build a tenant model that reads as stored.
+     *
+     * @return \Tests\Unit\Stubs\StubTenant
+     */
+    private function storedTenant(): StubTenant
+    {
+        $tenant         = new StubTenant;
+        $tenant->exists = true;
+
+        return $tenant;
+    }
+
+    /**
+     * Build a `MorphTo` relation double typed by `tenant_type` whose related
+     * model is the supplied model (the principal's own model when the type is
+     * empty, as Eloquent builds it).
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $related
+     * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>&\Mockery\MockInterface
+     */
+    private function morphTo(Model $related): MorphTo
+    {
+        $relation = \Mockery::mock(MorphTo::class);
+        $relation->shouldReceive('getMorphType')->andReturn('tenant_type');
         $relation->shouldReceive('getRelated')->andReturn($related);
 
         return $relation;

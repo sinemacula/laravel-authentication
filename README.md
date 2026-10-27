@@ -443,11 +443,14 @@ class AppTenant extends Model implements CanBeActive, HasType, TenantContract
 A principal whose opted-in tenant cannot be loaded is rejected on the same paths: when the principal's `BelongsTo`
 tenant key names a `CanBeActive` tenant that is deleted, soft-deleted, or hidden by a scope,
 `ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive tenant,
-instead of returning `null` as if the principal acted within no tenant. A `Principal` that implements `getTenant()`
-itself should do the same. As with `ProvidesActiveState`, a principal loaded without the key of an opted-in tenant (a
-partial select) throws a `LogicException` rather than being read as acting within no tenant. A tenant that does not
-implement `CanBeActive` is never checked, so a missing one reads as no tenant, and a `tenant` relation to a model that
-is not a `Tenant` is not a tenant at all.
+instead of returning `null` as if the principal acted within no tenant. The default model a `withDefault()` relation
+returns for such a missing row counts as missing too, rather than as a present tenant. A `Principal` that implements
+`getTenant()` itself should do the same. As with `ProvidesActiveState`, a principal loaded without the key of an
+opted-in tenant (a partial select) throws a `LogicException` rather than being read as acting within no tenant. A
+polymorphic (`MorphTo`) tenant relation names its model through its type column, so a principal loaded without that
+column throws a `LogicException` as well, and one whose type is empty while its key is set is rejected like a tenant
+that cannot be loaded. A tenant that does not implement `CanBeActive` is never checked, so a missing one reads as no
+tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
 
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
