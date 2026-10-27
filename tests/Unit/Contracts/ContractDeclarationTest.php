@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
+use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -234,6 +235,22 @@ final class ContractDeclarationTest extends TestCase
     public function testAttemptLimiterDeclaresExactlyItsTwoCountingModes(): void
     {
         self::assertSame(['acquire', 'blocked', 'recordFailure', 'release'], self::declaredMethods(AttemptLimiter::class));
+    }
+
+    /**
+     * Verifiable identifiers are a capability an identity opts into:
+     * `HasVerifiableIdentifiers` declares reading the identifier, reading its
+     * verification, and recording it, and `Identity` declares none of them.
+     *
+     * @return void
+     */
+    public function testVerifiableIdentifiersAreACapabilityOfTheIdentity(): void
+    {
+        self::assertSame(
+            ['getIdentifierForVerification', 'hasVerifiedIdentifier', 'markIdentifierAsVerified'],
+            self::declaredMethods(HasVerifiableIdentifiers::class),
+        );
+        self::assertFalse((new \ReflectionClass(Identity::class))->hasMethod('hasVerifiedIdentifier'));
     }
 
     /**

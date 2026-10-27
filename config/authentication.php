@@ -149,15 +149,18 @@ return [
     | sessions (a non-empty list of names). `principal_types` lists the
     | principal types that may hold them (a non-empty list), or is `null` to
     | admit any principal, typed or not; with a list, an untyped principal is
-    | refused. A malformed value, or an unknown key, fails closed with an
-    | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used.
+    | refused. `require_verified_identifier` refuses a sign-in with an
+    | identifier (an email address, say) the identity has not verified; sign-ins
+    | that use no identifier, such as SSO, are not affected. A malformed value,
+    | or an unknown key, fails closed with an `InvalidArgumentException` naming
+    | the guard and the key when the guard's policy is first used.
     |
     */
 
     'audience' => [
-        'methods'         => ['password'],
-        'principal_types' => null,
+        'methods'                     => ['password'],
+        'principal_types'             => null,
+        'require_verified_identifier' => false,
     ],
 
     /*
@@ -215,5 +218,21 @@ return [
             'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
             'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
         ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Identifier verification
+    |---------------------------------------------------------------------------
+    |
+    | How long a signed verification link stays valid, in minutes (1 to 10080,
+    | a week); `VerificationLinks::create()` may set a lifetime of its own in
+    | the same range. A value of another type or out of range fails closed when
+    | a link is created.
+    |
+    */
+
+    'verification' => [
+        'link_ttl_minutes' => env('AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES', 60),
     ],
 ];

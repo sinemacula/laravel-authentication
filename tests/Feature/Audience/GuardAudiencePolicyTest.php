@@ -20,6 +20,7 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubTenant;
+use Tests\Unit\Stubs\StubVerifiableIdentity;
 
 /**
  * Feature tests for the package audience policy resolved from the container
@@ -157,6 +158,64 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
+     * The verified-identifier gate is off by default: an unverified identifier
+     * signs in.
+     *
+     * @return void
+     */
+    public function testVerifiedIdentifierIsNotRequiredByDefault(): void
+    {
+        self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+    }
+
+    /**
+     * With the gate on, a sign-in with an identifier of a type is admitted only
+     * when the identity reports that identifier verified; a sign-in that used
+     * no identifier is not gated.
+     *
+     * @return void
+     */
+    public function testGateRequiresTheSignInsIdentifierToBeVerified(): void
+    {
+        $this->setGuardAudience(['require_verified_identifier' => true]);
+
+        self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'email'));
+        self::assertSame(SignInFailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+        self::assertSame(SignInFailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'phone'));
+        self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), null));
+        self::assertNull($this->policy()->admit('other', $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+    }
+
+    /**
+     * An ineligible principal is refused as such before its identifier is
+     * looked at.
+     *
+     * @return void
+     */
+    public function testEligibilityIsDecidedBeforeTheGate(): void
+    {
+        $this->setGuardAudience(['require_verified_identifier' => true, 'principal_types' => ['staff']]);
+
+        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->policy()->admit(self::GUARD, $this->verifiable(false), $this->principalOfType('customer'), 'email'));
+    }
+
+    /**
+     * With the gate on, an identity that cannot report its verified identifiers
+     * is a misconfiguration, never admitted.
+     *
+     * @return void
+     */
+    public function testGateOnAnIdentityWithoutTheCapabilityIsReported(): void
+    {
+        config()->set('authentication.audience.require_verified_identifier', true);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(PlainIdentityFixture::class . ' cannot verify identifiers');
+
+        $this->policy()->admit(self::GUARD, $this->identity(), new PlainPrincipalFixture(1), 'email');
+    }
+
+    /**
      * Malformed audience configuration: where it is set, the value, and the
      * message naming the guard and the key.
      *
@@ -168,6 +227,8 @@ final class GuardAudiencePolicyTest extends TestCase
             . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.';
         $types = 'Audience `principal_types` for guard [api] must be null or a non-empty list of principal types:'
             . ' set `authentication.audience.principal_types` or the guard\'s `audience.principal_types` override.';
+        $gate = 'Audience `require_verified_identifier` for guard [api] must be true or false:'
+            . ' set `authentication.audience.require_verified_identifier` or the guard\'s `audience.require_verified_identifier` override.';
 
         yield from [
             'methods empty'              => ['methods', [], $methods],
@@ -182,6 +243,9 @@ final class GuardAudiencePolicyTest extends TestCase
             'types with an empty name'   => ['principal_types', [''], $types],
             'types with a null'          => ['principal_types', ['staff', null], $types],
             'types false'                => ['principal_types', false, $types],
+            'gate a string'              => ['require_verified_identifier', 'yes', $gate],
+            'gate an integer'            => ['require_verified_identifier', 1, $gate],
+            'gate null'                  => ['require_verified_identifier', null, $gate],
         ];
     }
 
@@ -333,6 +397,23 @@ final class GuardAudiencePolicyTest extends TestCase
     private function identity(): Identity
     {
         return new PlainIdentityFixture(1);
+    }
+
+    /**
+     * An identity whose email address is verified or not.
+     *
+     * @param  bool  $verified
+     * @return \Tests\Unit\Stubs\StubVerifiableIdentity
+     */
+    private function verifiable(bool $verified): StubVerifiableIdentity
+    {
+        $identity = new StubVerifiableIdentity(1, ['email' => 'ben@example.com', 'phone' => '+447700900123']);
+
+        if ($verified) {
+            $identity->markIdentifierAsVerified('email', 'ben@example.com');
+        }
+
+        return $identity;
     }
 
     /**

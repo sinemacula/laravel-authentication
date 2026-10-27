@@ -63,6 +63,8 @@ device record live in the `devices` table so replay and stale credentials can be
   default), and a password rehash that never overwrites a concurrent change.
 - **Rate limits in the database**: sign-in and refresh limited per identifier and per IP address, counted atomically on
   the write connection without a cache.
+- **Identifier verification**: signed verification links bound to their purpose and identifier, and an opt-in,
+  per-guard requirement that sign-in identifiers be verified.
 - **Pluggable everywhere**: identity model, device model, principal resolver, audience policy, attempt limiter,
   identifier normalisers, table names.
 
@@ -260,15 +262,20 @@ hold them, and can give each principal type its own token and session lifetimes.
 ],
 ```
 
-| Key               | Default        | Meaning                                                                               |
-|-------------------|----------------|---------------------------------------------------------------------------------------|
-| `methods`         | `['password']` | The sign-in methods that may start the guard's sessions (a non-empty list of names)   |
-| `principal_types` | `null`         | `null` admits any principal; a non-empty list admits only principals of those types   |
+| Key                           | Default        | Meaning                                                                             |
+|-------------------------------|----------------|-------------------------------------------------------------------------------------|
+| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions (a non-empty list of names) |
+| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types |
+| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                   |
 
 A principal's type is its own or its tenant's (see [Principal type](#principal-type)); with a list, a principal without
 a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method the guard does
 not list fails with `method_not_allowed`, and a principal whose type it does not admit with `principal_ineligible`, at
 sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a session in another.
+With `require_verified_identifier`, a sign-in that used an identifier (an email address for the password method) fails
+with `identifier_unverified` unless the identity reports that identifier verified (see
+[Identifier verification](#identifier-verification)); sign-ins that used no identifier, such as SSO through `start()`,
+and refreshes are not gated, since the external provider or the existing session vouches for them.
 
 A guard key that is present wins, `null` included, so a guard can admit any principal although the package default
 lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
@@ -714,6 +721,61 @@ password changed between the check and the rehash is never overwritten with a ha
 model events and leaves `updated_at` alone. A hash that does not come from the model's own password attribute (a
 `getAuthPassword()` that reads another table) is not rehashed by the provider.
 
+### Identifier verification
+
+Implement `HasVerifiableIdentifiers` on the identity to let the package verify its identifiers and gate sign-in on
+them. The `ProvidesIdentifierVerification` trait reads the identifier of a type from the column named after it
+(`email`) and its verification time from `<type>_verified_at` (`email_verified_at`, as Laravel's own verification
+uses), and throws a `LogicException` for an identity loaded without either column:
+
+```php
+use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
+use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
+
+class AppUser extends User implements HasVerifiableIdentifiers, Identity, Principal
+{
+    use ActsAsPrincipal, Authenticatable, ProvidesIdentifierVerification;
+}
+```
+
+A type is a lower-case letter followed by lower-case letters, digits and underscores (`email`, `phone`). Recording a
+verification is one conditional update, `WHERE <key> = :id AND <type> = :identifier AND <type>_verified_at IS NULL`, so
+a proof for one address can never verify another, even when the address changes while the proof is checked; it fires
+no model events and leaves `updated_at` alone. When an identifier changes, clear its `<type>_verified_at` with it.
+
+Verify by signed link with `Verification\VerificationLinks`. The application owns the route, the message and its
+delivery:
+
+```php
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
+
+// Send it: a signed link to your route, valid for `verification.link_ttl_minutes` (60 by default).
+$url = app(VerificationLinks::class)->create('api', $user, 'email', 'verification.verify');
+
+// Your route: verified, already_verified, mismatch, or null for an invalid link.
+Route::get('/verify-email', function (Request $request, VerificationLinks $links) {
+    return match ($links->consume($request)?->value) {
+        'verified', 'already_verified' => response()->noContent(),
+        default                        => abort(403),
+    };
+})->name('verification.verify');
+```
+
+A link is signed for its purpose (`verify_identifier`), its JWT guard, its identity, the identifier type and a SHA-256
+digest of the identifier in its normal form; it never carries the identifier itself. It stops working when it expires
+or when the identifier changes, and it verifies nothing for a guard that is not a JWT guard or an identity that cannot
+verify identifiers. `create()` takes the route's own parameters (but not the reserved `guard`, `identity`, `type`,
+`purpose`, `hash`, `expires` or `signature`) and an optional lifetime in minutes (1 to 10080, a week, like the
+configured one). Consuming a link loads the identity through the guard's identity provider from the write connection
+and verifies the identifier; it never signs anyone in. Following it again reports `already_verified`.
+
+`Verification\IdentifierVerifier::verify($guard, $identity, $type, $identifier, $client)` is the step a link (or, later,
+a one-time code) ends in: the proven identifier must be the identity's current one, compared in its normal form. Only
+the call that records the verification dispatches `Events\IdentifierVerified` (guard, identity, type and client, never
+the identifier), once the record is committed on the identity's connection; a rolled-back verification is never
+reported.
+
 ### Active-state enforcement
 
 Activation is opt-in. A model that does not implement `CanBeActive` is always active, so the 2D example above, on
@@ -970,6 +1032,7 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 | `SineMacula\...\Events\DeviceRevoked`       | The package revoked a device (a replay); carries reason   |
+| `SineMacula\...\Events\IdentifierVerified`  | An identifier was verified (after commit); carries type   |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is

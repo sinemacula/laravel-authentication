@@ -6,11 +6,10 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionResolverInterface;
-use Illuminate\Database\DatabaseTransactionRecord;
-use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
@@ -142,11 +141,7 @@ final readonly class RefreshRotationStore
      * committed: at once when that connection has no open transaction,
      * otherwise when its transaction commits, and never when it is rolled back.
      * A transaction open on another connection neither delays nor cancels it,
-     * since the device's writes were not made in it.
-     *
-     * The manager is resolved when called, as Laravel's event dispatcher does,
-     * so a manager swapped in later (by the testing transaction traits, which
-     * ignore their own wrapping transaction) is the one consulted.
+     * since the device's writes were not made in it (see `AfterCommit`).
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \Closure(): void  $callback
@@ -156,21 +151,7 @@ final readonly class RefreshRotationStore
      */
     public function afterCommit(EloquentDevice&Model $device, \Closure $callback): void
     {
-        $manager    = ($this->transactions)();
-        $connection = $device->getConnection()->getName();
-
-        $pending = $manager instanceof DatabaseTransactionsManager
-            ? $manager->callbackApplicableTransactions()->last(static fn (DatabaseTransactionRecord $transaction): bool => $transaction->connection === $connection)
-            : null;
-
-        if ($pending === null) {
-
-            $callback();
-
-            return;
-        }
-
-        $pending->addCallback($callback);
+        (new AfterCommit($this->transactions))->run($device, $callback);
     }
 
     /**

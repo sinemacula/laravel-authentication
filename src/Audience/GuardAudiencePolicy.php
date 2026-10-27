@@ -8,9 +8,11 @@ use Illuminate\Config\Repository as ConfigRepository;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * The package's audience policy: each guard's `audience` configuration over the
@@ -31,7 +33,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 final readonly class GuardAudiencePolicy implements AudiencePolicy
 {
     /** @var list<string> Keys an `audience` block may hold. */
-    private const array KEYS = ['methods', 'principal_types'];
+    private const array KEYS = ['methods', 'principal_types', 'require_verified_identifier'];
 
     /**
      * Constructor.
@@ -69,6 +71,12 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * `principal_ineligible`. A principal without a type is refused by a guard
      * that lists types.
      *
+     * Then, for a guard that sets `require_verified_identifier` and a sign-in
+     * that used an identifier of a type, refuse it as `identifier_unverified`
+     * unless the identity reports that identifier verified (read on the write
+     * connection). The identity must implement `HasVerifiableIdentifiers`
+     * then; one that does not is a misconfiguration (`LogicException`).
+     *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -82,13 +90,20 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     #[\Override]
     public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?SignInFailureReason
     {
-        $types = $this->settings($guard)['principal_types'];
+        $settings = $this->settings($guard);
+        $types    = $settings['principal_types'];
 
         if ($types !== null && !in_array(PrincipalType::of($principal), $types, true)) {
             return SignInFailureReason::PRINCIPAL_INELIGIBLE;
         }
 
-        return null;
+        if (!$settings['require_verified_identifier'] || $identifierType === null) {
+            return null;
+        }
+
+        $verifiable = IdentifierVerifier::verifiable($identity);
+
+        return WriteConnection::during($verifiable, static fn (): bool => $verifiable->hasVerifiedIdentifier($identifierType)) ? null : SignInFailureReason::IDENTIFIER_UNVERIFIED;
     }
 
     /**
@@ -115,7 +130,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * one fails closed whichever check runs first.
      *
      * @param  string  $guard
-     * @return array{methods: non-empty-list<non-empty-string>, principal_types: ?non-empty-list<non-empty-string>}
+     * @return array{methods: non-empty-list<non-empty-string>, principal_types: ?non-empty-list<non-empty-string>, require_verified_identifier: bool}
      *
      * @throws \InvalidArgumentException
      */
@@ -139,9 +154,14 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
             throw new \InvalidArgumentException(self::message($guard, 'principal_types', 'null or a non-empty list of principal types'));
         }
 
+        if (!is_bool($settings['require_verified_identifier'])) {
+            throw new \InvalidArgumentException(self::message($guard, 'require_verified_identifier', 'true or false'));
+        }
+
         return [
-            'methods'         => $settings['methods'],
-            'principal_types' => $settings['principal_types'],
+            'methods'                     => $settings['methods'],
+            'principal_types'             => $settings['principal_types'],
+            'require_verified_identifier' => $settings['require_verified_identifier'],
         ];
     }
 
