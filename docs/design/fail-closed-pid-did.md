@@ -68,8 +68,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Guards/JwtGuard.php`: `resolveContextFromToken()`, `resolvePrincipalFromClaims()`, `loadIdentityFromClaims()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: `matchesPidHint()` and `resolveDeviceFromHint()`, each shared by the
   bearer path and the pinned-context check in `attempt()`, plus `resolvePinnedPrincipal()` and `resolvePinnedDevice()`.
-- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `findDeviceById()`, `classify()`,
-  `resolveRefreshPrincipal()`.
+- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `classify()`, `resolveRefreshPrincipal()`; the device
+  is found by `src/Jwt/DeviceLookup.php`'s `find()`.
 - `src/Jwt/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind `matchesPidHint()` and
   the refresh `pid` check.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.

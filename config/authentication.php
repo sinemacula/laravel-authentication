@@ -64,9 +64,10 @@ return [
     |---------------------------------------------------------------------------
     |
     | Microsecond budget passed to Illuminate\Support\Timebox around the
-    | credential checks in a guard's `attempt()` and `validate()`. Must exceed
-    | the worst-case hasher cost (bcrypt cost 12 ≈ 150–250ms) or timing-safety
-    | breaks down.
+    | credential checks in a guard's `attempt()` and `validate()`, and around
+    | a session service `signIn()` from its sign-in method to its admission.
+    | Must exceed the worst-case hasher cost (bcrypt cost 12 ≈ 150–250ms) or
+    | timing-safety breaks down.
     |
     */
 

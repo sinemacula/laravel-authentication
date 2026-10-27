@@ -253,9 +253,9 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
     /**
      * `validate()` returns `false` (and does NOT call `Timebox::returnEarly`)
-     * when the identity provider returns a non-Identity user that fails
-     * `hasValidCredentials`. Pins the `return false` arm of the validate()
-     * match.
+     * when the identity provider returns a non-Identity user, which the
+     * password sign-in method never verifies. Pins the `return false` arm of
+     * the validate() match.
      *
      * @return void
      *

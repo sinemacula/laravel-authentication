@@ -10,9 +10,9 @@ use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 /**
  * How a sign-in through the session service ended: a started session, a
  * pending sign-in waiting for a further factor, or a failure with its reason
- * (and, for `rate_limited`, the seconds until the next attempt may be made). A failure is a result rather than an exception, so the
- * caller answers it as it chooses; exceptions are kept for misconfiguration and
- * server errors.
+ * (and, for `rate_limited`, the seconds until the next attempt may be made). A
+ * failure is a result rather than an exception, so the caller answers it as it
+ * chooses; exceptions are kept for misconfiguration and server errors.
  *
  * @api
  *

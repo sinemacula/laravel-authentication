@@ -15,7 +15,8 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  * Dispatched when the session service starts a session: a real sign-in, with
  * the method that proved who signed in, as opposed to Laravel's `Login` and
  * `Authenticated`, which also fire when a refresh or a bearer request binds the
- * guard. A refresh dispatches `Refreshed` instead.
+ * guard. A refresh dispatches `Refreshed` instead. `attempt()` starts no
+ * session and never dispatches it; Laravel's `Login` reports its sign-ins.
  *
  * Dispatched once the session is committed on the device's own connection: at
  * once when that connection has no open transaction, after its transaction

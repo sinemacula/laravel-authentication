@@ -19,14 +19,17 @@ use Illuminate\Support\Facades\Config;
  * writes the counters with single statements of its own; the model exists so
  * `model:prune` can delete counters whose window has ended.
  *
+ * Only the class name is public, for applications to schedule that pruning
+ * with; its columns and behaviour belong to the attempt limiter.
+ *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @property string $key
  * @property int $hits
  * @property \Carbon\CarbonInterface $window_ends_at
- *
- * @internal
  */
 final class RateLimit extends Model
 {

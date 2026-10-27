@@ -37,6 +37,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 ## Success Path
 
 - `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`.
+  It starts no session, so it never dispatches `SignedIn`, which reports the sessions the session service starts;
+  Laravel's `Login` reports an `attempt()` sign-in.
 - The session service's `signIn()` emits `Attempting`, then binds through `login()` (`Validated -> Login ->
   Authenticated -> PrincipalAssigned -> DeviceAuthenticated`) once the session's transaction is done, and dispatches
   `DeviceCreated` (new devices only) and `SignedIn` when the device's connection commits; `start()` does the same
@@ -74,7 +76,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
   path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
   by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
-  identity's own `HasDevices` devices, of the same class, not revoked, and with a session that has not ended. The owner
+  identity's own `HasDevices` devices, of the same class, of this guard (a device of another guard, or of none, counts
+  as missing), not revoked, and with a session that has not ended. The owner
   is read from the principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is
   prevented, and an owner that cannot be read fails the check. The resolved instances are bound; a failed check fails
   the attempt. `login()`, `setPrincipal()`, and `setDevice()` stay trusted binds.
@@ -138,7 +141,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
 - `src/Listeners/RecordDeviceUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound devices.
 - `src/Jwt/RefreshTokenExchange.php`: `revokeDevice()` and the `DeviceRevoked` dispatch, deferred to the device
-  connection's commit by `RefreshRotationStore::afterCommit()`; `src/Events/DeviceRevoked.php`.
+  connection's commit by `Database\AfterCommit::run()`; `src/Events/DeviceRevoked.php`.
 
 ## Authoritative Tests
 

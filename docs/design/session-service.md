@@ -24,8 +24,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   be active, and the audience policy must admit them with the method's identifier type; a password is rehashed; the
   proof of a device is checked; the additional-factor policy is asked; the session is written, or a pending sign-in is
   issued. Only a success gives the slots back; a pending sign-in keeps them, with their windows, until `complete()`
-  starts its session. The slots are taken and given back outside the session's transaction, so a sign-in rolled back by
-  its caller still counts.
+  starts its session. The slots are written on `rate_limits.connection`, outside the session's own transaction but not
+  outside a transaction the caller opened on that connection: with the default (`null`, the default connection) a
+  caller that rolls back around a sign-in rolls its counts back too, so its attempts go uncounted. Only counters on a
+  connection of their own survive such a rollback.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
@@ -43,7 +45,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - Continuing a proven device is one compare-and-swap on the row exactly as it was proven (digest, owner, principal, not
   revoked). It restarts both deadlines, sets a new rotation id with no previous one, and records the method, the last
   use and the client's description when given; it keeps the guard, owner, principal and creation details. A swap that
-  misses reconsiders the sign-in without the device, factor policy included, and creates one; it never retries.
+  misses reconsiders the sign-in without the device, factor policy included: it creates a device, or issues a pending
+  sign-in when the factor policy now asks for one; it never retries.
 - The guard is bound after the session's transaction, with the usual immediate bind events; `DeviceCreated` (new
   devices only) and `SignedIn` follow the commit on the device's connection and never fire for a rolled-back session.
 - The service holds no per-sign-in state, and reads the guard's provider, resolver, dispatcher and request, and the

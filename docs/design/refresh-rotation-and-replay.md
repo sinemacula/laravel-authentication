@@ -144,8 +144,9 @@ other rotated token as a replay that revokes the device.
   earlier token of the device becomes a replay: presenting one while the new session is live revokes the device (RFC
   9700). That is deliberate. The client that proved the device has just received the new pair, and one that lost the
   sign-in response and retries with the old token proves nothing (the old id is no longer current) and gets a new
-  device. A swap that misses (a parallel refresh rotated the device first) never retries: the sign-in starts on a new
-  device.
+  device. A swap that misses (a parallel refresh rotated the device first) never retries: the sign-in is reconsidered
+  without the device, so it starts on a new device, or becomes a pending sign-in when the additional-factor policy now
+  asks for a factor.
 - Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the device.
 - When the swap affects no row, the row changed between the read and the write. The exchange re-reads it once from the

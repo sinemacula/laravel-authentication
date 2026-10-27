@@ -192,6 +192,8 @@ trait SignsInWithCredentials
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function refuseIfAFactorIsRequired(AdmittedSignIn $admitted, ClientContext $client): AdmittedSignIn|RefusedSignIn
     {

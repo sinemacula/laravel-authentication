@@ -500,9 +500,13 @@ usually given, so it cannot spread its attempts over its own addresses, and an I
 address's counter.
 The table holds only SHA-256 digests of the guard, flow, scope and identifier or IP address, never either in clear.
 Every change to a count is one statement the database applies atomically. A database error propagates as a server error:
-a limiter that cannot count lets nothing through. The counters live on `rate_limits.connection` (the default connection
-when `null`): counts written on the same connection as a transaction you open around a sign-in are rolled back with it,
-so point it at a connection of its own if you wrap sign-ins in transactions you may roll back.
+a limiter that cannot count lets nothing through.
+
+> **Transactions:** the counters live on `rate_limits.connection`, the default connection when `null`. Counts written on
+> the same connection as a transaction you open around a sign-in are rolled back with it, so a sign-in that your code
+> rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in transactions you may
+> roll back, point `rate_limits.connection` at a connection of its own (a second connection to the same database will
+> do).
 
 Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
 [Additional factors](#additional-factors)). Both models live outside your application's `app/Models`, so name them when
@@ -518,7 +522,8 @@ Schedule::command('model:prune', ['--model' => [PendingSignIn::class, RateLimit:
 
 ### Credential validation timing
 
-`attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels:
+`attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels, and the
+session service's `signIn()` runs its sign-in method and the checks after it in the same budget:
 
 ```php
 'timebox' => [
@@ -950,7 +955,8 @@ with Laravel's own guards; neither does a bearer request or a refresh, which nev
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
-(through `HasDevices`, looked up the way a bearer `did` is), not revoked, and with a session that has not ended. A pin
+(through `HasDevices`, looked up the way a bearer `did` is), of this guard (a device of another guard, or of none, counts
+as missing), not revoked, and with a session that has not ended. A pin
 that fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
 only pass it a principal and device you have already proven belong to the identity. `setPrincipal()` and `setDevice()`
 are trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a
@@ -972,14 +978,24 @@ creates the device, issues the first token pair and binds the guard in one call:
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
+// Validating first answers malformed input (a missing field, a list where a
+// string belongs) with a 422 rather than a TypeError.
+$input = $request->validate([
+    'email'         => ['required', 'string'],
+    'password'      => ['required', 'string'],
+    'client_name'   => ['nullable', 'string'],
+    'platform'      => ['nullable', 'string'],
+    'refresh_token' => ['nullable', 'string'],
+]);
+
 $result = Auth::sessions('api')->signIn(
     'password',
-    $request->only('email', 'password'),
+    ['email' => $input['email'], 'password' => $input['password']],
     SignInContext::fromRequest(
         $request,
-        clientName: $request->input('client_name'),
-        platform: $request->input('platform'),
-        refreshToken: $request->input('refresh_token'),
+        clientName: $input['client_name'] ?? null,
+        platform: $input['platform'] ?? null,
+        refreshToken: $input['refresh_token'] ?? null,
     ),
 );
 
@@ -1023,18 +1039,21 @@ device is written and the pair issued in one transaction on the device's connect
 no device behind. The guard is then bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and
 `DeviceAuthenticated` fire at once), and `DeviceCreated` and `SignedIn` are dispatched once the device is committed on
 its own connection: at once outside a transaction, after your transaction commits inside one, and never when it is
-rolled back. Do not roll back around a sign-in: the guard stays bound. A listener that throws on a bind event fails the
+rolled back. Do not roll back around a sign-in: the guard stays bound, and unless `rate_limits.connection` names a
+connection of its own the sign-in's attempt counts are rolled back too, so it goes uncounted (see
+[Rate limits](#rate-limits)). A listener that throws on a bind event fails the
 call after the device was committed, so the pair is lost; keep those listeners from throwing or queue them.
 
 A client that signs in again with its current refresh token in the context continues on the same device instead of
 creating another: the token proves the client holds that session, even when it has expired. It counts only when it is
 the device's current refresh token, validly signed for this guard, for a device the identity owns, of this guard, for
-the same principal, and not revoked; anything else simply creates a new device. Continuing a device starts a new
-session on it: a new rotation id (the earlier refresh tokens of the device become replays, see
-[Refresh token replay](#refresh-token-replay)), both deadlines from now, the method and the client's description
-recorded, and `DeviceCreated` not dispatched. If the device changes before it can be continued (a parallel refresh,
-say), the sign-in is reconsidered without it and starts on a new device. The additional-factor policy is told of the
-device the client proved, so a factor policy can trust a device it has seen a factor on.
+the same principal, and not revoked; anything else simply creates a new device. Continuing a device starts a new session
+on it: a new rotation id (the earlier refresh tokens of the device become replays, see [Refresh token
+replay](#refresh-token-replay)), both deadlines from now, the method and the client's description recorded, and
+`DeviceCreated` not dispatched. If the device changes before it can be continued (a parallel refresh, say), the sign-in
+is reconsidered without it: it starts on a new device, or hands out a pending sign-in when the additional-factor policy
+now asks for a further factor without the device's trust. The additional-factor policy is told of the device the client
+proved, so a factor policy can trust a device it has seen a factor on.
 
 #### Additional factors
 
@@ -1053,15 +1072,19 @@ only then completes it. Possessing the token proves nothing about the factor: `c
 like `start()`.
 
 ```php
+['pending_token' => $token, 'code' => $code] = $request->validate([
+    'pending_token' => ['required', 'string'],
+    'code'          => ['required', 'string'],
+]);
+
 $sessions = Auth::sessions('api');
-$token    = $request->string('pending_token')->toString();
 $pending  = $sessions->pending($token);
 
 if ($pending === null) {
     abort(401);
 }
 
-if (! $factors->verify($pending->identity, $pending->principal, $request->string('code')->toString())) {
+if (! $factors->verify($pending->identity, $pending->principal, $code)) {
     // One guess per pending sign-in; another needs a new sign-in, which counts
     // against the sign-in limits.
     $sessions->discard($token);
@@ -1234,10 +1257,12 @@ the published config:
 ],
 ```
 
-`SignedIn` reports a real sign-in, with the method that proved who signed in, unlike Laravel's `Login` and
-`Authenticated`, which also fire when a refresh or a bearer request binds the guard; a refresh dispatches `Refreshed`
-instead. `DeviceCreated` precedes it for a new device. Both carry the guard, identity, principal, tenant, device,
-method and client (IP address and user agent), and never a token.
+`SignedIn` reports a session the session service started (`signIn()`, `start()` or `complete()`), with the method that
+proved who signed in, unlike Laravel's `Login` and `Authenticated`, which also fire when a refresh or a bearer request
+binds the guard; a refresh dispatches `Refreshed` instead. `attempt()` starts no session and never dispatches it:
+Laravel's `Login` reports its sign-ins, and code that calls `start()` after `attempt()` reports the sign-in once.
+`DeviceCreated` precedes it for a new device. Both carry the guard, identity, principal, tenant, device, method and
+client (IP address and user agent), and never a token.
 
 `SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's
 client (IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a

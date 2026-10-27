@@ -83,6 +83,8 @@ final readonly class SessionService
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connections
      * @param  \Closure(): mixed  $transactions
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function __construct(
 
@@ -448,6 +450,7 @@ final readonly class SessionService
      * @param  ?string  $identifierType
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
@@ -572,6 +575,8 @@ final readonly class SessionService
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @return bool
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     private function requiresAdditionalFactor(AdmittedSignIn $admitted, string $method, SignInContext $context): bool
     {

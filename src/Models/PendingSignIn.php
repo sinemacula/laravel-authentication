@@ -21,6 +21,11 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * `authentication.sign_in.pending_table`. Rows whose credential has expired are
  * pruned by Laravel's `model:prune --model` with this class.
  *
+ * Only the class name is public, for applications to schedule that pruning
+ * with; its columns and behaviour belong to the session service.
+ *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
@@ -42,8 +47,6 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * @property ?string $device_refresh_key
  * @property ?array<string, string> $attempt_windows
  * @property \Carbon\CarbonInterface $expires_at
- *
- * @internal
  */
 final class PendingSignIn extends Model
 {

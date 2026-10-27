@@ -278,8 +278,9 @@ abstract class AbstractGuard implements ContextualGuard
      * Pins are verified, not trusted, because callers may take them from
      * request input: the principal must resolve through the resolver's hinted
      * path to the same principal of the same class, and the device must be one
-     * of the identity's own devices that is not revoked and whose session has
-     * not ended. The resolved instances are bound, and a pin that fails either
+     * of the identity's own devices of this guard that is not revoked and whose
+     * session has not ended (a device of another guard, or of none, counts as
+     * missing). The resolved instances are bound, and a pin that fails either
      * check fails the attempt.
      *
      * A failure fires Laravel's `Failed`, carrying the account the credentials
@@ -340,9 +341,9 @@ abstract class AbstractGuard implements ContextualGuard
      * Public, trusted entry point for callers that validated the identity
      * out-of-band (refresh, OAuth, SSO): the principal and device are bound as
      * given, without the ownership checks `attempt()` applies to its pins.
-     * Paths that already went through `hasValidCredentials()` should call
-     * `bindAuthenticationLifecycle()` directly to avoid double-firing
-     * `Validated`.
+     * Paths that already fired `Validated` (as `attempt()` does once the
+     * password sign-in method accepts the credentials) call
+     * `bindAuthenticationLifecycle()` directly to avoid firing it twice.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
      * device from a prior login on the same instance.
