@@ -55,9 +55,14 @@ final class RateLimit extends Model
      * Create a counter bound to the configured table and connection, read on
      * each instantiation so runtime config changes take effect at once. The
      * table and connection have to be applied before Eloquent reads them, so
-     * this is construction rather than model behaviour.
+     * this is construction rather than model behaviour. A connection that is
+     * neither a name nor `null` or empty (for the default) is refused, rather
+     * than counting on the default connection, inside the transactions the
+     * separate connection was configured to stay out of.
      *
      * @param  array<string, mixed>  $attributes
+     *
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
@@ -65,8 +70,12 @@ final class RateLimit extends Model
     {
         $connection = Config::get('authentication.rate_limits.connection');
 
+        if ($connection !== null && !is_string($connection)) {
+            throw new \InvalidArgumentException('`authentication.rate_limits.connection` must be a connection name, or null or empty for the default connection.');
+        }
+
         $this->setTable(Config::string('authentication.rate_limits.table', 'rate_limits'));
-        $this->setConnection(is_string($connection) && $connection !== '' ? $connection : null);
+        $this->setConnection($connection === '' ? null : $connection);
 
         parent::__construct($attributes);
     }

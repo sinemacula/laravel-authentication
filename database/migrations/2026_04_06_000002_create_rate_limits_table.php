@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Models\RateLimit;
 
 /**
  * Create the rate limits table.
@@ -53,16 +54,17 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the counters live on: the configured one, or the default.
+     * The connection the counters live on, as the model reads it: the
+     * configured one, or the default.
      *
      * @return ?string
+     *
+     * @throws \InvalidArgumentException
      */
     #[Override]
     public function getConnection(): ?string
     {
-        $connection = Config::get('authentication.rate_limits.connection');
-
-        return is_string($connection) && $connection !== '' ? $connection : null;
+        return (new RateLimit)->getConnectionName();
     }
 
     /**

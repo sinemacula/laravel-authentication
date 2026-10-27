@@ -9,6 +9,7 @@ use Illuminate\Database\Schema\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -168,6 +169,47 @@ final class RateLimitsTableSchemaTest extends TestCase
         config()->set('authentication.rate_limits.connection', '');
 
         self::assertNull($this->loadMigration()->getConnection());
+    }
+
+    /**
+     * Connections that are neither a name nor `null` or empty.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideMalformedConnections(): iterable
+    {
+        yield from [
+            'a list of names' => [['limits']],
+            'true'            => [true],
+            'an integer'      => [1],
+        ];
+    }
+
+    /**
+     * The migration refuses a connection that is not a name, as the model does,
+     * instead of creating the table on the default connection.
+     *
+     * @param  mixed  $connection
+     * @return void
+     */
+    #[DataProvider('provideMalformedConnections')]
+    public function testRefusesAConnectionThatIsNotAName(mixed $connection): void
+    {
+        Schema::dropIfExists(self::TABLE);
+
+        config()->set('authentication.rate_limits.connection', $connection);
+
+        try {
+            $this->loadMigration()->up(); // @phpstan-ignore method.notFound
+
+            self::fail('Expected the migration to refuse the connection.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('`authentication.rate_limits.connection` must be a connection name', $e->getMessage());
+        } finally {
+            config()->set('authentication.rate_limits.connection', null);
+        }
+
+        self::assertFalse(Schema::hasTable(self::TABLE));
     }
 
     /**

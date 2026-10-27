@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 use Tests\TestCase;
 
@@ -59,6 +60,45 @@ final class RateLimitTest extends TestCase
         config()->set('authentication.rate_limits.connection', '');
 
         self::assertNull((new RateLimit)->getConnectionName());
+    }
+
+    /**
+     * Connections that are neither a name nor `null` or empty.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideMalformedConnections(): iterable
+    {
+        yield from [
+            'a list of names' => [['limits']],
+            'true'            => [true],
+            'false'           => [false],
+            'an integer'      => [1],
+        ];
+    }
+
+    /**
+     * A connection that is not a name fails closed instead of counting on the
+     * default connection, inside the transactions a separate connection keeps
+     * the counts out of.
+     *
+     * @param  mixed  $connection
+     * @return void
+     */
+    #[DataProvider('provideMalformedConnections')]
+    public function testRefusesAConnectionThatIsNotAName(mixed $connection): void
+    {
+        config()->set('authentication.rate_limits.connection', $connection);
+
+        try {
+            new RateLimit;
+
+            self::fail('Expected the connection to be refused.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertSame('`authentication.rate_limits.connection` must be a connection name, or null or empty for the default connection.', $e->getMessage());
+        } finally {
+            config()->set('authentication.rate_limits.connection', null);
+        }
     }
 
     /**
