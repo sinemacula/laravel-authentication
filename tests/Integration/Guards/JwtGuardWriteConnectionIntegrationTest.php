@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -134,6 +135,31 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         self::assertTrue($identity->is($guard->user()));
         self::assertSame($device->getKey(), $guard->device()?->getDeviceIdentifier());
+    }
+
+    /**
+     * A device revoked on the primary while the replica still shows it live
+     * rejects the bearer token: the revocation is read from the writer.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsDeviceRevokedOnThePrimaryWhileTheReplicaLags(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity);
+
+        $this->copyRowToReplica('stub_principals', $identity->getKey());
+        $this->copyRowToReplica('devices', $device->getKey());
+
+        Device::query()->whereKey($device->getKey())->update(['revoked_at' => Carbon::now()]);
+
+        $token = $this->authManager()->jwt('api')->issueAccessToken($identity, $identity, $device);
+
+        $guard = $this->guardForRequest(Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
+
+        self::assertNull($guard->user());
     }
 
     /**
@@ -341,6 +367,23 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ])->save();
 
         return $device;
+    }
+
+    /**
+     * Copy a row as it stands on the primary into the replica, so the replica
+     * holds that version until the test changes the primary again.
+     *
+     * @param  string  $table
+     * @param  mixed  $key
+     * @return void
+     */
+    private function copyRowToReplica(string $table, mixed $key): void
+    {
+        $row = DB::connection(self::PRIMARY_CONNECTION)->table($table)->where('id', $key)->first();
+
+        self::assertNotNull($row);
+
+        DB::connection(self::REPLICA_CONNECTION)->table($table)->insert((array) $row);
     }
 
     /**

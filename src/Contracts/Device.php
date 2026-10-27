@@ -60,9 +60,10 @@ interface Device
     public function getRefreshKey(): ?string;
 
     /**
-     * Return when the device was revoked, or `null`. A non-null value causes
-     * the refresh exchange to reject refresh attempts with reason
-     * `device_revoked`.
+     * Return when the device was revoked, or `null`. A non-null value rejects
+     * the device everywhere: the bearer path treats it exactly like a missing
+     * device, so access tokens naming it stop authenticating at once, and the
+     * refresh exchange rejects it with reason `device_revoked`.
      *
      * @return ?\Carbon\CarbonInterface
      */

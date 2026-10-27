@@ -252,16 +252,15 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Revoking a device blocks refresh for that device, but already-issued
-     * access tokens still authenticate until they expire because the bearer
-     * path does not consult access-token `jti` values or the device's
-     * `revoked_at` timestamp.
+     * Revoking a device ends its session at once: an access token naming the
+     * device is rejected exactly as if the device were missing, and its refresh
+     * token no longer rotates.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testRevokingDeviceBlocksRefreshButNotExistingAccessToken(): void
+    public function testRevokingDeviceBlocksRefreshAndExistingAccessToken(): void
     {
         $user = $this->seedUser();
 
@@ -288,26 +287,13 @@ final class JwtGuardIntegrationTest extends TestCase
             ->whereKey($device->getKey())
             ->update(['revoked_at' => $this->now]);
 
-        Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-device', static function (): array {
-
-            /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
-            $manager = app('auth');
-
-            return [
-                'check'      => Auth::check(),
-                'device_key' => $manager->device()?->getDeviceIdentifier(),
-            ];
-        });
+        Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-device', static fn (): string => 'ok');
 
         $response = $this->withHeaders([
             'Authorization' => self::BEARER_PREFIX . $accessToken,
         ])->getJson('/revoked-device');
 
-        $response->assertOk();
-        $response->assertJson([
-            'check'      => true,
-            'device_key' => $device->getKey(),
-        ]);
+        $response->assertStatus(401);
 
         $guard = $this->freshGuard();
 

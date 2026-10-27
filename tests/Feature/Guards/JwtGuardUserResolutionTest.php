@@ -678,6 +678,73 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * Fail-closed: a `did` naming a revoked device is rejected exactly like a
+     * missing device, from the single lookup that loaded it, and `Failed` names
+     * the resolved identity.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserRejectsTokenWhenDidHintNamesRevokedDevice(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $device = new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => $this->now]);
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andReturn($device);
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event;
+            });
+
+        self::assertNull($guard->user());
+        self::assertNull($guard->device());
+        self::assertSame([Attempting::class, Failed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
+        self::assertInstanceOf(Failed::class, $dispatched[1]);
+        self::assertSame($identity, $dispatched[1]->user);
+    }
+
+    /**
      * A `did` that cannot be a key of the identity's device model is rejected
      * without querying the devices relation, and `Failed` still names the
      * resolved identity.

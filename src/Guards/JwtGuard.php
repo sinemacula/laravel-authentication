@@ -164,9 +164,11 @@ final class JwtGuard extends AbstractGuard
     /**
      * Resolve a device for the identity from a hint (typically the `did`
      * claim), reading from the write connection so a lagging replica cannot
-     * resolve a deleted device. Returns null when the identity does not
-     * implement `HasDevices`, the hint cannot be a key of the device model (no
-     * query is made), or the device is not found.
+     * resolve a deleted or revoked device. Returns null when the identity does
+     * not implement `HasDevices`, the hint cannot be a key of the device model
+     * (no query is made), or the device is not found or has been revoked: a
+     * revoked device is treated exactly like a missing one, from the row
+     * already loaded.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -186,7 +188,7 @@ final class JwtGuard extends AbstractGuard
 
         $device = $devices->find($hint);
 
-        return $device instanceof Device ? $device : null;
+        return $device instanceof Device && $device->getRevokedAt() === null ? $device : null;
     }
 
     /**

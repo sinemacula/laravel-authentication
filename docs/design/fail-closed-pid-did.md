@@ -9,7 +9,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 
 - A present `pid` must resolve to that exact principal identifier. The same check verifies a principal pinned on
   `attempt()`, which must also come back as the same class.
-- A present bearer `did` must resolve to a real device owned by the resolved identity.
+- A present bearer `did` must resolve to a real, unrevoked device owned by the resolved identity. A device with
+  `revoked_at` set is treated exactly like a missing one, so revoking a device ends its access tokens at once; the check
+  reads the row the lookup already loaded, with no extra query.
 - Refresh is stricter than bearer auth: refresh always requires a valid `did`, because refresh is device-backed.
 - A `did` is checked against the device model's key format before any query; one that cannot be a key fails closed as
   an unresolved device, and a database error on a well-formed `did` propagates instead of reading as a missing device.
@@ -77,6 +79,12 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
+  `testUserRejectsTokenWhenDidHintNamesRevokedDevice`
+- `tests/Integration/Guards/JwtGuardIntegrationTest.php`
+  `testRevokingDeviceBlocksRefreshAndExistingAccessToken`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testBearerRejectsDeviceRevokedOnThePrimaryWhileTheReplicaLags`
+- `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsMalformedDidHintWithoutQueryingDevices`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserPropagatesDatabaseErrorFromDeviceLookup`
@@ -107,6 +115,7 @@ Update this note when any of the following change:
 - how a `did` is checked against the device model's key format before the lookup
 - whether hinted principal resolution can short-circuit through `ResolvesHintedPrincipal`
 - whether bearer `did` remains identity-scoped through `HasDevices`
+- whether a revoked device is still rejected on the bearer path like a missing one
 - whether refresh `did` remains backed by the configured device model
 - how late-path bearer failures are attributed on the `Failed` event
 - whether the identity, principal, and device reads still go to the write connection

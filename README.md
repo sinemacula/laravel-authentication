@@ -209,6 +209,10 @@ or swap `device.model` entirely - custom models must implement the `EloquentDevi
 that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates
 the default names, so a model that renames a column needs its own migration.
 
+A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
+missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
+than when its access tokens expire.
+
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
 treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`

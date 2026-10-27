@@ -38,7 +38,8 @@ stateful per-device credentials with server-side replay detection.
 - `rotation_reuse` is narrower than `rotation_mismatch`: it is reserved for the branch where the token verified against
   the in-memory digest but lost the CAS race before rotation completed.
 - `rotation_reuse` revokes the device family immediately; a plain stale-token `rotation_mismatch` does not.
-- Revoked devices produce `device_revoked`.
+- Revoked devices produce `device_revoked`. Revocation is not refresh-only: the bearer path rejects an access token
+  naming a revoked device as if the device were missing (see `fail-closed-pid-did.md`).
 - Refresh does not rely on Eloquent observers. The raw update path deliberately bypasses them; consumers should hang
   side effects off `RefreshFailed` and `Refreshed` instead.
 
@@ -71,7 +72,7 @@ stateful per-device credentials with server-side replay detection.
 - `tests/Integration/Guards/JwtGuardRefreshPrincipalContinuityIntegrationTest.php`
   `testRefreshPreservesOriginalPrincipalTenantAndTypeWhenDefaultDiffers`
 - `tests/Integration/Guards/JwtGuardIntegrationTest.php`
-  `testRevokingDeviceBlocksRefreshButNotExistingAccessToken`
+  `testRevokingDeviceBlocksRefreshAndExistingAccessToken`
 - `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
   `testRefreshRejectsTokenWhenIdentityBecomesInactiveAfterIssuance`
 - `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
