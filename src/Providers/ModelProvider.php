@@ -8,6 +8,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
@@ -120,6 +121,14 @@ class ModelProvider implements IdentityProvider
      * the single source of password verification. An empty filtered set returns
      * `null` rather than running a where-less query.
      *
+     * A credential for an attribute the model designates as an identifier
+     * (`Casts\NormalisedIdentifier`) is normalised first, as the attribute is
+     * when it is set, so the lookup matches the stored form whatever the
+     * database's collation: a string through the type's normaliser, an array
+     * element by element. A value the normaliser rejects cannot name an
+     * account, so the lookup returns `null` without a query. Closures and other
+     * values are applied as given.
+     *
      * The clauses are applied inside the same `WriteConnection::during()`
      * window as the lookup, because a credential closure may run queries of its
      * own (a suspension lookup, say) that must not read a lagging replica.
@@ -136,11 +145,17 @@ class ModelProvider implements IdentityProvider
             return null;
         }
 
-        $model = $this->createModel();
+        $model      = $this->createModel();
+        $normalised = $this->normaliseIdentifiers($model, $filtered);
+
+        if ($normalised === null) {
+            return null;
+        }
+
         $query = $this->freshQuery($model);
 
         /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
-        return WriteConnection::during($model, fn (): mixed => $this->applyCredentialClauses($query, $filtered) ? $query->first() : null);
+        return WriteConnection::during($model, fn (): mixed => $this->applyCredentialClauses($query, $normalised) ? $query->first() : null);
     }
 
     /**
@@ -174,8 +189,19 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Rehash the user's password when the current hash is outdated. No-ops when
-     * no password is supplied or the user is not an Eloquent model.
+     * Rehash the user's password when the hash it authenticated with is
+     * outdated (or always, when forced), for a caller that has just verified
+     * the supplied password against it. No-ops when no password is supplied,
+     * the user is not an Eloquent model, or its hash is not the model's own
+     * password attribute (a `getAuthPassword()` that reads another table),
+     * which this provider cannot write.
+     *
+     * The new hash is written with one conditional update on the model's
+     * connection, `WHERE <key> = :id AND <password> = :authenticatedHash`, so a
+     * password changed between the check and the rehash is never overwritten
+     * with a hash of the old one; the model's attribute is updated only when
+     * that row changed. The write fires no model events and leaves `updated_at`
+     * alone: re-encoding the same password is not a change to the account.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
@@ -187,19 +213,24 @@ class ModelProvider implements IdentityProvider
     {
         $plain = $credentials['password'] ?? null;
 
-        if (!is_string($plain) || $plain === '') {
+        if (!is_string($plain) || $plain === '' || !$user instanceof Model) {
             return;
         }
 
-        if (!$user instanceof Model) {
+        $hash = WriteConnection::during($user, static fn (): mixed => $user->getAuthPassword());
+
+        // The contract documents a string, but Eloquent returns the raw
+        // attribute: null for an account stored without a password.
+        // @phpstan-ignore function.alreadyNarrowedType, staticMethod.dynamicCall
+        if (!is_string($hash) || ($user->getAttributes()[$user->getAuthPasswordName()] ?? null) !== $hash) {
             return;
         }
 
-        if (!$force && !$this->hasher->needsRehash($user->getAuthPassword())) {
+        if (!$force && !$this->hasher->needsRehash($hash)) {
             return;
         }
 
-        $this->persistRehashedPassword($user, $plain);
+        $this->persistRehashedPassword($user, $hash, $this->hasher->make($plain));
     }
 
     /**
@@ -352,18 +383,102 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Persist a freshly hashed password onto an Eloquent user model. Localised
-     * so the dynamic-class phpstan suppression lives here.
+     * Normalise the credentials for attributes the model designates as
+     * identifiers, or return `null` when one of them cannot be an identifier. A
+     * credential key qualified with the model's own table (`users.email`)
+     * counts as its attribute.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
+     * @param  array<string, mixed>  $credentials
+     * @return ?array<string, mixed>
+     */
+    private function normaliseIdentifiers(Authenticatable&Model $model, #[\SensitiveParameter] array $credentials): ?array
+    {
+        // @phpstan-ignore staticMethod.dynamicCall
+        $casts = $model->getCasts();
+        // @phpstan-ignore staticMethod.dynamicCall
+        $table = $model->getTable() . '.';
+
+        foreach ($credentials as $key => $value) {
+
+            $attribute = str_starts_with($key, $table) ? substr($key, strlen($table)) : $key;
+            $cast      = NormalisedIdentifier::fromDeclaration($casts[$attribute] ?? null);
+
+            if ($cast === null) {
+                continue;
+            }
+
+            $normalised = is_array($value) ? $this->normaliseEach($cast, $value) : $this->normaliseOne($cast, $value);
+
+            if ($normalised === null) {
+                return null;
+            }
+
+            $credentials[$key] = $normalised;
+        }
+
+        return $credentials;
+    }
+
+    /**
+     * Normalise each string element of an identifier credential, or return
+     * `null` when one of them cannot be an identifier.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier  $cast
+     * @param  array<array-key, mixed>  $values
+     * @return ?array<array-key, mixed>
+     */
+    private function normaliseEach(NormalisedIdentifier $cast, #[\SensitiveParameter] array $values): ?array
+    {
+        foreach ($values as $index => $value) {
+
+            $normalised = $this->normaliseOne($cast, $value);
+
+            if ($normalised === null) {
+                return null;
+            }
+
+            $values[$index] = $normalised;
+        }
+
+        return $values;
+    }
+
+    /**
+     * Normalise a string identifier credential (`null` when it cannot be an
+     * identifier), leaving any other value as given.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier  $cast
+     * @param  mixed  $value
+     * @return mixed
+     */
+    private function normaliseOne(NormalisedIdentifier $cast, #[\SensitiveParameter] mixed $value): mixed
+    {
+        return is_string($value) || $value instanceof \Stringable ? $cast->normalise((string) $value) : $value;
+    }
+
+    /**
+     * Write a new password hash for the user, provided the stored hash is still
+     * the one it authenticated with, and mirror it on the model when it was
+     * written.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $user
-     * @param  string  $plain
+     * @param  string  $authenticated
+     * @param  string  $rehashed
      * @return void
      */
-    private function persistRehashedPassword(Authenticatable&Model $user, #[\SensitiveParameter] string $plain): void
+    private function persistRehashedPassword(Authenticatable&Model $user, string $authenticated, string $rehashed): void
     {
+        $column = $user->getAuthPasswordName();
+
         // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
-        $user->forceFill([
-            $user->getAuthPasswordName() => $this->hasher->make($plain),
-        ])->save();
+        $query = WriteConnection::query($user->newQueryWithoutScopes()->whereKey($user->getKey())->where($column, $authenticated));
+
+        if ($query->toBase()->update([$column => $rehashed]) !== 1) {
+            return;
+        }
+
+        // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
+        $user->forceFill([$column => $rehashed])->syncOriginalAttribute($column);
     }
 }

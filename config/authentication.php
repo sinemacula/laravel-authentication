@@ -2,6 +2,7 @@
 
 declare(strict_types = 1);
 
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 return [
@@ -157,5 +158,26 @@ return [
     'audience' => [
         'methods'         => ['password'],
         'principal_types' => null,
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Identifiers
+    |---------------------------------------------------------------------------
+    |
+    | Normalisers bring an identifier a person types to the one form it is
+    | stored and looked up in, keyed by identifier type (a lower-case name).
+    | Designate an identity attribute with the `NormalisedIdentifier` cast
+    | (`'email' => NormalisedIdentifier::using('email')`) and the attribute is
+    | normalised when it is set and the `model` provider normalises it before
+    | it looks an identity up. Each value is a container abstract resolving to
+    | an `IdentifierNormaliser`; the email normaliser trims and lower-cases.
+    |
+    */
+
+    'identifiers' => [
+        'normalisers' => [
+            'email' => EmailNormaliser::class,
+        ],
     ],
 ];

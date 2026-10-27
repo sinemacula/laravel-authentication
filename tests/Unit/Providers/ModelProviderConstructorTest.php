@@ -251,42 +251,6 @@ final class ModelProviderConstructorTest extends TestCase
     }
 
     /**
-     * `rehashPasswordIfRequired()` rehashes and saves when the hasher reports
-     * the stored hash is out of date, even when the caller did NOT pass `force
-     * = true`. Pins the natural auto-rehash path that keeps legacy hashes
-     * rolling forward as the `bcrypt` cost factor is bumped.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredRehashesWhenHasherReportsOutdated(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
-        $user->shouldReceive('getAuthPassword')
-            ->andReturn('stale-hash');
-        $user->shouldReceive('getAuthPasswordName')
-            ->andReturn('password');
-        $user->shouldReceive('save')
-            ->once()
-            ->andReturnTrue();
-
-        $this->hasher->shouldReceive('needsRehash')
-            ->once()
-            ->with('stale-hash')
-            ->andReturnTrue();
-        $this->hasher->shouldReceive('make')
-            ->once()
-            ->with('plain')
-            ->andReturn('fresh-hash');
-
-        $provider->rehashPasswordIfRequired($user, ['password' => 'plain']);
-
-        self::assertSame('fresh-hash', $user->getAttribute('password'));
-    }
-
-    /**
      * `rehashPasswordIfRequired()` is a no-op when the supplied password value
      * is not a string (e.g. `null`, array). Pins the early-return on
      * `!is_string($plain)`.

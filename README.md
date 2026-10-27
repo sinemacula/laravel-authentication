@@ -580,6 +580,72 @@ refresh. Nothing checks `pty` on a bearer request: `Auth::type()` reads the boun
 and a type change shows on the next request. The claim is for consumers of the token, such as a gateway or a client
 choosing which screens to show, not a credential.
 
+### Identifiers
+
+Designate the attributes people sign in with as identifiers, so each is stored and looked up in one normal form. Cast
+the attribute with `NormalisedIdentifier`, naming its identifier type:
+
+```php
+use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
+
+class AppUser extends User implements Identity, Principal
+{
+    use Authenticatable, ActsAsPrincipal;
+
+    protected function casts(): array
+    {
+        return [
+            'email' => NormalisedIdentifier::using('email'),
+        ];
+    }
+}
+```
+
+Setting the attribute stores what the type's normaliser returns: the `email` normaliser trims surrounding whitespace
+and lower-cases the whole address, so `Ben@Example.com` is stored as `ben@example.com`. A value it rejects (blank, or
+not valid UTF-8) throws an `InvalidArgumentException` naming the attribute but never the value; `null` stays `null`.
+Reading returns the stored value unchanged. The `model` provider normalises a credential for a designated attribute
+the same way before it looks the identity up (`attempt(['email' => ' BEN@example.com', ...])` finds `ben@example.com`),
+element by element for an array, and a value the normaliser rejects finds nobody without a query. Closures and
+attributes that are not designated are applied as given.
+
+Normalisers are registered by identifier type in the published config, as container abstracts resolving to a
+`Contracts\IdentifierNormaliser`. A type is a lower-case letter followed by lower-case letters, digits and
+underscores:
+
+```php
+'identifiers' => [
+    'normalisers' => [
+        'email'         => SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser::class,
+        'member_number' => App\Auth\MemberNumberNormaliser::class,
+    ],
+],
+```
+
+A normaliser must be deterministic and idempotent (normalising a normal form returns it unchanged), and return `null`
+for a value that cannot be an identifier of its type. A malformed map, or an abstract that does not resolve to a
+normaliser, fails closed with an `InvalidArgumentException`.
+
+Make the identifier unique on its normalised value, with a unique index on the stored column:
+
+1. Normalise the rows you already have before adding the index, in a migration or a one-off command that saves each
+   identity again (the cast normalises on set), or with SQL equivalent to the normaliser (`UPDATE users SET email =
+   LOWER(TRIM(email))` for email, checking first for addresses that collide once normalised).
+2. Then add the unique index on the column itself, not on an expression, so it holds whoever writes the row.
+
+Why both engines need it: PostgreSQL compares strings case-sensitively, so without normalisation `Ben@x.com` and
+`ben@x.com` are two accounts and a lookup with the other casing finds neither; MySQL's default `_ci` collations
+compare them as equal, so lookups match but a unique index rejects the second address only by accident of the
+collation, and `LOWER()` and the collation can disagree on non-ASCII letters. Storing the normal form makes both
+behave the same, and lets the index mean what the application means.
+
+A successful password sign-in rehashes the password when the hasher reports the stored hash outdated (a new
+algorithm or cost) and Laravel's `hashing.rehash_on_login` is on, never on bearer requests or refresh. The `model`
+provider writes the new hash with one conditional update, `WHERE <key> = :id AND <password> = :checkedHash`, so a
+password changed between the check and the rehash is never overwritten with a hash of the old one; the write fires no
+model events and leaves `updated_at` alone. A hash that does not come from the model's own password attribute (a
+`getAuthPassword()` that reads another table) is not rehashed by the provider.
+
 ### Active-state enforcement
 
 Activation is opt-in. A model that does not implement `CanBeActive` is always active, so the 2D example above, on

@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
@@ -173,6 +174,16 @@ final class AuthenticationServiceProviderTest extends TestCase
     {
         self::assertInstanceOf(GuardAudiencePolicy::class, app(AudiencePolicy::class));
         self::assertSame(app(AudiencePolicy::class), app(AudiencePolicy::class));
+    }
+
+    /**
+     * The identifier normaliser registry is one instance for the application.
+     *
+     * @return void
+     */
+    public function testIdentifierNormalisersAreBoundAsASingleton(): void
+    {
+        self::assertSame(app(IdentifierNormalisers::class), app(IdentifierNormalisers::class));
     }
 
     /**

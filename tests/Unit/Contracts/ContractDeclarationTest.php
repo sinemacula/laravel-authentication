@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -220,6 +221,20 @@ final class ContractDeclarationTest extends TestCase
     public function testAudiencePolicyDeclaresExactlyItsChecks(): void
     {
         self::assertSame(['admit', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
+    }
+
+    /**
+     * `IdentifierNormaliser` declares only `normalise()`, which may refuse a
+     * value by returning `null`.
+     *
+     * @return void
+     */
+    public function testIdentifierNormaliserDeclaresOnlyNormalise(): void
+    {
+        $method = new \ReflectionMethod(IdentifierNormaliser::class, 'normalise');
+
+        self::assertSame(['normalise'], self::declaredMethods(IdentifierNormaliser::class));
+        self::assertSame('?string', (string) $method->getReturnType());
     }
 
     /**

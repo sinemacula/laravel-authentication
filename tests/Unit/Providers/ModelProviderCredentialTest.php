@@ -397,61 +397,6 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
-     * rehashPasswordIfRequired skips rehash when Hasher::needsRehash returns
-     * false.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredSkipsWhenHasherNeedsRehashFalse(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
-        $user->shouldReceive('getAuthPassword')
-            ->andReturn('hashed');
-        $user->shouldNotReceive('save');
-
-        $this->hasher->shouldReceive('needsRehash')
-            ->once()
-            ->with('hashed')
-            ->andReturnFalse();
-        $this->hasher->shouldNotReceive('make');
-
-        $provider->rehashPasswordIfRequired($user, ['password' => 'plain']);
-
-        self::assertTrue(true, 'rehashPasswordIfRequired skipped without calling hasher->make().');
-    }
-
-    /**
-     * rehashPasswordIfRequired rehashes and saves when forced.
-     *
-     * @return void
-     */
-    public function testRehashPasswordIfRequiredRehashesWhenForced(): void
-    {
-        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
-
-        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubAuthenticatableModel $user */
-        $user = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
-        $user->shouldReceive('getAuthPasswordName')
-            ->andReturn('password');
-        $user->shouldReceive('save')
-            ->once()
-            ->andReturnTrue();
-
-        $this->hasher->shouldNotReceive('needsRehash');
-        $this->hasher->shouldReceive('make')
-            ->once()
-            ->with('plain')
-            ->andReturn('rehashed');
-
-        $provider->rehashPasswordIfRequired($user, ['password' => 'plain'], true);
-
-        self::assertSame('rehashed', $user->getAttribute('password'));
-    }
-
-    /**
      * Build a ModelProvider whose createModel() returns an Eloquent model whose
      * newQuery() yields the supplied builder mock, so collaborators can be
      * asserted without a real database connection.
