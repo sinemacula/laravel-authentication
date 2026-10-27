@@ -63,11 +63,22 @@ trait ActsAsPrincipal
      * on first call; tenant-aware apps should eager-load via their principal
      * resolver.
      *
+     * A model with no tenant relation, attribute, or loaded relation (the usual
+     * 2D shape) acts within no tenant. It returns `null` without reading the
+     * absent key, which Eloquent's strict mode would otherwise reject on every
+     * authentication path that checks tenant activity.
+     *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
     public function getTenant(): ?Tenant
     {
-        $tenant = $this->getAttribute($this->getTenantRelationName());
+        $name = $this->getTenantRelationName();
+
+        if (!$this->hasAttribute($name) && !$this->isRelation($name) && !$this->relationLoaded($name)) {
+            return null;
+        }
+
+        $tenant = $this->getAttribute($name);
 
         return $tenant instanceof Tenant ? $tenant : null;
     }

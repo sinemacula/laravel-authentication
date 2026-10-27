@@ -4,11 +4,9 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
-use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
-use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use Tests\Unit\Stubs\StubActiveAwarePrincipal;
 
 /**
@@ -75,33 +73,30 @@ final class ProvidesActiveStateTest extends TestCase
     }
 
     /**
-     * Overriding `getActiveAttributeName()` remaps the column the trait reads
+     * A subclass overriding the protected `getActiveAttributeName()` hook, here
+     * deriving its column from the parent's, remaps the column the trait reads
      * and checks for.
      *
      * @return void
      */
     public function testIsActiveReadsTheOverriddenAttributeName(): void
     {
-        $model = new class extends Model implements CanBeActive {
-            use ProvidesActiveState;
-
-            /** @var array<string> The attributes that aren't mass assignable. */
-            protected $guarded = [];
-
+        $principal = new class extends StubActiveAwarePrincipal {
             /**
              * Column name holding the active flag.
              *
              * @return string
              */
+            #[\Override]
             protected function getActiveAttributeName(): string
             {
-                return 'enabled';
+                return parent::getActiveAttributeName() . '_override';
             }
         };
 
-        $model->setAttribute('enabled', true);
-        $model->setAttribute('is_active', false);
+        $principal->setAttribute('is_active_override', true);
+        $principal->setAttribute('is_active', false);
 
-        self::assertTrue($model->isActive());
+        self::assertTrue($principal->isActive());
     }
 }

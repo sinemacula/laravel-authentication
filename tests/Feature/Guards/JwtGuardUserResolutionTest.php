@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -258,6 +259,51 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * A principal acting within a `CanBeActive` tenant that reports inactive is
+     * rejected by `user()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserReturnsNullWhenPrincipalTenantIsInactive(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $tenant->shouldReceive('isActive')->once()->andReturnFalse();
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('getTenant')
+            ->once()
+            ->andReturn($tenant);
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Failed::class));
+
+        self::assertNull($guard->user());
+    }
+
+    /**
      * Activation is opt-in: a principal that does not implement `CanBeActive`
      * is bound without consulting any active flag.
      *
@@ -274,6 +320,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity = \Mockery::mock(Identity::class);
 
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
 
@@ -516,6 +563,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -568,6 +616,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -631,6 +680,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -695,6 +745,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity = \Mockery::mock(Identity::class);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')

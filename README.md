@@ -357,6 +357,19 @@ To read the flag from a column instead, use the `ProvidesActiveState` trait, as 
 `is_active` (override `getActiveAttributeName()` to use another column) and throws a `LogicException` when the model
 was loaded without that column, so a partial select is reported instead of being read as either active or inactive.
 
+A tenant opts in the same way. When the tenant a principal acts within implements `CanBeActive` and reports inactive,
+every principal in it is rejected on the same paths (refresh fails with `tenant_inactive`):
+
+```php
+class AppTenant extends Model implements CanBeActive, HasType, TenantContract
+{
+    use ActsAsTenant, ProvidesActiveState, ProvidesTenantType;
+}
+```
+
+Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
+resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
+
 ## Usage
 
 Contextual accessors on the standard `Auth` facade:
@@ -453,6 +466,7 @@ signed under it, which is also how to revoke a compromised key.
 | `principal_unresolved`    | Principal resolver returned null                     |
 | `principal_mismatch`      | Resolved principal does not match refresh token hint |
 | `principal_inactive`      | Resolved principal reported inactive                 |
+| `tenant_inactive`         | Tenant the resolved principal acts within inactive   |
 
 ## Extensibility
 

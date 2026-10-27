@@ -45,4 +45,7 @@ enum RefreshFailureReason: string
 
     // Resolved principal reported inactive
     case PRINCIPAL_INACTIVE = 'principal_inactive';
+
+    // Tenant the resolved principal acts within reported inactive
+    case TENANT_INACTIVE = 'tenant_inactive';
 }

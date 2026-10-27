@@ -32,7 +32,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
 - A failed `attempt()` emits `Attempting` and `Failed`, but not `Login` or `Authenticated`.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null`, throws, or
-  resolves an inactive principal. That is why `Validated` is not the same thing as "fully bound".
+  resolves a principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same
+  thing as "fully bound".
+- Activation is opt-in through `CanBeActive` on the identity, the principal, or the tenant, and is decided by
+  `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
   machine-readable reason.
 - `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`
@@ -44,6 +47,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `fireValidatedEvent()`, `fireFailedEvent()`.
 - `src/Guards/AbstractGuard.php`: `attempt()`, `login()`, `logout()`, `bindAuthenticationLifecycle()`,
   `resolveContextForCredentials()`.
+- `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
 - `src/Guards/Concerns/BindsContextualState.php`: `setPrincipal()`, `setDevice()`, `clearContextualState()`.
 - `src/Guards/JwtGuard.php`: `resolveBearerToken()`, `refresh()`.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`.
@@ -69,6 +73,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testRefreshedFiresAfterSuccessfulRefresh`
 - `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
   `testBearerRejectsPreviouslyIssuedTokenWhenIdentityBecomesInactiveBetweenRequests`
+- `tests/Integration/Guards/ActivationOptInIntegrationTest.php`
+  `testUserWithoutActiveColumnSignsInWithCredentials`
+- `tests/Integration/Guards/TenantActivityIntegrationTest.php`
+  `testBearerRejectsMemberOfTenantDeactivatedAfterIssue`
 
 ## Change Triggers
 

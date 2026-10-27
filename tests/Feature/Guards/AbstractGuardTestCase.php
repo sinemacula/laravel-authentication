@@ -102,8 +102,8 @@ abstract class AbstractGuardTestCase extends TestCase
 
     /**
      * Build a Mockery mock of a `CanBeActive` principal whose `isActive()`
-     * returns `true` - used by any attempt-path test where the guard calls
-     * `isActive()` after the resolver returns.
+     * returns `true` and that acts within no tenant - used by any attempt-path
+     * test where the guard checks activation after the resolver returns.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
      */
@@ -113,6 +113,9 @@ abstract class AbstractGuardTestCase extends TestCase
         $principal->shouldReceive('isActive')
             ->byDefault()
             ->andReturnTrue();
+        $principal->shouldReceive('getTenant')
+            ->byDefault()
+            ->andReturnNull();
 
         return $principal;
     }

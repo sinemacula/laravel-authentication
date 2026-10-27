@@ -391,6 +391,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -483,6 +484,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-19');
         $principal->shouldReceive('isActive')
@@ -550,6 +552,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -606,6 +609,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $replacement = \Mockery::mock(PrincipalResolver::class);
         $principal   = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
 
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-17');
@@ -653,6 +657,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $identity = \Mockery::mock(Identity::class);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')

@@ -11,6 +11,9 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * company, workspace, project, or any other domain-specific container the
  * consumer models.
  *
+ * A tenant that can be deactivated also implements `CanBeActive`; the guards
+ * then reject every principal acting within it while it is inactive.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

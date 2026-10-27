@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
@@ -368,6 +369,52 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     }
 
     /**
+     * A principal acting within a `CanBeActive` tenant that reports inactive is
+     * rejected; `Login` does not fire and `Failed` is dispatched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptDispatchesFailedWhenPrincipalTenantIsInactive(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity = $this->mockIdentity();
+
+        $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $tenant->shouldReceive('isActive')->once()->andReturnFalse();
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->once()->andReturn($tenant);
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Validated::class));
+        $this->events->shouldNotReceive('dispatch')
+            ->with(\Mockery::type(Login::class));
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Failed::class));
+
+        self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
+        self::assertNull($guard->identity());
+    }
+
+    /**
      * Activation is opt-in: a principal that does not implement `CanBeActive`
      * is active, so the attempt binds it without consulting any active flag.
      *
@@ -381,6 +428,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         $identity  = $this->mockIdentity();
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()

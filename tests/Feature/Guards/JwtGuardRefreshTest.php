@@ -342,6 +342,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-13');
         $principal->shouldReceive('isActive')->andReturnTrue();
 
@@ -406,6 +407,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
         $firstGuard = $this->makeGuard($this->makeRequest(null));
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->times(3)
             ->andReturn('p-18');

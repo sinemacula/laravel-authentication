@@ -285,7 +285,8 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Resolve a principal from the claims and confirm it is active.
+     * Resolve a principal from the claims and confirm it and its tenant are
+     * active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $user
      * @param  array<string, mixed>  $claims
@@ -295,7 +296,7 @@ final class JwtGuard extends AbstractGuard
     {
         $principal = $this->resolvePrincipalFromClaims($user, $claims);
 
-        return $principal instanceof Principal && ActivationPolicy::isActive($principal) ? $principal : null;
+        return $principal instanceof Principal && ActivationPolicy::isPrincipalActive($principal) ? $principal : null;
     }
 
     /**

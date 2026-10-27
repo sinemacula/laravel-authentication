@@ -7,11 +7,12 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 /**
  * Capability contract: a model can report an active / inactive state.
  *
- * Optional supplement to `Identity` and `Principal`. Activation is opt-in: a
- * model that does not implement this contract is always active, and one that
- * does is consulted on the credential, bearer-token and refresh paths, which
- * reject authentication when `isActive()` returns `false`. Use this to honour
- * banned / suspended / soft-deleted accounts or memberships without relying on
+ * Optional supplement to `Identity`, `Principal`, and `Tenant`. Activation is
+ * opt-in: a model that does not implement this contract is always active, and
+ * one that does is consulted on the credential, bearer-token and refresh paths,
+ * which reject authentication when `isActive()` returns `false`. A deactivated
+ * tenant rejects every principal acting within it. Use this to honour banned /
+ * suspended / soft-deleted accounts, memberships, or tenants without relying on
  * short access-token lifetimes alone. `ProvidesActiveState` implements it from
  * a declared column.
  *

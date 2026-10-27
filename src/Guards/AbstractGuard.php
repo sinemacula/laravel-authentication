@@ -421,6 +421,6 @@ abstract class AbstractGuard implements ContextualGuard
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
         $resolved = $principal ?? $this->safeResolvePrincipal($user);
 
-        return $resolved !== null && ActivationPolicy::isActive($resolved) ? [$user, $resolved] : null;
+        return $resolved !== null && ActivationPolicy::isPrincipalActive($resolved) ? [$user, $resolved] : null;
     }
 }

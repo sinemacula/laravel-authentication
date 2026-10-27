@@ -15,8 +15,10 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
+ *
+ * @inheritable
  */
-final class StubActiveAwarePrincipal extends StubPrincipal implements CanBeActive
+class StubActiveAwarePrincipal extends StubPrincipal implements CanBeActive
 {
     use ProvidesActiveState;
 }

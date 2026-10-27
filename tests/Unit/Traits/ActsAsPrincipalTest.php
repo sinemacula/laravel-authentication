@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
@@ -126,5 +128,60 @@ final class ActsAsPrincipalTest extends TestCase
         $principal->setRelation('tenant', null);
 
         self::assertNull($principal->getTenant());
+    }
+
+    /**
+     * A principal with no tenant relation, attribute, or loaded relation acts
+     * within no tenant, and reading it does not trip Eloquent's strict
+     * missing-attribute mode on a persisted model.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWithoutTenantRelationUnderStrictMode(): void
+    {
+        $principal         = new Stub3dPrincipal;
+        $principal->exists = true;
+
+        Model::preventAccessingMissingAttributes();
+
+        try {
+            self::assertNull($principal->getTenant());
+        } finally {
+            Model::preventAccessingMissingAttributes(false);
+        }
+    }
+
+    /**
+     * A tenant exposed through an attribute accessor rather than a relation is
+     * still read.
+     *
+     * @return void
+     */
+    public function testGetTenantReadsTenantExposedThroughAttributeAccessor(): void
+    {
+        $tenant = \Mockery::mock(Tenant::class);
+
+        $principal = new class extends Stub3dPrincipal {
+            /** @var ?\SineMacula\Laravel\Authentication\Contracts\Tenant Tenant returned by the accessor. */
+            public ?Tenant $accessorTenant = null;
+
+            /**
+             * Expose the tenant through an attribute accessor.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Casts\Attribute<?\SineMacula\Laravel\Authentication\Contracts\Tenant, never>
+             *
+             * @formatter:on
+             */
+            protected function tenant(): Attribute
+            {
+                return Attribute::get(fn (): ?Tenant => $this->accessorTenant);
+            }
+        };
+
+        $principal->accessorTenant = $tenant;
+
+        self::assertSame($tenant, $principal->getTenant());
     }
 }

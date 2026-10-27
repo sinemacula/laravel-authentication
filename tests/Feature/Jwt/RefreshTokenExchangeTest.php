@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
@@ -221,6 +222,63 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A principal acting within a `CanBeActive` tenant that reports inactive is
+     * rejected with `tenant_inactive`, attributed to the device, and no
+     * rotation happens.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangeDispatchesTenantInactiveWhenPrincipalTenantIsInactive(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 10]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '10',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $device->setRelation('authenticatable', $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $exchange = $this->makeExchange();
+
+        $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $tenant->shouldReceive('isActive')->once()->andReturnFalse();
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->once()->andReturn($tenant);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::TENANT_INACTIVE
+                    && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($exchange->exchange($token));
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+    }
+
+    /**
      * A malformed refresh payload with an empty `jti` is rejected as
      * `token_invalid` and preserves the parseable device id on the emitted
      * failure event.
@@ -279,6 +337,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->times(3)
             ->andReturn('p-12');

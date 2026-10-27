@@ -363,8 +363,8 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve a principal for the refresh-flow identity and verify it is
-     * currently active.
+     * Resolve a principal for the refresh-flow identity and verify it and the
+     * tenant it acts within are currently active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $deviceId
@@ -393,6 +393,13 @@ final class RefreshTokenExchange
         if (!ActivationPolicy::isActive($principal)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_INACTIVE, $deviceId);
+
+            return null;
+        }
+
+        if (!ActivationPolicy::isTenantActive($principal)) {
+
+            $this->dispatchRefreshFailure(RefreshFailureReason::TENANT_INACTIVE, $deviceId);
 
             return null;
         }
