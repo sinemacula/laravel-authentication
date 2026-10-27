@@ -49,6 +49,8 @@ trait BindsContextualState
      * access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function identity(): ?Identity
     {
@@ -60,6 +62,8 @@ trait BindsContextualState
      * access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function principal(): ?Principal
     {
@@ -72,6 +76,8 @@ trait BindsContextualState
      * Return the pinned device, if any, resolving the request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function device(): ?Device
     {
@@ -82,11 +88,12 @@ trait BindsContextualState
 
     /**
      * Return the active tenant's type string, if the tenant declares the
-     * `HasType` capability.
+     * `HasType` capability, resolving the request on first access.
      *
      * @return ?string
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function type(): ?string
     {
@@ -102,6 +109,7 @@ trait BindsContextualState
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant
     {

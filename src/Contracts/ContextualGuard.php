@@ -11,7 +11,8 @@ use Illuminate\Contracts\Auth\Guard;
  *
  * Extends Laravel's `Guard` with the package's contextual surface (identity,
  * principal, device, tenant, type, principal/device setters, contextual
- * `attempt` and `login`).
+ * `attempt` and `login`). Like `user()`, the accessors and setters resolve the
+ * current request on first access, at most once per request.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -50,42 +51,53 @@ interface ContextualGuard extends Guard
     public function login(Identity $identity, Principal $principal, ?Device $device = null): void;
 
     /**
-     * Return the authenticated identity, if any.
+     * Return the authenticated identity, if any, resolving the request on first
+     * access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function identity(): ?Identity;
 
     /**
-     * Return the active principal, if any.
+     * Return the active principal, if any, resolving the request on first
+     * access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function principal(): ?Principal;
 
     /**
-     * Return the pinned device, if any.
+     * Return the pinned device, if any, resolving the request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function device(): ?Device;
 
     /**
-     * Return the tenant the active principal acts within, if any.
+     * Return the tenant the active principal acts within, if any, resolving the
+     * request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant;
 
     /**
      * Return the active tenant's type string, if the tenant declares the
-     * `HasType` capability.
+     * `HasType` capability, resolving the request on first access.
      *
      * @return ?string
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function type(): ?string;
 
@@ -96,6 +108,8 @@ interface ContextualGuard extends Guard
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return static
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function setPrincipal(Principal $principal): static;
 
@@ -106,6 +120,8 @@ interface ContextualGuard extends Guard
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return static
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function setDevice(Device $device): static;
 }

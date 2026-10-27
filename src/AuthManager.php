@@ -78,6 +78,8 @@ class AuthManager extends IlluminateAuthManager
      * The active identity, when the active guard is contextual.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function identity(): ?Identity
     {
@@ -90,6 +92,8 @@ class AuthManager extends IlluminateAuthManager
      * The active principal, when the active guard is contextual.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function principal(): ?Principal
     {
@@ -102,6 +106,8 @@ class AuthManager extends IlluminateAuthManager
      * The active device, when the active guard is contextual.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function device(): ?Device
     {
@@ -116,6 +122,7 @@ class AuthManager extends IlluminateAuthManager
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function tenant(): ?Tenant
     {
@@ -130,6 +137,7 @@ class AuthManager extends IlluminateAuthManager
      * @return ?string
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function type(): ?string
     {

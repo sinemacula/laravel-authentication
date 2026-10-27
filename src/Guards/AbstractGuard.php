@@ -78,9 +78,12 @@ abstract class AbstractGuard implements ContextualGuard
     ) {}
 
     /**
-     * Determine if the current request has no authenticated identity.
+     * Determine if the current request has no authenticated identity, resolving
+     * the request on first access.
      *
      * @return bool
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      *
      * @imperative
      */
@@ -91,9 +94,12 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Determine if the current request has an authenticated identity.
+     * Determine if the current request has an authenticated identity, resolving
+     * the request on first access.
      *
      * @return bool
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      *
      * @imperative
      */
@@ -137,6 +143,8 @@ abstract class AbstractGuard implements ContextualGuard
      * resolving the request on first access.
      *
      * @return int|string|null
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     #[\Override]
     public function id(): int|string|null
@@ -199,6 +207,10 @@ abstract class AbstractGuard implements ContextualGuard
      * the new identity is bound, so the guard never pairs one identity with
      * another's principal or device. Use `login()` to bind a specific principal
      * or a device.
+     *
+     * Throws an `InvalidArgumentException` when the identity has no default
+     * principal. An `UnresolvableIdentityException` from the resolver, for a
+     * misconfigured identity model, propagates.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @return $this
@@ -306,6 +318,8 @@ abstract class AbstractGuard implements ContextualGuard
      * of the request instead of resolving the request's credential again.
      *
      * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function logout(): void
     {
