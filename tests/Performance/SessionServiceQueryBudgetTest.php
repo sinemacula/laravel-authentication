@@ -146,19 +146,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     {
         $this->seedIdentity();
 
-        app()->instance(AdditionalFactorPolicy::class, new class implements AdditionalFactorPolicy {
-            /**
-             * Always require a further factor.
-             *
-             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
-             * @return bool
-             */
-            #[\Override]
-            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
-            {
-                return true;
-            }
-        });
+        self::requireAFurtherFactor();
 
         $sessions = $this->sessions();
         $pending  = $this->assertQueryBudget(1, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
@@ -172,6 +160,30 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         $sessions = $this->sessions();
 
         self::assertTrue($this->assertQueryBudget(2, 4, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
+    }
+
+    /**
+     * Discarding a pending sign-in reads it once and deletes it, without
+     * reloading its identity; a token that names none costs the one read.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testDiscardingAPendingSignInReadsItOnceAndDeletesIt(): void
+    {
+        $this->seedIdentity();
+
+        self::requireAFurtherFactor();
+
+        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+
+        self::assertNotNull($pending);
+
+        $sessions = $this->sessions();
+
+        self::assertTrue($this->assertQueryBudget(1, 1, static fn (): bool => $sessions->discard($pending->token)));
+        self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => $sessions->discard($pending->token)));
     }
 
     /**
@@ -263,6 +275,29 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         assert($app instanceof Application);
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Bind an additional-factor policy that asks every sign-in for a further
+     * factor.
+     *
+     * @return void
+     */
+    private static function requireAFurtherFactor(): void
+    {
+        app()->instance(AdditionalFactorPolicy::class, new class implements AdditionalFactorPolicy {
+            /**
+             * Always require a further factor.
+             *
+             * @param  \SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext  $context
+             * @return bool
+             */
+            #[\Override]
+            public function requiresAdditionalFactor(AdditionalFactorContext $context): bool
+            {
+                return true;
+            }
+        });
     }
 
     /**
