@@ -184,6 +184,7 @@ abstract class JwtGuardTestCase extends TestCase
             $this->tokens,
             $this->provider,
             $app->make(ConnectionResolverInterface::class),
+            static fn (): mixed => $app->make('db.transactions'),
             $this->events,
             $this->resolver,
             self::GUARD_NAME,

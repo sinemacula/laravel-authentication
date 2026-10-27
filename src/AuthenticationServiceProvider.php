@@ -119,6 +119,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $tokens,
             $provider,
             $app->make(ConnectionResolverInterface::class),
+            static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
             $events,
             $resolver,
             $name,

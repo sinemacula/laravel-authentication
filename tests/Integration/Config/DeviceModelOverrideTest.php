@@ -218,6 +218,7 @@ final class DeviceModelOverrideTest extends TestCase
             $tokens,
             $provider,
             app(ConnectionResolverInterface::class),
+            static fn (): mixed => app('db.transactions'),
             $events,
             $resolver,
             'custom-jwt',

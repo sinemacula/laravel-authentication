@@ -288,15 +288,17 @@ that renames a column needs its own migration.
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
 than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
-both refresh digests; it never deletes the row. The refresh exchange revokes a device when it detects a replay, and
-`RefreshTokenExchange::revokeDevice($device, RevocationReason::ROTATION_REUSE)` is idempotent: a device that is already
-revoked keeps its first revocation. A device whose session has ended, past its idle or absolute deadline, is rejected
-the same way on the bearer path and as a sign-in pin, and fails refresh with `session_expired` (see [Token and session
-lifetimes](#token-and-session-lifetimes)). `ActsAsDevice` reads any stored timestamp as a value, with or without a
-`datetime` cast on the column, and throws a `LogicException` when the device was loaded without one of its refresh or
-revocation state columns (both digests, the rotation time, both deadlines, and the revocation time), for example through
-a `devices()` relation or a global scope that selects other columns, so a partial select is reported instead of being
-read as a device that is not revoked or has no deadline.
+both refresh digests; it never deletes the row. Today the package revokes a device only when the refresh exchange
+detects a replay; revoking is idempotent, so a device that is already revoked keeps its first revocation, and
+`DeviceRevoked` reports each revocation the package makes. The package has no revocation call for applications yet: to
+revoke a device yourself, set its `revoked_at` (and `revoked_reason`), which takes effect at once but fires no event. A
+device whose session has ended, past its idle or absolute deadline, is rejected the same way on the bearer path and as a
+sign-in pin, and fails refresh with `session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)).
+`ActsAsDevice` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and throws a
+`LogicException` when the device was loaded without one of its refresh or revocation state columns (both digests, the
+rotation time, both deadlines, and the revocation time), for example through a `devices()` relation or a global scope
+that selects other columns, so a partial select is reported instead of being read as a device that is not revoked or has
+no deadline.
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
@@ -655,8 +657,10 @@ again as it now is: usually that makes this refresh a grace retry; a deadline th
 
 Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
 clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back
-after a failed refresh: a rollback also undoes a replay revocation (`DeviceRevoked` is dispatched only after commit,
-so a rolled-back revocation is never reported). Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits
+after a failed refresh: a rollback also undoes a replay revocation. `DeviceRevoked` is dispatched once the revocation
+is committed on the device's own connection: at once outside a transaction, so before `RefreshFailed` and `Failed`, and
+after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
+connection neither delays nor withdraws it. Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits
 first makes this one fail with a serialization error, which surfaces as a server error for you to retry.
 
 ## Key Rotation
@@ -702,7 +706,7 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\DeviceAuthenticated` | Device hydrated and bound; listeners may persist metadata |
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
-| `SineMacula\...\Events\DeviceRevoked`       | A device was revoked (after commit; carries the reason)   |
+| `SineMacula\...\Events\DeviceRevoked`       | The package revoked a device (a replay); carries reason   |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is

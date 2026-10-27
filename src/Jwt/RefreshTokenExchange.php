@@ -67,6 +67,7 @@ final class RefreshTokenExchange
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connections
+     * @param  \Closure(): mixed  $transactions
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
      * @param  string  $guardName
@@ -82,7 +83,10 @@ final class RefreshTokenExchange
         // Connection resolver for the device's refresh state writes.
         ConnectionResolverInterface $connections,
 
-        /** Event dispatcher for RefreshFailed events. */
+        // Returns the current transactions manager, if any, when called.
+        \Closure $transactions,
+
+        /** Event dispatcher for RefreshFailed and DeviceRevoked events. */
         private Dispatcher $events,
 
         /** Resolver mapping identity to acting principal. */
@@ -91,7 +95,7 @@ final class RefreshTokenExchange
         /** Guard name carried on every RefreshFailed and DeviceRevoked event. */
         private readonly string $guardName,
     ) {
-        $this->store = new RefreshRotationStore($connections);
+        $this->store = new RefreshRotationStore($connections, $transactions);
     }
 
     /**
@@ -184,7 +188,8 @@ final class RefreshTokenExchange
      * on the bearer path and on refresh. Idempotent: an already revoked device
      * keeps its first revocation's time and reason. Returns whether this call
      * revoked the device; when it did, the revocation is mirrored on the
-     * in-memory device and `DeviceRevoked` is dispatched after commit.
+     * in-memory device and `DeviceRevoked` is dispatched once the revocation is
+     * committed on the device's connection.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -264,7 +269,8 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Revoke the device at the given time, and report it when this call did.
+     * Revoke the device at the given time, and report it when this call did,
+     * once the revocation is committed on the device's own connection.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
@@ -278,7 +284,12 @@ final class RefreshTokenExchange
         $revoked = $this->store->revoke($device, $reason, $now);
 
         if ($revoked) {
-            $this->events->dispatch(new DeviceRevoked($this->guardName, $device, $reason));
+
+            $event = new DeviceRevoked($this->guardName, $device, $reason);
+
+            $this->store->afterCommit($device, function () use ($event): void {
+                $this->events->dispatch($event);
+            });
         }
 
         return $revoked;

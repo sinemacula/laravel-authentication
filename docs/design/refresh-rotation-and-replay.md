@@ -40,8 +40,10 @@ other rotated token as a replay that revokes the device.
   grace window is anchored at the real rotation, so retries can never extend it.
 - Revocation marks the row (`revoked_at`, `revoked_reason`) and clears both digests in one guarded `UPDATE` that only
   applies to a row that is not yet revoked; it never deletes the row. It is idempotent and keeps the first
-  revocation's time and reason. `DeviceRevoked` is dispatched only by the call that revoked the device, after the
-  surrounding transaction commits.
+  revocation's time and reason. `DeviceRevoked` is dispatched only by the call that revoked the device, and only once
+  the revocation is committed on the device's own connection: at once when that connection has no open transaction,
+  when its transaction commits otherwise, and never when that transaction is rolled back. A transaction open on another
+  connection neither delays nor cancels it, because the revocation was not written in it.
 - Refresh reads device state live on every exchange, from the write connection, so a lagging read replica cannot serve
   a stale digest, rotation time, deadline, or revocation. The device lookup, the locking re-read, and every state read
   (`getRevokedAt()`, both deadlines, `getRefreshKey()`, `getPreviousRefreshKey()`, `getRefreshRotatedAt()`) run inside
@@ -97,9 +99,11 @@ other rotated token as a replay that revokes the device.
 - A device with no current digest produces `refresh_key_missing` without a write: it holds no refresh credential, so a
   token for it cannot be classified as a replay, and the device is not revoked.
 - A replay (an older id, the previous id after the window or with a grace window of 0, the previous id when the current
-  digest is not its successor, or any id the device never held) revokes the device with reason `rotation_reuse`,
-  dispatches `DeviceRevoked`, then `RefreshFailed` (`rotation_reuse`), then the guard's `Failed`. Nothing is hydrated.
-  Every token of the device then fails: access tokens on the bearer path, refresh tokens with `device_revoked`.
+  digest is not its successor, or any id the device never held) revokes the device with reason `rotation_reuse` and
+  dispatches `DeviceRevoked`, `RefreshFailed` (`rotation_reuse`), and the guard's `Failed`. With no transaction open on
+  the device's connection they come in that order; inside one, `RefreshFailed` and `Failed` come first and
+  `DeviceRevoked` follows the commit. Nothing is hydrated. Every token of the device then fails: access tokens on the
+  bearer path, refresh tokens with `device_revoked`.
 - Only the immediately previous id is honoured: after `R0 -> R1 -> R2`, a delayed retry of `R0` is a replay even within
   the grace window of the first rotation, and revokes the device.
 - When the swap affects no row, the row changed between the read and the write. The exchange re-reads it once from the
@@ -121,8 +125,9 @@ other rotated token as a replay that revokes the device.
 - Transactions: in autocommit or READ COMMITTED, a parallel refresh inside the window resolves to GRACE. Inside a
   caller's REPEATABLE READ transaction, MySQL's locking re-read sees the latest committed row and the outcome is the
   same; PostgreSQL raises a serialization failure (SQLSTATE 40001) on the swap or the re-read, which propagates as a
-  server error for the caller to retry, with nothing revoked. A caller that rolls back a transaction around `refresh()`
-  also rolls back a replay revocation, and `DeviceRevoked` is then never dispatched; do not roll back around refresh.
+  server error for the caller to retry, with nothing revoked. A caller that rolls back a transaction on the device's
+  connection around `refresh()` also rolls back a replay revocation, and `DeviceRevoked` is then never dispatched; do
+  not roll back around refresh.
 - An exception while issuing the new pair propagates without a `RefreshFailed` event and without touching the device
   row, so the client can retry with the same refresh token.
 - After the swap commits, `refresh()` binds the new context through `login()` and dispatches `Refreshed`, so an
@@ -143,8 +148,9 @@ other rotated token as a replay that revokes the device.
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()`, `extractRefreshClaims()`, `findDeviceById()`, `classify()`,
   `isGraceRetry()`, `hydrateRefreshContext()`, `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`,
   `revokeDevice()`.
-- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `revoke()` (the guarded revocation), and
-  `reload()` (the locking re-read on the writer).
+- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `revoke()` (the guarded revocation),
+  `reload()` (the locking re-read on the writer), and `afterCommit()` (defers `DeviceRevoked` to the commit of the
+  device's own connection).
 - `src/Jwt/RefreshTokenHasher.php`: `generate()`, `successor()`, `hash()`, and constant-time `verify()`.
 - `src/Jwt/TokenLifetimes.php`: `hasEnded()`, `liveDeadlines()`, `idleDeadline()`, `accessExpiry()`, and
   `isWithinGrace()`; the factory resolves `refresh_grace_seconds` with the lifetimes in
@@ -196,7 +202,9 @@ other rotated token as a replay that revokes the device.
   `testExchangePropagatesUnresolvableIdentityException`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php`
   `testRotateRecordsTheRotationAndMirrorsIt`, `testRotateMissesAfterAChangeSinceTheDeviceWasLoaded`,
-  `testRevokeKeepsAnEarlierRevocation`, `testReloadReadsTheRowAsItNowIs`
+  `testRevokeKeepsAnEarlierRevocation`, `testReloadReadsTheRowAsItNowIs`, `testWritesTouchOnlyTheDevicesOwnRow`,
+  `testWritesAndReadsUseTheDevicesOwnConnection`, `testAfterCommitWaitsForTheDeviceConnectionsTransaction`,
+  `testAfterCommitIgnoresTransactionsOnOtherConnections`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshRevokesTheDeviceForARotationIdItDoesNotHold`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
@@ -219,6 +227,10 @@ other rotated token as a replay that revokes the device.
   `testRevocationIsReportedOnlyAfterCommit`
 - `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
   `testParallelRefreshInsideARepeatableReadTransaction`
+- `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
+  `testRefreshAndBearerUseTheDevicesOwnConnection`,
+  `testReplayIsReportedAtOnceWhatAnotherConnectionsTransactionDoes`,
+  `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`
 - `tests/Integration/Guards/SessionLifetimeIntegrationTest.php`
   `testRefreshMovesTheIdleDeadlineAndKeepsTheAbsoluteDeadline`
 - `tests/Integration/Guards/SessionLifetimeIntegrationTest.php`

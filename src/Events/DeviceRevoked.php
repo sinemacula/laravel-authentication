@@ -4,23 +4,28 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Events;
 
-use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
 /**
- * Dispatched when a device is revoked, ending its session everywhere at once.
- * Fired only by the call that revoked it, not for a device that was already
- * revoked, and only after the surrounding transaction commits, so a revocation
- * that is rolled back is never reported.
+ * Dispatched when the package revokes a device, ending its session everywhere
+ * at once; today that is the refresh exchange revoking a device whose rotated
+ * refresh token was replayed. A device an application revokes by writing
+ * `revoked_at` itself is not reported.
+ *
+ * Fired only by the call that revoked the device, not for one that was already
+ * revoked, and only once the revocation is committed on the device's own
+ * connection: at once when that connection has no open transaction, after its
+ * transaction commits otherwise, and never for a revocation that is rolled
+ * back. A transaction on another connection neither delays nor cancels it.
  *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class DeviceRevoked implements ShouldDispatchAfterCommit
+final readonly class DeviceRevoked
 {
     use SerializesModels;
 

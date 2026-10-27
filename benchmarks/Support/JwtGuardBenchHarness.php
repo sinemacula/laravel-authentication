@@ -514,6 +514,7 @@ final class JwtGuardBenchHarness
             $this->tokens,
             $provider,
             BenchDatabase::connectionResolver(),
+            static fn (): null => null,
             $this->events,
             $this->resolver,
             $name,

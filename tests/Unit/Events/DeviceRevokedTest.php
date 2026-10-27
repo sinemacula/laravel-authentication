@@ -40,17 +40,18 @@ final class DeviceRevokedTest extends TestCase
     }
 
     /**
-     * The event waits for the surrounding transaction to commit, so a
-     * revocation that is rolled back is never reported, and it serialises its
-     * models for queued listeners.
+     * The event serialises its models for queued listeners. It does not ask the
+     * dispatcher to wait for a transaction: that would wait for whichever
+     * transaction is open last on any connection, so the exchange instead
+     * dispatches it once the device's own connection commits.
      *
      * @return void
      */
-    public function testIsDispatchedAfterCommitAndSerialisesModels(): void
+    public function testSerialisesModelsAndLeavesTheCommitToTheExchange(): void
     {
         $event = new DeviceRevoked('api', new PlainDeviceFixture('device-1'), RevocationReason::ROTATION_REUSE);
 
-        self::assertInstanceOf(ShouldDispatchAfterCommit::class, $event);
+        self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
         self::assertContains(SerializesModels::class, class_uses($event));
 
         $roundTripped = unserialize(serialize($event));

@@ -6,6 +6,7 @@ namespace Tests\Feature\Jwt;
 
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
+use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
@@ -15,12 +16,15 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Feature tests for the guarded refresh-state writes and the locking re-read,
- * against a real device table on whichever engine the suite runs on.
+ * Feature tests for the guarded refresh-state writes, the locking re-read, and
+ * work deferred until the device's connection commits, against a real device
+ * table on whichever engine the suite runs on, and a device kept on a second
+ * connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -230,13 +234,237 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Build the store on the application's connections.
+     * A rotation and a revocation change the device's own row and no other:
+     * neither another device of the same owner nor one of another owner.
      *
+     * @return void
+     */
+    public function testWritesTouchOnlyTheDevicesOwnRow(): void
+    {
+        $device = $this->device(['authenticatable_type' => 'owner', 'authenticatable_id' => '1']);
+
+        $others = [
+            $this->device([
+                'authenticatable_type' => 'owner',
+                'authenticatable_id'   => '1',
+                'previous_refresh_key' => RefreshTokenHasher::hash('older'),
+                'refresh_rotated_at'   => '2026-04-06 11:00:00',
+            ]),
+            $this->device(['authenticatable_type' => 'owner', 'authenticatable_id' => '2']),
+        ];
+
+        $before = array_map($this->row(...), $others);
+
+        self::assertTrue($this->store()->rotate($device, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
+        self::assertSame($before, array_map($this->row(...), $others));
+
+        self::assertTrue($this->store()->revoke($device, RevocationReason::ROTATION_REUSE, $this->now));
+        self::assertSame($before, array_map($this->row(...), $others));
+        self::assertNotNull($this->row($device)['revoked_at']);
+    }
+
+    /**
+     * A device kept on its own connection is rotated, revoked, and read again
+     * on that connection, never on the default one, even when the default
+     * connection holds a table of the same name with the same row.
+     *
+     * @return void
+     */
+    public function testWritesAndReadsUseTheDevicesOwnConnection(): void
+    {
+        self::createDeviceTable('devices', 'id', SeparateConnectionDevice::CONNECTION);
+
+        $device = new SeparateConnectionDevice;
+        $device->forceFill([
+            ...self::liveSession(),
+            'authenticatable_type' => 'owner',
+            'authenticatable_id'   => '1',
+            'refresh_key'          => RefreshTokenHasher::hash(self::CURRENT),
+        ])->save();
+
+        $device = SeparateConnectionDevice::query()->findOrFail($device->id);
+        $twin   = (array) DB::connection(SeparateConnectionDevice::CONNECTION)->table('devices')->where('id', $device->id)->first();
+
+        DB::table('devices')->insert($twin);
+
+        self::assertTrue($this->store()->rotate($device, self::CURRENT, self::NEXT, $this->now->addDays(90), $this->now));
+        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $this->separateRow($device)['refresh_key']);
+
+        self::assertTrue($this->store()->revoke($device, RevocationReason::ROTATION_REUSE, $this->now));
+        self::assertSame('rotation_reuse', $this->separateRow($device)['revoked_reason']);
+
+        self::assertSame('rotation_reuse', $this->store()->reload($device)?->getRevokedReason());
+        self::assertSame($twin, (array) DB::table('devices')->where('id', $device->id)->first());
+    }
+
+    /**
+     * Outside any transaction, deferred work runs at once.
+     *
+     * @return void
+     */
+    public function testAfterCommitRunsAtOnceOutsideATransaction(): void
+    {
+        $calls = new \ArrayObject;
+
+        $this->store()->afterCommit($this->device(), self::counter($calls));
+
+        self::assertCount(1, $calls);
+    }
+
+    /**
+     * Inside a transaction on the device's connection, deferred work waits for
+     * that transaction to commit, including an outer one it is nested in, and
+     * never runs when the transaction is rolled back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAfterCommitWaitsForTheDeviceConnectionsTransaction(): void
+    {
+        $device = $this->device();
+        $calls  = new \ArrayObject;
+        $count  = self::counter($calls);
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        $this->store()->afterCommit($device, $count);
+
+        DB::commit();
+
+        self::assertCount(0, $calls);
+
+        DB::commit();
+
+        self::assertCount(1, $calls);
+
+        DB::beginTransaction();
+
+        $this->store()->afterCommit($device, $count);
+
+        DB::rollBack();
+
+        self::assertCount(1, $calls);
+    }
+
+    /**
+     * A transaction open on another connection neither delays nor cancels work
+     * deferred for a device on its own connection, whether it is the only
+     * transaction or opened inside one on the device's connection.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAfterCommitIgnoresTransactionsOnOtherConnections(): void
+    {
+        $device = new SeparateConnectionDevice;
+        $calls  = new \ArrayObject;
+        $count  = self::counter($calls);
+
+        DB::beginTransaction();
+
+        $this->store()->afterCommit($device, $count);
+
+        self::assertCount(1, $calls);
+
+        DB::rollBack();
+
+        self::assertCount(1, $calls);
+
+        $separate = DB::connection(SeparateConnectionDevice::CONNECTION);
+
+        $separate->beginTransaction();
+        DB::beginTransaction();
+
+        $this->store()->afterCommit($device, $count);
+
+        DB::rollBack();
+
+        self::assertCount(1, $calls);
+
+        $separate->commit();
+
+        self::assertCount(2, $calls);
+    }
+
+    /**
+     * Without a transactions manager, nothing can be deferred, so the work runs
+     * at once even inside a transaction.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAfterCommitRunsAtOnceWithoutATransactionsManager(): void
+    {
+        $device = $this->device();
+        $calls  = new \ArrayObject;
+
+        DB::beginTransaction();
+
+        $this->store(static fn (): null => null)->afterCommit($device, self::counter($calls));
+
+        DB::rollBack();
+
+        self::assertCount(1, $calls);
+    }
+
+    /**
+     * Add the second connection a device can be kept on.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        /** @var \Illuminate\Config\Repository $config */
+        $config = app(ConfigRepository::class);
+
+        $config->set('database.connections.' . SeparateConnectionDevice::CONNECTION, ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+    }
+
+    /**
+     * Build the store on the application's connections and its transactions
+     * manager, or on the given manager resolver.
+     *
+     * @param  (\Closure(): mixed)|null  $transactions
      * @return \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore
      */
-    private function store(): RefreshRotationStore
+    private function store(?\Closure $transactions = null): RefreshRotationStore
     {
-        return new RefreshRotationStore(app(ConnectionResolverInterface::class));
+        return new RefreshRotationStore(
+            app(ConnectionResolverInterface::class),
+            $transactions ?? static fn (): mixed => app('db.transactions'),
+        );
+    }
+
+    /**
+     * A callback that records each call it receives.
+     *
+     * @param  \ArrayObject<int, true>  $calls
+     * @return \Closure(): void
+     */
+    private static function counter(\ArrayObject $calls): \Closure
+    {
+        return static function () use ($calls): void {
+            $calls->append(true);
+        };
+    }
+
+    /**
+     * Read the raw row of a device kept on its own connection.
+     *
+     * @param  \Tests\Integration\Fixtures\SeparateConnectionDevice  $device
+     * @return array<string, mixed>
+     */
+    private function separateRow(SeparateConnectionDevice $device): array
+    {
+        return (array) DB::connection(SeparateConnectionDevice::CONNECTION)->table('devices')->where('id', $device->id)->first();
     }
 
     /**

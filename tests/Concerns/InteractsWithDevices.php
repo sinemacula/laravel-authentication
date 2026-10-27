@@ -51,15 +51,17 @@ trait InteractsWithDevices
     /**
      * Create a device table with every column of the shipped migration. The
      * owner and both deadlines are nullable, unlike the shipped table, so tests
-     * can store a device without an owner or a session.
+     * can store a device without an owner or a session. The table is created on
+     * the given connection, or the default one.
      *
      * @param  string  $table
      * @param  string  $key
+     * @param  ?string  $connection
      * @return void
      */
-    protected static function createDeviceTable(string $table, string $key = 'id'): void
+    protected static function createDeviceTable(string $table, string $key = 'id', ?string $connection = null): void
     {
-        Schema::create($table, static function (Blueprint $blueprint) use ($key): void {
+        Schema::connection($connection)->create($table, static function (Blueprint $blueprint) use ($key): void {
             $blueprint->uuid($key)->primary();
             $blueprint->string('authenticatable_type')->nullable();
             $blueprint->string('authenticatable_id')->nullable();
