@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -63,6 +64,7 @@ use Tests\Unit\Stubs\StubPrincipal;
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
+#[CoversClass(JwtTokenService::class)]
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(ModelProvider::class)]
 #[CoversClass(DefaultPrincipalResolver::class)]
