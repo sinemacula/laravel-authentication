@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
@@ -266,7 +268,13 @@ final readonly class SessionService
      * factor was not verified, so its token cannot be tried again. The
      * attempt-limit slots its sign-in took stay counted: each factor guess
      * costs a sign-in attempt. Returns whether the token named a live pending
-     * sign-in of this guard, which this call used up; nothing is dispatched.
+     * sign-in of this guard, which this call used up.
+     *
+     * A discard is the failure of the sign-in that waited: Laravel's `Failed`
+     * and then `SignInFailed` report it as `additional_factor_failed`, with the
+     * method, the discarding request's client, and the identity when the
+     * guard's provider still returns it. A token that discards nothing
+     * dispatches nothing.
      *
      * @param  string  $token
      * @return bool
@@ -277,7 +285,17 @@ final readonly class SessionService
      */
     public function discard(#[\SensitiveParameter] string $token): bool
     {
-        return $this->pendings->discard($this->guard->getName(), $token, CarbonImmutable::now()->startOfSecond());
+        $discarded = $this->pendings->discard($this->guard->getName(), $token, CarbonImmutable::now()->startOfSecond());
+
+        if ($discarded === null) {
+            return false;
+        }
+
+        $refused = new RefusedSignIn(SignInFailureReason::ADDITIONAL_FACTOR_FAILED, PendingSignIns::owner($discarded, $this->guard->getProvider()));
+
+        $this->fail($refused, $discarded->sign_in_method, SignInContext::fromRequest($this->guard->getRequest()), null, []);
+
+        return true;
     }
 
     /**
@@ -509,11 +527,12 @@ final readonly class SessionService
     /**
      * Ask the additional-factor policy about the sign-in on the proven device
      * (or none): when it requires a further factor, hand out a pending sign-in
-     * that remembers the device and the attempt-limit slots the sign-in took;
-     * otherwise start the session, continuing the proven device or creating
-     * one. When the proven device changed before it could be continued, the
-     * sign-in is reconsidered without it, factor policy included; it never
-     * retries the device.
+     * that remembers the device and the attempt-limit slots the sign-in took,
+     * and dispatch `AdditionalFactorRequired` once it is committed; otherwise
+     * start the session, continuing the proven device or creating one. When the
+     * proven device changed before it could be continued, the sign-in is
+     * reconsidered without it, factor policy included; it never retries the
+     * device.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
@@ -538,7 +557,22 @@ final readonly class SessionService
         $admitted = $admitted->on($proven);
 
         if ($this->requiresAdditionalFactor($admitted, $method, $context)) {
-            return SignInResult::pendingFactor($this->pendings->issue($this->guard->getName(), $admitted, $method, $identifierType, $context, $now, $attemptWindows));
+
+            $pending = $this->pendings->issue($this->guard->getName(), $admitted, $method, $identifierType, $context, $now, $attemptWindows);
+            $event   = new AdditionalFactorRequired(
+                $pending->guard,
+                $pending->identity,
+                $pending->principal,
+                $pending->tenant,
+                $pending->provenDevice,
+                $method,
+                $context->client,
+                $pending->expiresAt,
+            );
+
+            $this->afterCommit->run(new PendingSignIn, fn () => $this->dispatch($event));
+
+            return SignInResult::pendingFactor($pending);
         }
 
         $session = $this->write($admitted, $proven, $method, $context, $now);

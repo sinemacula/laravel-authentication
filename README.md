@@ -63,8 +63,8 @@ device record live in the `devices` table so replay and stale credentials can be
   use (time, IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a
   reason. Refresh digests are hidden from serialisation.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
-  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` / `SignInFailed` /
-  `Refreshed` / `RefreshFailed` / `DeviceRevoked` / `IdentifierVerified`.
+  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
+  `AdditionalFactorRequired` / `SignInFailed` / `Refreshed` / `RefreshFailed` / `DeviceRevoked` / `IdentifierVerified`.
 - **Audiences per guard**: the sign-in methods and principal types each guard admits, and token and session lifetimes
   per principal type.
 - **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email by
@@ -1193,9 +1193,15 @@ if (! $factors->verify($pending->identity, $pending->principal, $code)) {
 $result = $sessions->complete($token);
 ```
 
+Holding a sign-in for a factor is its outcome, so it is reported: `AdditionalFactorRequired` carries the guard,
+identity, principal, tenant, the device the client proved (if any), the method, the client and the expiry, never the
+token, and is dispatched once the pending sign-in is committed (after your transaction, and never if you roll it back).
+
 `discard()` uses a pending sign-in up without starting a session, whatever has changed about its identity since; call
 it when the factor fails, so each pending sign-in allows one guess. It returns whether the token named a live pending
-sign-in of this guard and dispatches nothing: the code that verified the factor reports the failure.
+sign-in of this guard and, when it did, reports the failure of the sign-in that waited: Laravel's `Failed` and then
+`SignInFailed` with `additional_factor_failed`, the method, the discarding request's client and the identity (when the
+guard's provider still returns it; no principal). A token that discards nothing reports nothing.
 
 `pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
 guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome,
@@ -1327,22 +1333,23 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 
 ## Events
 
-| Event                                       | Fired when                                                |
-|---------------------------------------------|-----------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`         | Bearer, refresh, or credential attempt starts             |
-| `Illuminate\Auth\Events\Validated`          | A successful `login()` path is about to bind context      |
-| `Illuminate\Auth\Events\Authenticated`      | Identity bound to the guard                               |
-| `Illuminate\Auth\Events\Login`              | Full lifecycle complete                                   |
-| `Illuminate\Auth\Events\Failed`             | Any bearer, refresh, or credential rejection              |
-| `SineMacula\...\Events\PrincipalAssigned`   | Principal resolved and bound                              |
-| `SineMacula\...\Events\DeviceAuthenticated` | Device hydrated and bound; listeners may persist metadata |
-| `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
-| `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
-| `SineMacula\...\Events\DeviceRevoked`       | The package revoked a device (a replay); carries reason   |
-| `SineMacula\...\Events\SignInFailed`        | A sign-in failed (carries machine-readable reason)        |
-| `SineMacula\...\Events\DeviceCreated`       | The session service created a device, once committed      |
-| `SineMacula\...\Events\SignedIn`            | The session service started a session, once committed     |
-| `SineMacula\...\Events\IdentifierVerified`  | An identifier was verified (after commit); carries type   |
+| Event                                            | Fired when                                                |
+|--------------------------------------------------|-----------------------------------------------------------|
+| `Illuminate\Auth\Events\Attempting`              | Bearer, refresh, or credential attempt starts             |
+| `Illuminate\Auth\Events\Validated`               | A successful `login()` path is about to bind context      |
+| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard                               |
+| `Illuminate\Auth\Events\Login`                   | Full lifecycle complete                                   |
+| `Illuminate\Auth\Events\Failed`                  | Any bearer, refresh, or credential rejection              |
+| `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                              |
+| `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata |
+| `SineMacula\...\Events\Refreshed`                | Refresh exchange completed                                |
+| `SineMacula\...\Events\RefreshFailed`            | Refresh exchange failed (carries machine-readable reason) |
+| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device (a replay); carries reason   |
+| `SineMacula\...\Events\SignInFailed`             | A sign-in failed (carries machine-readable reason)        |
+| `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed      |
+| `SineMacula\...\Events\SignedIn`                 | The session service started a session, once committed     |
+| `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed      |
+| `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type   |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -1360,7 +1367,9 @@ proved who signed in, unlike Laravel's `Login` and `Authenticated`, which also f
 binds the guard; a refresh dispatches `Refreshed` instead. `attempt()` starts no session and never dispatches it:
 Laravel's `Login` reports its sign-ins, and code that calls `start()` after `attempt()` reports the sign-in once.
 `DeviceCreated` precedes it for a new device. Both carry the guard, identity, principal, tenant, device, method and
-client (IP address and user agent), and never a token.
+client (IP address and user agent), and never a token. A sign-in the additional-factor policy holds for a further
+factor dispatches `AdditionalFactorRequired` instead, once committed, and so answers its `Attempting`; completing it
+dispatches `SignedIn`, and discarding it `SignInFailed` with `additional_factor_failed`.
 
 `SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's
 client (IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a
@@ -1385,6 +1394,7 @@ says why a sign-in failed even where the client is not told: a refusal by the ac
 | `principal_ineligible`       | The guard does not accept principals of the principal's type       |
 | `identifier_unverified`      | The guard requires a verified identifier and it is not             |
 | `additional_factor_required` | A further factor is required, which only `signIn()` can ask        |
+| `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed         |
 | `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's |
 
 `RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution, and the wait in `retryAfter` for

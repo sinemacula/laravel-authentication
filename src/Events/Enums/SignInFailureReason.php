@@ -61,6 +61,10 @@ enum SignInFailureReason: string
     // A further factor is required, which only signIn() can ask for
     case ADDITIONAL_FACTOR_REQUIRED = 'additional_factor_required';
 
+    // The further factor of a pending sign-in was not verified, and the pending
+    // sign-in was discarded
+    case ADDITIONAL_FACTOR_FAILED = 'additional_factor_failed';
+
     // The pending sign-in is unknown, expired, already used, or not for this
     // guard
     case PENDING_INVALID = 'pending_invalid';

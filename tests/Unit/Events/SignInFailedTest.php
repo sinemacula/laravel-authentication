@@ -90,6 +90,7 @@ final class SignInFailedTest extends TestCase
             'principal_ineligible',
             'identifier_unverified',
             'additional_factor_required',
+            'additional_factor_failed',
             'pending_invalid',
         ], array_map(static fn (SignInFailureReason $reason): string => $reason->value, SignInFailureReason::cases()));
     }

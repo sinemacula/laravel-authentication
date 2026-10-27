@@ -539,8 +539,8 @@ final class PendingSignInsTest extends TestCase
 
     /**
      * Discarding uses the live pending sign-in of the guard up, once, while its
-     * token holds the secret and it has not expired, and needs nothing it
-     * records to resolve.
+     * token holds the secret and it has not expired, needs nothing it records
+     * to resolve, and returns the pending sign-in it used up.
      *
      * @return void
      *
@@ -554,12 +554,41 @@ final class PendingSignInsTest extends TestCase
 
         $identity->delete();
 
-        self::assertFalse($this->pendings()->discard('admin', $pending->token, $this->now));
-        self::assertFalse($this->pendings()->discard('api', $id . '.not-the-secret', $this->now));
-        self::assertFalse($this->pendings()->discard('api', $pending->token, $this->now->addSeconds(300)));
-        self::assertTrue($this->pendings()->discard('api', $pending->token, $this->now->addSeconds(299)));
-        self::assertFalse($this->pendings()->discard('api', $pending->token, $this->now));
+        self::assertNull($this->pendings()->discard('admin', $pending->token, $this->now));
+        self::assertNull($this->pendings()->discard('api', $id . '.not-the-secret', $this->now));
+        self::assertNull($this->pendings()->discard('api', $pending->token, $this->now->addSeconds(300)));
+        self::assertSame($id, $this->pendings()->discard('api', $pending->token, $this->now->addSeconds(299))?->getKey());
+        self::assertNull($this->pendings()->discard('api', $pending->token, $this->now));
         self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * The owner a pending sign-in recorded is reloaded through the guard's
+     * provider as that very identity, active or not, for whoever reports on the
+     * pending sign-in; an owner the provider no longer returns, or returns as
+     * another identity, is none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheRecordedOwnerIsReloadedThroughTheProvider(): void
+    {
+        $identity = $this->seedIdentity(active: false);
+        $pending  = PendingSignIn::query()->whereKey(explode('.', $this->issue($identity)->token, 2)[0])->firstOrFail();
+
+        $owner = PendingSignIns::owner($pending, $this->provider());
+
+        self::assertTrue($owner instanceof IntegrationIdentity && $owner->is($identity));
+
+        $other = \Mockery::mock(IdentityProvider::class);
+        $other->shouldReceive('retrieveById')->once()->with($pending->authenticatable_id)->andReturn($this->seedIdentity('other@example.test'));
+
+        self::assertNull(PendingSignIns::owner($pending, $other));
+
+        $identity->delete();
+
+        self::assertNull(PendingSignIns::owner($pending, $this->provider()));
     }
 
     /**

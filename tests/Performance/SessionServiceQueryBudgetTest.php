@@ -164,8 +164,9 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Discarding a pending sign-in reads it once and deletes it, without
-     * reloading its identity; a token that names none costs the one read.
+     * Discarding a pending sign-in reads it once, deletes it, and reads its
+     * identity once more for the failure events, never its principal; a token
+     * that names none costs the one read.
      *
      * @return void
      *
@@ -183,7 +184,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(1, 1, static fn (): bool => $sessions->discard($pending->token)));
+        self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->discard($pending->token)));
         self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => $sessions->discard($pending->token)));
     }
 

@@ -59,6 +59,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   shipped last-use listener writes nothing more.
 - A continued device: the same, without `DeviceCreated`, and `SignedIn` with `deviceCreated: false`.
 - `start()`: the same without `Attempting`.
+- A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed
+  on its connection, `AdditionalFactorRequired` (guard, identity, principal, tenant, proven device, method, client,
+  expiry; never the token), and nothing bound. Its completion follows the new or continued device path without
+  `Attempting`; its discard emits `Failed` and `SignInFailed` (`additional_factor_failed`, the method, the discarding
+  client, the identity when the provider still returns it), and a token that discards nothing emits nothing.
 
 ## Failure / Edge Cases
 
@@ -119,6 +124,6 @@ Update this note when any of the following change:
 - the order of the checks, or which of them count an attempt or run in the timebox
 - what proves a device, or what continuing one writes or keeps
 - what the session's transaction contains, or when the guard is bound
-- when `DeviceCreated` and `SignedIn` are dispatched, or what they carry
+- when `DeviceCreated`, `SignedIn` and `AdditionalFactorRequired` are dispatched, or what they carry
 - what reaches the events from the sign-in input
 - what a pending sign-in stores, how long it lives, what finds it, or what completing it checks

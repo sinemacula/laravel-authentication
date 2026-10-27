@@ -42,7 +42,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - The session service's `signIn()` emits `Attempting`, then binds through `login()` (`Validated -> Login ->
   Authenticated -> PrincipalAssigned -> DeviceAuthenticated`) once the session's transaction is done, and dispatches
   `DeviceCreated` (new devices only) and `SignedIn` when the device's connection commits; `start()` does the same
-  without `Attempting` (see `session-service.md`).
+  without `Attempting` (see `session-service.md`). A sign-in held for a further factor binds nothing: it emits
+  `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits. `complete()`
+  binds and emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then `SignInFailed`
+  (`additional_factor_failed`).
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`
@@ -158,6 +161,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testLoginFiresValidatedEventBeforeBindingState`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARateLimitedRefreshFiresFailedAndThrowsA429`
+- `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
+  `testASignInHeldForAFactorReportsIt`, `testAFactorRequestIsReportedOnlyOnceItsPendingSignInCommits`,
+  `testADiscardedPendingSignInCannotBeCompleted`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserBindsIdentityPrincipalAndDeviceFromValidToken`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
@@ -230,7 +236,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `DeviceAuthenticated`, `Refreshed`, `RefreshFailed`, `SignInFailed`, `DeviceRevoked`, or `IdentifierVerified`
+  `DeviceAuthenticated`, `Refreshed`, `RefreshFailed`, `SignInFailed`, `AdditionalFactorRequired`, `DeviceRevoked`, or
+  `IdentifierVerified`
 - the order of the sign-in policy checks in `attempt()`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards

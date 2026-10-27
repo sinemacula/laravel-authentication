@@ -195,22 +195,21 @@ final readonly class PendingSignIns
     /**
      * Use up the live pending sign-in of the guard the token names, without
      * reloading anything it records, so a sign-in whose factor failed can be
-     * ended whatever has changed since. Returns whether this call used it up.
+     * ended whatever has changed since. Returns the pending sign-in this call
+     * used up, or `null`.
      *
      * @param  string  $guard
      * @param  string  $token
      * @param  \Carbon\CarbonImmutable  $now
-     * @return bool
+     * @return ?\SineMacula\Laravel\Authentication\Models\PendingSignIn
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
-     *
-     * @imperative
      */
-    public function discard(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now): bool
+    public function discard(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now): ?PendingSignIn
     {
         [$pending, $secret] = self::live($guard, $token, $now) ?? [null, ''];
 
-        return $pending !== null && self::delete($pending, $secret, $now);
+        return $pending !== null && self::delete($pending, $secret, $now) ? $pending : null;
     }
 
     /**
@@ -260,6 +259,27 @@ final readonly class PendingSignIns
     public static function origin(PendingSignIn $pending): ClientContext
     {
         return new ClientContext($pending->created_ip, $pending->created_user_agent);
+    }
+
+    /**
+     * Reload the identity the pending sign-in recorded through the guard's
+     * provider, when the provider returns that very owner, whether or not it is
+     * still active.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     */
+    public static function owner(PendingSignIn $pending, IdentityProvider $provider): ?Identity
+    {
+        $identity = $provider->retrieveById($pending->authenticatable_id);
+
+        return $identity instanceof Identity
+            && $identity instanceof Model
+            && $identity->getMorphClass() === $pending->authenticatable_type
+            && IdentifierCoercion::matches($identity->getKey(), $pending->authenticatable_id)
+            ? $identity
+            : null;
     }
 
     /**
@@ -381,26 +401,6 @@ final readonly class PendingSignIns
             && $pending->purpose === PendingSignIn::ADDITIONAL_FACTOR
             && $pending->guard   === $guard
             && $pending->expires_at->getTimestamp() > $now->getTimestamp();
-    }
-
-    /**
-     * Reload the identity the pending sign-in recorded through the guard's
-     * provider, when the provider returns that very owner.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
-     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     */
-    private static function owner(PendingSignIn $pending, IdentityProvider $provider): ?Identity
-    {
-        $identity = $provider->retrieveById($pending->authenticatable_id);
-
-        return $identity instanceof Identity
-            && $identity instanceof Model
-            && $identity->getMorphClass() === $pending->authenticatable_type
-            && IdentifierCoercion::matches($identity->getKey(), $pending->authenticatable_id)
-            ? $identity
-            : null;
     }
 
     /**

@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
@@ -515,9 +516,12 @@ final class PendingFactorSessionServiceTest extends TestCase
 
     /**
      * A pending sign-in whose factor failed is discarded: it is used up without
-     * a session, whatever has changed about its identity since, its token then
-     * looks up and completes nothing, and nothing is dispatched. A token that
-     * names no live pending sign-in of the guard discards nothing.
+     * a session, whatever has changed about its identity since, and reported as
+     * the failure of the sign-in that waited (`Failed`, then `SignInFailed`
+     * with `additional_factor_failed`, the method, the discarding client and
+     * the identity, still returned though inactive); its token then looks up
+     * and completes nothing. A token that names no live pending sign-in of the
+     * guard discards nothing and reports nothing.
      *
      * @return void
      *
@@ -536,9 +540,27 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertFalse($this->sessions('admin')->discard($pending->token));
         self::assertFalse($this->sessions()->discard('not-a-pending-token'));
         self::assertFalse($this->sessions()->discard(explode('.', $pending->token, 2)[0] . '.wrong-secret'));
-        self::assertTrue($this->sessions()->discard($pending->token));
         self::assertSame([], $this->recordedClasses());
+        self::assertTrue($this->completionGuard()->sessions()->discard($pending->token));
+        self::assertSame([Failed::class, SignInFailed::class], $this->recordedClasses());
+
+        $failed = $this->recordedEvent(SignInFailed::class);
+
+        self::assertSame(SignInFailureReason::ADDITIONAL_FACTOR_FAILED, $failed->reason);
+        self::assertSame('api', $failed->guard);
+        self::assertSame('password', $failed->method);
+        self::assertSame(self::COMPLETION_IP, $failed->client->ip);
+        self::assertTrue($failed->identity instanceof IntegrationIdentity && $failed->identity->is($identity));
+        self::assertNull($failed->principal);
+        self::assertNull($failed->identifier);
+        self::assertNull($failed->retryAfter);
+        self::assertSame($failed->identity, $this->recordedEvent(Failed::class)->user);
+        self::assertSame([], $this->recordedEvent(Failed::class)->credentials);
+
+        $this->recordEvents([Failed::class, SignInFailed::class, SignedIn::class]);
+
         self::assertFalse($this->sessions()->discard($pending->token));
+        self::assertSame([], $this->recordedClasses());
         self::assertNull($this->sessions()->pending($pending->token));
         self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
         self::assertSame(1, PendingSignIn::query()->count());
@@ -547,6 +569,86 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         self::assertFalse($this->sessions()->discard($other->token));
         self::assertSame(1, PendingSignIn::query()->count());
+    }
+
+    /**
+     * A sign-in held for a further factor reports its outcome: after
+     * `Attempting`, `AdditionalFactorRequired` with the guard, identity,
+     * principal, method, client and expiry (and no tenant or device here), and
+     * never the token; nothing that reports a session or a failure fires. A
+     * `start()` held for a factor reports it too, without `Attempting`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInHeldForAFactorReportsIt(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->recordEvents([Attempting::class, AdditionalFactorRequired::class, Failed::class, SignInFailed::class, Login::class, SignedIn::class]);
+
+        $pending = $this->pendingFor(clientName: 'Phone');
+
+        self::assertSame([Attempting::class, AdditionalFactorRequired::class], $this->recordedClasses());
+
+        $required = $this->recordedEvent(AdditionalFactorRequired::class);
+
+        self::assertSame('api', $required->guard);
+        self::assertTrue($required->identity instanceof IntegrationIdentity && $required->identity->is($identity));
+        self::assertSame($required->identity, $required->principal);
+        self::assertNull($required->tenant);
+        self::assertNull($required->device);
+        self::assertSame('password', $required->method);
+        self::assertSame(self::CLIENT_IP, $required->client->ip);
+        self::assertSame($pending->expiresAt->getTimestamp(), $required->expiresAt->getTimestamp());
+        self::assertStringNotContainsString(explode('.', $pending->token, 2)[1], serialize(get_object_vars($required)));
+
+        $this->recordEvents([Attempting::class, AdditionalFactorRequired::class]);
+
+        self::assertTrue($this->sessions()->start($identity, null, 'sso')->requiresFactor());
+        self::assertSame([AdditionalFactorRequired::class], $this->recordedClasses());
+        self::assertSame('sso', $this->recordedEvent(AdditionalFactorRequired::class)->method);
+    }
+
+    /**
+     * `AdditionalFactorRequired` waits for the pending sign-in to commit:
+     * inside a caller's transaction it fires on commit, and never when the
+     * caller rolls the pending sign-in back. It names the device the client
+     * proved.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFactorRequestIsReportedOnlyOnceItsPendingSignInCommits(): void
+    {
+        $this->seedIdentity();
+
+        $first = $this->signedInWithoutAFactor();
+
+        $this->recordEvents([AdditionalFactorRequired::class]);
+
+        DB::beginTransaction();
+
+        $this->pendingFor();
+
+        self::assertSame([], $this->recordedClasses());
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertSame(0, PendingSignIn::query()->count());
+
+        DB::transaction(function () use ($first): void {
+
+            $this->pendingFor(refreshToken: $first->tokens->refreshToken);
+
+            self::assertSame([], $this->recordedClasses());
+        });
+
+        self::assertSame([AdditionalFactorRequired::class], $this->recordedClasses());
+        self::assertSame($first->device->getKey(), $this->recordedEvent(AdditionalFactorRequired::class)->device?->getDeviceIdentifier());
     }
 
     /**
