@@ -10,7 +10,7 @@ namespace SineMacula\Laravel\Authentication\Concerns;
  *
  * The using class must also implement `CanBeActive`: activation is checked only
  * on models that declare the capability, so the trait on its own is never
- * consulted. Static analysis enforces the pairing.
+ * consulted.
  *
  * The attribute must be loaded: a model selected without the column throws
  * rather than being read as either active or inactive, so a partial select

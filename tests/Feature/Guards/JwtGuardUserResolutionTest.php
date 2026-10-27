@@ -65,7 +65,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     /**
      * A request whose `Authorization: Bearer` header carries an empty string
      * token returns null without firing any events. Mutation guard: pins the
-     * `$token === ''` arm in `user()` separately from the `null` arm above.
+     * `$token === ''` arm in `JwtGuard::resolveUserFromRequest()` separately
+     * from the `null` arm above.
      *
      * @return void
      *

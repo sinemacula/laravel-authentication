@@ -333,7 +333,6 @@ abstract class AbstractGuard implements ContextualGuard
 
         $this->clearContextualState();
 
-        // Settles the request, so its credential is not resolved again.
         $this->requestResolved = true;
     }
 
@@ -410,8 +409,7 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Resolve a principal for the identity through the bound resolver, passing
-     * the hint only when one is supplied.
+     * Resolve a principal for the identity through the bound resolver.
      *
      * An `UnresolvableIdentityException` (an identity model that is neither a
      * `Principal` nor `HasPrincipals`) is a misconfiguration, not a failed
@@ -487,9 +485,6 @@ abstract class AbstractGuard implements ContextualGuard
      * or `null` if any check fails. Stores the retrieved user on
      * `$this->lastRetrievedUser` so the caller can attribute the `Failed` event
      * without re-fetching.
-     *
-     * A caller-supplied principal or device is a claim, not a fact: it is bound
-     * only once proven to belong to the authenticated identity.
      *
      * @formatter:off
      *

@@ -326,9 +326,6 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         self::assertNull($guard->refresh($token));
 
-        // The device row has been revoked: revoked_at is set and the
-        // refresh-key column is cleared, so subsequent refresh attempts produce
-        // REASON_DEVICE_REVOKED.
         $fresh = StubDevice::query()->findOrFail($device->id);
         self::assertNotNull($fresh->revoked_at);
         self::assertNull($fresh->refresh_key);

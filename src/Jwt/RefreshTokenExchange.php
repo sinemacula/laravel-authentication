@@ -431,10 +431,9 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve a principal for the identity through the bound resolver, passing
-     * the hint only when one is supplied. An `UnresolvableIdentityException` is
-     * a misconfiguration and propagates as a server error rather than being
-     * reported as a refresh failure.
+     * Resolve a principal for the identity through the bound resolver. An
+     * `UnresolvableIdentityException` is a misconfiguration and propagates as a
+     * server error rather than being reported as a refresh failure.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -488,7 +487,6 @@ final class RefreshTokenExchange
 
             $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
 
-            // CAS lost: concurrent rotation or reuse. Revoke the device family.
             $this->revokeDevice($device);
             $this->dispatchRefreshFailure(RefreshFailureReason::ROTATION_REUSE, $deviceId);
 

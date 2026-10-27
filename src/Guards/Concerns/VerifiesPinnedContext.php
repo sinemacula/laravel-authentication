@@ -95,12 +95,10 @@ trait VerifiesPinnedContext
 
     /**
      * Resolve a device for the identity from a hint (a `did` claim or a pinned
-     * device's identifier), reading from the write connection so a lagging
-     * replica cannot resolve a deleted or revoked device. Returns null when the
-     * identity does not implement `HasDevices`, the hint cannot be a key of the
-     * device model (no query is made), or the device is not found or has been
-     * revoked: a revoked device is treated exactly like a missing one, from the
-     * row already loaded.
+     * device's identifier). Returns null when the identity does not implement
+     * `HasDevices`, the hint cannot be a key of the device model (no query is
+     * made), or the device is not found or has been revoked: a revoked device
+     * is treated exactly like a missing one, from the row already loaded.
      *
      * The lookup and the revocation read both run inside
      * `WriteConnection::during()` for the device model, so a device that
@@ -134,9 +132,8 @@ trait VerifiesPinnedContext
 
     /**
      * Whether the principal's owning identity is the given identity: the same
-     * class with the same auth identifier. The owner is read inside
-     * `WriteConnection::during()` for the principal. In 2D mode the principal
-     * is its own identity.
+     * class with the same auth identifier. In 2D mode the principal is its own
+     * identity.
      *
      * An Eloquent principal's owner is read from its own stored key on a copy
      * without loaded relations, so an identity relation the resolver already

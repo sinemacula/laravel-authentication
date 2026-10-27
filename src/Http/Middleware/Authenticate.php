@@ -39,7 +39,7 @@ class Authenticate extends IlluminateAuthenticate
      */
     public function __construct(
 
-        // Auth factory resolving the route's guards.
+        // Stored by the parent middleware, so not promoted.
         AuthFactory $auth,
 
         /** Guest response deciding whether the route's guards are all package guards. */

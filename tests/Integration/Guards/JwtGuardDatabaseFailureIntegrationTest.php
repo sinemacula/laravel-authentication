@@ -16,13 +16,12 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * Regression test: a database that cannot be reached surfaces as a server error
- * on refresh, not as an unknown device.
+ * A database that cannot be reached surfaces as a server error on refresh, not
+ * as an unknown device.
  *
  * The configured device model lives on a connection whose database does not
- * exist, so the device lookup fails while connecting. Before the fix the
- * exchange caught the resulting `QueryException` and answered `device_unknown`,
- * turning an outage into a silent sign-out.
+ * exist, so the device lookup fails while connecting, and an outage must not
+ * read as an unknown device (a silent sign-out).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -40,9 +39,7 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
 
     /**
      * The connection failure propagates out of `refresh()` as a
-     * `QueryException` naming the unreachable connection. Before the fix the
-     * exchange returned `null` with `device_unknown`, so the expectation fails
-     * against it.
+     * `QueryException` naming the unreachable connection.
      *
      * @return void
      *

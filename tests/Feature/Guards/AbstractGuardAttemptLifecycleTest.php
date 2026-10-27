@@ -241,7 +241,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        // First login binds identity, principal, and device.
         $guard->login($identity1, $principal1, $device1);
 
         self::assertSame($device1, $guard->device());
@@ -249,7 +248,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         $identity2  = $this->mockIdentity();
         $principal2 = $this->mockActivePrincipal();
 
-        // Second login without a device must NOT carry over device1.
         $guard->login($identity2, $principal2);
 
         self::assertNull($guard->device());

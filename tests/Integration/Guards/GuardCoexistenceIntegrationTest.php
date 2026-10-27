@@ -164,10 +164,6 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         self::assertSame($twoD->getKey(), $resolved2d->getKey());
         self::assertSame($resolved2d, $guard2d->principal(), 'In 2D mode the identity and principal must be the same model instance.');
 
-        // Resolve the 3D guard under a request carrying the 3D bearer token.
-        // Assertions: identity and principal are distinct instances of distinct
-        // classes, and the principal's owning identity matches the resolved
-        // identity.
         $this->bindRequestWithBearer($threeDToken);
 
         $guard3d = PackageAuth::guard(self::GUARD_3D);
@@ -204,7 +200,6 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         self::assertNull($guard2d->identity());
         self::assertNull($guard2d->principal());
 
-        // The active guard exposes its own identity key; the 2D guard has none.
         self::assertNull($guard2d->id());
         self::assertSame($threeDIdentity->getKey(), $guard3d->id());
     }

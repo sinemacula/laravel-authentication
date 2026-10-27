@@ -184,7 +184,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
         self::assertNotNull($claims);
         self::assertSame('customer-api', $claims[Claims::AUDIENCE->value]);
 
-        // Token must NOT be parseable with the staff secret.
         $wrongVerifier = $this->makeVerifier('customer', [self::CUSTOMER_KID => self::STAFF_SECRET], 'customer-api');
         self::assertNull($wrongVerifier->parse($token, TokenType::ACCESS));
     }
@@ -236,13 +235,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         self::assertSame(self::KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
 
-        // The token must be parseable by the same service (which accepts both
-        // the new and old kid for verification).
         $claims = $service->parse($token, TokenType::ACCESS);
         self::assertNotNull($claims);
 
-        // A standalone service with only the new kid's secret must also parse
-        // the token.
         $newKeyVerifier = $this->makeVerifier('rotating', [self::KID_NEW => self::KID_NEW_SECRET]);
         self::assertNotNull($newKeyVerifier->parse($token, TokenType::ACCESS));
     }
@@ -271,7 +266,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         self::assertNotNull($service);
 
-        // Parsing a malformed token triggers the decode-failure debug log.
         $service->parse('not-a-valid-jwt');
     }
 

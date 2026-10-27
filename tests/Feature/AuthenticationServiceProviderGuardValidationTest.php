@@ -77,8 +77,6 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
             'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
         ]);
 
-        // Exercise the guard's resolver by logging in with a stub identity and
-        // verifying the resolved principal is the scoped one.
         $identity         = new StubIdentity(['id' => 1]);
         $identity->exists = true;
         $guard->login($identity, $scopedPrincipal);
@@ -95,7 +93,6 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 
         $guard->setPrincipalResolver($replacementResolver);
 
-        // login() with the new resolver should now yield the replacement
         $guard->login($identity, $replacementPrincipal);
         self::assertSame($replacementPrincipal, $guard->principal());
     }

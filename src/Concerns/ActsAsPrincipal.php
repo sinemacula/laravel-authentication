@@ -253,11 +253,7 @@ trait ActsAsPrincipal
      * Throw when a polymorphic tenant relation cannot say which model it names.
      *
      * Without the type, Eloquent builds the relation against the principal's
-     * own model, which would read as naming no tenant at all. So a principal
-     * loaded without the type column throws a `LogicException`, as for a
-     * missing key, and one whose type is empty while its key is set names a
-     * tenant that cannot be loaded. An empty type with an empty key names no
-     * tenant.
+     * own model, which would read as naming no tenant.
      *
      * @formatter:off
      *

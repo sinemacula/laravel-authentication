@@ -201,9 +201,6 @@ final class JwtGuard extends AbstractGuard
 
         if ($context === null) {
 
-            // lastRetrievedUser carries the identity loaded from the sub claim
-            // so Failed attributes to the resolved account on the
-            // inactive/unresolved/device-missing branches.
             $this->fireFailedEvent($this->lastRetrievedUser, []);
 
             return null;
@@ -274,8 +271,6 @@ final class JwtGuard extends AbstractGuard
 
         $user = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
 
-        // Track the retrieved user for Failed-event attribution even on the
-        // inactive/non-Identity branches.
         if ($user !== null) {
             $this->lastRetrievedUser = $user;
         }

@@ -31,7 +31,6 @@ final class ActivationPolicy
 
     /**
      * Whether the subject (an identity, principal, or tenant) may authenticate.
-     * Returns `true` for subjects that do not implement `CanBeActive`.
      *
      * `isActive()` runs inside `WriteConnection::during()` for the subject, so
      * a check that reads the database (a suspension row, a lazily loaded

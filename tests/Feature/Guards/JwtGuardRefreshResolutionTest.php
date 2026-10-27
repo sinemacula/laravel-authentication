@@ -558,8 +558,6 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         self::assertIsString($refreshClaims[Claims::JWT_ID->value]);
         self::assertNotSame($plainRotationId, $refreshClaims[Claims::JWT_ID->value]);
 
-        // The device's stored digest has been rotated and the old digest is no
-        // longer valid.
         $fresh = StubDevice::query()->findOrFail($device->id);
         self::assertNotSame($oldDigest, $fresh->refresh_key);
         self::assertTrue(RefreshTokenHasher::verify($refreshClaims[Claims::JWT_ID->value], $fresh->refresh_key));
@@ -795,7 +793,6 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        // The original resolver must NOT be called.
         $this->resolver->shouldNotReceive('resolve');
 
         $this->provider->shouldReceive('retrieveById')

@@ -156,9 +156,7 @@ trait ValidatesGuardCredentials
     }
 
     /**
-     * Resolve the lower-cased key fragments to redact: `password`, always, plus
-     * every non-empty string configured under
-     * `authentication.events.redacted_credential_keys`.
+     * Resolve the lower-cased key fragments to redact.
      *
      * @return list<string>
      */

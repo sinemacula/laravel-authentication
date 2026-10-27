@@ -57,7 +57,6 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
             ->once()
             ->with(\Mockery::type(PrincipalAssigned::class));
 
-        // The original dispatcher must NOT receive the event.
         $this->events->shouldNotReceive('dispatch');
 
         self::assertSame($guard, $guard->setDispatcher($replacement));
@@ -87,7 +86,6 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
             ->with($identity)
             ->andReturn($principal);
 
-        // The original resolver must NOT be called.
         $this->resolver->shouldNotReceive('resolve');
 
         $this->provider->shouldReceive('retrieveByCredentials')
@@ -272,7 +270,6 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
             ->andReturnNull();
         $this->provider->shouldNotReceive('validateCredentials');
 
-        // No `Validated` event should fire on the failure path.
         $this->events->shouldNotReceive('dispatch');
 
         self::assertFalse($guard->validate(['email' => 'ghost@example.test']));

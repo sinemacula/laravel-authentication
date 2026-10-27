@@ -21,10 +21,8 @@ enum TokenType: string
     case REFRESH = 'refresh';
 
     /**
-     * Claims a token of this type must carry with a non-empty value. Both types
-     * need `exp`, `iat`, `jti`, `typ`, and the guard claim; an access token
-     * also needs `sub` and `pid` (`did` stays optional for access-only mode),
-     * and a refresh token needs `did`.
+     * Claims a token of this type must carry with a non-empty value; an access
+     * token's `did` stays optional for access-only mode.
      *
      * @return list<\SineMacula\Laravel\Authentication\Jwt\Enums\Claims>
      */
