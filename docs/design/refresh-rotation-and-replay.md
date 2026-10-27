@@ -19,7 +19,10 @@ stateful per-device credentials with server-side replay detection.
 - Refresh can preserve principal continuity by carrying `pid` forward into both the rotated refresh token and the new
   access token.
 - Refresh reads device state, revocation, and replay detection live on every exchange, from the write connection, so
-  a lagging read replica cannot serve a stale digest or miss a revocation.
+  a lagging read replica cannot serve a stale digest or miss a revocation. The owner, principal, and tenant behind the
+  activity checks are read from the write connection too.
+- Refresh applies the same opt-in activation checks as sign-in and bearer requests: the reloaded owner, the resolved
+  principal, and the tenant it acts within must each be active when they implement `CanBeActive`.
 
 ## Success Path
 
@@ -27,7 +30,8 @@ stateful per-device credentials with server-side replay detection.
 - Load the configured device model and reject revoked rows before digest verification.
 - Verify the plaintext `jti` against the stored digest.
 - Reload the device's owner through the guard's identity provider, confirm it is that exact owner (see
-  `guard-bound-tokens.md`), and resolve the active principal.
+  `guard-bound-tokens.md`) and that it is active.
+- Resolve the principal (the `pid` one when the token carries it) and confirm it and its tenant are active.
 - Issue a fresh access token and a fresh refresh token bound to the same device and principal context.
 - Rotate the stored digest with a single CAS update keyed on device id, old digest, and `revoked_at IS NULL`, and return
   the new pair only if it affected the row.
@@ -47,6 +51,9 @@ stateful per-device credentials with server-side replay detection.
   already issued for the losing request is discarded.
 - An exception while issuing the new pair propagates without a `RefreshFailed` event and without touching the device
   row, so the client can retry with the same refresh token.
+- An inactive owner, principal, or tenant produces `identity_inactive`, `principal_inactive`, or `tenant_inactive`.
+- An `UnresolvableIdentityException` from the principal resolver is a misconfiguration, not a failure reason: it
+  propagates as a server error without a `RefreshFailed` event, and the stored digest is left as it was.
 - Revoked devices produce `device_revoked`. Revocation is not refresh-only: the bearer path rejects an access token
   naming a revoked device as if the device were missing (see `fail-closed-pid-did.md`).
 - Refresh does not rely on Eloquent observers. The raw update path deliberately bypasses them; consumers should hang
@@ -59,7 +66,9 @@ stateful per-device credentials with server-side replay detection.
 - `src/Jwt/RefreshTokenHasher.php`: digest generation and constant-time verification.
 - `src/Jwt/DeviceKeyShape.php` and `src/Contracts/ValidatesDeviceKey.php`: the `did` shape check run before the device
   lookup.
-- `src/Database/WriteConnection.php`: pins the device and owner reads to the write connection.
+- `src/Database/WriteConnection.php`: pins the device and owner reads to the write connection (the principal and tenant
+  reads are pinned by the resolver and by `ActivationPolicy`).
+- `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
 - `src/Jwt/JwtTokenService.php`: `issueRefreshToken()` and `issueAccessToken()`.
 - `src/Events/Enums/RefreshFailureReason.php`: failure taxonomy.
 - `src/Guards/JwtGuard.php`: `refresh()` delegates straight to the live refresh exchange.
@@ -94,6 +103,10 @@ stateful per-device credentials with server-side replay detection.
   `testExchangeLeavesTheRefreshTokenValidWhenIssuingFails`
 - `tests/Integration/Guards/JwtGuardDatabaseFailureIntegrationTest.php`
   `testRefreshPropagatesAConnectionFailureDuringDeviceLookup`
+- `tests/Integration/Guards/TenantActivityIntegrationTest.php`
+  `testRefreshRejectsMemberOfInactiveTenantWithTenantInactiveReason`
+- `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
+  `testExchangePropagatesUnresolvableIdentityException`
 
 ## Change Triggers
 
@@ -108,3 +121,4 @@ Update this note when any of the following change:
 - whether refresh still preserves `pid` across the rotated pair
 - whether refresh ever starts consulting shared cross-request caches
 - whether refresh still reads the device and its owner from the write connection
+- which activity checks refresh applies, or whether an `UnresolvableIdentityException` still propagates

@@ -18,6 +18,8 @@ can verify its signature, and the `sub` is then looked up in the wrong guard's p
   (tenants, soft deletes, audiences) applies on refresh exactly as it does on the bearer path.
 - The reloaded identity must be the device's exact owner: an Eloquent identity of the device row's morph type with the
   device row's owner key. Anything else is rejected.
+- The reloaded owner, not a relation cached on the device row, is what the activity checks see: it, its principal, and
+  its tenant go through the same opt-in `ActivationPolicy` as on the bearer path.
 
 ## Success Path
 
