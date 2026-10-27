@@ -4,8 +4,11 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Concerns;
 
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 
 /**
  * Provides default Principal contract implementations sourced from configurable
@@ -68,7 +71,16 @@ trait ActsAsPrincipal
      * absent key, which Eloquent's strict mode would otherwise reject on every
      * authentication path that checks tenant activity.
      *
+     * A principal whose `BelongsTo` tenant key is set names a tenant, so when
+     * that tenant cannot be loaded (deleted, soft-deleted, or hidden by a
+     * scope) this throws rather than returning `null`, which would read as
+     * acting within no tenant and skip the tenant's activity check. A relation
+     * that returns a model other than a `Tenant` is a misconfiguration.
+     *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     * @throws \LogicException
      */
     public function getTenant(): ?Tenant
     {
@@ -80,7 +92,26 @@ trait ActsAsPrincipal
 
         $tenant = $this->getAttribute($name);
 
-        return $tenant instanceof Tenant ? $tenant : null;
+        if ($tenant instanceof Tenant) {
+            return $tenant;
+        }
+
+        if ($tenant instanceof Model) {
+            throw new \LogicException(sprintf('Principal %s expected its tenant relation `%s` to return a Tenant instance, got %s.', static::class, $name, $tenant::class));
+        }
+
+        if ($this->namesTenant($name)) {
+
+            $message = sprintf(
+                'Principal %s names a tenant through `%s` that cannot be loaded: it is deleted, soft-deleted, or hidden by a scope.',
+                static::class,
+                $name,
+            );
+
+            throw new TenantUnavailableException($message);
+        }
+
+        return null;
     }
 
     /**
@@ -111,5 +142,23 @@ trait ActsAsPrincipal
     protected function getTenantRelationName(): string
     {
         return 'tenant';
+    }
+
+    /**
+     * Whether the tenant relation is a `BelongsTo` whose key is set, so the
+     * principal names a tenant whether or not that tenant can be loaded.
+     *
+     * @param  string  $name
+     * @return bool
+     */
+    private function namesTenant(string $name): bool
+    {
+        if (!$this->isRelation($name)) {
+            return false;
+        }
+
+        $relation = $this->{$name}();
+
+        return $relation instanceof BelongsTo && $this->getAttribute($relation->getForeignKeyName()) !== null;
     }
 }

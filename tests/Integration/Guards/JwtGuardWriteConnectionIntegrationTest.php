@@ -511,6 +511,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             $blueprint->string('name');
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
+            $blueprint->softDeletes();
         });
 
         $this->createOnPrimaryAndReplica('activatable_tenant_members', static function (Blueprint $blueprint): void {

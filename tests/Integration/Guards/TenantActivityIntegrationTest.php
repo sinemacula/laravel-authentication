@@ -28,7 +28,8 @@ use Tests\TestCase;
 /**
  * Tenant activity is enforced wherever principal activity is: a member of a
  * deactivated tenant cannot sign in, authenticate a bearer request, or refresh,
- * and the membership signs in again once the tenant is reactivated.
+ * and the membership signs in again once the tenant is reactivated. A tenant
+ * that is soft-deleted or deleted blocks its members the same way.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,6 +62,7 @@ final class TenantActivityIntegrationTest extends TestCase
             $blueprint->string('name');
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
+            $blueprint->softDeletes();
         });
 
         Schema::create('activatable_tenant_members', static function (Blueprint $blueprint): void {
@@ -192,6 +194,99 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
+     * A member of a soft-deleted tenant cannot sign in: the membership names a
+     * tenant the soft-delete scope hides, which is not the same as acting
+     * within no tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptRejectsMemberOfSoftDeletedTenant(): void
+    {
+        [$member, , $tenant] = $this->seedMembership();
+
+        $tenant->delete();
+
+        $guard = $this->freshGuard();
+
+        self::assertFalse($guard->attempt(['email' => $member->email, 'password' => self::PASSWORD]));
+        self::assertNull($guard->identity());
+    }
+
+    /**
+     * An access token issued before the tenant was soft-deleted stops
+     * authenticating once it is.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsMemberOfSoftDeletedTenant(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMembership();
+
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null);
+
+        $tenant->delete();
+
+        self::assertNull($this->bearerGuard($token)->user());
+    }
+
+    /**
+     * An access token stops authenticating once its tenant row is deleted
+     * outright and the membership's tenant key no longer names a row.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsMemberOfDeletedTenant(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMembership();
+
+        $token = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null);
+
+        $tenant->forceDelete();
+
+        self::assertNull($this->bearerGuard($token)->user());
+    }
+
+    /**
+     * Refresh for a member of a soft-deleted tenant fails with the
+     * `tenant_inactive` reason.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRefreshRejectsMemberOfSoftDeletedTenantWithTenantInactiveReason(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMembership();
+
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => ActivatableTenantMember::class,
+            'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'ios',
+            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+        ])->save();
+
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $membership);
+
+        $tenant->delete();
+
+        $reasons = [];
+
+        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+            $reasons[] = $event->reason;
+        });
+
+        self::assertNull($this->freshGuard()->refresh($refreshToken));
+        self::assertSame([RefreshFailureReason::TENANT_INACTIVE], $reasons);
+    }
+
+    /**
      * Configure the JWT guard against the member provider.
      *
      * @param  mixed  $app
@@ -268,6 +363,24 @@ final class TenantActivityIntegrationTest extends TestCase
         $manager->forgetGuards();
 
         return $manager;
+    }
+
+    /**
+     * Resolve a fresh `api` JWT guard against a request carrying the bearer
+     * token.
+     *
+     * @param  string  $token
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private function bearerGuard(#[\SensitiveParameter] string $token): JwtGuard
+    {
+        app()->instance('request', Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]));
+
+        $guard = $this->authManager()->guard('api');
+
+        assert($guard instanceof JwtGuard);
+
+        return $guard;
     }
 
     /**

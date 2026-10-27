@@ -43,6 +43,7 @@ final class ActingAsIntegrationTest extends TestCase
             $blueprint->string('name');
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
+            $blueprint->softDeletes();
         });
 
         Schema::create('activatable_tenant_members', static function (Blueprint $blueprint): void {

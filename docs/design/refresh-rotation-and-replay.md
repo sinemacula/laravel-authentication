@@ -51,7 +51,9 @@ stateful per-device credentials with server-side replay detection.
   already issued for the losing request is discarded.
 - An exception while issuing the new pair propagates without a `RefreshFailed` event and without touching the device
   row, so the client can retry with the same refresh token.
-- An inactive owner, principal, or tenant produces `identity_inactive`, `principal_inactive`, or `tenant_inactive`.
+- An inactive owner, principal, or tenant produces `identity_inactive`, `principal_inactive`, or `tenant_inactive`. A
+  principal whose tenant key names a tenant that cannot be loaded (deleted or soft-deleted) also produces
+  `tenant_inactive`, whether or not the tenant implements `CanBeActive`.
 - An `UnresolvableIdentityException` from the principal resolver is a misconfiguration, not a failure reason: it
   propagates as a server error without a `RefreshFailed` event, and the stored digest is left as it was.
 - Revoked devices produce `device_revoked`. Revocation is not refresh-only: the bearer path rejects an access token
@@ -105,6 +107,8 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshPropagatesAConnectionFailureDuringDeviceLookup`
 - `tests/Integration/Guards/TenantActivityIntegrationTest.php`
   `testRefreshRejectsMemberOfInactiveTenantWithTenantInactiveReason`
+- `tests/Integration/Guards/TenantActivityIntegrationTest.php`
+  `testRefreshRejectsMemberOfSoftDeletedTenantWithTenantInactiveReason`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testExchangePropagatesUnresolvableIdentityException`
 

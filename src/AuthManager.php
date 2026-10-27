@@ -114,6 +114,8 @@ class AuthManager extends IlluminateAuthManager
      * The active tenant, when the active guard is contextual.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function tenant(): ?Tenant
     {
@@ -126,6 +128,8 @@ class AuthManager extends IlluminateAuthManager
      * The active tenant's type string, when resolvable.
      *
      * @return ?string
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function type(): ?string
     {

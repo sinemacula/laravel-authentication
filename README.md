@@ -427,6 +427,13 @@ class AppTenant extends Model implements CanBeActive, HasType, TenantContract
 }
 ```
 
+A principal whose tenant cannot be loaded is rejected on the same paths, whether or not the tenant implements
+`CanBeActive`: when the principal's `BelongsTo` tenant key names a tenant that is deleted, soft-deleted, or hidden by a
+scope, `ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive
+tenant, instead of returning `null` as if the principal acted within no tenant. A `Principal` that implements
+`getTenant()` itself should do the same. A tenant relation that returns a model which is not a `Tenant` throws a
+`LogicException`.
+
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
 

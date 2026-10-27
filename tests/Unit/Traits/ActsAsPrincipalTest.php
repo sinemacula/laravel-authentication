@@ -6,14 +6,19 @@ namespace Tests\Unit\Traits;
 
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\Stub3dPrincipalWithOwnerRelation;
+use Tests\Unit\Stubs\StubModel;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
@@ -183,5 +188,94 @@ final class ActsAsPrincipalTest extends TestCase
         $principal->accessorTenant = $tenant;
 
         self::assertSame($tenant, $principal->getTenant());
+    }
+
+    /**
+     * A principal whose `BelongsTo` tenant key is set names a tenant, so a
+     * tenant that cannot be loaded (deleted, soft-deleted, or scoped out)
+     * throws instead of reading as no tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantThrowsWhenTheNamedTenantCannotBeLoaded(): void
+    {
+        $principal = $this->principalWithTenantRelation(\Mockery::mock(BelongsTo::class), ['tenant_id' => 5]);
+
+        $this->expectException(TenantUnavailableException::class);
+        $this->expectExceptionMessage('names a tenant through `tenant` that cannot be loaded');
+
+        $principal->getTenant();
+    }
+
+    /**
+     * A principal whose `BelongsTo` tenant key is not set acts within no
+     * tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWhenTheTenantKeyIsNotSet(): void
+    {
+        $principal = $this->principalWithTenantRelation(\Mockery::mock(BelongsTo::class), ['tenant_id' => null]);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
+     * Only a `BelongsTo` key names a tenant: another relation that loads
+     * nothing reads as no tenant, even when the key it would be read from is
+     * set.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWhenAnotherRelationLoadsNothing(): void
+    {
+        $principal = $this->principalWithTenantRelation(\Mockery::mock(HasOne::class), ['tenant_id' => 5]);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
+     * A tenant relation that returns a model which is not a `Tenant` is a
+     * misconfiguration, reported rather than read as no tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantThrowsWhenTheRelationReturnsAModelThatIsNotATenant(): void
+    {
+        $principal = new Stub3dPrincipal;
+        $principal->setRelation('tenant', new StubModel);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('expected its tenant relation `tenant` to return a Tenant instance, got ' . StubModel::class);
+
+        $principal->getTenant();
+    }
+
+    /**
+     * Build a principal whose `tenant` relation is the supplied relation double
+     * keyed on `tenant_id`, with the tenant relation loaded as empty.
+     *
+     * @formatter:off
+     *
+     * @param  \Illuminate\Database\Eloquent\Relations\Relation<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model, mixed>&\Mockery\MockInterface  $relation
+     * @param  array<string, mixed>  $attributes
+     * @return \Tests\Unit\Stubs\Stub3dPrincipal
+     *
+     * @formatter:on
+     */
+    private function principalWithTenantRelation(Relation $relation, array $attributes): Stub3dPrincipal
+    {
+        $relation->shouldReceive('getForeignKeyName')->andReturn('tenant_id');
+
+        // A subclass of its own, so the resolved relation stays off the shared
+        // stub class.
+        $principal = new class extends Stub3dPrincipal {};
+
+        $principal::resolveRelationUsing('tenant', static fn (): Relation => $relation);
+
+        $principal->forceFill($attributes);
+        $principal->setRelation('tenant', null);
+
+        return $principal;
     }
 }

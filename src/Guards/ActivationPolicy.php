@@ -8,6 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 
 /**
  * The package's activation policy, shared by the credential, bearer-token and
@@ -46,7 +47,9 @@ final class ActivationPolicy
 
     /**
      * Whether the tenant the principal acts within, if any, may authenticate. A
-     * principal with no tenant passes.
+     * principal with no tenant passes; one that names a tenant that cannot be
+     * loaded (a `TenantUnavailableException`, for a deleted or soft-deleted
+     * tenant) fails.
      *
      * The tenant is read with the principal's connection pinned to the write
      * connection, so a lazily loaded tenant relation cannot come from a replica
@@ -57,7 +60,11 @@ final class ActivationPolicy
      */
     public static function isTenantActive(Principal $principal): bool
     {
-        $tenant = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+        try {
+            $tenant = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+        } catch (TenantUnavailableException) {
+            return false;
+        }
 
         return $tenant === null || self::isActive($tenant);
     }

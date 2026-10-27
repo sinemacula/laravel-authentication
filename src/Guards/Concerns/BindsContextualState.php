@@ -85,6 +85,8 @@ trait BindsContextualState
      * `HasType` capability.
      *
      * @return ?string
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function type(): ?string
     {
@@ -98,6 +100,8 @@ trait BindsContextualState
      * request on first access.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function tenant(): ?Tenant
     {

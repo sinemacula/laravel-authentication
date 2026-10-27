@@ -74,6 +74,8 @@ interface ContextualGuard extends Guard
      * Return the tenant the active principal acts within, if any.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function tenant(): ?Tenant;
 
@@ -82,6 +84,8 @@ interface ContextualGuard extends Guard
      * `HasType` capability.
      *
      * @return ?string
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function type(): ?string;
 

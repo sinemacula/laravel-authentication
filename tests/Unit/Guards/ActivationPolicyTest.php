@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 
 /**
@@ -70,6 +71,22 @@ final class ActivationPolicyTest extends TestCase
     public function testPrincipalWithoutTenantPassesTenantCheck(): void
     {
         self::assertTrue(ActivationPolicy::isTenantActive($this->principalWithTenant(null)));
+    }
+
+    /**
+     * A principal that names a tenant which cannot be loaded fails the tenant
+     * check, and so fails as a principal, rather than passing as one with no
+     * tenant.
+     *
+     * @return void
+     */
+    public function testPrincipalNamingAnUnavailableTenantFailsTheTenantCheck(): void
+    {
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->twice()->andThrow(new TenantUnavailableException('gone'));
+
+        self::assertFalse(ActivationPolicy::isTenantActive($principal));
+        self::assertFalse(ActivationPolicy::isPrincipalActive($principal));
     }
 
     /**

@@ -64,7 +64,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   and `refresh()`, with no `Failed` or `RefreshFailed` event.
 - Activation is opt-in through `CanBeActive` on the identity, the principal, or the tenant, and is decided by
   `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active. The
-  tenant is read with the principal's connection pinned to the write connection.
+  tenant is read with the principal's connection pinned to the write connection. A principal whose tenant key names a
+  tenant that cannot be loaded (deleted, soft-deleted, or scoped out) fails like one in an inactive tenant:
+  `getTenant()` throws `TenantUnavailableException` rather than reporting no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
   machine-readable reason.
 - `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`
@@ -112,7 +114,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Guards/ActivationOptInIntegrationTest.php`
   `testUserWithoutActiveColumnSignsInWithCredentials`
 - `tests/Integration/Guards/TenantActivityIntegrationTest.php`
-  `testBearerRejectsMemberOfTenantDeactivatedAfterIssue`
+  `testBearerRejectsMemberOfTenantDeactivatedAfterIssue`, `testBearerRejectsMemberOfSoftDeletedTenant`
 - `tests/Integration/Guards/MisconfiguredIdentityIntegrationTest.php`
   `testBearerRequestAnswersWithServerError`
 - `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`

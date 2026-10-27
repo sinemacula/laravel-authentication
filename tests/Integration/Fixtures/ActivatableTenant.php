@@ -5,13 +5,15 @@ declare(strict_types = 1);
 namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * Tenant fixture that opts into activation through its `is_active` column.
+ * Tenant fixture that opts into activation through its `is_active` column and
+ * is soft-deletable.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,7 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  */
 final class ActivatableTenant extends Model implements CanBeActive, Tenant
 {
-    use ActsAsTenant, ProvidesActiveState;
+    use ActsAsTenant, ProvidesActiveState, SoftDeletes;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'activatable_tenants';
