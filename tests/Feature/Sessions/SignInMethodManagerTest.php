@@ -6,6 +6,7 @@ namespace Tests\Feature\Sessions;
 
 use Illuminate\Contracts\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -142,9 +143,91 @@ final class SignInMethodManagerTest extends TestCase
     public function testRejectsAnUnknownMethod(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Driver [carrier-pigeon] not supported.');
+        $this->expectExceptionMessage('Sign-in method [carrier-pigeon] is not registered.');
 
         $this->manager()->method('carrier-pigeon');
+    }
+
+    /**
+     * Rows of `[name]`: spellings of the registered `password` and `sso`
+     * methods that differ in case, punctuation or spacing, which Laravel's
+     * manager would otherwise resolve through the case-insensitive creator
+     * method it builds from the name.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideOtherSpellingsOfRegisteredNames(): iterable
+    {
+        yield from [
+            'upper case'     => ['PASSWORD'],
+            'title case'     => ['Password'],
+            'underscored'    => ['pass_word'],
+            'hyphenated'     => ['pass-word'],
+            'spaced'         => ['pass word'],
+            'registered, up' => ['SSO'],
+        ];
+    }
+
+    /**
+     * A method resolves only by the exact name it was registered under, so a
+     * guard cannot allow, and a device cannot record, a second spelling of one
+     * method; `driver()` holds to the same rule as `method()`.
+     *
+     * @param  string  $name
+     * @return void
+     */
+    #[DataProvider('provideOtherSpellingsOfRegisteredNames')]
+    public function testResolvesOnlyTheExactNameAMethodWasRegisteredUnder(string $name): void
+    {
+        $manager = $this->manager();
+
+        $manager->extend('sso', fn (): SignInMethod => $manager->method('password'));
+
+        foreach ([static fn (): mixed => $manager->method($name), static fn (): mixed => $manager->driver($name)] as $resolve) {
+            try {
+                $resolve();
+
+                self::fail("Expected [{$name}] to be unknown.");
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame("Sign-in method [{$name}] is not registered.", $exception->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Rows of `[name]` that are not a lower-case method name.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideMalformedMethodNames(): iterable
+    {
+        yield from [
+            'title case'       => ['Password'],
+            'upper case'       => ['SSO'],
+            'hyphenated'       => ['magic-link'],
+            'leading digit'    => ['2fa'],
+            'leading score'    => ['_sso'],
+            'trailing newline' => ["sso\n"],
+            'spaced'           => ['magic link'],
+            'empty'            => [''],
+            'not a string'     => [5],
+        ];
+    }
+
+    /**
+     * A method is registered only under a lower-case name, so every method has
+     * exactly one spelling.
+     *
+     * @param  mixed  $name
+     * @return void
+     */
+    #[DataProvider('provideMalformedMethodNames')]
+    public function testExtendRefusesANameThatIsNotLowerCase(mixed $name): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('A sign-in method name must be lower case: a letter, then letters, digits or underscores.');
+
+        $this->manager()->extend($name, fn (): mixed => null);
     }
 
     /**

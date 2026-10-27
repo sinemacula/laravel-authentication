@@ -1034,8 +1034,8 @@ verify the input, the identity, the principal (the one the context names, verifi
 resolver's default) and its tenant must be active, and the audience policy must admit the identity as that principal; a
 password is rehashed when its hash is outdated; and the additional-factor policy is asked whether a further factor is
 required (see [Additional factors](#additional-factors)). Failures are results, not exceptions: Laravel's `Failed` and
-then `SignInFailed` report them, with the reason. An unknown method name, a misconfigured model and database errors
-still throw. A successful sign-in gives its attempt slots back.
+then `SignInFailed` report them, with the reason. A method name that is not registered (exactly: `Password` is not
+`password`), a misconfigured model and database errors still throw. A successful sign-in gives its attempt slots back.
 
 `start($identity, $principal, $method, $context)` begins a session for an identity something else verified, such as an
 external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when that does not
@@ -1127,7 +1127,8 @@ attempts). A lookup can find one account by many spellings of its identifier, an
 returns it, so only the account's own count bounds the guesses at its secret, and at a further factor its sign-in waits
 for. The slot belongs to the sign-in: it is given back only when the session starts.
 
-Register the method under a name of its own, from a service provider, and allow that name in each guard's audience:
+Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
+refuses anything else, and `password`), from a service provider, and allow that exact name in each guard's audience:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -1431,7 +1432,9 @@ inheritance:
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
-different password scheme under a name of its own and allow that name in the guard's audience.
+different password scheme under a name of its own and allow that name in the guard's audience. Names are lower case
+(a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
+so one method never has a second spelling for a guard to allow or a device to record.
 
 An `AttemptLimiter` of your own records in each granted reservation's `windows` everything its `release()` needs to give
 the slots back (string keys and values), and gives them back from the windows alone. A sign-in that waits for a further

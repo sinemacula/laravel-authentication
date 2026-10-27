@@ -335,7 +335,7 @@ final class SessionServiceTest extends TestCase
             $this->sessions()->signIn('carrier-pigeon', []);
             self::fail('Expected an unknown method to throw.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertSame('Driver [carrier-pigeon] not supported.', $exception->getMessage());
+            self::assertSame('Sign-in method [carrier-pigeon] is not registered.', $exception->getMessage());
         }
 
         self::assertSame([], $this->recordedClasses());
