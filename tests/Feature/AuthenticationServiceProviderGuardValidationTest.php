@@ -83,9 +83,6 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 
         self::assertSame($scopedPrincipal, $guard->principal());
 
-        // Verify the scoped resolver was actually resolved (not the global) by
-        // replacing it via setPrincipalResolver and confirming the guard
-        // previously held the scoped instance.
         $replacementPrincipal = $this->mockPrincipal('replacement');
         $replacementResolver  = \Mockery::mock(PrincipalResolver::class);
         $replacementResolver->shouldReceive('resolve')

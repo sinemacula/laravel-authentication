@@ -74,7 +74,7 @@ final class ContractDeclarationTest extends TestCase
      * `Device` declares exactly the read surface the guards, the refresh
      * exchange, and the package events depend on: the identifier, last use,
      * both refresh digests and the rotation time, both deadlines, and the
-     * revocation. The operating system and MFA accessors are gone.
+     * revocation.
      *
      * @return void
      */

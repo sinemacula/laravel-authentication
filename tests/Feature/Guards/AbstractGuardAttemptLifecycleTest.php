@@ -43,8 +43,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
      */
     public function testHasValidCredentialsRunsInsideTimebox(): void
     {
-        // Replace the default Timebox mock with one that asserts the 400,000
-        // microsecond budget and still invokes the callback
         $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')
             ->once()

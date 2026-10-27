@@ -79,10 +79,6 @@ final class DeviceTest extends TestCase
         $device = new Device;
 
         self::assertSame('custom_devices', $device->getTable());
-
-        // Restore the default so other tests in this class are not
-        // contaminated.
-        config()->set('authentication.device.table', 'devices');
     }
 
     /**
@@ -262,10 +258,6 @@ final class DeviceTest extends TestCase
         $device = new Device;
 
         self::assertSame('devices', $device->getTable());
-
-        // Restore the default so other tests in this class are not
-        // contaminated.
-        config()->set('authentication.device.table', 'devices');
     }
 
     /**

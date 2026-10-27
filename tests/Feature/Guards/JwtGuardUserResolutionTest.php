@@ -1120,12 +1120,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         self::assertSame($principal, $guard->principal());
         self::assertSame($device, $guard->device());
 
-        // Assert the full, ordered event sequence. The bearer-resolution path
-        // routes through `login()` which fires `Validated`, then
-        // `bindAuthenticationLifecycle()` which fires `Login` before
-        // `Authenticated` (Laravel's ordering), followed by the contextual
-        // `PrincipalAssigned` and `DeviceAuthenticated` events as the state is
-        // bound.
+        // `Login` before `Authenticated` is Laravel's own ordering.
         self::assertSame(
             [
                 Attempting::class,

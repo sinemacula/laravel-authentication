@@ -31,7 +31,7 @@ use Tests\TestCase;
 #[CoversNothing]
 final class DevicesTableSchemaTest extends TestCase
 {
-    /** Absolute path to the shipped devices migration file. */
+    /** @var string Absolute path to the shipped devices migration file. */
     private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_devices_table.php';
 
     /** @var string Configured table name the migration runs for. */
@@ -115,10 +115,9 @@ final class DevicesTableSchemaTest extends TestCase
     }
 
     /**
-     * The table has exactly the version 2 columns, each with its nullability:
-     * the owner and both deadlines are required, everything a later feature or
-     * the client supplies is optional, and the operating system and MFA columns
-     * are gone.
+     * The table has exactly these columns, each with its nullability: the owner
+     * and both deadlines are required, and everything a later feature or the
+     * client supplies is optional.
      *
      * @return void
      */

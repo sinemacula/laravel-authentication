@@ -71,9 +71,6 @@ final class DeviceModelOverrideTest extends TestCase
         config()->set('authentication.device.model', $this->customModel);
         config()->set('authentication.device.table', 'custom_devices');
 
-        // The Device model reads the table name lazily in its constructor, so
-        // no manual cache priming is needed - the config swap in
-        // `defineEnvironment()` is picked up on the next instantiation.
         self::createDeviceTable('custom_devices');
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
