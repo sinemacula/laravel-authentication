@@ -1004,6 +1004,29 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A device that holds no refresh credential and whose session has ended
+     * fails as `session_expired`, not `refresh_key_missing`: the session is
+     * judged before the credential, and nothing is written.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testEndedSessionIsReportedBeforeAMissingRefreshCredential(): void
+    {
+        $device = $this->seedDevice(36, ['refresh_key' => null, 'idle_expires_at' => $this->now]);
+        $before = $this->row($device);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->recordEvents();
+
+        self::assertNull($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID)));
+        self::assertSame($before, $this->row($device));
+        self::assertSame([RefreshFailureReason::SESSION_EXPIRED], $this->failureReasons());
+    }
+
+    /**
      * A device loaded without its previous digest cannot be judged for a token
      * that is not current: the missing column is reported instead of the token
      * being read as a replay that revokes the device.

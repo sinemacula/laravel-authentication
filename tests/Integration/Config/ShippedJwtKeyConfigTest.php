@@ -52,6 +52,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
         'AUTHENTICATION_JWT_ACCESS_TTL_MINUTES',
         'AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES',
         'AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES',
+        'AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS',
         'AUTHENTICATION_JWT_LEEWAY_SECONDS',
         'AUTHENTICATION_JWT_ISSUER',
         'AUTHENTICATION_JWT_AUDIENCE',
@@ -185,8 +186,9 @@ final class ShippedJwtKeyConfigTest extends TestCase
 
     /**
      * Out of the box a guard issues 5-minute access tokens, keeps a session for
-     * 90 days without a refresh and 180 days at most, and allows 30 seconds of
-     * clock skew. The shipped config is the only place those defaults live.
+     * 90 days without a refresh and 180 days at most, gives a replaced refresh
+     * token 30 seconds of grace, and allows 30 seconds of clock skew. The
+     * shipped config is the only place those defaults live.
      *
      * @return void
      */
@@ -208,6 +210,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
         self::assertSame(5, $lifetimes->accessTtlMinutes);
         self::assertSame(60 * 24 * 90, $lifetimes->refreshIdleTtlMinutes);
         self::assertSame(60 * 24 * 180, $lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertSame(30, $lifetimes->refreshGraceSeconds);
     }
 
     /**
@@ -222,6 +225,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
         putenv('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES=10');
         putenv('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES=20160');
         putenv('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=43200');
+        putenv('AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS=45');
 
         $jwt = $this->shippedJwtConfig();
 
@@ -234,6 +238,7 @@ final class ShippedJwtKeyConfigTest extends TestCase
         self::assertSame(10, $lifetimes->accessTtlMinutes);
         self::assertSame(20160, $lifetimes->refreshIdleTtlMinutes);
         self::assertSame(43200, $lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertSame(45, $lifetimes->refreshGraceSeconds);
     }
 
     /**

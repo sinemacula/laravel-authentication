@@ -8,12 +8,18 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
@@ -31,6 +37,8 @@ use Tests\Unit\Stubs\StubPrincipal;
  * @internal
  */
 #[CoversClass(JwtGuard::class)]
+#[CoversClass(RefreshTokenExchange::class)]
+#[CoversClass(RefreshRotationStore::class)]
 final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithDevices;
@@ -290,10 +298,38 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity, ['refresh_key' => null]);
 
-        $token = $this->tokens()->issueRefreshToken($device, 'any-rotation-id');
-        $guard = $this->freshJwtGuard(self::GUARD);
+        $token  = $this->tokens()->issueRefreshToken($device, 'any-rotation-id');
+        $guard  = $this->freshJwtGuard(self::GUARD);
+        $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::REFRESH_KEY_MISSING, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh replaying a token against a device already revoked for reuse
+     * stops at the device lookup: it writes nothing and revokes nothing again.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRevokedDeviceRefreshFailureUsesOneReadAndNoWrites(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity, [
+            'refresh_key'          => null,
+            'previous_refresh_key' => null,
+            'revoked_at'           => $this->now->copy()->subMinute(),
+            'revoked_reason'       => 'rotation_reuse',
+        ]);
+
+        $token  = $this->tokens()->issueRefreshToken($device, 'replayed-rotation-id', $identity);
+        $guard  = $this->freshJwtGuard(self::GUARD);
+        $events = $this->recordRefreshEvents();
+
+        self::assertNull($this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_REVOKED, $device->getKey())], $events->getArrayCopy());
     }
 
     /**
@@ -361,9 +397,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device->forceFill(['idle_expires_at' => $this->now])->save();
 
-        $guard = $this->freshJwtGuard(self::GUARD);
+        $guard  = $this->freshJwtGuard(self::GUARD);
+        $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::SESSION_EXPIRED, $device->getKey())], $events->getArrayCopy());
     }
 
     /**
@@ -633,6 +671,24 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         ])->save();
 
         return $device;
+    }
+
+    /**
+     * Record every `RefreshFailed` and `DeviceRevoked` event dispatched from
+     * here on.
+     *
+     * @return \ArrayObject<int, object>
+     */
+    private function recordRefreshEvents(): \ArrayObject
+    {
+        /** @var \ArrayObject<int, object> $events */
+        $events = new \ArrayObject;
+
+        Event::listen([RefreshFailed::class, DeviceRevoked::class], static function (object $event) use ($events): void {
+            $events->append($event);
+        });
+
+        return $events;
     }
 
     /**

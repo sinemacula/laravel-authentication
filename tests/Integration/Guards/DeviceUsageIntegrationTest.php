@@ -7,7 +7,9 @@ namespace Tests\Integration\Guards;
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -144,6 +146,37 @@ final class DeviceUsageIntegrationTest extends TestCase
         $this->bearerRequest($identity, $device, '2001:db8::1', 'Laptop/2.0')->assertOk();
 
         self::assertSame([$later->format(self::DATETIME_FORMAT), '2001:db8::1', 'Laptop/2.0'], $this->storedUsage($device));
+    }
+
+    /**
+     * A request that sends no `User-Agent` header, once the throttle window has
+     * passed, records its IP address and no user agent in place of the one an
+     * earlier request recorded: the stored client is the client of that use.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRequestWithoutAUserAgentRecordsNoneInPlaceOfTheEarlierOne(): void
+    {
+        [$identity, $device] = $this->seedIdentityWithDevice();
+
+        $this->bearerRequest($identity, $device, '203.0.113.7', 'Phone/1.0')->assertOk();
+
+        $later = $this->now->copy()->addMinutes(2);
+
+        $this->moveClockTo($later);
+
+        $request = Request::create('/device', 'GET', server: [
+            'REMOTE_ADDR'        => '198.51.100.1',
+            'HTTP_AUTHORIZATION' => 'Bearer ' . $this->tokens()->issueAccessToken($identity, $identity, $device),
+        ]);
+
+        $request->server->remove('HTTP_USER_AGENT');
+        $request->headers->remove('User-Agent');
+
+        self::assertSame(200, app(HttpKernel::class)->handle($request)->getStatusCode());
+        self::assertSame([$later->format(self::DATETIME_FORMAT), '198.51.100.1', null], $this->storedUsage($device));
     }
 
     /**
