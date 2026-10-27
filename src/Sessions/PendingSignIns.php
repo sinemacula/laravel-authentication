@@ -82,8 +82,9 @@ final readonly class PendingSignIns
     /**
      * Store a pending sign-in for the admitted sign-in, recording the device
      * the client proved it holds and the digest it was proven against, and the
-     * windows of the attempt-limit slots the sign-in took, and return its
-     * credential.
+     * windows of the attempt-limit slots the sign-in took (`null` for one that
+     * reserved none, empty for one whose limiter recorded no windows), and
+     * return its credential.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
@@ -91,7 +92,7 @@ final readonly class PendingSignIns
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  array<string, string>  $attemptWindows
+     * @param  ?array<string, string>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\PendingFactor
      *
      * @throws \InvalidArgumentException
@@ -106,7 +107,7 @@ final readonly class PendingSignIns
         ?string $identifierType,
         SignInContext $context,
         CarbonImmutable $now,
-        array $attemptWindows = [],
+        ?array $attemptWindows = null,
     ): PendingFactor {
         $identity  = self::eloquentIdentity($admitted);
         $device    = $admitted->device;
@@ -131,7 +132,7 @@ final readonly class PendingSignIns
             'created_user_agent'   => $context->client->userAgent,
             'device_id'            => $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier()),
             'device_refresh_key'   => $device?->getRefreshKey(),
-            'attempt_windows'      => $attemptWindows === [] ? null : $attemptWindows,
+            'attempt_windows'      => $attemptWindows,
             'expires_at'           => $expiresAt,
         ])->save();
 
@@ -216,23 +217,24 @@ final readonly class PendingSignIns
      * The attempt-limit slots the pending sign-in's sign-in took, as a granted
      * reservation to give back once it completes: its windows, for the guard's
      * sign-in flow, with the identifier type and the IP address it recorded
-     * (neither the identifier nor the account, which it does not keep). `null`
-     * when it took none.
+     * (neither the identifier nor the account, which it does not keep), so the
+     * limiter gives them back from the windows alone. `null` only for a pending
+     * sign-in whose sign-in reserved nothing (one `start()` issued); a sign-in
+     * whose limiter recorded no windows still gets its reservation back, with
+     * none.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
      * @return ?\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
      */
     public static function reservation(PendingSignIn $pending): ?AttemptReservation
     {
-        $windows = $pending->attempt_windows ?? [];
-
-        if ($windows === []) {
+        if ($pending->attempt_windows === null) {
             return null;
         }
 
         $subject = new AttemptSubject($pending->guard, AttemptFlow::SIGN_IN, null, $pending->identifier_type, $pending->created_ip);
 
-        return new AttemptReservation($subject, null, $windows);
+        return new AttemptReservation($subject, null, $pending->attempt_windows);
     }
 
     /**

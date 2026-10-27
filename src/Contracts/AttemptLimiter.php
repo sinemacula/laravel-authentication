@@ -29,6 +29,13 @@ interface AttemptLimiter
      * when both had room, and both slots are then taken; otherwise it carries
      * the seconds until the full limit's window ends, and nothing is taken.
      *
+     * A granted reservation records in its `windows` everything `release()`
+     * needs to give its slots back (a key and a value per slot, both strings):
+     * a sign-in that waits for a further factor stores the windows, with those
+     * of the other reservations it holds, and gives them back when it completes
+     * through one reservation rebuilt from them, whose subject keeps only the
+     * guard, the flow, the identifier type and the IP address.
+     *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
      *
@@ -38,8 +45,11 @@ interface AttemptLimiter
 
     /**
      * Give back the slots a granted reservation took, for an attempt that
-     * succeeded. A slot whose window has since ended is not given back, and a
-     * reservation that was not granted gives back nothing.
+     * succeeded, working from its `windows` alone: the reservation may have
+     * been rebuilt from stored windows, with no identifier or account on its
+     * subject, and may carry the windows of several reservations. A slot whose
+     * window has since ended is not given back, and a reservation that was not
+     * granted gives back nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation  $reservation
      * @return void

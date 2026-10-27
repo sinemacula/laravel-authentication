@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Route;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
@@ -37,11 +38,13 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -579,6 +582,95 @@ final class PendingFactorSessionServiceTest extends TestCase
     }
 
     /**
+     * Only a completion that starts the session gives the slots back: one whose
+     * recheck fails keeps the identifier's and the account's slots, and so does
+     * one that loses the race for the pending sign-in, inside its transaction
+     * or before it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedOrLostCompletionKeepsTheSlots(): void
+    {
+        $identity = $this->seedIdentity();
+        $refused  = $this->pendingFor();
+
+        $identity->forceFill(['is_active' => false])->save();
+
+        self::assertSame(SignInFailureReason::IDENTITY_INACTIVE, $this->sessions()->complete($refused->token)->reason);
+        self::assertSame([1, 1], [$this->identifierHits(), $this->accountHits($identity)]);
+
+        $identity->forceFill(['is_active' => true])->save();
+
+        $raced = $this->pendingFor();
+
+        $this->onStatement('delete from', static function (): void {
+            DB::table('pending_sign_ins')->delete();
+        });
+
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete($raced->token)->reason);
+        self::assertSame([2, 2], [$this->identifierHits(), $this->accountHits($identity)]);
+
+        $completed = $this->pendingFor();
+
+        self::assertTrue($this->sessions()->complete($completed->token)->isSignedIn());
+        self::assertSame([2, 2], [$this->identifierHits(), $this->accountHits($identity)]);
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete($completed->token)->reason);
+        self::assertSame([2, 2], [$this->identifierHits(), $this->accountHits($identity)]);
+    }
+
+    /**
+     * A completed pending sign-in gives its slots back through whatever limiter
+     * is bound, from the windows its sign-in's reservations recorded: the
+     * identifier's and IP address's and the account's together, in one
+     * reservation rebuilt for the guard's sign-in flow with the identifier type
+     * and IP address but no identifier or account. A limiter that recorded no
+     * windows is still told to give the slots back; a pending sign-in `start()`
+     * issued reserved nothing and gives nothing back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACompletedPendingSignInGivesItsSlotsBackThroughAnyLimiter(): void
+    {
+        $identity = $this->seedIdentity();
+        $limiter  = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        self::assertTrue($this->sessions()->complete($this->pendingFor()->token)->isSignedIn());
+        self::assertCount(1, $limiter->released);
+
+        $released = $limiter->released[0];
+        $account  = IntegrationIdentity::class . "\0" . $identity->getKey(); // @phpstan-ignore binaryOp.invalid
+
+        self::assertSame(['ada@example.test' => 'window', $account => 'window'], $released->windows);
+        self::assertTrue($released->granted());
+        self::assertSame('api', $released->subject->guard);
+        self::assertSame(AttemptFlow::SIGN_IN, $released->subject->flow);
+        self::assertNull($released->subject->identifier);
+        self::assertSame('email', $released->subject->identifierType);
+        self::assertSame(self::CLIENT_IP, $released->subject->ip);
+        self::assertNull($released->subject->account);
+
+        $windowless = new RecordingAttemptLimiter(false);
+
+        app()->instance(AttemptLimiter::class, $windowless);
+
+        self::assertTrue($this->sessions()->complete($this->pendingFor()->token)->isSignedIn());
+        self::assertCount(1, $windowless->released);
+        self::assertSame([], $windowless->released[0]->windows);
+
+        $started = $this->sessions()->start($identity, null, 'sso')->pending;
+
+        self::assertNotNull($started);
+        self::assertTrue($this->sessions()->complete($started->token)->isSignedIn());
+        self::assertCount(1, $windowless->released);
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -700,6 +792,20 @@ final class PendingFactorSessionServiceTest extends TestCase
     private function identifierHits(): int
     {
         $hits = DB::table('rate_limits')->where('key', hash('sha256', "api\0sign_in\0per_identifier\0ada@example.test"))->value('hits');
+
+        return is_numeric($hits) ? (int) $hits : 0;
+    }
+
+    /**
+     * The hits on the identity's account counter, which every guard shares.
+     *
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @return int
+     */
+    private function accountHits(IntegrationIdentity $identity): int
+    {
+        $account = IntegrationIdentity::class . "\0" . $identity->getKey(); // @phpstan-ignore binaryOp.invalid
+        $hits    = DB::table('rate_limits')->where('key', hash('sha256', "sign_in\0per_account\0{$account}"))->value('hits');
 
         return is_numeric($hits) ? (int) $hits : 0;
     }

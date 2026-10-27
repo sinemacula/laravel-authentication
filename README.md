@@ -1426,6 +1426,12 @@ The `password` method is the package's own: `attempt()`, `validate()` and the pa
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
 different password scheme under a name of its own and allow that name in the guard's audience.
 
+An `AttemptLimiter` of your own records in each granted reservation's `windows` everything its `release()` needs to give
+the slots back (string keys and values), and gives them back from the windows alone. A sign-in that waits for a further
+factor stores the windows of every reservation it holds and, when it completes, gives them back through one reservation
+rebuilt from them, whose subject carries the guard, the flow, the identifier type and the IP address but no identifier
+or account.
+
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
 ## Requirements

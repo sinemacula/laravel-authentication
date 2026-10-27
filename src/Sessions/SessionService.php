@@ -480,12 +480,12 @@ final readonly class SessionService
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @param  array<string, string>  $attemptWindows
+     * @param  ?array<string, string>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    private function proceed(AdmittedSignIn $admitted, string $method, ?string $identifierType, SignInContext $context, array $attemptWindows = []): SignInResult
+    private function proceed(AdmittedSignIn $admitted, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows = null): SignInResult
     {
         $proven = $context->refreshToken === null
             ? null
@@ -509,7 +509,7 @@ final readonly class SessionService
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
-     * @param  array<string, string>  $attemptWindows
+     * @param  ?array<string, string>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
@@ -521,7 +521,7 @@ final readonly class SessionService
         ?string $identifierType,
         SignInContext $context,
         CarbonImmutable $now,
-        array $attemptWindows,
+        ?array $attemptWindows,
     ): SignInResult {
         $admitted = $admitted->on($proven);
 

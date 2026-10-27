@@ -501,7 +501,8 @@ final class PendingSignInsTest extends TestCase
      * A pending sign-in keeps the windows of the attempt-limit slots its
      * sign-in took, and gives them back as a granted reservation of the guard's
      * sign-in flow, for the identifier type and IP address it recorded; one
-     * that took none gives back nothing.
+     * whose limiter recorded no windows still gives back a reservation, with
+     * none, and only one that reserved nothing gives back nothing.
      *
      * @return void
      *
@@ -514,6 +515,7 @@ final class PendingSignInsTest extends TestCase
         $windows  = ['identifier-key' => '2026-04-06 12:05:00', 'ip-key' => '2026-04-06 12:05:00'];
         $kept     = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', 'email', $context, $this->now, $windows);
         $none     = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'sso', null, $context, $this->now);
+        $empty    = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', 'email', $context, $this->now, []);
 
         $reservation = PendingSignIns::reservation(PendingSignIn::query()->whereKey(explode('.', $kept->token, 2)[0])->firstOrFail());
 
@@ -527,6 +529,12 @@ final class PendingSignInsTest extends TestCase
         self::assertSame('192.0.2.1', $reservation->subject->ip);
         self::assertNull(PendingSignIns::reservation(PendingSignIn::query()->whereKey(explode('.', $none->token, 2)[0])->firstOrFail()));
         self::assertNull(PendingSignIn::query()->whereKey(explode('.', $none->token, 2)[0])->value('attempt_windows'));
+
+        $windowless = PendingSignIns::reservation(PendingSignIn::query()->whereKey(explode('.', $empty->token, 2)[0])->firstOrFail());
+
+        self::assertNotNull($windowless);
+        self::assertTrue($windowless->granted());
+        self::assertSame([], $windowless->windows);
     }
 
     /**
