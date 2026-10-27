@@ -117,6 +117,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testBearerRejectsDeviceRevokedOnThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testBearerRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testBearerRejectsDeviceWhoseSessionEndIsRecordedOnThePrimaryWhileTheReplicaLags`,
+  `testAttemptRejectsPinnedDeviceWhoseSessionEndIsRecordedOnThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/UncastRevokedDeviceIntegrationTest.php`
   `testBearerRejectsTheRevokedDevice`, `testAttemptRejectsTheRevokedDeviceWhenPinned`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`

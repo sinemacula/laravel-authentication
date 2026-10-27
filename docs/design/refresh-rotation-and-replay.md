@@ -270,6 +270,8 @@ other rotated token as a replay that revokes the device.
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testRefreshRejectsDeviceWhoseRevocationIsRecordedOnThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testRefreshRejectsDeviceWhoseSessionEndIsRecordedOnThePrimaryWhileTheReplicaLags`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testGraceRetryIsJudgedFromThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testReplayIsJudgedFromThePrimaryWhileTheReplicaLags`
