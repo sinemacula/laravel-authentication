@@ -339,14 +339,15 @@ Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::cl
 
 ### Device
 
-The published `authentication.php` config controls the device model, table, and how often a device's last use is
-written:
+The published `authentication.php` config controls the device model, table, how often a device's last use is written,
+and how long a device whose session ended is kept before pruning:
 
 ```php
 'device' => [
     'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
     'table'                      => 'devices',
     'last_used_throttle_seconds' => 60,
+    'prune_after_days'           => 30,
 ],
 ```
 
@@ -420,6 +421,33 @@ or without a `datetime` cast on the column, and throws a `LogicException` when t
 refresh or revocation state columns (both digests, the rotation time, the session's start, the principal switch time,
 both deadlines, and the revocation time), for example through a `devices()` relation or a global scope that selects
 other columns, so a partial select is reported instead of being read as a device that is not revoked or has no deadline.
+
+#### Pruning devices
+
+Revoked and ended devices stay in the table, for audit, until Laravel's `model:prune` deletes them. A device is pruned
+once its session has been over for `prune_after_days` (default 30, from 0 to 3650): counted from when it was revoked or
+passed its idle or absolute deadline, whichever came first, never from when it was created, so a long session is kept
+as long after it ends as a short one. With 0, a device is pruned from the second its session ends. The value must be an
+integer, or a digit string as `env()` returns one; anything else fails with an `InvalidArgumentException` when pruning
+runs. Each chunk is one conditional `DELETE`, and nothing is read.
+
+The package's models live outside your application's `app/Models`, so name them when you schedule the command:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\RateLimit;
+
+Schedule::command('model:prune', ['--model' => [Device::class, PendingSignIn::class, RateLimit::class]])->hourly();
+```
+
+A custom device model opts in with the `PrunesDevices` trait alone (it brings Laravel's `MassPrunable` with it, and
+using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentDevice` name
+accessors; schedule it under its own class name. Run `php artisan model:prune --model="App\Models\Device" --pretend` to
+see how many devices would go. Pruning changes nothing about authentication: a pruned device's tokens fail as an unknown
+device, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a device that
+has since been pruned cannot re-fetch it (see [Events](#events)).
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
@@ -545,16 +573,8 @@ exception is giving back a completed further factor's slots after its commit, wh
 > do).
 
 Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
-[Additional factors](#additional-factors)). Both models live outside your application's `app/Models`, so name them when
-you schedule Laravel's pruning command:
-
-```php
-use Illuminate\Support\Facades\Schedule;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\Models\RateLimit;
-
-Schedule::command('model:prune', ['--model' => [PendingSignIn::class, RateLimit::class]])->hourly();
-```
+[Additional factors](#additional-factors)). Schedule Laravel's pruning command with both models, and the device model,
+as shown in [Pruning devices](#pruning-devices).
 
 ### Credential validation timing
 

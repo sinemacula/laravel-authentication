@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
+use SineMacula\Laravel\Authentication\Concerns\PrunesDevices;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 
 /**
@@ -27,6 +28,10 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * start, principal switch, deadlines, revocation, last use) are not: the
  * package writes the columns it owns with query-builder updates, and code that
  * creates a device sets the rest with `forceFill()`.
+ *
+ * `model:prune --model` with this class deletes devices whose session ended
+ * (revoked, or past either deadline) more than
+ * `authentication.device.prune_after_days` ago.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -59,7 +64,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  */
 class Device extends Model implements EloquentDevice
 {
-    use ActsAsDevice, HasUuids;
+    use ActsAsDevice, HasUuids, PrunesDevices;
 
     /** @var list<string> The attributes that are mass assignable. */
     protected $fillable = [

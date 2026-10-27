@@ -20,7 +20,13 @@ return [
     | a column ships its own migration. Every authentication that binds a
     | persisted EloquentDevice records when, from which IP address, and with
     | which user agent it was last used, at most once per
-    | `last_used_throttle_seconds` (0 records every use).
+    | `last_used_throttle_seconds` (0 records every use). Laravel's
+    | `model:prune` deletes devices whose session ended (revoked, or past its
+    | idle or absolute deadline) more than `prune_after_days` ago (0 to 3650,
+    | counted from that end, not from creation; 0 prunes them as soon as they
+    | end; an integer, or a digit string as `env()` returns one; anything else
+    | fails closed when pruning runs). The shipped model opts in with the
+    | `PrunesDevices` trait, as a custom model does.
     |
     */
 
@@ -28,6 +34,7 @@ return [
         'model'                      => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
         'table'                      => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
         'last_used_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_USED_THROTTLE_SECONDS', 60),
+        'prune_after_days'           => env('AUTHENTICATION_DEVICE_PRUNE_AFTER_DAYS', 30),
     ],
 
     /*
