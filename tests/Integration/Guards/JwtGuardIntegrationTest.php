@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -161,6 +162,47 @@ final class JwtGuardIntegrationTest extends TestCase
         $response = $this->withHeaders(['Authorization' => self::BEARER_PREFIX . $token])->getJson('/me');
 
         $response->assertStatus(401);
+    }
+
+    /**
+     * Rows of `[claim]`: time claims a correctly signed access token must
+     * carry.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideRequiredTimeClaims(): iterable
+    {
+        yield from [
+            'no exp, so it never expires' => ['exp'],
+            'no iat'                      => ['iat'],
+        ];
+    }
+
+    /**
+     * A correctly signed access token without a required time claim is rejected
+     * with 401, so a token that never expires cannot authenticate.
+     *
+     * @param  string  $claim
+     * @return void
+     */
+    #[DataProvider('provideRequiredTimeClaims')]
+    public function testBearerTokenWithoutARequiredTimeClaimIsRejectedByAuthMiddleware(string $claim): void
+    {
+        $user = $this->seedUser();
+
+        $claims = [
+            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'iat' => $this->now->getTimestamp(),
+            'exp' => $this->now->getTimestamp() + 600,
+        ];
+
+        unset($claims[$claim]);
+
+        Route::middleware(self::AUTH_MIDDLEWARE)->get('/me', static fn (): string => 'ok');
+
+        $this->withHeaders(['Authorization' => self::BEARER_PREFIX . $this->encodeAccessToken($claims)])->getJson('/me')
+            ->assertUnauthorized();
     }
 
     /**
