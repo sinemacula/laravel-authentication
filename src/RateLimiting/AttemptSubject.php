@@ -43,7 +43,7 @@ final readonly class AttemptSubject
         /** IP address the attempt came from, or `null` when unknown. */
         public ?string $ip,
 
-        /** Account whose secret the attempt checks (its class and key), or `null` when none is known yet. */
+        /** Account whose secret the attempt checks (the row an Eloquent identity is stored in, else its class and key), or `null` when none is known yet. */
         public ?string $account = null,
     ) {}
 }

@@ -24,7 +24,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * (IPv4-mapped, or translated through the NAT64 well-known prefix) as that IPv4
  * address.
  *
- * An account a subject names gets a counter of its own, kept as given and
+ * An account a subject names (the row an Eloquent identity is stored in, see
+ * `AttemptSubject::$account`) gets a counter of its own, kept as given and
  * shared by every guard (its key leaves the guard out), which each guard holds
  * to its own identifier limit. A lookup can find one account by many
  * identifiers (a column collation that ignores accents, widths or invisible

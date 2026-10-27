@@ -309,7 +309,7 @@ final class PasswordSignInTest extends TestCase
         self::assertNull($subjects[0]->identifier);
         self::assertNull($subjects[0]->identifierType);
         self::assertNull($subjects[0]->ip);
-        self::assertSame($identity::class . "\x007", $subjects[0]->account);
+        self::assertSame(AccountAttempts::account($identity), $subjects[0]->account);
     }
 
     /**
@@ -342,7 +342,7 @@ final class PasswordSignInTest extends TestCase
 
         self::assertSame([['account' => 'window staff'], ['account' => 'window staff']], $attempts->windows());
         self::assertSame('staff', $subjects[0]->guard);
-        self::assertSame($identity::class . "\x007", $subjects[0]->account);
+        self::assertSame(AccountAttempts::account($identity), $subjects[0]->account);
     }
 
     /**

@@ -488,15 +488,18 @@ session (a pending sign-in keeps it until it completes), so a correct password t
 further factor, still counts. A lookup can find one account by many spellings of its identifier (a column collation that
 ignores accents, widths or invisible characters, as MySQL's default `utf8mb4_unicode_ci` does, a query closure in
 `attempt()`, another column), and through every guard whose provider returns it, so the account keeps one count
-whichever guard checks it, and only that count bounds the guesses made at its password whichever spelling and guard they
-use: two guards on one provider allow no more guesses than one. Each guard holds the count to its own `max`, so a
-stricter guard stops sooner, and a guard whose `per_identifier` is `null` neither checks nor counts it. Once an account
-has no attempts left, its password is not checked until the window ends, and the sign-in fails as `invalid_credentials`,
-as a wrong password would, so the refusal does not reveal that the account exists. Only your own listeners are told why:
-`SignInFailed` carries `account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from
-a wrong password. A refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only
-its failures, per device and per IP address, and a successful refresh costs one read. A refresh refused for its failures
-answers `429` with a `Retry-After` header.
+whichever guard checks it. An Eloquent identity's account is the row it is stored in (its connection, that connection's
+database, its table and its key), so two model classes over one table (an `Admin` model over the users table, say) count
+the same account once, and the same key in another tenant's database is another account; any other identity's account is
+its class and auth identifier. Only the account's count bounds the guesses made at its password whichever spelling and
+guard they use: two guards on one provider allow no more guesses than one. Each guard holds the count to its own `max`,
+so a stricter guard stops sooner, and a guard whose `per_identifier` is `null` neither checks nor counts it. Once an
+account has no attempts left, its password is not checked until the window ends, and the sign-in fails as
+`invalid_credentials`, as a wrong password would, so the refusal does not reveal that the account exists. Only your own
+listeners are told why: `SignInFailed` carries `account_rate_limited` and the wait, so a lockout notice or a SIEM can
+tell a locked account from a wrong password. A refresh cannot guess a secret (its tokens are signed and its rotation ids
+random), so it counts only its failures, per device and per IP address, and a successful refresh costs one read. A
+refresh refused for its failures answers `429` with a `Retry-After` header.
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.

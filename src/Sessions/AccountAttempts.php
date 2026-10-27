@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
@@ -67,8 +68,7 @@ final class AccountAttempts
      */
     public function reserve(Identity $identity): bool
     {
-        $account     = $identity::class . "\0" . IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $reservation = $this->limiter->acquire(new AttemptSubject($this->guard, AttemptFlow::SIGN_IN, null, null, null, $account));
+        $reservation = $this->limiter->acquire(new AttemptSubject($this->guard, AttemptFlow::SIGN_IN, null, null, null, self::account($identity)));
 
         if (!$reservation->granted()) {
 
@@ -105,6 +105,34 @@ final class AccountAttempts
     public function windows(): array
     {
         return array_map(static fn (AttemptReservation $reservation): array => $reservation->windows, $this->held);
+    }
+
+    /**
+     * What identifies the identity's account to its limit: for an Eloquent
+     * model, the row it is stored in (its connection, that connection's
+     * database, its table and its key), so every model class that reads the
+     * table (an `Admin` that extends `User`, say) counts in the account's one
+     * counter, and the same key in another database (another tenant's) counts
+     * apart; for any other identity, its class and auth identifier.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return string
+     */
+    public static function account(Identity $identity): string
+    {
+        if (!$identity instanceof Model) {
+            return implode("\0", ['class', $identity::class, IdentifierCoercion::stringify($identity->getAuthIdentifier())]);
+        }
+
+        $connection = $identity->getConnection();
+
+        return implode("\0", [
+            'row',
+            $connection->getName(),
+            $connection->getDatabaseName(),
+            $connection->getTablePrefix() . $identity->getTable(),
+            IdentifierCoercion::stringify($identity->getKey()),
+        ]);
     }
 
     /**

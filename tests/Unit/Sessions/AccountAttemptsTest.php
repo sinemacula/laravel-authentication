@@ -30,7 +30,8 @@ final class AccountAttemptsTest extends TestCase
 
     /**
      * Each account is reserved on the guard's sign-in flow under its class and
-     * auth identifier, with no identifier, identifier type or IP address.
+     * auth identifier when it is not a model, with no identifier, identifier
+     * type or IP address.
      *
      * @return void
      */
@@ -53,7 +54,8 @@ final class AccountAttemptsTest extends TestCase
         self::assertNull($subjects[0]->identifier);
         self::assertNull($subjects[0]->identifierType);
         self::assertNull($subjects[0]->ip);
-        self::assertSame($identity::class . "\x0042", $subjects[0]->account);
+        self::assertSame("class\0" . $identity::class . "\x0042", $subjects[0]->account);
+        self::assertSame($subjects[0]->account, AccountAttempts::account($identity));
     }
 
     /**

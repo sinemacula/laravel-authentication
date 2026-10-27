@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
@@ -375,7 +376,7 @@ final class SessionServiceTest extends TestCase
      */
     public function testTheAttemptLimitsAreReservedAndGivenBackOnlyOnSuccess(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject> $subjects */
         $subjects = new \ArrayObject;
@@ -411,7 +412,7 @@ final class SessionServiceTest extends TestCase
 
         self::assertSame($successAccount, $accountRelease->subject);
         self::assertSame($successSubject, $release->subject);
-        self::assertSame(IntegrationIdentity::class . "\x001", $wrongAccount->account);
+        self::assertSame(AccountAttempts::account($identity), $wrongAccount->account);
         self::assertNull($wrongAccount->identifier);
         self::assertNull($wrongAccount->ip);
         self::assertSame('api', $limitedSubject->guard);

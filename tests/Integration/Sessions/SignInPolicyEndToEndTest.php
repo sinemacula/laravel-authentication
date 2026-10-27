@@ -44,6 +44,7 @@ use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
 use Tests\Integration\Fixtures\TypedTenant;
 use Tests\Integration\Fixtures\VerifiableIdentity;
+use Tests\Integration\Fixtures\VerifiableStaffIdentity;
 use Tests\TestCase;
 
 /**
@@ -55,6 +56,7 @@ use Tests\TestCase;
  * - `api`: identities with a designated email, the password and `sso` methods.
  * - `by_number`: the same identities, signing in by their `id` with a password.
  * - `sso_only`: the same identities, the `sso` method only.
+ * - `staff`: the same rows read as another model class, with a password.
  * - `verified`: the same identities, verified identifiers required.
  * - `members`: typed memberships; only `staff` and `client_staff` principals,
  *   with shorter lifetimes for `client_staff`, and at most three failed
@@ -304,6 +306,35 @@ final class SignInPolicyEndToEndTest extends TestCase
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));
 
         self::assertTrue($this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber)->isSignedIn());
+    }
+
+    /**
+     * The account is the row, not the model class it is read as: `staff`'s
+     * provider returns the rows `api`'s does as another class, as an admin
+     * guard's own model over the users table would, yet five wrong passwords
+     * through `api` use up the account's limit for both, so the right password
+     * through `staff` is refused without being checked, through `signIn()` and
+     * `attempt()` alike, and only the failure event says the account's limit
+     * refused it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testModelClassesOverOneTableShareTheAccountsLimit(): void
+    {
+        $this->seedPasswordIdentity('ada@example.test');
+
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+        }
+
+        $this->recordEvents([SignInFailed::class]);
+
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions('staff')->signIn('password', self::credentials())->reason);
+        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertFalse($this->freshGuard('staff')->attempt(self::credentials()));
+        self::assertSame(0, Device::query()->count());
     }
 
     /**
@@ -639,9 +670,11 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $config->set('auth.providers.verifiable', ['driver' => 'model', 'model' => VerifiableIdentity::class]);
         $config->set('auth.providers.typed', ['driver' => 'model', 'model' => TypedIdentity::class]);
+        $config->set('auth.providers.verifiable_staff', ['driver' => 'model', 'model' => VerifiableStaffIdentity::class]);
 
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['password', 'sso']]]);
         $config->set('auth.guards.by_number', ['driver' => 'jwt', 'provider' => 'verifiable', 'sign_in' => ['password_identifier' => 'id']]);
+        $config->set('auth.guards.staff', ['driver' => 'jwt', 'provider' => 'verifiable_staff']);
         $config->set('auth.guards.sso_only', ['driver' => 'jwt', 'provider' => 'verifiable', 'audience' => ['methods' => ['sso']]]);
         $config->set('auth.guards.verified', [
             'driver'   => 'jwt',

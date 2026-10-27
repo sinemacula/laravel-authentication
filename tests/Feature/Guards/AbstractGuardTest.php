@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -145,7 +146,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
                 && $subject->identifier                                                      === null
                 && $subject->identifierType                                                  === null
                 && $subject->ip                                                              === null
-                && $subject->account                                                         === $identity::class . "\x001"))
+                && $subject->account                                                         === AccountAttempts::account($identity)))
             ->andReturnUsing(function (AttemptSubject $subject) use (&$reservations): AttemptReservation {
                 $reservations['account'] = new AttemptReservation($subject, null, ['a' => 'w']);
 
@@ -393,7 +394,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertSame([$stringable, '42', $scope], $lookedUpFor);
         self::assertSame(['ada@example.test', null, '42', null, null, null], array_map(static fn (AttemptSubject $subject): ?string => $subject->identifier, $subjects));
 
-        $account = $identity::class . "\x001";
+        $account = AccountAttempts::account($identity);
 
         self::assertSame([null, $account, null, $account, null, $account], array_map(static fn (AttemptSubject $subject): ?string => $subject->account, $subjects));
     }

@@ -40,6 +40,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -940,7 +941,7 @@ final class PendingFactorSessionServiceTest extends TestCase
      */
     private function accountHits(IntegrationIdentity $identity): int
     {
-        $account = IntegrationIdentity::class . "\0" . $identity->getKey(); // @phpstan-ignore binaryOp.invalid
+        $account = AccountAttempts::account($identity);
         $hits    = DB::table('rate_limits')->where('key', hash('sha256', "sign_in\0per_account\0{$account}"))->value('hits');
 
         return is_numeric($hits) ? (int) $hits : 0;
