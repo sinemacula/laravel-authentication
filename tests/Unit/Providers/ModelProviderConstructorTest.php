@@ -6,6 +6,7 @@ namespace Tests\Unit\Providers;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -454,6 +455,8 @@ final class ModelProviderConstructorTest extends TestCase
         $model = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $model->shouldReceive('newQuery')
             ->andReturn($builder);
+        $model->shouldReceive('getConnection')
+            ->andReturn($this->mockConnection());
 
         return new class ($this->hasher, StubAuthenticatableModel::class, $model) extends ModelProvider {
             /**
@@ -488,5 +491,20 @@ final class ModelProviderConstructorTest extends TestCase
                 return $this->instance;
             }
         };
+    }
+
+    /**
+     * Build a database connection double the lookup pins to the write
+     * connection for its duration.
+     *
+     * @return \Illuminate\Database\Connection&\Mockery\MockInterface
+     */
+    private function mockConnection(): MockInterface
+    {
+        $connection = \Mockery::mock(Connection::class);
+        $connection->shouldReceive('useWriteConnectionWhenReading')
+            ->andReturnSelf();
+
+        return $connection;
     }
 }

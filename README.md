@@ -243,15 +243,17 @@ its refresh digest and revocation state - goes to the write connection, even whe
 and `write` hosts. A replica can lag behind a revocation, a deactivation, or a refresh rotation, and a lookup it served
 could admit a credential the primary has already rejected.
 
-The package pins the queries it builds. Code you plug in carries the same obligation:
+The package pins the lookups it makes, including the relations the identity and principal models eager-load (`$with`).
+Code you plug in carries the same obligation:
 
 - a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
-  must read from the write connection;
+  must read from the write connection, including the relations its results eager-load;
 - `resolveDefaultPrincipal()` and `resolveHintedPrincipal()` already run with reads on the identity's connection pinned
   to the write connection, and `getTenant()` with reads on the principal's connection pinned; a lookup they make on
   another connection must pin itself.
 
-`WriteConnection` does both:
+`WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
+queries that it does not reach, so run a lookup whose results load relations inside `during()`:
 
 ```php
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -259,7 +261,7 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 // A query you build: route it to the write PDO, scoped to the identity.
 $membership = WriteConnection::query(Membership::query()->where('identity_id', $identity->getKey()))->find($hint);
 
-// Code that reads through a model's connection: pin it for the callback.
+// Reads through a model's connection, eager loads included: pin it for the callback.
 $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
 ```
 

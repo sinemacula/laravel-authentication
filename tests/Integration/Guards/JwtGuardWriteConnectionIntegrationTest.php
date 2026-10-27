@@ -10,7 +10,6 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -514,23 +513,6 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ])->save();
 
         return $device;
-    }
-
-    /**
-     * Copy a row as it stands on the primary into the replica, so the replica
-     * holds that version until the test changes the primary again.
-     *
-     * @param  string  $table
-     * @param  mixed  $key
-     * @return void
-     */
-    private function copyRowToReplica(string $table, mixed $key): void
-    {
-        $row = DB::connection(self::PRIMARY_CONNECTION)->table($table)->where('id', $key)->first();
-
-        self::assertNotNull($row);
-
-        DB::connection(self::REPLICA_CONNECTION)->table($table)->insert((array) $row);
     }
 
     /**

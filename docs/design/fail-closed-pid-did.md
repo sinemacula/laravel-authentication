@@ -23,7 +23,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
   the bearer flow.
 - `pid`, `did`, and active-state checks run live on every request; nothing is cached across requests.
 - The identity, principal, tenant, and device reads behind those checks go to the write connection, so a lagging read
-  replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises.
+  replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises. The identity and
+  principal lookups run with their model's connection pinned, so relations they eager-load (a `$with` tenant, say) come
+  from the writer too, not only the lookup's own query.
 
 ## Success Path
 
@@ -120,6 +122,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testBearerReadsIdentityAndDeviceFromTheWriteConnection`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testDefaultResolverReadsPrincipalsFromTheWriteConnection`
+- `tests/Integration/Guards/JwtGuardEagerLoadWriteConnectionIntegrationTest.php`
+  `testBearerRejectsMemberWhoseEagerLoadedTenantIsDeactivatedOnThePrimary`
+- `tests/Integration/Guards/JwtGuardEagerLoadWriteConnectionIntegrationTest.php`
+  `testBearerRejectsUserWhoseEagerLoadedTenantIsDeactivatedOnThePrimary`
 
 ## Change Triggers
 

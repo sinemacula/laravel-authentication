@@ -15,11 +15,13 @@ use Illuminate\Database\Eloquent\Model;
  * (device, identity, and principal lookups) must see the primary's current
  * state. A read replica can lag behind a revocation, a deactivation, or a
  * refresh rotation, so a lookup served from it can admit a credential the
- * primary has already rejected. `query()` covers the queries the package
- * builds; `during()` covers reads made inside application code the package
- * calls (for example `resolveDefaultPrincipal()`), which the package cannot
- * rewrite. Custom identity providers and principal resolvers carry the same
- * obligation and may use either method.
+ * primary has already rejected. `query()` routes one query the package builds;
+ * `during()` covers every other read on a model's connection while a callback
+ * runs: the relations a lookup eager-loads, which Eloquent fetches with
+ * separate queries `query()` does not reach, and reads made inside application
+ * code the package calls (for example `resolveDefaultPrincipal()`), which the
+ * package cannot rewrite. Custom identity providers and principal resolvers
+ * carry the same obligation and use whichever method covers their reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,6 +36,10 @@ final class WriteConnection
     /**
      * Route the supplied Eloquent builder, relation, or query builder to the
      * write PDO and return it for chaining.
+     *
+     * Only this query is routed: the eager loads of its results run as separate
+     * queries without the flag, so a lookup whose model eager-loads relations
+     * (`$with`, `with()`) also runs inside `during()`.
      *
      * @template TBuilder of \Illuminate\Contracts\Database\Query\Builder
      *

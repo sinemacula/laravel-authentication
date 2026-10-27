@@ -19,10 +19,11 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
  * tenant-aware logic.
  *
  * Principal lookups decide authentication, so every read goes to the write
- * connection: the `principals()->find()` query directly, and the identity's own
- * `resolveHintedPrincipal()` / `resolveDefaultPrincipal()` hooks with reads on
- * the identity's connection pinned to the writer for the call. A custom
- * resolver carries the same obligation (see `WriteConnection`).
+ * connection: the `principals()->find()` query, and the identity's own
+ * `resolveHintedPrincipal()` / `resolveDefaultPrincipal()` hooks, each run with
+ * reads on the identity's connection pinned to the writer, which also covers
+ * the relations a principal eager-loads. A custom resolver carries the same
+ * obligation (see `WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,7 +90,9 @@ final class DefaultPrincipalResolver implements PrincipalResolver
 
         if ($identity instanceof HasPrincipals) {
 
-            $hinted = WriteConnection::query($identity->principals())->find($hint);
+            // Pinned for the whole lookup, not only its query: relations the
+            // principal eager-loads (its tenant, say) run as separate queries.
+            $hinted = WriteConnection::during($identity, static fn (): mixed => WriteConnection::query($identity->principals())->find($hint));
 
             if ($hinted instanceof Principal) {
                 return $hinted;

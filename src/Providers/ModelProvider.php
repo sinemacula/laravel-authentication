@@ -20,8 +20,8 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
  * soft-delete exclusion, or other domain-specific lookups.
  *
  * Identity lookups decide authentication, so they read from the write
- * connection; a subclass that builds its own query must do the same (see
- * `WriteConnection`).
+ * connection, together with any relations the identity model eager-loads; a
+ * subclass that builds its own query must do the same (see `WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,11 +74,9 @@ class ModelProvider implements IdentityProvider
     public function retrieveById(mixed $identifier): ?Authenticatable
     {
         $model = $this->createModel();
+        $query = $this->freshQuery($model)->where($model->getAuthIdentifierName(), $identifier);
 
-        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
-        return $this->freshQuery($model)
-            ->where($model->getAuthIdentifierName(), $identifier)
-            ->first();
+        return $this->firstOnWriteConnection($model, $query);
     }
 
     /**
@@ -128,14 +126,14 @@ class ModelProvider implements IdentityProvider
             return null;
         }
 
-        $query = $this->freshQuery($this->createModel());
+        $model = $this->createModel();
+        $query = $this->freshQuery($model);
 
         if (!$this->applyCredentialClauses($query, $filtered)) {
             return null;
         }
 
-        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
-        return $query->first();
+        return $this->firstOnWriteConnection($model, $query);
     }
 
     /**
@@ -213,6 +211,22 @@ class ModelProvider implements IdentityProvider
     {
         // @phpstan-ignore staticMethod.dynamicCall
         return WriteConnection::query($model->newQuery());
+    }
+
+    /**
+     * Run the lookup with every read on the model's connection pinned to the
+     * write connection, so relations the identity eager-loads (`$with`) come
+     * from the writer as well: Eloquent runs each eager load as a separate
+     * query that the root query's write-PDO flag does not reach.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
+     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query
+     * @return ?\Illuminate\Contracts\Auth\Authenticatable
+     */
+    private function firstOnWriteConnection(Authenticatable&Model $model, Builder $query): ?Authenticatable
+    {
+        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
+        return WriteConnection::during($model, static fn (): mixed => $query->first());
     }
 
     /**

@@ -6,6 +6,7 @@ namespace Tests\Concerns;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -108,6 +109,23 @@ trait InteractsWithLaggingReplica
         foreach ([self::PRIMARY_CONNECTION, self::REPLICA_CONNECTION] as $connection) {
             Schema::connection($connection)->create($table, $definition);
         }
+    }
+
+    /**
+     * Copy a row as it stands on the primary into the replica, so the replica
+     * holds that version until the test changes the primary again.
+     *
+     * @param  string  $table
+     * @param  mixed  $key
+     * @return void
+     */
+    protected function copyRowToReplica(string $table, mixed $key): void
+    {
+        $row = DB::connection(self::PRIMARY_CONNECTION)->table($table)->where('id', $key)->first();
+
+        self::assertNotNull($row);
+
+        DB::connection(self::REPLICA_CONNECTION)->table($table)->insert((array) $row);
     }
 
     /**
