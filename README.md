@@ -436,12 +436,12 @@ class AppTenant extends Model implements CanBeActive, HasType, TenantContract
 }
 ```
 
-A principal whose tenant cannot be loaded is rejected on the same paths, whether or not the tenant implements
-`CanBeActive`: when the principal's `BelongsTo` tenant key names a tenant that is deleted, soft-deleted, or hidden by a
-scope, `ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive
-tenant, instead of returning `null` as if the principal acted within no tenant. A `Principal` that implements
-`getTenant()` itself should do the same. A tenant relation that returns a model which is not a `Tenant` throws a
-`LogicException`.
+A principal whose opted-in tenant cannot be loaded is rejected on the same paths: when the principal's `BelongsTo`
+tenant key names a `CanBeActive` tenant that is deleted, soft-deleted, or hidden by a scope,
+`ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive tenant,
+instead of returning `null` as if the principal acted within no tenant. A `Principal` that implements `getTenant()`
+itself should do the same. A tenant that does not implement `CanBeActive` is never checked, so a missing one reads as
+no tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
 
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
@@ -465,7 +465,10 @@ Auth::type();           // string|null     - the tenant's type when HasType is d
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
 routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
-and after `Auth::logout()` it stays signed out for the rest of the request.
+and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` and `Auth::type()` throw a
+`TenantUnavailableException` for a principal whose opted-in tenant cannot be loaded; sign-in, bearer requests and
+refresh reject such a principal, so that only happens for one bound through `login()` or `setUser()`, or for a tenant
+deleted during the request.
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no device), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
@@ -587,7 +590,7 @@ the published config:
 | `principal_unresolved`    | Principal resolver returned null                     |
 | `principal_mismatch`      | Resolved principal does not match refresh token hint |
 | `principal_inactive`      | Resolved principal reported inactive                 |
-| `tenant_inactive`         | Tenant the resolved principal acts within inactive   |
+| `tenant_inactive`         | Principal's tenant inactive, or opted in and missing |
 
 ## Extensibility
 

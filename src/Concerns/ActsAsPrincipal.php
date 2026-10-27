@@ -4,8 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Concerns;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
@@ -69,18 +69,19 @@ trait ActsAsPrincipal
      * A model with no tenant relation, attribute, or loaded relation (the usual
      * 2D shape) acts within no tenant. It returns `null` without reading the
      * absent key, which Eloquent's strict mode would otherwise reject on every
-     * authentication path that checks tenant activity.
+     * authentication path that checks tenant activity. So does a relation that
+     * returns a model which is not a `Tenant`.
      *
-     * A principal whose `BelongsTo` tenant key is set names a tenant, so when
-     * that tenant cannot be loaded (deleted, soft-deleted, or hidden by a
-     * scope) this throws rather than returning `null`, which would read as
-     * acting within no tenant and skip the tenant's activity check. A relation
-     * that returns a model other than a `Tenant` is a misconfiguration.
+     * A tenant that opts into activation (its model implements both `Tenant`
+     * and `CanBeActive`) is checked on every authentication path, so a
+     * principal whose `BelongsTo` key names such a tenant that cannot be loaded
+     * (deleted, soft-deleted, or hidden by a scope) throws rather than
+     * returning `null`, which would read as acting within no tenant and skip
+     * the tenant's activity check.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
-     * @throws \LogicException
      */
     public function getTenant(): ?Tenant
     {
@@ -96,11 +97,7 @@ trait ActsAsPrincipal
             return $tenant;
         }
 
-        if ($tenant instanceof Model) {
-            throw new \LogicException(sprintf('Principal %s expected its tenant relation `%s` to return a Tenant instance, got %s.', static::class, $name, $tenant::class));
-        }
-
-        if ($this->namesTenant($name)) {
+        if ($this->namesActivatableTenant($name)) {
 
             $message = sprintf(
                 'Principal %s names a tenant through `%s` that cannot be loaded: it is deleted, soft-deleted, or hidden by a scope.',
@@ -145,13 +142,14 @@ trait ActsAsPrincipal
     }
 
     /**
-     * Whether the tenant relation is a `BelongsTo` whose key is set, so the
-     * principal names a tenant whether or not that tenant can be loaded.
+     * Whether the tenant relation is a `BelongsTo` to a tenant that opts into
+     * activation and its key is set, so the principal names a tenant whose
+     * activity is checked, whether or not that tenant can be loaded.
      *
      * @param  string  $name
      * @return bool
      */
-    private function namesTenant(string $name): bool
+    private function namesActivatableTenant(string $name): bool
     {
         if (!$this->isRelation($name)) {
             return false;
@@ -159,6 +157,9 @@ trait ActsAsPrincipal
 
         $relation = $this->{$name}();
 
-        return $relation instanceof BelongsTo && $this->getAttribute($relation->getForeignKeyName()) !== null;
+        return $relation instanceof BelongsTo
+            && $relation->getRelated() instanceof Tenant
+            && $relation->getRelated() instanceof CanBeActive
+            && $this->getAttribute($relation->getForeignKeyName()) !== null;
     }
 }

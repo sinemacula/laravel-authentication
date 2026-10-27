@@ -47,9 +47,9 @@ final class ActivationPolicy
 
     /**
      * Whether the tenant the principal acts within, if any, may authenticate. A
-     * principal with no tenant passes; one that names a tenant that cannot be
-     * loaded (a `TenantUnavailableException`, for a deleted or soft-deleted
-     * tenant) fails.
+     * principal with no tenant passes; one that names a tenant that opts into
+     * activation but cannot be loaded (a `TenantUnavailableException`, for a
+     * deleted or soft-deleted tenant) fails.
      *
      * The tenant is read with the principal's connection pinned to the write
      * connection, so a lazily loaded tenant relation cannot come from a replica

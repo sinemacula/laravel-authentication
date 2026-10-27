@@ -47,11 +47,12 @@ interface Principal
      * connection; a lookup on any other connection must pin itself (see
      * `Database\WriteConnection`).
      *
-     * Return `null` only for a principal that acts within no tenant. When the
-     * principal names a tenant that cannot be loaded (deleted, soft-deleted, or
-     * hidden by a scope), throw `TenantUnavailableException`, which the
-     * activity check treats as an inactive tenant; `null` would let the
-     * principal authenticate as if it had no tenant.
+     * When the principal names a tenant that opts into activation (its model
+     * implements `CanBeActive`) and that tenant cannot be loaded (deleted,
+     * soft-deleted, or hidden by a scope), throw `TenantUnavailableException`,
+     * which the activity check treats as an inactive tenant; `null` would let
+     * the principal authenticate as if it had no tenant. Any other principal
+     * may return `null` for a tenant it cannot load.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *

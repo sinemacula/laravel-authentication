@@ -13,13 +13,16 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\Stub3dPrincipalWithOwnerRelation;
+use Tests\Unit\Stubs\StubActivatableTenant;
 use Tests\Unit\Stubs\StubModel;
 use Tests\Unit\Stubs\StubPrincipal;
+use Tests\Unit\Stubs\StubTenant;
 
 /**
  * Unit tests for the ActsAsPrincipal trait.
@@ -191,15 +194,16 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A principal whose `BelongsTo` tenant key is set names a tenant, so a
-     * tenant that cannot be loaded (deleted, soft-deleted, or scoped out)
-     * throws instead of reading as no tenant.
+     * A principal whose `BelongsTo` tenant key names a tenant that opts into
+     * activation (`Tenant` and `CanBeActive`) throws when that tenant cannot be
+     * loaded (deleted, soft-deleted, or scoped out) instead of reading as no
+     * tenant.
      *
      * @return void
      */
-    public function testGetTenantThrowsWhenTheNamedTenantCannotBeLoaded(): void
+    public function testGetTenantThrowsWhenTheNamedActivatableTenantCannotBeLoaded(): void
     {
-        $principal = $this->principalWithTenantRelation(\Mockery::mock(BelongsTo::class), ['tenant_id' => 5]);
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), ['tenant_id' => 5]);
 
         $this->expectException(TenantUnavailableException::class);
         $this->expectExceptionMessage('names a tenant through `tenant` that cannot be loaded');
@@ -208,14 +212,53 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
-     * A principal whose `BelongsTo` tenant key is not set acts within no
-     * tenant.
+     * A tenant that does not implement `CanBeActive` is never checked, so one
+     * that cannot be loaded reads as no tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWhenANamedTenantThatDoesNotOptInCannotBeLoaded(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubTenant), ['tenant_id' => 5]);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
+     * A relation to a model that implements `CanBeActive` but is not a `Tenant`
+     * does not name a tenant, so a missing row reads as no tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWhenTheRelatedModelIsNotATenant(): void
+    {
+        $related = new class extends Model implements CanBeActive {
+            /**
+             * Report the model active.
+             *
+             * @return bool
+             */
+            #[\Override]
+            public function isActive(): bool
+            {
+                return true;
+            }
+        };
+
+        $principal = $this->principalWithTenantRelation($this->belongsTo($related), ['tenant_id' => 5]);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
+     * A principal whose `BelongsTo` key for an activatable tenant is not set
+     * acts within no tenant.
      *
      * @return void
      */
     public function testGetTenantReturnsNullWhenTheTenantKeyIsNotSet(): void
     {
-        $principal = $this->principalWithTenantRelation(\Mockery::mock(BelongsTo::class), ['tenant_id' => null]);
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), ['tenant_id' => null]);
 
         self::assertNull($principal->getTenant());
     }
@@ -229,26 +272,41 @@ final class ActsAsPrincipalTest extends TestCase
      */
     public function testGetTenantReturnsNullWhenAnotherRelationLoadsNothing(): void
     {
-        $principal = $this->principalWithTenantRelation(\Mockery::mock(HasOne::class), ['tenant_id' => 5]);
+        $relation = \Mockery::mock(HasOne::class);
+        $relation->shouldReceive('getRelated')->andReturn(new StubActivatableTenant);
+
+        $principal = $this->principalWithTenantRelation($relation, ['tenant_id' => 5]);
 
         self::assertNull($principal->getTenant());
     }
 
     /**
-     * A tenant relation that returns a model which is not a `Tenant` is a
-     * misconfiguration, reported rather than read as no tenant.
+     * A tenant relation that returns a model which is not a `Tenant` is not a
+     * tenant at all: the principal acts within no tenant.
      *
      * @return void
      */
-    public function testGetTenantThrowsWhenTheRelationReturnsAModelThatIsNotATenant(): void
+    public function testGetTenantReturnsNullWhenTheRelationReturnsAModelThatIsNotATenant(): void
     {
         $principal = new Stub3dPrincipal;
         $principal->setRelation('tenant', new StubModel);
 
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('expected its tenant relation `tenant` to return a Tenant instance, got ' . StubModel::class);
+        self::assertNull($principal->getTenant());
+    }
 
-        $principal->getTenant();
+    /**
+     * Build a `BelongsTo` relation double whose related model is the supplied
+     * model.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $related
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Illuminate\Database\Eloquent\Model, \Illuminate\Database\Eloquent\Model>&\Mockery\MockInterface
+     */
+    private function belongsTo(Model $related): BelongsTo
+    {
+        $relation = \Mockery::mock(BelongsTo::class);
+        $relation->shouldReceive('getRelated')->andReturn($related);
+
+        return $relation;
     }
 
     /**

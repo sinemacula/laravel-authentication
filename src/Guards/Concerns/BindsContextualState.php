@@ -106,6 +106,11 @@ trait BindsContextualState
      * Return the tenant the active principal acts within, if any, resolving the
      * request on first access.
      *
+     * Throws `TenantUnavailableException` when the principal names a tenant
+     * that opts into activation but cannot be loaded. The authentication paths
+     * reject such a principal, so this is reached only for one bound through
+     * the trusted `login()` or `setUser()`, or a tenant deleted since.
+     *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException

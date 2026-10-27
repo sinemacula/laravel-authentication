@@ -57,8 +57,8 @@ stateful per-device credentials with server-side replay detection.
   after the presented token has been rotated: the new pair is never returned, a retry fails with `rotation_mismatch`,
   and the client has to sign in again. Listeners on these events should not throw, or should be queued.
 - An inactive owner, principal, or tenant produces `identity_inactive`, `principal_inactive`, or `tenant_inactive`. A
-  principal whose tenant key names a tenant that cannot be loaded (deleted or soft-deleted) also produces
-  `tenant_inactive`, whether or not the tenant implements `CanBeActive`.
+  principal whose tenant key names a tenant that implements `CanBeActive` but cannot be loaded (deleted or
+  soft-deleted) also produces `tenant_inactive`.
 - An `UnresolvableIdentityException` from the principal resolver is a misconfiguration, not a failure reason: it
   propagates as a server error without a `RefreshFailed` event, and the stored digest is left as it was.
 - Revoked devices produce `device_revoked`. Revocation is not refresh-only: the bearer path rejects an access token
