@@ -81,7 +81,9 @@ return [
     | closed when a JWT guard or token service is resolved. Every token carries
     | a `grd` claim naming the guard that issued it, and a guard rejects tokens
     | issued by any other guard, even with a shared key. `issuer`/`audience`
-    | are optional; when set they are strictly verified on every parse.
+    | are optional; when set they are strictly verified on every parse. Each
+    | must be a string or null, and `algorithm` a string, here and in a guard
+    | override; any other type fails closed rather than being ignored.
     |
     */
 

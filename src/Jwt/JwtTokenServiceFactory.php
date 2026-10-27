@@ -18,7 +18,9 @@ use Psr\Log\LoggerInterface;
  * The package values, defaults included, come only from the merged
  * `config/authentication.php`; nothing here falls back to a literal. A value
  * missing at both levels, of the wrong type, or out of range fails closed with
- * an `InvalidJwtConfigurationException` naming the key and the guard.
+ * an `InvalidJwtConfigurationException`, at either level: a malformed guard
+ * override is never ignored in favour of the package value. Only `issuer` and
+ * `audience` may resolve to `null`, which turns that claim check off.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -83,8 +85,8 @@ final class JwtTokenServiceFactory
             $guard,
             $this->resolveLifetimes($guard, $guardJwtConfig),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'leeway_seconds', 0, self::MAX_LEEWAY_SECONDS),
-            $this->resolveJwtNullableString($guardJwtConfig, 'issuer'),
-            $this->resolveJwtNullableString($guardJwtConfig, 'audience'),
+            $this->resolveJwtNullableString($guard, $guardJwtConfig, 'issuer'),
+            $this->resolveJwtNullableString($guard, $guardJwtConfig, 'audience'),
             $this->resolveOptionalLogger(),
         );
     }
@@ -155,9 +157,10 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve the signing algorithm, preferring a string per-guard override and
-     * falling back to the package value. There is no literal default: an
-     * algorithm missing at both levels fails closed.
+     * Resolve the signing algorithm: a per-guard override that is present and
+     * not `null` wins, otherwise the package value. There is no literal
+     * default, and an override that is not a string fails closed rather than
+     * falling back to the package algorithm.
      *
      * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
@@ -167,15 +170,11 @@ final class JwtTokenServiceFactory
      */
     private function resolveAlgorithm(string $guard, #[\SensitiveParameter] array $guardJwtConfig): string
     {
-        $algorithm = $guardJwtConfig['algorithm'] ?? null;
-
-        if (!is_string($algorithm)) {
-            $algorithm = $this->config->get('authentication.jwt.algorithm');
-        }
+        $algorithm = $guardJwtConfig['algorithm'] ?? $this->config->get('authentication.jwt.algorithm');
 
         if (!is_string($algorithm)) {
 
-            $message = "JWT `algorithm` for guard [{$guard}] is missing: set"
+            $message = "JWT `algorithm` for guard [{$guard}] is missing or not a string: set"
                 . ' `authentication.jwt.algorithm` or the guard\'s `jwt.algorithm` override.';
 
             throw new InvalidJwtConfigurationException($message);
@@ -336,27 +335,34 @@ final class JwtTokenServiceFactory
     }
 
     /**
-     * Resolve a nullable string JWT config value (`issuer` / `audience`),
-     * preferring the per-guard override and falling back to the package
-     * default. Empty strings are normalised to `null`.
+     * Resolve a nullable string JWT config value (`issuer` / `audience`): a
+     * per-guard override that is present wins, `null` included, so a guard can
+     * turn off a check the package value sets; otherwise the package value. An
+     * empty string is normalised to `null`. Any other type, at either level,
+     * fails closed: read as `null`, it would silently turn the check off.
      *
+     * @param  string  $guard
      * @param  array<string, mixed>  $guardJwtConfig
      * @param  string  $key
      * @return ?string
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
      */
-    private function resolveJwtNullableString(#[\SensitiveParameter] array $guardJwtConfig, string $key): ?string
+    private function resolveJwtNullableString(string $guard, #[\SensitiveParameter] array $guardJwtConfig, string $key): ?string
     {
-        if (array_key_exists($key, $guardJwtConfig)) {
+        $value = array_key_exists($key, $guardJwtConfig)
+            ? $guardJwtConfig[$key]
+            : $this->config->get("authentication.jwt.{$key}");
 
-            $value = $guardJwtConfig[$key];
+        if ($value !== null && !is_string($value)) {
 
-            return is_string($value) && $value !== '' ? $value : null;
+            $message = "JWT `{$key}` for guard [{$guard}] must be a string or null:"
+                . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.";
+
+            throw new InvalidJwtConfigurationException($message);
         }
 
-        /** @var ?string $value */
-        $value = $this->config->get("authentication.jwt.{$key}");
-
-        return is_string($value) && $value !== '' ? $value : null;
+        return $value === '' ? null : $value;
     }
 
     /**

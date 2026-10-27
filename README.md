@@ -187,7 +187,10 @@ with `authenticatable_missing`. Every field in the package `jwt` block is overri
 `algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
 `leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
 should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
-overrides).
+overrides). `algorithm` must be a string, and `issuer` and `audience` a string or `null`: a guard that sets either to
+`null` or `''` turns that claim check off even when the package value sets one. A value of any other type, in the
+guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key and the
+guard, rather than being ignored.
 
 ### Token and session lifetimes
 

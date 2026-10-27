@@ -995,25 +995,140 @@ final class JwtTokenServiceFactoryTest extends TestCase
     {
         $this->removePackageValue('algorithm');
 
-        $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('JWT `algorithm` for guard [package_default] is missing: set `authentication.jwt.algorithm` or the guard\'s `jwt.algorithm` override.');
+        $this->expectInvalidAlgorithm();
 
         $this->lifetimeService();
     }
 
     /**
-     * An algorithm override that is not a string is ignored in favour of the
-     * package algorithm, as it always was.
+     * Rows of `[where, value]` for an algorithm that is set, in the guard's
+     * overrides or the package config, but is not a string.
+     *
+     * @return iterable<string, array{0: string, 1: mixed}>
+     */
+    public static function provideNonStringAlgorithms(): iterable
+    {
+        foreach (['guard override', 'package value'] as $where) {
+            yield "{$where} as an integer" => [$where, 384];
+            yield "{$where} as an array" => [$where, ['HS512']];
+            yield "{$where} as a boolean" => [$where, true];
+        }
+    }
+
+    /**
+     * An algorithm override that is not a string fails closed instead of
+     * falling back to the package algorithm, as does a package algorithm that
+     * is not a string.
+     *
+     * @param  string  $where
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideNonStringAlgorithms')]
+    public function testNonStringAlgorithmFailsClosed(string $where, mixed $value): void
+    {
+        if ($where === 'guard override') {
+            $this->setGuardOverrides(['algorithm' => $value]);
+        } else {
+            config()->set('authentication.jwt.algorithm', $value);
+        }
+
+        $this->expectInvalidAlgorithm();
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A `null` algorithm override means "use the package algorithm".
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testNonStringAlgorithmOverrideFallsBackToThePackageAlgorithm(): void
+    public function testNullAlgorithmOverrideUsesThePackageAlgorithm(): void
     {
-        $this->setGuardOverrides(['algorithm' => 384]);
+        config()->set('authentication.jwt.algorithm', 'HS384');
+        config()->set('authentication.jwt.keys', [self::PACKAGE_KID => self::HS384_SECRET]);
 
-        self::assertSame('HS256', $this->jwtHeader($this->issueAccessToken($this->lifetimeService()))['alg']);
+        $this->setGuardOverrides(['algorithm' => null]);
+
+        self::assertSame('HS384', $this->jwtHeader($this->issueAccessToken($this->lifetimeService()))['alg']);
+    }
+
+    /**
+     * Rows of `[key, value]` for an issuer or audience that is set but neither
+     * a string nor `null`.
+     *
+     * @return iterable<string, array{0: string, 1: mixed}>
+     */
+    public static function provideNonStringClaimPolicies(): iterable
+    {
+        foreach (['issuer', 'audience'] as $key) {
+            yield "{$key} as an array" => [$key, ['staff-api']];
+            yield "{$key} as an integer" => [$key, 42];
+            yield "{$key} as a boolean" => [$key, false];
+        }
+    }
+
+    /**
+     * An issuer or audience override that is neither a string nor `null` fails
+     * closed: read as `null` it would turn the claim check off for the guard.
+     *
+     * @param  string  $key
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideNonStringClaimPolicies')]
+    public function testNonStringClaimPolicyOverrideFailsClosed(string $key, mixed $value): void
+    {
+        $this->setGuardOverrides([$key => $value]);
+
+        $this->expectInvalidClaimPolicy($key);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A package issuer or audience that is neither a string nor `null` fails
+     * closed for every guard that does not override it.
+     *
+     * @param  string  $key
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideNonStringClaimPolicies')]
+    public function testNonStringClaimPolicyPackageValueFailsClosed(string $key, mixed $value): void
+    {
+        config()->set("authentication.jwt.{$key}", $value);
+
+        $this->expectInvalidClaimPolicy($key);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A `null` or empty audience override turns the audience check off for the
+     * guard even when the package sets one, and a string override replaces it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAudienceOverrideReplacesOrTurnsOffThePackageAudience(): void
+    {
+        foreach ([null, ''] as $off) {
+
+            $this->setGuardOverrides(['audience' => $off]);
+
+            self::assertArrayNotHasKey(Claims::AUDIENCE->value, $this->issuedClaims($this->lifetimeService()));
+        }
+
+        $this->setGuardOverrides(['audience' => 'override-audience', 'issuer' => 'override-issuer']);
+
+        $claims = $this->issuedClaims($this->lifetimeService());
+
+        self::assertSame('override-audience', $claims[Claims::AUDIENCE->value]);
+        self::assertSame('override-issuer', $claims[Claims::ISSUER->value]);
     }
 
     /**
@@ -1250,6 +1365,55 @@ final class JwtTokenServiceFactoryTest extends TestCase
         unset($jwt[$key]);
 
         config()->set('authentication.jwt', $jwt);
+    }
+
+    /**
+     * Issue an access token with the service and return the claims the same
+     * service verifies in it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
+     * @return array<string, mixed>
+     *
+     * @throws \Random\RandomException
+     */
+    private function issuedClaims(JwtTokenService $service): array
+    {
+        $claims = $service->parse($this->issueAccessToken($service), TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+
+        return $claims;
+    }
+
+    /**
+     * Expect the factory to reject an algorithm that is missing or not a
+     * string.
+     *
+     * @return void
+     */
+    private function expectInvalidAlgorithm(): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            'JWT `algorithm` for guard [package_default] is missing or not a string:'
+            . ' set `authentication.jwt.algorithm` or the guard\'s `jwt.algorithm` override.',
+        );
+    }
+
+    /**
+     * Expect the factory to reject an issuer or audience that is neither a
+     * string nor `null`.
+     *
+     * @param  string  $key
+     * @return void
+     */
+    private function expectInvalidClaimPolicy(string $key): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            "JWT `{$key}` for guard [package_default] must be a string or null:"
+            . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.",
+        );
     }
 
     /**
