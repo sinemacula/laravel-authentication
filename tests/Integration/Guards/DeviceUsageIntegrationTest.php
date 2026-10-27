@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -225,33 +226,7 @@ final class DeviceUsageIntegrationTest extends TestCase
     {
         [$identity] = $this->seedIdentityWithDevice();
 
-        Route::post('/sign-in', function () use ($identity): array {
-            $tokens    = $this->tokens();
-            $lifetimes = $tokens->lifetimes();
-            $absolute  = $lifetimes->absoluteDeadline(Carbon::now());
-            $rotation  = RefreshTokenHasher::generate();
-            $client    = ClientContext::fromRequest(request());
-
-            $device = new Device(['client_name' => request()->input('client_name'), 'platform' => request()->input('platform')]);
-            $device->forceFill([
-                'authenticatable_type' => $identity->getMorphClass(),
-                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-                'principal_type'       => $identity->getMorphClass(),
-                'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
-                'guard'                => 'api',
-                'created_ip'           => $client->ip,
-                'created_user_agent'   => $client->userAgent,
-                'refresh_key'          => RefreshTokenHasher::hash($rotation),
-                'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
-                'absolute_expires_at'  => $absolute,
-            ])->save();
-
-            return [
-                'device'        => $device->getKey(),
-                'access_token'  => $tokens->issueAccessToken($identity, $identity, $device),
-                'refresh_token' => $tokens->issueRefreshToken($device, $rotation, $identity),
-            ];
-        });
+        $this->routeDocumentedSignIn($identity);
 
         $response = $this->withServerVariables(['REMOTE_ADDR' => '2001:db8::7'])
             ->withHeaders(['User-Agent' => "Crafted\0/1.0 \xC3\x28" . str_repeat('x', 600)])
@@ -280,9 +255,68 @@ final class DeviceUsageIntegrationTest extends TestCase
     }
 
     /**
-     * A user agent with a NUL byte and invalid UTF-8 is stored cleaned instead
-     * of failing the request, on every engine (PostgreSQL rejects both in a
-     * text column).
+     * Rows of `[sign-in input]`: client names and platforms the documented
+     * validation rejects, each of which would otherwise fail the request or be
+     * stored cut short on some engine.
+     *
+     * @return iterable<string, array{0: array<string, mixed>}>
+     */
+    public static function provideUnsafeClientMetadata(): iterable
+    {
+        yield from [
+            'name with a NUL byte'          => [['client_name' => "Work\0laptop"]],
+            'platform with invalid UTF-8'   => [['platform' => "mac\xFFOS"]],
+            'name over 255 characters'      => [['client_name' => str_repeat('é', 256)]],
+            'platform that is not a string' => [['platform' => ['macOS']]],
+        ];
+    }
+
+    /**
+     * The README's sign-in validates the client name and platform before
+     * storing them, so a client sending one that cannot be stored gets a
+     * validation error instead of a server error, and no device is created.
+     *
+     * @param  array<string, mixed>  $input
+     * @return void
+     */
+    #[DataProvider('provideUnsafeClientMetadata')]
+    public function testDeviceCreatedAsDocumentedRejectsClientMetadataThatCannotBeStored(array $input): void
+    {
+        [$identity] = $this->seedIdentityWithDevice();
+
+        $this->routeDocumentedSignIn($identity);
+
+        $this->post('/sign-in', $input, ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(array_keys($input));
+
+        self::assertSame(1, DB::table('devices')->count());
+    }
+
+    /**
+     * A client name and platform of exactly 255 characters, multibyte ones
+     * included, pass the documented validation and are stored whole on every
+     * engine.
+     *
+     * @return void
+     */
+    public function testDeviceCreatedAsDocumentedStoresClientMetadataUpTo255Characters(): void
+    {
+        [$identity] = $this->seedIdentityWithDevice();
+
+        $this->routeDocumentedSignIn($identity);
+
+        $name     = str_repeat('é', 255);
+        $platform = str_repeat('日', 255);
+        $device   = $this->postJson('/sign-in', ['client_name' => $name, 'platform' => $platform])->assertOk()->json('device');
+
+        self::assertSame([$name, $platform], array_values((array) DB::table('devices')->where('id', $device)->first(['client_name', 'platform'])));
+    }
+
+    /**
+     * A user agent with a NUL byte and invalid UTF-8 is stored cleaned on every
+     * engine, instead of failing the request (invalid UTF-8) or being cut short
+     * at the NUL byte (PostgreSQL).
      *
      * @return void
      *
@@ -348,6 +382,48 @@ final class DeviceUsageIntegrationTest extends TestCase
         ]);
 
         $config->set('authentication.device.last_used_throttle_seconds', 60);
+    }
+
+    /**
+     * Register a `/sign-in` route that creates a device for the identity and
+     * issues its tokens exactly as the README shows.
+     *
+     * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @return void
+     */
+    private function routeDocumentedSignIn(StubPrincipal $identity): void
+    {
+        Route::post('/sign-in', function () use ($identity): array {
+            $tokens    = $this->tokens();
+            $lifetimes = $tokens->lifetimes();
+            $absolute  = $lifetimes->absoluteDeadline(Carbon::now());
+            $rotation  = RefreshTokenHasher::generate();
+            $client    = ClientContext::fromRequest(request());
+            $described = request()->validate([ // @phpstan-ignore staticMethod.dynamicCall
+                'client_name' => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
+                'platform'    => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
+            ]);
+
+            $device = new Device($described);
+            $device->forceFill([
+                'authenticatable_type' => $identity->getMorphClass(),
+                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+                'principal_type'       => $identity->getMorphClass(),
+                'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
+                'guard'                => 'api',
+                'created_ip'           => $client->ip,
+                'created_user_agent'   => $client->userAgent,
+                'refresh_key'          => RefreshTokenHasher::hash($rotation),
+                'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
+                'absolute_expires_at'  => $absolute,
+            ])->save();
+
+            return [
+                'device'        => $device->getKey(),
+                'access_token'  => $tokens->issueAccessToken($identity, $identity, $device),
+                'refresh_token' => $tokens->issueRefreshToken($device, $rotation, $identity),
+            ];
+        });
     }
 
     /**

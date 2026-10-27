@@ -601,8 +601,12 @@ $lifetimes = $tokens->lifetimes();
 $absolute  = $lifetimes->absoluteDeadline(now());
 $rotation  = RefreshTokenHasher::generate();
 $client    = ClientContext::fromRequest($request);
+$described = $request->validate([
+    'client_name' => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
+    'platform'    => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
+]);
 
-$device = new Device(['client_name' => $request->input('client_name'), 'platform' => $request->input('platform')]);
+$device = new Device($described);
 $device->forceFill([
     'authenticatable_type' => $identity->getMorphClass(),
     'authenticatable_id'   => (string) $identity->getKey(),
@@ -622,9 +626,12 @@ $accessToken  = $tokens->issueAccessToken($identity, $principal, $device);
 
 Until the package creates devices itself, the code that creates one is the only writer of its creation metadata: the
 guard, the principal it acts as, and the client it was created from. Record the client with
-`ClientContext::fromRequest()`, which cleans the IP address and user agent the way the package cleans them for last
-use: a raw user agent with NUL bytes, invalid UTF-8 or more than 512 characters fails the insert on PostgreSQL and on
-MySQL in strict mode.
+`ClientContext::fromRequest()`, which cleans the IP address and user agent the way the package cleans them for last use:
+a raw user agent with invalid UTF-8 or more than 512 characters fails the insert on PostgreSQL and on MySQL in strict
+mode, and one with a NUL byte is cut short at it on PostgreSQL, which cannot store NUL in text. The client name and
+platform come from the client too, so validate them as above: invalid UTF-8 or more than 255 characters fails the insert
+in the same way, and a NUL byte cuts the value short on PostgreSQL. The `regex` rule rejects NUL bytes, and its `u` flag
+rejects invalid UTF-8.
 
 Then exchange the refresh token through the guard:
 

@@ -13,9 +13,11 @@ use Illuminate\Http\Request;
  * Both come from the client and are made safe to store rather than trusted: an
  * IP address is kept only when it is a valid IPv4 or IPv6 address, and a user
  * agent has NUL bytes removed, invalid UTF-8 replaced, and is cut to the
- * column's 512 characters, because PostgreSQL rejects NUL and invalid UTF-8 in
- * a text column and a crafted header must not turn a request into a server
- * error. A value that is missing, invalid, or empty after cleaning is `null`.
+ * column's 512 characters. PostgreSQL, and MySQL in strict mode, reject invalid
+ * UTF-8 and an over-long value, and a crafted header must not turn a request
+ * into a server error; PostgreSQL cannot store a NUL byte in text, and through
+ * PDO a value is cut short at the first one. A value that is missing, invalid,
+ * or empty after cleaning is `null`.
  *
  * The package records last use with it. Code that creates a device records the
  * client it was created from (`created_ip`, `created_user_agent`) with
