@@ -5,17 +5,25 @@ declare(strict_types = 1);
 namespace Tests\Integration\Verification;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
+use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
 use Tests\Integration\Fixtures\QueryingVerifiableIdentity;
 use Tests\Integration\Fixtures\VerifiableIdentity;
+use Tests\Integration\Fixtures\VerificationLogIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 
@@ -31,6 +39,8 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  */
 #[CoversClass(IdentifierVerifier::class)]
 #[CoversClass(GuardAudiencePolicy::class)]
+#[CoversClass(VerificationLinks::class)]
+#[CoversTrait(ProvidesIdentifierVerification::class)]
 final class ReplicaIdentifierVerifierTest extends TestCase
 {
     use InteractsWithLaggingReplica, InteractsWithVerifiableIdentities;
@@ -106,6 +116,70 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     }
 
     /**
+     * An identity that reads its identifier with a query has it read from the
+     * primary, both when the verifier compares it with the proof and when it
+     * tells a repeat from a mismatch: a proof of the primary's address is
+     * reported already verified while the replica still holds an older one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAQueriedIdentifierIsReadFromThePrimary(): void
+    {
+        DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->update(['email' => 'old@example.com']);
+
+        $identity = (new QueryingVerifiableIdentity)->newFromBuilder(['id' => 1]);
+
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, app(IdentifierVerifier::class)->verify('api', $identity, 'email', 'ben@example.com'));
+    }
+
+    /**
+     * Following a link checks its digest against the identifier the primary
+     * holds, so a link for the current address still verifies while the replica
+     * holds an older one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALinkIsCheckedAgainstTheIdentifierThePrimaryHolds(): void
+    {
+        Route::get('/verify', static fn (): array => [])->name('verify');
+
+        $identity = WriteConnection::query(VerifiableIdentity::query())->findOrFail(1);
+        $links    = app(VerificationLinks::class);
+        $link     = $links->create('querying', $identity, 'email', 'verify');
+
+        DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->update(['email' => 'old@example.com']);
+
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $links->consume(Request::create($link)));
+    }
+
+    /**
+     * Reading a verification time that an accessor derives with a query reads
+     * the primary, even when the identity is asked directly rather than by the
+     * package.
+     *
+     * @return void
+     */
+    public function testAVerificationTimeAnAccessorQueriesIsReadFromThePrimary(): void
+    {
+        $this->createOnPrimaryAndReplica('identifier_verifications', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->dateTime('verified_at');
+        });
+
+        DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->update(['email_verified_at' => null]);
+        DB::connection(self::PRIMARY_CONNECTION)->table('identifier_verifications')->insert(['identity_id' => 1, 'verified_at' => '2027-01-01 00:00:00']);
+
+        $identity = (new VerificationLogIdentity)->newFromBuilder(['id' => 1, 'email' => 'ben@example.com', 'email_verified_at' => null]);
+
+        self::assertTrue($identity->hasVerifiedIdentifier('email'));
+    }
+
+    /**
      * Configure the lagging replica and a guard that requires verified
      * identifiers.
      *
@@ -123,5 +197,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
         $this->configureLaggingReplica($config);
 
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users', 'audience' => ['require_verified_identifier' => true]]);
+        $config->set('auth.guards.querying', ['driver' => 'jwt', 'provider' => 'querying']);
+        $config->set('auth.providers.querying', ['driver' => 'model', 'model' => QueryingVerifiableIdentity::class]);
     }
 }

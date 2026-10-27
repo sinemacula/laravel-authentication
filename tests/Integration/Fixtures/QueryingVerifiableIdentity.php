@@ -11,9 +11,10 @@ use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 
 /**
- * Identity fixture over the `verifiable_identities` table that answers whether
- * an identifier is verified with a query of its own instead of the attribute it
- * was loaded with, as an identity keeping verifications in another table would.
+ * Identity fixture over the `verifiable_identities` table that reads its
+ * identifier of a type, and whether it is verified, with queries of its own
+ * instead of the attributes it was loaded with, as an identity keeping them in
+ * other tables would.
  *
  * @property int $id
  *
@@ -31,6 +32,20 @@ final class QueryingVerifiableIdentity extends Model implements HasVerifiableIde
 
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
+
+    /**
+     * The identifier of the type, read with a query.
+     *
+     * @param  string  $type
+     * @return ?string
+     */
+    #[\Override]
+    public function getIdentifierForVerification(string $type): ?string
+    {
+        $identifier = self::query()->whereKey($this->getKey())->value($type);
+
+        return is_string($identifier) && $identifier !== '' ? $identifier : null;
+    }
 
     /**
      * Whether the identifier of the type is verified, read with a query.
