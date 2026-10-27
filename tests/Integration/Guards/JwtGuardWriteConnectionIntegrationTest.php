@@ -8,10 +8,13 @@ use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -419,6 +422,56 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A credential closure that runs a query of its own reads the writer: a
+     * suspension recorded on the primary while the replica lags keeps the
+     * suspended identity out of the provider's lookup.
+     *
+     * @return void
+     */
+    public function testModelProviderRunsCredentialClosuresOnTheWriteConnection(): void
+    {
+        $identity = $this->seedSuspendableIdentity();
+        $provider = new ModelProvider(app(Hasher::class), StubPrincipal::class);
+
+        $credentials = ['email' => 'writer@example.test', 'unsuspended' => self::excludeSuspendedIdentities()];
+
+        self::assertTrue($identity->is($provider->retrieveByCredentials($credentials)));
+
+        $this->suspend($identity);
+
+        self::assertNull($provider->retrieveByCredentials($credentials));
+    }
+
+    /**
+     * Signing in over HTTP with a credential closure that checks suspensions is
+     * refused once the identity is suspended on the primary, although the
+     * replica has not seen the suspension yet.
+     *
+     * @return void
+     */
+    public function testSignInRejectsIdentitySuspendedOnThePrimaryWhileTheReplicaLags(): void
+    {
+        $identity = $this->seedSuspendableIdentity();
+
+        $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+        Route::post('/sign-in', static fn (): array => [
+            'signed_in' => Auth::guard('api')->attempt([
+                'email'       => 'writer@example.test',
+                'password'    => self::PASSWORD,
+                'unsuspended' => self::excludeSuspendedIdentities(),
+            ]),
+            'identity' => Auth::guard('api')->id(),
+        ]);
+
+        $this->postJson('/sign-in')->assertOk()->assertExactJson(['signed_in' => true, 'identity' => $identity->getKey()]);
+
+        $this->suspend($identity);
+
+        $this->postJson('/sign-in')->assertOk()->assertExactJson(['signed_in' => false, 'identity' => null]);
+    }
+
+    /**
      * The default resolver finds a 3D principal that exists only on the primary
      * through the identity's own `resolveDefaultPrincipal()` hook and through
      * the hinted `principals()->find()` lookup.
@@ -684,6 +737,54 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         ])->save();
 
         return [$identity, $device];
+    }
+
+    /**
+     * Seed an identity on the primary and the replica, and create the
+     * `identity_suspensions` table on both.
+     *
+     * @return \Tests\Unit\Stubs\StubPrincipal
+     */
+    private function seedSuspendableIdentity(): StubPrincipal
+    {
+        $this->createOnPrimaryAndReplica('identity_suspensions', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+        });
+
+        $identity = $this->seedIdentity();
+
+        $this->copyRowToReplica('stub_principals', $identity->getKey());
+
+        return $identity;
+    }
+
+    /**
+     * Record a suspension of the identity through the split connection, so the
+     * replica does not see it.
+     *
+     * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @return void
+     */
+    private function suspend(StubPrincipal $identity): void
+    {
+        DB::connection(self::SPLIT_CONNECTION)->table('identity_suspensions')->insert(['identity_id' => $identity->getKey()]);
+    }
+
+    /**
+     * A credential closure that excludes suspended identities, deciding the
+     * clause from a query it runs itself on the identity's connection.
+     *
+     * @return \Closure(\Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>): void
+     */
+    private static function excludeSuspendedIdentities(): \Closure
+    {
+        return static function (Builder $query): void {
+
+            $suspended = $query->getModel()->getConnection()->table('identity_suspensions')->pluck('identity_id')->all();
+
+            $query->whereNotIn('id', $suspended);
+        };
     }
 
     /**

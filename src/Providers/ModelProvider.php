@@ -67,6 +67,11 @@ class ModelProvider implements IdentityProvider
     /**
      * Retrieve a user by its unique identifier.
      *
+     * The lookup runs inside `WriteConnection::during()` for the model, so
+     * relations the identity eager-loads (`$with`) come from the writer as
+     * well, on whichever connection they live: Eloquent runs each eager load as
+     * a separate query that the root query's write-PDO flag does not reach.
+     *
      * @param  mixed  $identifier
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
@@ -76,7 +81,8 @@ class ModelProvider implements IdentityProvider
         $model = $this->createModel();
         $query = $this->freshQuery($model)->where($model->getAuthIdentifierName(), $identifier);
 
-        return $this->firstOnWriteConnection($model, $query);
+        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
+        return WriteConnection::during($model, static fn (): mixed => $query->first());
     }
 
     /**
@@ -114,6 +120,10 @@ class ModelProvider implements IdentityProvider
      * the single source of password verification. An empty filtered set returns
      * `null` rather than running a where-less query.
      *
+     * The clauses are applied inside the same `WriteConnection::during()`
+     * window as the lookup, because a credential closure may run queries of its
+     * own (a suspension lookup, say) that must not read a lagging replica.
+     *
      * @param  array<array-key, mixed>  $credentials
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
@@ -129,11 +139,8 @@ class ModelProvider implements IdentityProvider
         $model = $this->createModel();
         $query = $this->freshQuery($model);
 
-        if (!$this->applyCredentialClauses($query, $filtered)) {
-            return null;
-        }
-
-        return $this->firstOnWriteConnection($model, $query);
+        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
+        return WriteConnection::during($model, fn (): mixed => $this->applyCredentialClauses($query, $filtered) ? $query->first() : null);
     }
 
     /**
@@ -211,22 +218,6 @@ class ModelProvider implements IdentityProvider
     {
         // @phpstan-ignore staticMethod.dynamicCall
         return WriteConnection::query($model->newQuery());
-    }
-
-    /**
-     * Run the lookup inside `WriteConnection::during()` for the model, so
-     * relations the identity eager-loads (`$with`) come from the writer as
-     * well, on whichever connection they live: Eloquent runs each eager load as
-     * a separate query that the root query's write-PDO flag does not reach.
-     *
-     * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query
-     * @return ?\Illuminate\Contracts\Auth\Authenticatable
-     */
-    private function firstOnWriteConnection(Authenticatable&Model $model, Builder $query): ?Authenticatable
-    {
-        /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
-        return WriteConnection::during($model, static fn (): mixed => $query->first());
     }
 
     /**

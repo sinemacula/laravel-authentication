@@ -401,6 +401,8 @@ final class ModelProviderConstructorTest extends TestCase
             ->andReturn($builder);
         $model->shouldReceive('getAuthIdentifierName')
             ->andReturn('id');
+        $model->shouldReceive('getConnection')
+            ->andReturn($this->mockConnection());
 
         $provider = new class ($this->hasher, StubAuthenticatableModel::class, $model) extends ModelProvider {
             /**
