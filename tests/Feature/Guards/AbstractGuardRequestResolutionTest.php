@@ -210,6 +210,31 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     }
 
     /**
+     * After `setUser()` and `logout()` on a request nothing has resolved, the
+     * request's own credential is not resolved either: `logout()` settles the
+     * request, so the guard does not sign the credential's identity back in.
+     *
+     * @return void
+     */
+    public function testLogoutAfterSetUserKeepsTheGuardSignedOut(): void
+    {
+        $guard    = $this->makeResolvingGuard($this->mockIdentity());
+        $identity = $this->mockIdentity();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn(\Mockery::mock(Principal::class));
+
+        $guard->setUser($identity);
+        $guard->logout();
+
+        self::assertNull($guard->user());
+        self::assertFalse($guard->check());
+        self::assertSame(0, $guard->resolutions);
+    }
+
+    /**
      * `logout()` on a request nothing has resolved yet resolves it first, so
      * `Logout` carries the request's identity, and the guard then stays signed
      * out.

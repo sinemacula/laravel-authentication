@@ -123,6 +123,45 @@ final class RequestResolutionIntegrationTest extends TestCase
     }
 
     /**
+     * A request that binds another identity with `Auth::setUser()` and then
+     * calls `Auth::logout()` stays signed out: its still-valid bearer token
+     * does not sign the token's identity back in.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testLogoutAfterSetUserKeepsTheRequestSignedOut(): void
+    {
+        $bearer = new StubPrincipal;
+        $bearer->forceFill(['email' => 'bearer@example.test', 'password' => 'irrelevant'])->save();
+
+        $acting = new StubPrincipal;
+        $acting->forceFill(['email' => 'acting@example.test', 'password' => 'irrelevant'])->save();
+
+        $manager = app('auth');
+
+        assert($manager instanceof AuthManager);
+
+        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearer, null);
+
+        Route::get('/act-then-logout', static function () use ($acting): array {
+
+            Auth::setUser($acting);
+
+            $actingId = Auth::id();
+
+            Auth::logout();
+
+            return ['acting' => $actingId, 'after' => Auth::check(), 'id' => Auth::id()];
+        });
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/act-then-logout')
+            ->assertOk()
+            ->assertExactJson(['acting' => $acting->getKey(), 'after' => false, 'id' => null]);
+    }
+
+    /**
      * Configure the JWT guard against the stub identity provider.
      *
      * @param  mixed  $app
