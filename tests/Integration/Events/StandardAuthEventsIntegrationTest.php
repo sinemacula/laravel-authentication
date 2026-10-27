@@ -20,6 +20,8 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -283,6 +285,40 @@ final class StandardAuthEventsIntegrationTest extends TestCase
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->credentials === ['email' => self::USER_EMAIL]);
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->credentials === ['email' => self::USER_EMAIL]);
+    }
+
+    /**
+     * A wrong password ends in the package's `SignInFailed` after `Failed`:
+     * `invalid_credentials`, the identifier as given and the request's client,
+     * no identity (the password was never accepted), and nothing secret.
+     *
+     * @return void
+     */
+    public function testFailedAttemptDispatchesSignInFailedAfterFailed(): void
+    {
+        $dispatched = [];
+
+        Event::listen([Failed::class, SignInFailed::class], static function (object $event) use (&$dispatched): void {
+            $dispatched[] = $event;
+        });
+
+        self::assertFalse(Auth::guard(self::GUARD_NAME)->attempt([
+            'email'    => self::USER_EMAIL,
+            'password' => 'wrong-password',
+        ]));
+
+        self::assertSame([Failed::class, SignInFailed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
+
+        $signIn = $dispatched[1];
+
+        self::assertInstanceOf(SignInFailed::class, $signIn);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $signIn->reason);
+        self::assertSame(self::GUARD_NAME, $signIn->guard);
+        self::assertSame('password', $signIn->method);
+        self::assertSame(self::USER_EMAIL, $signIn->identifier);
+        self::assertSame('127.0.0.1', $signIn->client->ip);
+        self::assertNull($signIn->identity);
+        self::assertStringNotContainsString('wrong-password', serialize($signIn));
     }
 
     /**

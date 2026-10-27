@@ -39,6 +39,9 @@ device record live in the `devices` table so replay and stale credentials can be
 ## Features
 
 - **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
+- **Pluggable sign-in methods** behind one `SignInMethod` contract (a password method ships; SSO and others register
+  on the `SignInMethodManager`), checked against each guard's audience policy and attempt limits, with an
+  additional-factor seam whose default never asks for one.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
@@ -388,6 +391,19 @@ Before a token's `did` is looked up, it is checked against the device model's pr
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
 treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`
 to describe it. Database errors are never read as an unknown device: they propagate as server errors.
+
+### Sign-in
+
+```php
+'sign_in' => [
+    'password_identifier' => 'email',
+],
+```
+
+The password sign-in method looks identities up by `password_identifier`, which is also the identifier type the
+attempt limits count and a guard that requires verified identifiers checks. It must be a lower-case column name (a
+letter, then letters, digits, or underscores) that does not contain `password`; anything else fails with an
+`InvalidArgumentException` when a password sign-in runs.
 
 ### Rate limits
 
@@ -865,6 +881,16 @@ Sign in with credentials through `attempt()`, optionally pinning the principal a
 $guard->attempt(['email' => $email, 'password' => $password], $membership, $device);
 ```
 
+`attempt()` signs in through the password sign-in method and the guard's sign-in policies: the audience policy must allow
+the `password` method for the guard, the attempt takes a slot from the sign-in limits of the identifier (the
+`sign_in.password_identifier` key of the credentials, whatever else they hold) and of the request's IP address, and only
+then are the credentials checked, inside the timebox. After the password, the identity, the principal and its tenant
+must be active, the pins must hold, the audience policy must admit the identity as that principal, and the
+additional-factor policy must not ask for a further factor: `attempt()` cannot hand out a pending sign-in, so a guard
+whose policy requires a factor fails it with `additional_factor_required`. A successful attempt gives its slots back;
+a failed one keeps them. Every failure fires Laravel's `Failed` and then `SignInFailed` with a reason (see
+[Events](#events)). `validate()` checks only the credentials, as with Laravel's own guards.
+
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
@@ -1032,6 +1058,7 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 | `SineMacula\...\Events\DeviceRevoked`       | The package revoked a device (a replay); carries reason   |
+| `SineMacula\...\Events\SignInFailed`        | A sign-in failed (carries machine-readable reason)        |
 | `SineMacula\...\Events\IdentifierVerified`  | An identifier was verified (after commit); carries type   |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
@@ -1044,6 +1071,28 @@ the published config:
     'redacted_credential_keys' => ['secret', 'code'],
 ],
 ```
+
+`SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's client
+(IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a wrong
+password or an unknown identifier carries none), the principal and tenant once resolved, the wait for `rate_limited`,
+and a `SignInFailureReason`. It never carries a password, code or token:
+
+| Reason                       | Meaning                                                            |
+|------------------------------|--------------------------------------------------------------------|
+| `invalid_credentials`        | The sign-in method did not accept the input                        |
+| `method_not_allowed`         | The guard does not allow the sign-in method                        |
+| `rate_limited`               | The identifier or IP address used up its attempts for now          |
+| `identity_unknown`           | The guard's identity provider does not return the identity         |
+| `identity_inactive`          | The identity reported inactive                                     |
+| `principal_unresolved`       | No principal could be resolved for the identity                    |
+| `principal_mismatch`         | The requested principal does not belong to the identity            |
+| `device_mismatch`            | The requested device is not one of the identity's live devices     |
+| `principal_inactive`         | The principal reported inactive                                    |
+| `tenant_inactive`            | The principal's tenant inactive, or opted in and missing           |
+| `principal_ineligible`       | The guard does not accept principals of the principal's type       |
+| `identifier_unverified`      | The guard requires a verified identifier and it is not             |
+| `additional_factor_required` | A further factor is required, which only `signIn()` can ask        |
+| `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's |
 
 `RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution:
 
@@ -1069,17 +1118,19 @@ Concrete classes in this package are `final` except `AuthManager` (the package's
 shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
 inheritance:
 
-| Extension point                   | How                                                                    |
-|-----------------------------------|------------------------------------------------------------------------|
-| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces) |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait               |
-| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally              |
-| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                   |
-| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                    |
-| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
-| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                |
-| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                |
-| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config    |
+| Extension point                   | How                                                                        |
+|-----------------------------------|----------------------------------------------------------------------------|
+| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)     |
+| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait                   |
+| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                  |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                       |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                        |
+| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                          |
+| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container                    |
+| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                    |
+| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                    |
+| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config        |
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 

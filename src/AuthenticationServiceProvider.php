@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
@@ -25,6 +26,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
@@ -36,6 +38,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
  * Package service provider.
@@ -43,9 +46,10 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  * Registers configuration, the package `AuthManager` singleton, the `model`
  * user provider driver, the `jwt` guard driver, the default principal resolver
  * and audience policy bindings, the identifier normaliser registry, the
- * database attempt limiter, the package-aware `auth` middleware and `401` guest
- * response, the `DeviceAuthenticated` listener, and the config + migration
- * publishing tags.
+ * database attempt limiter, the sign-in method registry, the default
+ * additional-factor policy (never require one), the package-aware `auth`
+ * middleware and `401` guest response, the `DeviceAuthenticated` listener, and
+ * the config + migration publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -69,6 +73,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(AudiencePolicy::class, GuardAudiencePolicy::class);
         $this->app->singleton(IdentifierNormalisers::class);
         $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
+        $this->app->singleton(SignInMethodManager::class);
+        $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,

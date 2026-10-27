@@ -22,12 +22,15 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
@@ -37,6 +40,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
@@ -264,6 +268,26 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * The sign-in method registry is a container singleton, and the default
+     * additional-factor policy, which never asks for a factor, is bound as one
+     * so an application or an MFA package can rebind it.
+     *
+     * @return void
+     */
+    public function testRegistersTheSignInMethodsAndTheDefaultFactorPolicy(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(SignInMethodManager::class));
+        self::assertSame(app(SignInMethodManager::class), app(SignInMethodManager::class));
+
+        self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
+        self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));
+    }
+
+    /**
      * Package guards follow later rebinds of the `events` dispatcher, so an
      * `Event::fake()` (or any dispatcher swap) made after a guard resolves
      * still receives that guard's events.
@@ -277,17 +301,20 @@ final class AuthenticationServiceProviderTest extends TestCase
     {
         config()->set('authentication.timebox.credentials_microseconds', 1);
 
+        $this->migrateRateLimits();
+
         $guard = app('auth')->guard('api');
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        Event::fake([Attempting::class, Failed::class]);
+        Event::fake([Attempting::class, Failed::class, SignInFailed::class]);
 
         self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
         self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
+        Event::assertDispatched(SignInFailed::class, static fn (SignInFailed $event): bool => $event->guard === 'api');
     }
 
     /**
@@ -585,6 +612,23 @@ final class AuthenticationServiceProviderTest extends TestCase
             'driver'   => 'basic',
             'provider' => 'identities',
         ]);
+    }
+
+    /**
+     * Create the shipped rate limits table, in which a guard counts its sign-in
+     * and refresh attempts, and drop it when the application goes.
+     *
+     * @return void
+     */
+    private function migrateRateLimits(): void
+    {
+        $migration = include dirname(__DIR__, 2) . '/database/migrations/2026_04_06_000002_create_rate_limits_table.php';
+
+        $migration->up();
+
+        $this->beforeApplicationDestroyed(static function () use ($migration): void {
+            $migration->down();
+        });
     }
 
     /**

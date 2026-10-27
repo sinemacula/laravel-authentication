@@ -22,8 +22,15 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 /**
  * Query-budget and timing contracts for credential sign-in through `attempt()`:
  * the reads each outcome costs, including the pinned principal's owner re-read
- * and the pinned device lookup, and the timebox that keeps a failed attempt as
- * slow as an unknown identifier.
+ * and the pinned device lookup, the writes of the shipped attempt limits, and
+ * the timebox that keeps a failed attempt as slow as an unknown identifier.
+ *
+ * Every attempt first reserves a slot on the identifier's and the IP address's
+ * counters. The first attempt of a window finds neither counter, so each
+ * reservation is an update that changes nothing and the insert that creates the
+ * counter: four writes. A later attempt in the window updates the two existing
+ * counters: two writes. A successful attempt then gives both slots back: two
+ * more. A failed attempt keeps them.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,18 +108,19 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A 2D sign-in reads the identity once and nothing else.
+     * A 2D sign-in reads the identity once, and writes only its limits: the two
+     * reservations of a fresh window and their release.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSuccessfulAttemptUsesOneReadAndNoWrites(): void
+    public function testSuccessfulAttemptReadsTheIdentityOnceAndWritesOnlyItsLimits(): void
     {
         $identity = $this->seedIdentity();
         $guard    = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(1, 0, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertTrue($this->assertQueryBudget(1, 6, fn (): bool => $guard->attempt($this->credentials($identity->email))));
     }
 
     /**
@@ -131,9 +139,9 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A rejected sign-in reads the identity once and writes nothing, whether
-     * the identifier is unknown, the password is wrong, or the identity is
-     * inactive.
+     * A rejected sign-in reads the identity once and writes only the
+     * reservations it keeps, whether the identifier is unknown, the password is
+     * wrong, or the identity is inactive.
      *
      * @param  array<string, string>  $credentials
      * @param  bool  $active
@@ -142,20 +150,21 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
      * @throws \Throwable
      */
     #[DataProvider('provideRejectedCredentials')]
-    public function testRejectedAttemptUsesOneReadAndNoWrites(array $credentials, bool $active): void
+    public function testRejectedAttemptReadsOnceAndWritesOnlyItsLimits(array $credentials, bool $active): void
     {
         $this->seedIdentity($active);
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => $guard->attempt($credentials)));
+        self::assertFalse($this->assertQueryBudget(1, 4, static fn (): bool => $guard->attempt($credentials)));
         self::assertFalse($guard->hasUser());
     }
 
     /**
      * A pinned live device costs one read on top of the identity, plus the
-     * first-use timestamp write; a pinned revoked device costs the same reads,
-     * writes nothing, and fails the attempt.
+     * first-use timestamp write besides the limits; a pinned revoked device
+     * costs the same reads, writes only its reservations, and fails the
+     * attempt.
      *
      * @return void
      *
@@ -168,67 +177,69 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(2, 1, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
+        self::assertTrue($this->assertQueryBudget(2, 7, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
         self::assertSame($device->getKey(), $guard->device()?->getDeviceIdentifier());
 
         Device::query()->whereKey($device->getKey())->update(['revoked_at' => $this->now]);
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(2, 0, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
+        self::assertFalse($this->assertQueryBudget(2, 2, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
     }
 
     /**
-     * A 3D sign-in without a pin reads the identity and its default principal.
+     * A 3D sign-in without a pin reads the identity and its default principal,
+     * and writes only its limits.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testThreeDimensionalAttemptUsesTwoReadsAndNoWrites(): void
+    public function testThreeDimensionalAttemptReadsTwiceAndWritesOnlyItsLimits(): void
     {
         [$identity] = $this->seedThreeDimensionalIdentity();
 
         $guard = $this->freshGuard(self::THREE_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(2, 0, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertTrue($this->assertQueryBudget(2, 6, fn (): bool => $guard->attempt($this->credentials($identity->email))));
     }
 
     /**
      * A pinned principal costs the hinted lookup plus the deliberate re-read of
-     * its owner from the stored key.
+     * its owner from the stored key, and writes only its limits.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptWithPinnedPrincipalUsesThreeReadsAndNoWrites(): void
+    public function testAttemptWithPinnedPrincipalReadsThreeTimesAndWritesOnlyItsLimits(): void
     {
         [$identity, $principal] = $this->seedThreeDimensionalIdentity();
 
         $guard = $this->freshGuard(self::THREE_D_GUARD);
 
-        self::assertTrue($this->assertQueryBudget(3, 0, fn (): bool => $guard->attempt($this->credentials($identity->email), $principal)));
+        self::assertTrue($this->assertQueryBudget(3, 6, fn (): bool => $guard->attempt($this->credentials($identity->email), $principal)));
         self::assertSame($principal->getKey(), $guard->principal()?->getPrincipalIdentifier());
     }
 
     /**
      * Pinning another identity's principal misses the hinted lookup; the
      * resolver falls back to the identity's default principal, whose id does
-     * not match the pin, so the attempt fails without any owner read.
+     * not match the pin, so the attempt fails without any owner read and keeps
+     * its reservations.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptWithAnotherIdentitysPrincipalUsesThreeReadsAndNoWrites(): void
+    public function testAttemptWithAnotherIdentitysPrincipalReadsThreeTimesAndWritesOnlyItsLimits(): void
     {
         [$identity]        = $this->seedThreeDimensionalIdentity();
         [, $foreignMember] = $this->seedThreeDimensionalIdentity('foreign@example.test');
 
         $guard = $this->freshGuard(self::THREE_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(3, 0, fn (): bool => $guard->attempt($this->credentials($identity->email), $foreignMember)));
+        self::assertFalse($this->assertQueryBudget(3, 4, fn (): bool => $guard->attempt($this->credentials($identity->email), $foreignMember)));
         self::assertFalse($guard->hasUser());
     }
 
@@ -271,8 +282,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in to an account stored without a password hash is rejected like a
-     * wrong password: it reads the identity once, writes nothing, and waits out
-     * the real timebox.
+     * wrong password: it reads the identity once, writes only the reservations
+     * it keeps, and waits out the real timebox.
      *
      * @return void
      *
@@ -285,7 +296,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(1, 0, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+        self::assertFalse($this->assertQueryBudget(1, 4, fn (): bool => $guard->attempt($this->credentials($identity->email))));
 
         $this->useTimebox();
 

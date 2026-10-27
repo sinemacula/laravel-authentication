@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use Tests\Concerns\BindsSignInPolicyDoubles;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubInjectableDevice;
@@ -44,7 +45,7 @@ use Tests\Unit\Stubs\StubInjectableDevice;
  */
 abstract class JwtGuardTestCase extends TestCase
 {
-    use InteractsWithDevices, MockeryPHPUnitIntegration;
+    use BindsSignInPolicyDoubles, InteractsWithDevices, MockeryPHPUnitIntegration;
 
     /** @var string The guard name forwarded to JwtGuard's constructor. */
     protected const string GUARD_NAME = 'jwt-test';
@@ -93,6 +94,8 @@ abstract class JwtGuardTestCase extends TestCase
     {
         parent::setUp();
 
+        assert($this->app !== null);
+
         $this->now = Carbon::createStrict(2026, 4, 6, 12, 0, 0);
 
         Carbon::setTestNow($this->now);
@@ -109,6 +112,8 @@ abstract class JwtGuardTestCase extends TestCase
             new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, 30),
             30,
         );
+
+        self::bindSignInPolicyDoubles($this->app, $this->tokens->lifetimes());
 
         // Default: Timebox::call() invokes the callback directly so credential
         // validation paths run deterministically.

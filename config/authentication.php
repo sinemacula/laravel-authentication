@@ -32,6 +32,24 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Sign-in
+    |---------------------------------------------------------------------------
+    |
+    | The password sign-in method looks identities up by the column named in
+    | `password_identifier`, which is also the identifier type the attempt
+    | limits count and a guard that requires verified identifiers checks. It
+    | must be a lower-case column name (a letter, then letters, digits, or
+    | underscores) that does not contain `password`; anything else fails
+    | closed when a password sign-in runs.
+    |
+    */
+
+    'sign_in' => [
+        'password_identifier' => env('AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER', 'email'),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Credential validation timing
     |---------------------------------------------------------------------------
     |

@@ -54,7 +54,18 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
   `Http\UnauthenticatedResponse` renders it. Any other guard on the route keeps Laravel's response.
-- A failed `attempt()` emits `Attempting` and `Failed`, but not `Login` or `Authenticated`.
+- A failed `attempt()` emits `Attempting`, `Failed` and then the package `SignInFailed` with a
+  `SignInFailureReason`, but not `Login` or `Authenticated`. `Failed` carries the account the credentials found (as
+  Laravel's guards do), `SignInFailed` only an identity whose password was accepted, plus the principal and tenant once
+  resolved and the identifier as given; never a credential.
+- `attempt()` runs on the password sign-in method and the sign-in policies, resolved from the container when it runs:
+  after `Attempting`, the audience policy must allow the `password` method (`method_not_allowed`, nothing counted, no
+  timebox) and the attempt limiter must grant a slot for the configured identifier and the request's IP address
+  (`rate_limited`, with the wait). Then, inside the credential timebox: the password (`invalid_credentials`), `Validated`,
+  the identity, the principal and its tenant (activity and pins), the audience policy's admission, the pinned device
+  (`device_mismatch`), and the additional-factor policy, which `attempt()` can only refuse
+  (`additional_factor_required`) and is never told of a pinned device. Only a success gives its slot back. `validate()`
+  checks the credentials only, and still fires `Validated` when it accepts them.
 - A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
   path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
   by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
@@ -97,10 +108,12 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 ## Implementation Anchors
 
-- `src/Guards/Concerns/ValidatesGuardCredentials.php`: `hasValidCredentials()`, `fireAttemptingEvent()`,
-  `fireValidatedEvent()`, `fireFailedEvent()`, `redactCredentials()`.
-- `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `login()`, `logout()`,
-  `setRequest()`, `bindAuthenticationLifecycle()`, `resolveContextForCredentials()`.
+- `src/Guards/Concerns/ValidatesGuardCredentials.php`: `fireAttemptingEvent()`, `fireValidatedEvent()`,
+  `fireFailedEvent()`, `redactCredentials()`.
+- `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `validate()`, `login()`,
+  `logout()`, `setRequest()`, `bindAuthenticationLifecycle()`, `signInWithCredentials()`, `admitVerifiedIdentity()`.
+- `src/Sessions/Methods/PasswordSignIn.php` and `src/Sessions/Admission/SignInAdmission.php`: the credential check and
+  the activity, principal, tenant and audience checks every sign-in shares.
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
 - `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
   `clearContextualState()`.
@@ -122,6 +135,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testAttemptDispatchesAttemptingEventBeforeValidation`
 - `tests/Feature/Guards/AbstractGuardAttemptTest.php`
   `testAttemptDispatchesValidatedAfterSuccessfulHasherCheck`
+- `tests/Feature/Guards/AbstractGuardTest.php`
+  `testASuccessfulAttemptRunsEveryCheckInOrderAndGivesItsSlotBack`,
+  `testAMethodTheGuardDoesNotAllowIsRefusedBeforeAnythingIsCounted`, `testARequiredFactorFailsTheAttempt`
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testLoginFiresValidatedEventBeforeBindingState`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
@@ -193,7 +209,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `DeviceAuthenticated`, `Refreshed`, `RefreshFailed`, or `DeviceRevoked`
+  `DeviceAuthenticated`, `Refreshed`, `RefreshFailed`, `SignInFailed`, or `DeviceRevoked`
+- the order of the sign-in policy checks in `attempt()`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards
 - the decision to route bearer auth or refresh through `login()`

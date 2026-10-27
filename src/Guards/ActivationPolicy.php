@@ -59,13 +59,28 @@ final class ActivationPolicy
      */
     public static function isTenantActive(Principal $principal): bool
     {
+        return self::activeTenant($principal) !== false;
+    }
+
+    /**
+     * Return the tenant the principal acts within when it may authenticate,
+     * `null` when the principal acts within no tenant, and `false` when the
+     * tenant may not authenticate: it reports inactive, or opts into activation
+     * and cannot be loaded. The tenant is read once, as `isTenantActive()`
+     * reads it, so a caller that reports the tenant gets the very one checked.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return false|\SineMacula\Laravel\Authentication\Contracts\Tenant|null
+     */
+    public static function activeTenant(Principal $principal): false|Tenant|null
+    {
         try {
             $tenant = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
         } catch (TenantUnavailableException) {
             return false;
         }
 
-        return $tenant === null || self::isActive($tenant);
+        return $tenant === null || self::isActive($tenant) ? $tenant : false;
     }
 
     /**

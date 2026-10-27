@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use Carbon\Carbon;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -33,7 +32,7 @@ use Tests\Unit\Stubs\StubDevice;
 final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 {
     /**
-     * hasValidCredentials() runs inside Timebox::call with then default
+     * validate() checks the credentials inside Timebox::call with the default
      * 400,000us budget when the package config has not set a specific
      * microsecond window.
      *
@@ -41,7 +40,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
      *
      * @throws \Throwable
      */
-    public function testHasValidCredentialsRunsInsideTimebox(): void
+    public function testValidateRunsInsideTimebox(): void
     {
         $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')
@@ -51,7 +50,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $guard = $this->makeGuard();
 
-        $user = \Mockery::mock(Authenticatable::class);
+        $user = $this->mockIdentity();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -85,7 +84,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $guard = $this->makeGuard();
 
-        $user = \Mockery::mock(Authenticatable::class);
+        $user = $this->mockIdentity();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -142,7 +141,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $guard = $this->makeGuard();
 
-        $user = \Mockery::mock(Authenticatable::class);
+        $user = $this->mockIdentity();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -279,7 +278,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $guard = $this->makeGuard();
 
-        $user = \Mockery::mock(Authenticatable::class);
+        $user = $this->mockIdentity();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -458,7 +457,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $guard = $this->makeGuard();
 
-        $user = \Mockery::mock(Authenticatable::class);
+        $user = $this->mockIdentity();
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()

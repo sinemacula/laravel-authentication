@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -27,6 +28,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
@@ -399,6 +401,28 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(JwtGuard::class))->hasMethod($method),
             "JwtGuard must declare {$method}().",
         );
+    }
+
+    /**
+     * `SignInMethod` declares exactly what the session service asks of a
+     * method: the identifier type, the identifier the input names, and the
+     * verification itself.
+     *
+     * @return void
+     */
+    public function testSignInMethodDeclaresExactlyItsVerificationSurface(): void
+    {
+        self::assertSame(['authenticate', 'identifier', 'identifierType'], self::declaredMethods(SignInMethod::class));
+    }
+
+    /**
+     * `AdditionalFactorPolicy` declares the one decision it makes.
+     *
+     * @return void
+     */
+    public function testAdditionalFactorPolicyDeclaresOneDecision(): void
+    {
+        self::assertSame(['requiresAdditionalFactor'], self::declaredMethods(AdditionalFactorPolicy::class));
     }
 
     /**

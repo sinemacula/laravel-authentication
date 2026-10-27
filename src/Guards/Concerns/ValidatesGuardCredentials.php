@@ -11,28 +11,24 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Config;
 
 /**
- * Credential-validation primitive plus the standard Laravel `Attempting` /
- * `Validated` / `Failed` event-firing helpers. The credentials those events
- * carry have their password-like keys removed.
+ * The standard Laravel `Attempting` / `Validated` / `Failed` event-firing
+ * helpers and the credential timebox budget. The credentials those events carry
+ * have their password-like keys removed.
  *
- * Timing safety is the caller's responsibility: the enclosing guard flow wraps
- * the retrieve -> validate -> dispatch pipeline in a single top-level timebox.
- * Do not nest another timebox here.
+ * Credentials themselves are checked by the password sign-in method. Timing
+ * safety is the caller's responsibility: the enclosing guard flow wraps the
+ * retrieve -> validate -> dispatch pipeline in a single top-level timebox. Do
+ * not nest another timebox here.
  *
  * Expects the using class to declare:
  * - `protected string $name`
  * - `protected \Illuminate\Contracts\Events\Dispatcher $events`
- * - `protected \Illuminate\Support\Timebox $timebox`
- * - `protected \SineMacula\Laravel\Authentication\Contracts\IdentityProvider
- *   $provider`
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @property string $name
  * @property \Illuminate\Contracts\Events\Dispatcher $events
- * @property \Illuminate\Support\Timebox $timebox
- * @property \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider
  */
 trait ValidatesGuardCredentials
 {
@@ -41,28 +37,6 @@ trait ValidatesGuardCredentials
 
     /** @var string Credential key fragment that is always redacted from events. */
     protected const string REDACTED_CREDENTIAL_FRAGMENT = 'password';
-
-    /**
-     * Credential validation; fires `Validated` on success.
-     *
-     * Accepts a nullable user so callers can pass the `retrieveByCredentials`
-     * result straight in without short-circuiting on `null`. The uniform call
-     * path is what gives the enclosing timebox its timing-safety guarantee.
-     *
-     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
-     * @param  array<string, mixed>  $credentials
-     * @return bool
-     */
-    protected function hasValidCredentials(?Authenticatable $user, #[\SensitiveParameter] array $credentials): bool
-    {
-        $valid = $user !== null && $this->provider->validateCredentials($user, $credentials);
-
-        if ($valid) {
-            $this->fireValidatedEvent($user);
-        }
-
-        return $valid;
-    }
 
     /**
      * Fire the standard Laravel `Validated` event.

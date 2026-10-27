@@ -16,6 +16,8 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use Tests\Concerns\BindsSignInPolicyDoubles;
 
 /**
  * Shared base case for the AbstractGuard split tests.
@@ -33,7 +35,7 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
  */
 abstract class AbstractGuardTestCase extends TestCase
 {
-    use MockeryPHPUnitIntegration;
+    use BindsSignInPolicyDoubles, MockeryPHPUnitIntegration;
 
     /** @var string The guard name forwarded to the concrete test double. */
     protected const string GUARD_NAME = 'test-guard';
@@ -63,11 +65,23 @@ abstract class AbstractGuardTestCase extends TestCase
     {
         parent::setUp();
 
+        assert($this->app !== null);
+
+        self::bindSignInPolicyDoubles($this->app, new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30));
+
         $this->provider = \Mockery::mock(IdentityProvider::class);
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
         $this->events   = \Mockery::mock(Dispatcher::class);
         $this->request  = \Mockery::mock(Request::class);
         $this->timebox  = \Mockery::mock(Timebox::class);
+
+        // Default: a sign-in request from an unknown client.
+        $this->request->shouldReceive('ip')
+            ->byDefault()
+            ->andReturnNull();
+        $this->request->shouldReceive('userAgent')
+            ->byDefault()
+            ->andReturnNull();
 
         // Default: Timebox::call() invokes the callback directly and returns
         // its result so tests exercise the real credential validation path.
