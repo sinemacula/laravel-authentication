@@ -653,6 +653,57 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A refresh token without a `pid` whose identity has no default principal
+     * fails as `principal_unresolved`, attributed to the device, and no
+     * rotation happens.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangeDispatchesPrincipalUnresolvedWhenNoDefaultPrincipalResolves(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 16]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '16',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $this->expectOwnerReload($device, $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $exchange = $this->makeExchange();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturnNull();
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($exchange->exchange($token));
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+    }
+
+    /**
      * A `did` that cannot be a key of the configured device model names no
      * device: the exchange reports `device_unknown` without querying.
      *

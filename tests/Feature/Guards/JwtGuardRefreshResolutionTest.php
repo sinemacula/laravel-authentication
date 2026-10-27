@@ -9,6 +9,7 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
+use Illuminate\Contracts\Events\Dispatcher;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -806,6 +807,38 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         self::assertSame($identity, $guard->user());
         self::assertSame($principal, $guard->principal());
+    }
+
+    /**
+     * `setDispatcher()` returns the guard and rebinds the refresh exchange as
+     * well as the guard: a later failed refresh reports `Attempting`,
+     * `RefreshFailed` and `Failed` to the new dispatcher only.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testSetDispatcherRoutesLaterRefreshFailuresToTheNewDispatcher(): void
+    {
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $replacement = \Mockery::mock(Dispatcher::class);
+        $replacement->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Attempting::class));
+        $replacement->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                && $event->reason === RefreshFailureReason::TOKEN_INVALID));
+        $replacement->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Failed::class));
+
+        $this->events->shouldNotReceive('dispatch');
+
+        self::assertSame($guard, $guard->setDispatcher($replacement));
+        self::assertNull($guard->refresh('not-a-jwt'));
     }
 
     /**

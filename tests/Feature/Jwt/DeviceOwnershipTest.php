@@ -84,6 +84,30 @@ final class DeviceOwnershipTest extends TestCase
     }
 
     /**
+     * `DeviceOwnership` is a static utility; instantiation is disallowed via
+     * the private constructor so consumers cannot create a stateful
+     * device-ownership helper. Reflection invokes the private constructor so
+     * the line is covered while still documenting the access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(DeviceOwnership::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(DeviceOwnership::class, $instance);
+    }
+
+    /**
      * Build an unsaved device row recording the supplied owner.
      *
      * @param  string  $type

@@ -129,6 +129,30 @@ final class ActivationPolicyTest extends TestCase
     }
 
     /**
+     * `ActivationPolicy` is a static utility; instantiation is disallowed via
+     * the private constructor so consumers cannot create a stateful activation
+     * policy. Reflection invokes the private constructor so the line is covered
+     * while still documenting the access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(ActivationPolicy::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(ActivationPolicy::class, $instance);
+    }
+
+    /**
      * Build a principal without the activation capability that acts within the
      * supplied tenant.
      *

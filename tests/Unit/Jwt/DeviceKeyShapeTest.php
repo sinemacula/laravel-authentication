@@ -92,6 +92,30 @@ final class DeviceKeyShapeTest extends TestCase
     }
 
     /**
+     * `DeviceKeyShape` is a static utility; instantiation is disallowed via the
+     * private constructor so consumers cannot create a stateful device-key
+     * shape check. Reflection invokes the private constructor so the line is
+     * covered while still documenting the access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(DeviceKeyShape::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(DeviceKeyShape::class, $instance);
+    }
+
+    /**
      * A model whose primary key is a generated ULID.
      *
      * @return \Illuminate\Database\Eloquent\Model

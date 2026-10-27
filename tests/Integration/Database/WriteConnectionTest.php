@@ -244,6 +244,30 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
+     * `WriteConnection` is a static utility; instantiation is disallowed via
+     * the private constructor so consumers cannot create a stateful
+     * write-connection helper. Reflection invokes the private constructor so
+     * the line is covered while still documenting the access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(WriteConnection::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(WriteConnection::class, $instance);
+    }
+
+    /**
      * Use the lagging split connection as the default connection.
      *
      * @param  mixed  $app
