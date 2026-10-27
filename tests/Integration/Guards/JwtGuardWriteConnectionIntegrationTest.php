@@ -374,6 +374,50 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A refresh that loses its compare-and-swap judges the device again from
+     * the primary, relations it eager-loads included: when a competing rotation
+     * and a revocation recorded only on the primary land between the read and
+     * the swap, it fails with `device_revoked` and issues no pair, instead of
+     * reading the lagging replica and treating itself as a grace retry.
+     *
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideRevocationLogDeviceModels')]
+    public function testLostRotationIsJudgedFromThePrimaryWhileTheReplicaLags(string $model): void
+    {
+        app(ConfigRepository::class)->set('authentication.device.model', $model);
+
+        [$identity, $device] = $this->seedRevocationLogDevice($model);
+
+        $refreshToken = $this->authManager()->jwt('revocation_log')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $raced        = false;
+
+        DB::connection()->beforeExecuting(function (string $query) use (&$raced, $device): void {
+            if ($raced || !str_starts_with(strtolower($query), 'update') || !str_contains($query, 'refresh_rotated_at')) {
+                return;
+            }
+
+            $raced = true;
+
+            $this->rotateOnThePrimary($device, Carbon::now());
+            $this->recordRevocation($device);
+        });
+
+        $reasons = [];
+
+        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+            $reasons[] = $event->reason;
+        });
+
+        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
+        self::assertTrue($raced);
+        self::assertSame([RefreshFailureReason::DEVICE_REVOKED], $reasons);
+    }
+
+    /**
      * A refresh for a device whose digest exists only on the primary rotates
      * successfully, so the device and owner lookups read the writer.
      *

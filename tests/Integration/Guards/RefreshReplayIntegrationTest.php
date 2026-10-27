@@ -210,6 +210,46 @@ final class RefreshReplayIntegrationTest extends TestCase
     }
 
     /**
+     * A rotation and a replay change only the device they concern. Another
+     * device of the same identity, and a device of another identity that holds
+     * the same rotation id digest, keep their digests, rotation time, and
+     * deadlines through both, stay live, and still authenticate through the
+     * `auth` middleware and refresh.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRotationAndReplayTouchOnlyTheirOwnDevice(): void
+    {
+        [$identity, $device]       = $this->signIn();
+        [$stranger, $sameRotation] = $this->signIn('stranger@example.test');
+
+        $sibling = $this->addDevice($identity, 'sibling-rotation-id');
+        $others  = [$sibling, $sameRotation];
+        $before  = array_map($this->rawRow(...), $others);
+
+        $stolen = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+
+        self::assertNotNull($this->guard()->refresh($stolen));
+        self::assertSame($before, array_map($this->rawRow(...), $others));
+
+        $this->moveClockTo($this->now->copy()->addMinute());
+
+        self::assertNull($this->guard()->refresh($stolen));
+        self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
+        self::assertSame($before, array_map($this->rawRow(...), $others));
+
+        foreach ([[$identity, $sibling, 'sibling-rotation-id'], [$stranger, $sameRotation, self::ROTATION_ID]] as [$owner, $other, $rotationId]) {
+
+            $this->bearer($this->tokens()->issueAccessToken($owner, $owner, $other))->assertOk()->assertJson(['device' => $other->getKey()]);
+
+            self::assertNotNull($this->guard()->refresh($this->tokens()->issueRefreshToken($other, $rotationId, $owner)));
+            self::assertNull($this->stored($other)->getRevokedAt());
+        }
+    }
+
+    /**
      * A refresh whose response is lost after the rotation committed, here
      * through a listener that throws, is recoverable: a retry inside the grace
      * window gets the current credential; after the window the same token is a
@@ -378,26 +418,50 @@ final class RefreshReplayIntegrationTest extends TestCase
     /**
      * Persist an identity signed in on a new device holding `ROTATION_ID`.
      *
+     * @param  string  $email
      * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device}
      */
-    private function signIn(): array
+    private function signIn(string $email = 'replay@example.test'): array
     {
         $identity            = new StubPrincipal;
-        $identity->email     = 'replay@example.test';
+        $identity->email     = $email;
         $identity->password  = 'irrelevant';
         $identity->is_active = true;
         $identity->save();
 
+        return [$identity, $this->addDevice($identity, self::ROTATION_ID)];
+    }
+
+    /**
+     * Persist a live device of the identity holding the given rotation id.
+     *
+     * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @param  string  $rotationId
+     * @return \SineMacula\Laravel\Authentication\Models\Device
+     */
+    private function addDevice(StubPrincipal $identity, string $rotationId): Device
+    {
         $device = new Device;
         $device->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
             'last_used_at'         => $this->now,
         ])->save();
 
-        return [$identity, $device];
+        return $device;
+    }
+
+    /**
+     * Read a device's raw row.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @return array<string, mixed>
+     */
+    private function rawRow(Device $device): array
+    {
+        return (array) DB::table('devices')->where('id', $device->getKey())->first();
     }
 
     /**

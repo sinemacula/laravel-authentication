@@ -234,6 +234,8 @@ other rotated token as a replay that revokes the device.
   `testRevocationIsReportedOnlyAfterCommit`
 - `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
   `testParallelRefreshInsideARepeatableReadTransaction`
+- `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
+  `testRotationAndReplayTouchOnlyTheirOwnDevice`
 - `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
   `testRefreshAndBearerUseTheDevicesOwnConnection`,
   `testReplayIsReportedAtOnceWhatAnotherConnectionsTransactionDoes`,
@@ -264,6 +266,8 @@ other rotated token as a replay that revokes the device.
   `testGraceRetryIsJudgedFromThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testReplayIsJudgedFromThePrimaryWhileTheReplicaLags`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testLostRotationIsJudgedFromThePrimaryWhileTheReplicaLags`
 - `tests/Integration/Guards/JwtGuardDatabaseFailureIntegrationTest.php`
   `testRefreshPropagatesAConnectionFailureDuringDeviceLookup`
 - `tests/Integration/Guards/TenantActivityIntegrationTest.php`
