@@ -28,7 +28,7 @@ Most auth packages collapse "who you are" and "who you're acting as" into a sing
 | **Principal** | Who the request is acting as. Often the same as the identity; can be a role or membership. |
 | **Device**    | Which client obtained the login - a browser, a mobile app, a CLI session.                  |
 | **Tenant**    | The isolation boundary the principal acts within. Optional, for multi-tenant apps.         |
-| **Type**      | An optional categorical label on the tenant - e.g. `"staff"` vs `"customer"`.              |
+| **Type**      | An optional label on the principal, or its tenant - e.g. `"staff"` vs `"client_admin"`.    |
 
 Both **2D** (identity-is-principal) and **3D** (identity → separate principal → tenant) adoption modes are supported
 by the same guards. Start 2D, grow into 3D without re-platforming.
@@ -43,7 +43,8 @@ device record live in the `devices` table so replay and stale credentials can be
   `type()`.
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
   issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, required claims per token type (`exp`, `iat`,
-  `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), and fail-closed
+  `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), the principal's
+  type in `pty` on access tokens when it has one, and fail-closed
   behaviour on empty or short keys, unsupported algorithms, type confusion, tokens from another guard, missing claims,
   and `pid` / `did` mismatches.
 - **Refresh-token rotation with replay detection**: constant-time digest verification, atomic per-device rotation, a
@@ -427,7 +428,7 @@ use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
 
 class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
 {
@@ -468,7 +469,7 @@ class AppMembership extends Model implements CanBeActive, PrincipalContract
 
 class AppTenant extends Model implements HasType, TenantContract
 {
-    use ActsAsTenant, ProvidesTenantType;
+    use ActsAsTenant, ProvidesType;
 }
 ```
 
@@ -479,7 +480,7 @@ With that shape:
   (every access token carries one), or via `resolveDefaultPrincipal()` on sign-in and on a refresh token issued
   without a principal.
 - `Auth::tenant()` returns the `AppTenant` the membership belongs to.
-- `Auth::type()` returns the tenant's type string, or `null` when `HasType` is absent.
+- `Auth::type()` returns the tenant's type string (see [Principal type](#principal-type)).
 - A membership whose `is_active` is `false` cannot sign in, refresh, or authenticate a request (see
   [Active-state enforcement](#active-state-enforcement)).
 
@@ -493,6 +494,34 @@ a service provider. A hint can come from a caller pinning a principal on `attemp
 ```php
 $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 ```
+
+### Principal type
+
+A principal can carry a type: a categorical label such as `staff`, `client_admin`, `client_staff`, or `service` that
+access tokens carry, `Auth::type()` returns, and a guard can key on. Implement `HasType` on the principal, the tenant,
+or both, and use the `ProvidesType` trait to read it from a `type` column (override `getTypeAttributeName()` for
+another column; a backed enum reads as its value, a unit enum as its name):
+
+```php
+use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
+
+class AppMembership extends Model implements CanBeActive, HasType, PrincipalContract
+{
+    use ActsAsPrincipal, ProvidesActiveState, ProvidesType;
+}
+```
+
+The principal's type is its own when it implements `HasType` and reports one, otherwise the type of the tenant it acts
+within when that tenant implements `HasType`, otherwise `null`; an empty string counts as no type, so a membership with
+an empty `type` column takes its tenant's. The tenant is loaded only when the principal has no type of its own, and both
+are read from the write connection. `Audience\PrincipalType::of($principal)` reads it the same way outside a request.
+
+Every access token carries the type in its `pty` claim when there is one (`typ` stays the token type, `access` or
+`refresh`); refresh tokens never carry it, so a refreshed access token carries the type the principal has at the
+refresh. Nothing checks `pty` on a bearer request: `Auth::type()` reads the bound principal as it is now, not the claim,
+and a type change shows on the next request. The claim is for consumers of the token, such as a gateway or a client
+choosing which screens to show, not a credential.
 
 ### Active-state enforcement
 
@@ -527,7 +556,7 @@ every principal in it is rejected on the same paths (refresh fails with `tenant_
 ```php
 class AppTenant extends Model implements CanBeActive, HasType, TenantContract
 {
-    use ActsAsTenant, ProvidesActiveState, ProvidesTenantType;
+    use ActsAsTenant, ProvidesActiveState, ProvidesType;
 }
 ```
 
@@ -560,7 +589,7 @@ Auth::identity();       // Identity|null   - the authenticated subject
 Auth::principal();      // Principal|null  - the acting principal
 Auth::device();         // Device|null     - the issuing device
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
-Auth::type();           // string|null     - the tenant's type when HasType is declared
+Auth::type();           // string|null     - the principal's type, else its tenant's
 ```
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on

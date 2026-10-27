@@ -4,23 +4,25 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Traits;
 
+use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
 use Tests\Unit\Stubs\StubTenant;
-use Tests\Unit\Traits\Fixtures\Enums\ProvidesTenantTypeTestBackedType;
-use Tests\Unit\Traits\Fixtures\Enums\ProvidesTenantTypeTestUnitType;
+use Tests\Unit\Traits\Fixtures\Enums\ProvidesTypeTestBackedType;
+use Tests\Unit\Traits\Fixtures\Enums\ProvidesTypeTestUnitType;
 
 /**
- * Unit tests for the package ProvidesTenantType trait.
+ * Unit tests for the package ProvidesType trait.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversTrait(ProvidesTenantType::class)]
-final class ProvidesTenantTypeTest extends TestCase
+#[CoversTrait(ProvidesType::class)]
+final class ProvidesTypeTest extends TestCase
 {
     /**
      * Asserts a `BackedEnum` type attribute resolves to the enum's backing
@@ -32,7 +34,7 @@ final class ProvidesTenantTypeTest extends TestCase
     {
         $tenant = new StubTenant;
         $tenant->setRawAttributes([]);
-        $tenant->setAttribute('type', ProvidesTenantTypeTestBackedType::STAFF);
+        $tenant->setAttribute('type', ProvidesTypeTestBackedType::STAFF);
 
         self::assertSame('staff', $tenant->getType());
     }
@@ -47,7 +49,7 @@ final class ProvidesTenantTypeTest extends TestCase
     {
         $tenant = new StubTenant;
         $tenant->setRawAttributes([]);
-        $tenant->setAttribute('type', ProvidesTenantTypeTestUnitType::CUSTOMER);
+        $tenant->setAttribute('type', ProvidesTypeTestUnitType::CUSTOMER);
 
         self::assertSame('CUSTOMER', $tenant->getType());
     }
@@ -121,5 +123,32 @@ final class ProvidesTenantTypeTest extends TestCase
         $tenant->setRawAttributes(['type' => 1]);
 
         self::assertSame('1', $tenant->getType());
+    }
+
+    /**
+     * Asserts the type is read from the column `getTypeAttributeName()` names,
+     * so a principal can keep its type in a column of its own choosing.
+     *
+     * @return void
+     */
+    public function testGetTypeReadsTheColumnTheAttributeNameHookNames(): void
+    {
+        $principal = new class extends Model implements HasType {
+            use ProvidesType;
+
+            /**
+             * Column name holding the type.
+             *
+             * @return string
+             */
+            protected function getTypeAttributeName(): string
+            {
+                return 'role';
+            }
+        };
+
+        $principal->setRawAttributes(['type' => 'ignored', 'role' => 'client_admin']);
+
+        self::assertSame('client_admin', $principal->getType());
     }
 }

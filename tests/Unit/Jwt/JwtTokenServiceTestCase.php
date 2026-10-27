@@ -152,7 +152,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
 
     /**
      * Build a Principal mock whose getPrincipalIdentifier() returns the
-     * supplied value.
+     * supplied value, acting within no tenant and so without a type.
      *
      * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Principal
@@ -163,6 +163,8 @@ abstract class JwtTokenServiceTestCase extends TestCase
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn($id);
+        $principal->shouldReceive('getTenant')
+            ->andReturn(null);
 
         return $principal;
     }

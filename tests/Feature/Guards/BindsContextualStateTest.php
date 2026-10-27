@@ -129,7 +129,8 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
-     * The first call to `type()` resolves the request through `tenant()`.
+     * The first call to `type()` resolves the request through `principal()`
+     * and, the principal declaring no type, reads its tenant's.
      *
      * @return void
      */

@@ -5,24 +5,26 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Concerns;
 
 /**
- * Provides a default `HasType` implementation sourced from a configurable
- * Eloquent attribute. Resolves `BackedEnum` (`value`), `UnitEnum` (`name`), and
- * arbitrary string-castable values.
+ * Provides a default `HasType` implementation, for a principal or a tenant,
+ * sourced from a configurable Eloquent attribute. Resolves `BackedEnum`
+ * (`value`), `UnitEnum` (`name`), and arbitrary string-castable values.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
+ *
+ * @phpstan-require-implements \SineMacula\Laravel\Authentication\Contracts\HasType
  */
-trait ProvidesTenantType
+trait ProvidesType
 {
     /**
-     * Return the tenant's type as a string. Resolves `BackedEnum` via `value`,
+     * Return the model's type as a string. Resolves `BackedEnum` via `value`,
      * `UnitEnum` via `name`, otherwise casts to string.
      *
      * @return string
      */
     public function getType(): string
     {
-        $value = $this->getAttribute($this->getTenantTypeName());
+        $value = $this->getAttribute($this->getTypeAttributeName());
 
         if ($value instanceof \BackedEnum) {
             return (string) $value->value;
@@ -36,11 +38,11 @@ trait ProvidesTenantType
     }
 
     /**
-     * Column name holding the tenant type.
+     * Column name holding the type.
      *
      * @return string
      */
-    protected function getTenantTypeName(): string
+    protected function getTypeAttributeName(): string
     {
         return 'type';
     }

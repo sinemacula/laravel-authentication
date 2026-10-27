@@ -133,7 +133,8 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
-     * The active tenant's type string, when resolvable.
+     * The active principal's type (its own, else its tenant's), when the active
+     * guard is contextual and the principal has one.
      *
      * @return ?string
      *

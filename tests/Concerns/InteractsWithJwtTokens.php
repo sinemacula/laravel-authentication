@@ -47,7 +47,8 @@ trait InteractsWithJwtTokens
 
     /**
      * Issue an access token for mock identity, principal, and device context
-     * objects, the device in a session that started now.
+     * objects, the principal without a type and the device in a session that
+     * started now.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
      * @return string
@@ -61,6 +62,7 @@ trait InteractsWithJwtTokens
 
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
+        $principal->shouldReceive('getTenant')->andReturn(null);
 
         $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')->andReturn('did-1');

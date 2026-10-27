@@ -9,6 +9,7 @@ use Carbon\CarbonInterface;
 use Firebase\JWT\JWT;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -28,6 +29,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  *   claims (`TokenType::requiredClaims()`) must be present on every parse
  * - `grd` claim binds every token to the guard whose service issued it; a token
  *   from another guard is rejected even when the guards share a key
+ * - `pty` claim carries the principal's type on access tokens, when it has one
  * - configurable clock skew via `leewaySeconds` on every verification
  * - optional strict `iss` / `aud` verification
  * - token lifetimes from the guard's `TokenLifetimes`; a token for a device
@@ -107,6 +109,12 @@ final class JwtTokenService
      * `iat` and the start of the lifetime, so a caller that has just judged the
      * device at a given time issues at that same time.
      *
+     * The token carries the principal's type in `pty` when it has one (see
+     * `Audience\PrincipalType`), read when the token is issued; a principal
+     * without a type issues a token without the claim. Nothing checks the claim
+     * on a bearer request: the guard admits a principal's type when it issues
+     * and refreshes, and `Auth::type()` reads the principal live.
+     *
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, and the device when one
      * is given, must each have an identifier that can be written into its claim
@@ -122,11 +130,13 @@ final class JwtTokenService
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt = null): string
     {
         $issuedAt   = $this->issueTime($issuedAt);
         $sessionEnd = $device === null ? null : $this->sessionEnd($device, $issuedAt);
+        $type       = PrincipalType::of($principal);
 
         $payload = $this->baseClaims($issuedAt, $this->lifetimes->accessExpiry($issuedAt, $sessionEnd)->getTimestamp(), TokenType::ACCESS);
 
@@ -134,6 +144,10 @@ final class JwtTokenService
         $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
         $payload[Claims::DEVICE_ID->value]    = $device === null ? null : $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
         $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
+
+        if ($type !== null) {
+            $payload[Claims::PRINCIPAL_TYPE->value] = $type;
+        }
 
         return $this->encode($payload);
     }

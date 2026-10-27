@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -196,8 +197,7 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `Tenant` declares the identifier accessor used by the contextual
-     * accessors. Tenant scoping is otherwise opt-in via the `HasType`
-     * capability interface.
+     * accessors.
      *
      * @return void
      */
@@ -207,6 +207,25 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(Tenant::class))->hasMethod('getTenantIdentifier'),
             'Tenant contract must declare getTenantIdentifier().',
         );
+    }
+
+    /**
+     * A type is a capability a principal or a tenant opts into: `HasType`
+     * declares only `getType()`, and neither `Principal` nor `Tenant` declares
+     * it.
+     *
+     * @return void
+     */
+    public function testTypeIsDeclaredOnlyByTheHasTypeCapability(): void
+    {
+        $methods = array_map(
+            static fn (\ReflectionMethod $method): string => $method->getName(),
+            (new \ReflectionClass(HasType::class))->getMethods(),
+        );
+
+        self::assertSame(['getType'], $methods);
+        self::assertFalse((new \ReflectionClass(Principal::class))->hasMethod('getType'));
+        self::assertFalse((new \ReflectionClass(Tenant::class))->hasMethod('getType'));
     }
 
     /**
