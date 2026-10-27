@@ -457,9 +457,11 @@ own `rate_limits` block:
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
 12:00:00 to 12:05:00), so, as with any fixed window, up to twice `max` attempts can fall within `decay_seconds` across a
-boundary. A guard scope that is present wins, `null` included; a flow set to `null` turns both of its limits off; a
-scope the guard leaves out is the package's. A malformed limit, a missing one, or an unknown key fails closed with an
-`InvalidArgumentException` naming the guard and the key.
+boundary. A counter started before `decay_seconds` changed keeps its window until that window ends, so a change neither
+forgives the attempts already counted nor gives a slot back to the wrong window. A guard scope that is present wins,
+`null` included; a flow set to `null` turns both of its limits off; a scope the guard leaves out is the package's. A
+malformed limit, a missing one, or an unknown key fails closed with an `InvalidArgumentException` naming the guard and
+the key.
 
 A sign-in guesses a secret, so it reserves its slots before the method runs: a refused sign-in fails with
 `rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.

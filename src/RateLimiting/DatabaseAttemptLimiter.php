@@ -52,7 +52,8 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 
     /**
      * Take a slot from the identifier's counter, then from the IP address's;
-     * when the second is full, the first is given back.
+     * when the second is full, the first is given back, and the wait is until
+     * the full counter's window, as stored, ends.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
@@ -67,14 +68,13 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 
         foreach ($this->counters($subject) as $key => $limit) {
 
-            $end    = $limit->windowEnd($now);
-            $window = $this->store->take($key, $limit->max, $now, $end);
+            $window = $this->store->take($key, $limit->max, $now, $limit->windowEnd($now));
 
-            if ($window === null) {
+            if (is_int($window)) {
 
                 $this->giveBack($windows);
 
-                return new AttemptReservation($subject, $end - $now);
+                return new AttemptReservation($subject, $window - $now);
             }
 
             $windows[$key] = $window;

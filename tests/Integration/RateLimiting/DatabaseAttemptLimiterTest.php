@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -205,6 +206,132 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
         self::assertTrue($this->limiter()->acquire($this->signIn('ben@example.com'))->granted());
         self::assertSame(1, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+    }
+
+    /**
+     * After `decay_seconds` grows, a counter keeps the window it was started
+     * in: the next attempt counts in that window and records it, so its slot
+     * goes back to the window it came from.
+     *
+     * @return void
+     */
+    public function testASlotTakenAfterTheWindowGrewGoesBackToItsStoredWindow(): void
+    {
+        $this->limiter()->acquire($this->signIn('ben@example.com'));
+
+        $this->setIdentifierDecay(600);
+
+        $reservation = $this->limiter()->acquire($this->signIn('ben@example.com'));
+        $key         = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
+
+        self::assertSame($this->windowAt(1800000300), $reservation->windows[$key]);
+        self::assertSame(2, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+
+        $this->limiter()->release($reservation);
+
+        self::assertSame(1, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+        self::assertSame($this->windowAt(1800000300), $this->storedWindowOf($key));
+    }
+
+    /**
+     * After `decay_seconds` shrinks, a counter keeps its longer window too:
+     * attempts count in it, a slot goes back to it, and once it is full the
+     * wait is until it ends rather than until the shorter window would.
+     *
+     * @return void
+     */
+    public function testAWindowThatShrankIsKeptUntilItEnds(): void
+    {
+        $this->setIdentifierDecay(600);
+
+        $this->limiter()->acquire($this->signIn('ben@example.com'));
+        $this->limiter()->acquire($this->signIn('ben@example.com'));
+
+        $this->setIdentifierDecay(300);
+
+        $reservation = $this->limiter()->acquire($this->signIn('ben@example.com'));
+        $key         = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
+
+        self::assertSame($this->windowAt(1800000600), $reservation->windows[$key]);
+
+        $this->statements = [];
+
+        $refused = $this->limiter()->acquire($this->signIn('ben@example.com'));
+
+        self::assertSame(450, $refused->retryAfter);
+        self::assertCount(4, $this->recordedStatements());
+        self::assertSame(3, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+
+        $this->limiter()->release($reservation);
+
+        self::assertSame(2, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+    }
+
+    /**
+     * A stored window filled by other attempts between the read and the
+     * attempt's own increment refuses the attempt with that window's wait.
+     *
+     * @return void
+     */
+    public function testAStoredWindowFilledConcurrentlyRefusesTheAttempt(): void
+    {
+        $this->setIdentifierDecay(600);
+        $this->limiter()->acquire($this->signIn('ben@example.com'));
+        $this->setIdentifierDecay(300);
+
+        $key = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
+
+        $this->beforeFirst('select', static function () use ($key): void {
+            DB::table('rate_limits')->where('key', $key)->update(['hits' => 3]);
+        });
+
+        $refused = $this->limiter()->acquire($this->signIn('ben@example.com'));
+
+        self::assertSame(450, $refused->retryAfter);
+        self::assertSame(3, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+    }
+
+    /**
+     * Rows of `[change]`: what happens to a full counter between the attempt's
+     * statements and its read.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function provideCounterChangesBeforeTheRead(): iterable
+    {
+        yield 'window ended' => ['ended'];
+        yield 'pruned' => ['pruned'];
+    }
+
+    /**
+     * A full counter whose window ends, or that is pruned, between the
+     * attempt's statements refuses the attempt for one second, never for a
+     * window that is already over.
+     *
+     * @param  string  $change
+     * @return void
+     */
+    #[DataProvider('provideCounterChangesBeforeTheRead')]
+    public function testACounterThatEndedBeforeItWasReadRefusesForOneSecond(string $change): void
+    {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $this->limiter()->acquire($this->signIn('ben@example.com', "198.51.100.{$attempt}"));
+        }
+
+        $key    = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
+        $window = $this->windowAt(1800000150);
+
+        $this->beforeFirst('select', static function () use ($change, $key, $window): void {
+
+            $counter = DB::table('rate_limits')->where('key', $key);
+
+            $change === 'pruned' ? $counter->delete() : $counter->update(['window_ends_at' => $window]);
+        });
+
+        $refused = $this->limiter()->acquire($this->signIn('ben@example.com'));
+
+        self::assertSame(1, $refused->retryAfter);
+        self::assertSame(0, $this->hitsOf($this->signIn('ben@example.com'), 'per_ip'));
     }
 
     /**
@@ -603,6 +730,66 @@ final class DatabaseAttemptLimiterTest extends TestCase
         }
 
         return hash('sha256', implode("\0", [$subject->guard, $subject->flow->value, $scope, (string) $value]));
+    }
+
+    /**
+     * Set the length of the guard's sign-in windows per identifier, keeping its
+     * maximum.
+     *
+     * @param  int  $seconds
+     * @return void
+     */
+    private function setIdentifierDecay(int $seconds): void
+    {
+        config()->set('auth.guards.' . self::GUARD . '.rate_limits.sign_in.per_identifier', ['max' => 3, 'decay_seconds' => $seconds]);
+    }
+
+    /**
+     * A Unix time as the counters store a window's end.
+     *
+     * @param  int  $timestamp
+     * @return string
+     */
+    private function windowAt(int $timestamp): string
+    {
+        return Carbon::createFromTimestamp($timestamp, date_default_timezone_get())->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * The end of the counter's window, as stored.
+     *
+     * @param  string  $key
+     * @return ?string
+     */
+    private function storedWindowOf(string $key): ?string
+    {
+        $window = DB::table('rate_limits')->where('key', $key)->value('window_ends_at');
+
+        return is_string($window) ? $window : null;
+    }
+
+    /**
+     * Run a callback once, just before the first statement on the default
+     * connection that contains the given word, as another request would between
+     * this one's statements.
+     *
+     * @param  string  $word
+     * @param  \Closure(): mixed  $callback
+     * @return void
+     */
+    private function beforeFirst(string $word, \Closure $callback): void
+    {
+        $ran = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $word, $callback): void {
+            if ($ran || !str_contains(strtolower($query), $word)) {
+                return;
+            }
+
+            $ran = true;
+
+            $callback();
+        });
     }
 
     /**

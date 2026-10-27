@@ -23,23 +23,30 @@ use SineMacula\Laravel\Authentication\Models\RateLimit;
 final readonly class RateLimitStore
 {
     /**
-     * Take one slot of the counter's current window, unless the window is full:
-     * a counter whose window has ended starts the window that ends at `$end`
-     * with this attempt, and a missing counter is created with it. Returns the
-     * end of the window, as stored, when the slot was taken, and `null` when
-     * the window is full.
+     * Take one slot of the counter's window, unless the window is full: a
+     * counter whose window has ended starts the window that ends at `$end` with
+     * this attempt, and a missing counter is created with it. Returns the end
+     * of the window the slot was taken from, as stored; when the window is
+     * full, the Unix time it ends instead.
+     *
+     * A live counter whose window does not end at `$end` was started under a
+     * different `decay_seconds`, or by a server whose clock is ahead: its own
+     * window is kept and counted in, so a change of configuration neither
+     * forgives earlier attempts nor loses track of the window a slot came from.
      *
      * @param  string  $key
      * @param  int  $max
      * @param  int  $now
      * @param  int  $end
-     * @return ?string
+     * @return int|string
      */
-    public function take(string $key, int $max, int $now, int $end): ?string
+    public function take(string $key, int $max, int $now, int $end): int|string
     {
-        $taken = $this->writeCount($key, $now, $end, $max) || $this->storeNewCounter($key, $end) || $this->writeCount($key, $now, $end, $max);
+        if ($this->writeCount($key, $now, $end, $max) || $this->storeNewCounter($key, $end) || $this->writeCount($key, $now, $end, $max)) {
+            return $this->format($end);
+        }
 
-        return $taken ? $this->format($end) : null;
+        return $this->takeFromStoredWindow($key, $max, $now);
     }
 
     /**
@@ -96,9 +103,62 @@ final readonly class RateLimitStore
     }
 
     /**
+     * Read the counter the statements could not take a slot from, and take one
+     * from its stored window when that is live, does not end at the computed
+     * end, and has room. Returns that window as stored, or the Unix time the
+     * attempt may be made again: the stored window's end, and never earlier
+     * than a second from now (a counter that ended or went in the meantime is
+     * worth one more try).
+     *
+     * @param  string  $key
+     * @param  int  $max
+     * @param  int  $now
+     * @return int|string
+     */
+    private function takeFromStoredWindow(string $key, int $max, int $now): int|string
+    {
+        $counter = $this->read([$key])[$key] ?? null;
+
+        if ($counter === null || $counter['ends'] <= $now) {
+            return $now + 1;
+        }
+
+        $window = $this->format($counter['ends']);
+
+        if ($counter['hits'] < $max && $this->countIn($key, $window, $max)) {
+            return $window;
+        }
+
+        return $counter['ends'];
+    }
+
+    /**
+     * Add one attempt to the counter's stored window, in one statement, while
+     * that window is still the one stored and has room. Returns whether it did.
+     *
+     * @param  string  $key
+     * @param  string  $window
+     * @param  int  $max
+     * @return bool
+     *
+     * @phpstan-impure
+     *
+     * @imperative
+     */
+    private function countIn(string $key, string $window, int $max): bool
+    {
+        return $this->table()
+            ->where('key', $key)
+            ->where('window_ends_at', $window)
+            ->where('hits', '<', $max)
+            ->increment('hits') === 1;
+    }
+
+    /**
      * Add one attempt to an existing counter in one statement: the counter's
-     * window restarts when it has ended, and, given a maximum, a full window is
-     * left untouched. Returns whether the counter was changed.
+     * window restarts when it has ended, and, given a maximum, only a window
+     * that ends at `$end` and has room is counted in (any other live window is
+     * left untouched). Returns whether the counter was changed.
      *
      * The count is assigned before the window: MySQL evaluates the assignments
      * of an UPDATE from left to right, so the count's condition must read the
@@ -127,9 +187,9 @@ final readonly class RateLimitStore
         $bindings = [$nowAt, $nowAt, $this->format($end), $key];
 
         if ($max !== null) {
-            $sql .= " and ({$window} <= ? or {$hits} < ?)";
+            $sql .= " and ({$window} <= ? or ({$window} = ? and {$hits} < ?))";
 
-            array_push($bindings, $nowAt, $max);
+            array_push($bindings, $nowAt, $this->format($end), $max);
         }
 
         return $connection->update($sql, $bindings) === 1;

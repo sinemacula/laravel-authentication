@@ -57,7 +57,8 @@ final class AttemptLimiterQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A refused sign-in stops at the full counter: its update, the insert that
-     * finds it there, and the second update.
+     * finds it there, the second update, and one read of the counter for the
+     * end of its window.
      *
      * @return void
      */
@@ -67,7 +68,7 @@ final class AttemptLimiterQueryBudgetTest extends PerformanceContractTestCase
             $this->limiter()->acquire($this->signIn());
         }
 
-        $refused = $this->assertQueryBudget(0, 3, fn (): mixed => $this->limiter()->acquire($this->signIn()));
+        $refused = $this->assertQueryBudget(1, 3, fn (): mixed => $this->limiter()->acquire($this->signIn()));
 
         self::assertFalse($refused->granted());
     }

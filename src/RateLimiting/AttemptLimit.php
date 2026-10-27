@@ -10,7 +10,9 @@ namespace SineMacula\Laravel\Authentication\RateLimiting;
  * Windows are aligned to the Unix epoch: a 300-second window runs from 12:00:00
  * to 12:05:00, whoever makes the first attempt in it. Every counter of a limit
  * therefore ends its window at a time known without reading it back, so a
- * reservation knows exactly which window it took a slot from.
+ * reservation knows which window it took a slot from without a query. A counter
+ * whose window was started under another `decay_seconds` keeps that window
+ * until it ends, and is read back (see `RateLimitStore`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
