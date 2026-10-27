@@ -408,9 +408,11 @@ class AppUser extends User implements Identity, Principal, CanBeActive
 }
 ```
 
-To read the flag from a column instead, use the `ProvidesActiveState` trait, as `AppMembership` does above. It reads
-`is_active` (override `getActiveAttributeName()` to use another column) and throws a `LogicException` when the model
-was loaded without that column, so a partial select is reported instead of being read as either active or inactive.
+To read the flag from a column instead, implement `CanBeActive` and use the `ProvidesActiveState` trait, as
+`AppMembership` does above. The trait alone is never consulted: only models that implement `CanBeActive` are checked,
+and PHPStan reports a class that uses the trait without the interface. It reads `is_active` (override
+`getActiveAttributeName()` to use another column) and throws a `LogicException` when the model was loaded without that
+column, so a partial select is reported instead of being read as either active or inactive.
 
 A tenant opts in the same way. When the tenant a principal acts within implements `CanBeActive` and reports inactive,
 every principal in it is rejected on the same paths (refresh fails with `tenant_inactive`):
