@@ -37,7 +37,10 @@ final class RecordDeviceUsageBenchHarness
     private int $staleDeviceIndex = 0;
 
     /**
-     * Seed the listener benchmark fixtures.
+     * Seed the listener benchmark fixtures, and check that each path reaches
+     * the outcome it measures.
+     *
+     * @throws \LogicException
      */
     public function __construct()
     {
@@ -84,6 +87,8 @@ final class RecordDeviceUsageBenchHarness
 
             $this->staleDevices[] = $device;
         }
+
+        $this->assertEachPathReachesItsOutcome();
     }
 
     /**
@@ -107,6 +112,37 @@ final class RecordDeviceUsageBenchHarness
         $this->staleDeviceIndex++;
 
         ($this->listener)(new DeviceAuthenticated('api', $device));
+    }
+
+    /**
+     * Run each benchmarked path once and throw unless it reaches the outcome
+     * its name describes: a device used within the throttle writes nothing, and
+     * one never used writes its last use. Both run on devices of their own, so
+     * the benchmark's devices are untouched.
+     *
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private function assertEachPathReachesItsOutcome(): void
+    {
+        foreach (['within-throttle skip' => [Carbon::now(), false], 'stale timestamp write' => [null, true]] as $path => [$lastUsedAt, $writes]) {
+
+            $device = new StubDevice;
+            $device->forceFill([
+                ...BenchSchema::liveSession(),
+                'client_name'  => 'bench-device-check',
+                'refresh_key'  => 'bench-device-check',
+                'last_used_at' => $lastUsedAt,
+            ])->save();
+
+            $statements = BenchOutcome::statementsOf(function () use ($device): void {
+                ($this->listener)(new DeviceAuthenticated('api', $device));
+            });
+            $wrote = array_filter($statements, static fn (string $statement): bool => str_starts_with($statement, 'update')) !== [];
+
+            BenchOutcome::assert($path, $wrote === $writes);
+        }
     }
 
     /**

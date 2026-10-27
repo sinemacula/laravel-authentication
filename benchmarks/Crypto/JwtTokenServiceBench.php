@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Crypto;
 
+use Benchmarks\Support\BenchOutcome;
 use Carbon\Carbon;
 use Firebase\JWT\JWT;
 use PhpBench\Attributes\Iterations;
@@ -45,8 +46,10 @@ final readonly class JwtTokenServiceBench
     private string $accessToken;
 
     /**
-     * Seed the JWT benchmark fixtures.
+     * Seed the JWT benchmark fixtures, and check that the token the parse
+     * benchmark reads is accepted.
      *
+     * @throws \LogicException
      * @throws \Random\RandomException
      */
     public function __construct()
@@ -66,6 +69,8 @@ final readonly class JwtTokenServiceBench
         $this->principal   = new PlainPrincipalFixture('bench-principal', $this->identity);
         $this->device      = new PlainDeviceFixture('bench-device', $now->copy()->addDays(90), $now->copy()->addDays(180));
         $this->accessToken = $this->service->issueAccessToken($this->identity, $this->principal, $this->device);
+
+        BenchOutcome::assert('access token parse', $this->service->parse($this->accessToken, TokenType::ACCESS) !== null);
     }
 
     /**
