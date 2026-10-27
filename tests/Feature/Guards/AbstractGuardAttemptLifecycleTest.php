@@ -5,9 +5,12 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
@@ -293,22 +296,21 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` accepts an explicit `Principal` argument and uses it directly
-     * instead of invoking the resolver. Pins the `$principal ??
-     * $this->resolvePrincipal(...)` short-circuit - a mutation that swaps
-     * `??` for `?:` would still pass when the caller-provided principal is
-     * truthy, so we use a fresh mock the resolver MUST NOT touch.
+     * `attempt()` resolves an explicit `Principal` argument through the
+     * resolver's hinted path instead of the default principal, and binds the
+     * resolver's instance.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptUsesExplicitPrincipalArgumentWithoutInvokingResolver(): void
+    public function testAttemptResolvesExplicitPrincipalThroughTheHintedPath(): void
     {
         $guard = $this->makeGuard();
 
         $identity = $this->mockIdentity();
         $explicit = $this->mockActivePrincipal();
+        $explicit->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -317,9 +319,10 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             ->once()
             ->andReturnTrue();
 
-        // The resolver MUST NOT be called when an explicit principal is
-        // supplied.
-        $this->resolver->shouldNotReceive('resolve');
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($explicit);
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
@@ -335,8 +338,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
     /**
      * `attempt()` fires `DeviceAuthenticated` exactly once when an explicit
-     * `Device` argument is supplied. Pins the `setDevice` call inside
-     * `bindAuthenticationLifecycle` for the non-null device branch.
+     * `Device` argument the identity owns is supplied. Pins the `setDevice`
+     * call inside `bindAuthenticationLifecycle` for the non-null device branch.
      *
      * @return void
      *
@@ -346,9 +349,17 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $identity  = $this->mockIdentity();
+        $device = \Mockery::mock(Device::class);
+        $device->shouldReceive('getDeviceIdentifier')->andReturn('d-1');
+        $device->shouldReceive('getRevokedAt')->andReturnNull();
+
+        $devices = \Mockery::mock(Builder::class);
+        $devices->shouldReceive('find')->once()->with('d-1')->andReturn($device);
+
+        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity->shouldReceive('devices')->andReturn($devices);
+
         $principal = $this->mockActivePrincipal();
-        $device    = \Mockery::mock(Device::class);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()

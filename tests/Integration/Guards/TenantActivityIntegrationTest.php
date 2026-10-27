@@ -216,6 +216,9 @@ final class TenantActivityIntegrationTest extends TestCase
             'driver' => 'model',
             'model'  => ActivatableTenantMember::class,
         ]);
+
+        // Failed attempts wait out the timebox; keep it short.
+        $config->set('authentication.timebox.credentials_microseconds', 1);
     }
 
     /**

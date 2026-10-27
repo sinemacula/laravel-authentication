@@ -7,7 +7,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 
 ## Invariants
 
-- A present `pid` must resolve to that exact principal identifier.
+- A present `pid` must resolve to that exact principal identifier. The same check verifies a principal pinned on
+  `attempt()`, which must also come back as the same class.
 - A present bearer `did` must resolve to a real device owned by the resolved identity.
 - Refresh is stricter than bearer auth: refresh always requires a valid `did`, because refresh is device-backed.
 - Unsupported or transient identifiers stringify to `null` and therefore fail matching rather than being tolerated.
@@ -41,7 +42,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 ## Implementation Anchors
 
 - `src/Guards/JwtGuard.php`: `resolveContextFromToken()`, `resolveDeviceFromHint()`, `resolvePrincipalFromClaims()`,
-  `matchesPidHint()`, `loadIdentityFromClaims()`.
+  `loadIdentityFromClaims()`.
+- `src/Guards/Concerns/VerifiesPinnedContext.php`: `matchesPidHint()`, shared by the bearer path and the
+  pinned-principal check in `attempt()`, plus `resolvePinnedPrincipal()` and `resolvePinnedDevice()`.
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`,
   `matchesPidHint()`.
 - `src/Jwt/IdentifierCoercion.php`: `stringify()`.

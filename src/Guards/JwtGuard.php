@@ -16,7 +16,6 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -327,30 +326,5 @@ final class JwtGuard extends AbstractGuard
         $resolved = $this->resolvePrincipal($identity, $hint);
 
         return $this->matchesPidHint($resolved, $hint) ? $resolved : null;
-    }
-
-    /**
-     * Confirm a resolver-returned principal matches the `pid` hint. Used by the
-     * fail-closed pid path so a hint that resolves to a different principal is
-     * rejected rather than silently downgraded.
-     *
-     * Fail-closed on unsaved principals: if the resolved id stringifies to
-     * `null` (an unsaved model returned by a misbehaving custom resolver), the
-     * match returns `false` so the guard does not bind a transient actor.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
-     * @param  mixed  $hint
-     * @return bool
-     */
-    private function matchesPidHint(?Principal $resolved, mixed $hint): bool
-    {
-        if ($resolved === null) {
-            return false;
-        }
-
-        $resolvedId = IdentifierCoercion::stringify($resolved->getPrincipalIdentifier());
-        $hintId     = IdentifierCoercion::stringify($hint);
-
-        return $resolvedId !== null && $hintId !== null && hash_equals($resolvedId, $hintId);
     }
 }

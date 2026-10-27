@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
+use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 
 /**
  * Abstract base for the package's stateless contextual guards.
@@ -29,14 +30,15 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
  * `attempt()`/`login()` to bind the resolved context.
  *
  * Contextual binding is composed via `BindsContextualState`;
- * credential-validation primitives via `ValidatesGuardCredentials`.
+ * credential-validation primitives via `ValidatesGuardCredentials`; ownership
+ * checks for principal hints and pinned context via `VerifiesPinnedContext`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 abstract class AbstractGuard implements ContextualGuard
 {
-    use BindsContextualState, ValidatesGuardCredentials;
+    use BindsContextualState, ValidatesGuardCredentials, VerifiesPinnedContext;
 
     /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
@@ -228,6 +230,12 @@ abstract class AbstractGuard implements ContextualGuard
      * Attempt to authenticate a request against the identity provider,
      * optionally pinning a specific principal and device on success.
      *
+     * Pins are verified, not trusted, because callers may take them from
+     * request input: the principal must resolve through the resolver's hinted
+     * path to the same principal of the same class, and the device must be one
+     * of the identity's own live (unrevoked) devices. The resolved instances
+     * are bound, and a pin that fails either check fails the attempt.
+     *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
@@ -244,7 +252,7 @@ abstract class AbstractGuard implements ContextualGuard
 
             $this->fireAttemptingEvent($credentials);
 
-            $resolved = $this->resolveContextForCredentials($credentials, $principal);
+            $resolved = $this->resolveContextForCredentials($credentials, $principal, $device);
 
             if ($resolved === null) {
                 $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
@@ -252,11 +260,11 @@ abstract class AbstractGuard implements ContextualGuard
                 return false;
             }
 
-            [$identity, $resolvedPrincipal] = $resolved;
+            [$identity, $resolvedPrincipal, $resolvedDevice] = $resolved;
 
             // hasValidCredentials() already fired Validated; bind directly and
             // skip login() to avoid double-dispatching.
-            $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $device);
+            $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $resolvedDevice);
 
             $timebox->returnEarly();
 
@@ -268,10 +276,12 @@ abstract class AbstractGuard implements ContextualGuard
      * Bind a fully resolved identity, principal, and optional device, firing
      * `Validated` and `Login` around the bind.
      *
-     * Public entry point for callers that validated the identity out-of-band
-     * (refresh, OAuth, SSO). Paths that already went through
-     * `hasValidCredentials()` should call `bindAuthenticationLifecycle()`
-     * directly to avoid double-firing `Validated`.
+     * Public, trusted entry point for callers that validated the identity
+     * out-of-band (refresh, OAuth, SSO): the principal and device are bound as
+     * given, without the ownership checks `attempt()` applies to its pins.
+     * Paths that already went through `hasValidCredentials()` should call
+     * `bindAuthenticationLifecycle()` directly to avoid double-firing
+     * `Validated`.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
      * device from a prior login on the same instance.
@@ -450,22 +460,30 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Resolve the (identity, principal) pair for an `attempt()` call, or `null`
-     * if any check fails. Stores the retrieved user on
+     * Resolve the (identity, principal, device) triple for an `attempt()` call,
+     * or `null` if any check fails. Stores the retrieved user on
      * `$this->lastRetrievedUser` so the caller can attribute the `Failed` event
      * without re-fetching.
      *
+     * A caller-supplied principal or device is a claim, not a fact: it is bound
+     * only once proven to belong to the authenticated identity.
+     *
      * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal, 2: ?\SineMacula\Laravel\Authentication\Contracts\Device}|null
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal): ?array
+    private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal, ?Device $device): ?array
     {
         $this->lastRetrievedUser = $this->provider->retrieveByCredentials($credentials);
         $user                    = $this->lastRetrievedUser;
@@ -482,8 +500,16 @@ abstract class AbstractGuard implements ContextualGuard
         }
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        $resolved = $principal ?? $this->resolvePrincipal($user);
+        $resolvedPrincipal = $principal === null
+            ? $this->resolvePrincipal($user)
+            : $this->resolvePinnedPrincipal($user, $principal);
 
-        return $resolved !== null && ActivationPolicy::isPrincipalActive($resolved) ? [$user, $resolved] : null;
+        if ($resolvedPrincipal === null || !ActivationPolicy::isPrincipalActive($resolvedPrincipal)) {
+            return null;
+        }
+
+        $resolvedDevice = $device === null ? null : $this->resolvePinnedDevice($user, $device);
+
+        return $device !== null && $resolvedDevice === null ? null : [$user, $resolvedPrincipal, $resolvedDevice];
     }
 }

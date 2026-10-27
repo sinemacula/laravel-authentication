@@ -40,6 +40,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
 - A failed `attempt()` emits `Attempting` and `Failed`, but not `Login` or `Authenticated`.
+- A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
+  path and must come back as the same class with the same identifier (the bearer `pid` exact-match check), and the
+  device must be found among the identity's own `HasDevices` devices, of the same class and not revoked. The resolved
+  instances are bound; a failed check fails the attempt. `login()` stays the trusted entry point.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null` or resolves a
   principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same thing as
   "fully bound".
@@ -62,6 +66,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
 - `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
   `clearContextualState()`.
+- `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
+  `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`.
 - `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
@@ -98,6 +104,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testRejectedBearerTokenIsAttemptedOncePerRequest`, `testLogoutKeepsTheRequestSignedOut`
 - `tests/Integration/Guards/ActingAsIntegrationTest.php`
   `testActingAsBindsEachIdentitysDefaultPrincipal`
+- `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
+  `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersDeviceFailsTheAttempt`
 
 ## Change Triggers
 
