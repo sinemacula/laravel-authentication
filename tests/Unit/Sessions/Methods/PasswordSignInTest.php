@@ -562,6 +562,6 @@ final class PasswordSignInTest extends TestCase
      */
     private function request(array $input, string $guard = 'api'): SignInRequest
     {
-        return new SignInRequest($guard, $this->provider, $input, new ClientContext('203.0.113.7', 'agent'), new AccountAttempts($this->limiter, $guard));
+        return new SignInRequest($guard, $this->provider, $input, new ClientContext('203.0.113.7', 'agent'), (new AccountAttempts($this->limiter, $guard))->reserve(...));
     }
 }

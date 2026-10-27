@@ -1130,8 +1130,10 @@ assertion that names the identity itself): then only the IP address is limited a
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
 never to look anyone up. `authenticate()` returns the identity, or a `SignInFailureReason` (`invalid_credentials` for
 anything the input did not prove); it must not bind a guard, issue tokens or write session state, and must hold no state
-between calls, since the manager keeps one instance per name for the life of the process. Do the same work whether or
-not the identifier exists: the timebox evens out only what the session service's own checks take.
+between calls, since the manager keeps one instance per name for the life of the process. The credential timebox pads
+every refused sign-in, the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an
+unknown identifier at once, as the example does; keep the method's worst case under that budget, and only a method whose
+work can take longer needs to do the same work whether or not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -1139,6 +1141,10 @@ attempts). A lookup can find one account by many spellings of its identifier, an
 returns it, so only the account's own count bounds the guesses at its secret, and at a further factor its sign-in waits
 for. Reserve before each secret you check: a method that checks two (a password and a PIN, say) takes two slots. The
 slots belong to the sign-in: they are all given back when the session starts, or when its pending sign-in completes.
+
+To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
+account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request
+whose accounts have used up their attempts, to test the `invalid_credentials` answer.
 
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
 refuses anything else, and `password`), from a service provider, and allow that exact name in each guard's audience:

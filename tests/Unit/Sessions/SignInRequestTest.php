@@ -69,11 +69,33 @@ final class SignInRequestTest extends TestCase
 
         $provider = \Mockery::mock(IdentityProvider::class);
         $client   = new ClientContext('203.0.113.7', 'agent');
-        $counted  = new SignInRequest('api', $provider, [], $client, new AccountAttempts($limiter, 'api'));
+        $counted  = new SignInRequest('api', $provider, [], $client, (new AccountAttempts($limiter, 'api'))->reserve(...));
 
         self::assertTrue($counted->reserveAccountAttempt($identity));
         self::assertFalse($counted->reserveAccountAttempt($identity));
         self::assertTrue((new SignInRequest('api', $provider, [], $client))->reserveAccountAttempt($identity));
+    }
+
+    /**
+     * A method's own test can build a request whose accounts have no attempts
+     * left, with a callback that refuses, and see the identity it was asked
+     * about.
+     *
+     * @return void
+     */
+    public function testARequestCanBeBuiltWhoseAccountsAreRefused(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $client   = new ClientContext('203.0.113.7', 'agent');
+        $asked    = [];
+        $refusing = new SignInRequest('api', \Mockery::mock(IdentityProvider::class), [], $client, static function (Identity $checked) use (&$asked): bool {
+            $asked[] = $checked;
+
+            return false;
+        });
+
+        self::assertFalse($refusing->reserveAccountAttempt($identity));
+        self::assertSame([$identity], $asked);
     }
 
     /**

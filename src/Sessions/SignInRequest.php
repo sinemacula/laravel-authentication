@@ -14,6 +14,11 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  * client the input came from, and the account limits to count each secret it
  * checks against.
  *
+ * The session service builds the request for each sign-in. To unit-test a
+ * method, build one yourself: with no reservation callback every account check
+ * is allowed, and with one such as `fn (Identity $identity): bool => false`
+ * every account has used up its attempts.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -28,7 +33,7 @@ final readonly class SignInRequest
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @param  ?\SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accountAttempts
+     * @param  (\Closure(\SineMacula\Laravel\Authentication\Contracts\Identity): bool)|null  $reserveAccountAttempt
      */
     public function __construct(
 
@@ -44,8 +49,8 @@ final readonly class SignInRequest
         /** Client the input came from. */
         public ClientContext $client,
 
-        /** The sign-in's slots on the limits of the accounts it checks, or `null` for a request built outside a sign-in, which counts nothing. */
-        private ?AccountAttempts $accountAttempts = null,
+        /** Takes a slot on an account's limit for the sign-in and says whether it had one, or `null` for a request built outside a sign-in, which counts nothing. */
+        private ?\Closure $reserveAccountAttempt = null,
     ) {}
 
     /**
@@ -61,12 +66,11 @@ final readonly class SignInRequest
      * secret. Call it before each secret checked: a method that checks two
      * takes two slots. Every slot is the sign-in's: given back when it starts a
      * session, kept by a pending sign-in until that completes, and left counted
-     * when it fails.
+     * when it fails. A limit configured wrongly throws its
+     * `InvalidArgumentException` from here.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return bool
-     *
-     * @throws \InvalidArgumentException
      *
      * @phpstan-impure
      *
@@ -74,6 +78,6 @@ final readonly class SignInRequest
      */
     public function reserveAccountAttempt(Identity $identity): bool
     {
-        return $this->accountAttempts?->reserve($identity) ?? true;
+        return $this->reserveAccountAttempt === null || ($this->reserveAccountAttempt)($identity);
     }
 }
