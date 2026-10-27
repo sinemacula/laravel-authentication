@@ -318,6 +318,26 @@ final class ModelProviderCredentialTest extends TestCase
     }
 
     /**
+     * An account without a stored hash is rejected without asking the hasher,
+     * rather than failing on the missing hash.
+     *
+     * @return void
+     */
+    public function testValidateCredentialsReturnsFalseWhenStoredHashIsNull(): void
+    {
+        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
+
+        $user = \Mockery::mock(Authenticatable::class);
+        $user->shouldReceive('getAuthPassword')
+            ->once()
+            ->andReturnNull();
+
+        $this->hasher->shouldNotReceive('check');
+
+        self::assertFalse($provider->validateCredentials($user, ['password' => 'plain']));
+    }
+
+    /**
      * rehashPasswordIfRequired is a no-op when no password is supplied.
      *
      * @return void

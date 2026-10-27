@@ -60,7 +60,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
         Schema::create('integration_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email')->unique();
-            $blueprint->string('password');
+            $blueprint->string('password')->nullable();
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
@@ -263,6 +263,33 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
         $started = hrtime(true);
 
         self::assertFalse($guard->attempt($credentials));
+        self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, hrtime(true) - $started);
+    }
+
+    /**
+     * A sign-in to an account stored without a password hash is rejected like a
+     * wrong password: it reads the identity once, writes nothing, and waits out
+     * the real timebox.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptOnAnAccountWithoutAPasswordReadsOnceAndWaitsOutTheTimebox(): void
+    {
+        $identity = $this->seedIdentity();
+        $identity->forceFill(['password' => null])->save();
+
+        $guard = $this->freshGuard(self::TWO_D_GUARD);
+
+        self::assertFalse($this->assertQueryBudget(1, 0, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+
+        $this->useTimebox();
+
+        $guard   = $this->freshGuard(self::TWO_D_GUARD);
+        $started = hrtime(true);
+
+        self::assertFalse($guard->attempt($this->credentials($identity->email)));
         self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, hrtime(true) - $started);
     }
 

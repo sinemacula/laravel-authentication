@@ -149,7 +149,8 @@ class ModelProvider implements IdentityProvider
      * The stored hash is read inside `WriteConnection::during()` for the user,
      * so a password getter that reads another table or lazily loads a
      * credential relation reads the writer: a hash a lagging replica still
-     * holds cannot admit a password the primary has already replaced.
+     * holds cannot admit a password the primary has already replaced. An
+     * account without a stored hash (a `null` password) is rejected.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
@@ -164,9 +165,12 @@ class ModelProvider implements IdentityProvider
             return false;
         }
 
-        $hash = WriteConnection::during($user, static fn (): string => $user->getAuthPassword());
+        $hash = WriteConnection::during($user, static fn (): mixed => $user->getAuthPassword());
 
-        return $this->hasher->check($plain, $hash);
+        // The contract documents a string, but Eloquent returns the raw
+        // attribute: null for an account stored without a password.
+        // @phpstan-ignore function.alreadyNarrowedType
+        return is_string($hash) && $this->hasher->check($plain, $hash);
     }
 
     /**
