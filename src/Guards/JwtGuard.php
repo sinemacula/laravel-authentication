@@ -81,6 +81,11 @@ final class JwtGuard extends AbstractGuard
      * contextual triple, and dispatches `Refreshed`. Returns `null` on failure;
      * the exchange has already dispatched `RefreshFailed` with a reason code.
      *
+     * The presented token is rotated before the context is bound, so an
+     * exception from a listener on the binding events or on `Refreshed`
+     * propagates after the rotation: the new pair is lost and the presented
+     * token no longer refreshes.
+     *
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
      *

@@ -496,6 +496,11 @@ return [
 ];
 ```
 
+A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
+token valid for a retry. After the commit, `refresh()` binds the new context and dispatches `Refreshed`; an exception
+from a listener on those events loses the new pair, and the presented token then fails with `rotation_mismatch`, so
+keep those listeners from throwing or queue them.
+
 ## Key Rotation
 
 Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.

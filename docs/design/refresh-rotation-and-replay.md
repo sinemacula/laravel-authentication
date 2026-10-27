@@ -51,6 +51,11 @@ stateful per-device credentials with server-side replay detection.
   already issued for the losing request is discarded.
 - An exception while issuing the new pair propagates without a `RefreshFailed` event and without touching the device
   row, so the client can retry with the same refresh token.
+- That retry guarantee ends when the rotation commits. `refresh()` then binds the new context through `login()` and
+  dispatches `Refreshed`, so an exception from a listener at that point (on `Login`, `Authenticated`,
+  `PrincipalAssigned`, `DeviceAuthenticated`, or `Refreshed`, including the package's own last-seen update) propagates
+  after the presented token has been rotated: the new pair is never returned, a retry fails with `rotation_mismatch`,
+  and the client has to sign in again. Listeners on these events should not throw, or should be queued.
 - An inactive owner, principal, or tenant produces `identity_inactive`, `principal_inactive`, or `tenant_inactive`. A
   principal whose tenant key names a tenant that cannot be loaded (deleted or soft-deleted) also produces
   `tenant_inactive`, whether or not the tenant implements `CanBeActive`.
