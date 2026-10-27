@@ -257,6 +257,41 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
+     * An account's password guesses are bounded however many guards check it:
+     * `api` (by address) and `by_number` (by id) share the account's provider,
+     * and three wrong passwords through one and two through the other use the
+     * account's one limit up, so the right password is refused through both,
+     * and through `signIn()` and `attempt()` alike, until the window ends.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAccountsLimitHoldsAcrossEveryGuardThatChecksIt(): void
+    {
+        $identity = $this->seedPasswordIdentity('ada@example.test');
+        $byNumber = ['id' => (string) $identity->getKey(), 'password' => 'wrong']; // @phpstan-ignore cast.string
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+        }
+
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', $byNumber)->reason);
+        }
+
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber)->reason);
+        self::assertFalse($this->freshGuard('by_number')->attempt(['password' => self::PASSWORD] + $byNumber));
+        self::assertSame(0, Device::query()->count());
+
+        Carbon::setTestNow(Carbon::now()->addSeconds(280));
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));
+
+        self::assertTrue($this->sessions('by_number')->signIn('password', ['password' => self::PASSWORD] + $byNumber)->isSignedIn());
+    }
+
+    /**
      * On MySQL, whose default collation compares accented, full-width and
      * invisible variants of a letter as equal, every variant of an address
      * finds the same account; five wrong passwords spread over five variants

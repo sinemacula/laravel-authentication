@@ -482,16 +482,18 @@ A sign-in guesses a secret, so it reserves its slots before the method runs: a r
 Earlier failures are not forgiven: they count until their window ends, so concurrent attempts can never exceed `max`.
 When the IP address's limit is full, the slot just taken for the identifier is given back.
 
-The password method also counts every password it checks against the account it checks it for, under the same
+The password method also counts every password it checks against the account it checks it for, under the guard's
 `per_identifier` limit, and gives that slot back when the password matches. A lookup can find one account by many
 spellings of its identifier (a column collation that ignores accents, widths or invisible characters, as MySQL's default
-`utf8mb4_unicode_ci` does, a query closure in `attempt()`, another column), and only the account's own count bounds the
-guesses made at its password whichever spelling they use. Once an account has no attempts left, its password is not
-checked until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal
-does not reveal that the account exists. A refresh cannot guess a
-secret (its tokens are signed and its rotation ids random), so it counts only its failures, per device and per IP
-address, and a successful refresh costs one read. A refresh refused for its failures answers `429` with a
-`Retry-After` header.
+`utf8mb4_unicode_ci` does, a query closure in `attempt()`, another column), and through every guard whose provider
+returns it, so the account keeps one count whichever guard checks it, and only that count bounds the guesses made at its
+password whichever spelling and guard they use: two guards on one provider allow no more guesses than one. Each guard
+holds the count to its own `max`, so a stricter guard stops sooner, and a guard whose `per_identifier` is `null` neither
+checks nor counts it. Once an account has no attempts left, its password is not checked until the window ends, and the
+sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal does not reveal that the account
+exists. A refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its
+failures, per device and per IP address, and a successful refresh costs one read. A refresh refused for its failures
+answers `429` with a `Retry-After` header.
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.

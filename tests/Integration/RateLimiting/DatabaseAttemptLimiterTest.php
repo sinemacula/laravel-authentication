@@ -465,7 +465,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     public function testAnAccountIsCountedUnderTheIdentifiersLimit(): void
     {
         $account = new AttemptSubject(self::GUARD, AttemptFlow::SIGN_IN, null, null, null, "App\\Models\\User\x0042");
-        $key     = hash('sha256', implode("\0", [self::GUARD, 'sign_in', 'per_account', "App\\Models\\User\x0042"]));
+        $key     = hash('sha256', implode("\0", ['sign_in', 'per_account', "App\\Models\\User\x0042"]));
 
         for ($attempt = 0; $attempt < 3; $attempt++) {
             self::assertTrue($this->limiter()->acquire($account)->granted());
@@ -480,6 +480,43 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
         self::assertTrue($this->limiter()->acquire($account)->granted());
         self::assertSame([], $this->recordedStatements());
+    }
+
+    /**
+     * An account has one counter whichever guard checks it, held to each
+     * guard's own identifier limit: three checks through `api` (limit 3) and
+     * two through `admin` (limit 5) use it up for both, so adding a guard adds
+     * no guesses; a guard whose identifier limit is off neither checks nor
+     * counts it.
+     *
+     * @return void
+     */
+    public function testAnAccountsCounterIsSharedByEveryGuard(): void
+    {
+        $api   = new AttemptSubject(self::GUARD, AttemptFlow::SIGN_IN, null, null, null, "App\\Models\\User\x0042");
+        $admin = new AttemptSubject('admin', AttemptFlow::SIGN_IN, null, null, null, "App\\Models\\User\x0042");
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            self::assertTrue($this->limiter()->acquire($api)->granted());
+        }
+
+        self::assertSame(150, $this->limiter()->acquire($api)->retryAfter);
+
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            self::assertTrue($this->limiter()->acquire($admin)->granted());
+        }
+
+        self::assertSame(150, $this->limiter()->acquire($admin)->retryAfter);
+        self::assertSame(150, $this->limiter()->acquire($api)->retryAfter);
+        self::assertSame(1, DB::table('rate_limits')->count());
+        self::assertEquals(5, DB::table('rate_limits')->value('hits'));
+
+        config()->set('auth.guards.admin.rate_limits.sign_in.per_identifier', null);
+        $this->statements = [];
+
+        self::assertTrue($this->limiter()->acquire($admin)->granted());
+        self::assertSame([], $this->recordedStatements());
+        self::assertEquals(5, DB::table('rate_limits')->value('hits'));
     }
 
     /**
@@ -499,7 +536,8 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
     /**
      * Counters are stored under digests, never the identifier or the IP
-     * address, and are separate per guard, flow and scope.
+     * address, and are separate per guard, flow and scope (an account's alone
+     * is shared by the guards).
      *
      * @return void
      */

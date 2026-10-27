@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\RateLimiting;
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 
 /**
  * The package's attempt limiter: per guard and flow, one counter per identifier
@@ -23,11 +24,14 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  * (IPv4-mapped, or translated through the NAT64 well-known prefix) as that IPv4
  * address.
  *
- * An account a subject names gets a counter of its own, kept as given, under
- * the identifier's limit. A lookup can find one account by many identifiers (a
- * column collation that ignores accents, widths or invisible characters, a list
- * of values, a query closure, another column), so the account's counter is what
- * bounds the guesses made at its secret.
+ * An account a subject names gets a counter of its own, kept as given and
+ * shared by every guard (its key leaves the guard out), which each guard holds
+ * to its own identifier limit. A lookup can find one account by many
+ * identifiers (a column collation that ignores accents, widths or invisible
+ * characters, a list of values, a query closure, another column), and through
+ * every guard whose provider returns it, so the account's one counter is what
+ * bounds the guesses made at its secret: a guard with a lower limit stops at
+ * its own, and one whose identifier limit is off neither checks nor counts it.
  *
  * Counts change only through single statements (see `RateLimitStore`), and
  * reservations record the window each slot came from, so concurrent attempts
@@ -164,7 +168,8 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     /**
      * The counters the subject's attempt counts against, by key, with their
      * limits: the identifier's when there is one and its limit is on, then the
-     * account's under the same limit, then the IP address's likewise.
+     * account's (shared by every guard) under the guard's identifier limit,
+     * then the IP address's likewise.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return array<string, \SineMacula\Laravel\Authentication\RateLimiting\AttemptLimit>
@@ -184,7 +189,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
         }
 
         if ($subject->account !== null && $limits[AttemptLimits::PER_IDENTIFIER] !== null) {
-            $counters[$this->key($subject, self::PER_ACCOUNT, $subject->account)] = $limits[AttemptLimits::PER_IDENTIFIER];
+            $counters[self::accountKey($subject->flow, $subject->account)] = $limits[AttemptLimits::PER_IDENTIFIER];
         }
 
         if ($subject->ip !== null && $limits[AttemptLimits::PER_IP] !== null) {
@@ -252,6 +257,20 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     private function key(AttemptSubject $subject, string $scope, #[\SensitiveParameter] string $value): string
     {
         return hash('sha256', implode("\0", [$subject->guard, $subject->flow->value, $scope, $value]));
+    }
+
+    /**
+     * The digest an account's counter is stored under: the flow, the scope and
+     * the account, without the guard, so every guard counts the account's
+     * attempts in one counter.
+     *
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow  $flow
+     * @param  string  $account
+     * @return string
+     */
+    private static function accountKey(AttemptFlow $flow, string $account): string
+    {
+        return hash('sha256', implode("\0", [$flow->value, self::PER_ACCOUNT, $account]));
     }
 
     /**
