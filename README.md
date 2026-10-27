@@ -176,10 +176,13 @@ Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every
 guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
 authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
 audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the device's owner
-through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. Every
-field in the package `jwt` block is overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`,
-`refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a
-guard that overrides `keys` should also set `active_kid` to a kid in its own map.
+through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The device
+row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
+identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
+with `authenticatable_missing`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
+`algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and
+`active_kid` fall back independently: a guard that overrides `keys` should also set `active_kid` to a kid in its own
+map.
 
 ### Per-guard principal resolvers
 
@@ -460,7 +463,10 @@ and after `Auth::logout()` it stays signed out for the rest of the request.
 
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no device), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
-`login($identity, $principal, $device)` to bind a specific principal or a device.
+`login($identity, $principal, $device)` to bind a specific principal or a device. `actingAs()` binds the guard for code
+that runs in the test itself; it does not yet carry through an HTTP request the test sends through the kernel, such as
+`$this->actingAs($user, 'api')->getJson('/me')`, because each request rebinds the guard to its own request and starts
+the context over.
 
 Sign in with credentials through `attempt()`, optionally pinning the principal and device to act as:
 
@@ -574,7 +580,8 @@ the published config:
 
 ## Extensibility
 
-Concrete classes in this package are `final` unless noted below. Extension is through **composition and DI**, not
+Concrete classes in this package are `final` except `AuthManager` (the package's subclass of Laravel's manager), the
+shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
 inheritance:
 
 | Extension point                   | How                                                                    |
