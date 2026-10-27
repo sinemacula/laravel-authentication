@@ -774,6 +774,53 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * A `did` naming a device loaded without its revocation column is reported
+     * as a misconfiguration rather than read as "not revoked", so no user is
+     * bound.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserReportsDidHintNamingDeviceLoadedWithoutItsRevocation(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')->andReturnSelf();
+        $builder->shouldReceive('getModel')->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andReturn(new StubDevice(['id' => self::DEVICE_ID]));
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->with($identity, 'p-1')->andReturn($principal);
+        $this->events->shouldReceive('dispatch');
+
+        try {
+            $guard->user();
+
+            self::fail('The unloaded revocation column should have been reported.');
+        } catch (\LogicException $exception) {
+            self::assertStringContainsString('its `revoked_at` attribute is not loaded', $exception->getMessage());
+        }
+
+        self::assertFalse($guard->hasUser());
+    }
+
+    /**
      * A `did` that cannot be a key of the identity's device model is rejected
      * without querying the devices relation, and `Failed` still names the
      * resolved identity.
@@ -982,7 +1029,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $device = new StubDevice(['id' => self::DEVICE_ID]);
+        $device = new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => null]);
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')

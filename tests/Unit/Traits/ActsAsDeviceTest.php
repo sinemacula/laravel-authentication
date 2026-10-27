@@ -212,7 +212,7 @@ final class ActsAsDeviceTest extends TestCase
 
     /**
      * Asserts the revoked-at getter returns the Carbon instance when present
-     * and null when the attribute is null.
+     * and null when the attribute is loaded as null.
      *
      * @return void
      */
@@ -257,6 +257,71 @@ final class ActsAsDeviceTest extends TestCase
 
             self::assertSame($this->now->getTimestamp(), $device->getRevokedAt()?->getTimestamp());
         }
+    }
+
+    /**
+     * A device selected without its revocation column is a misconfiguration:
+     * the trait throws rather than reading the missing attribute as "not
+     * revoked", while a loaded `null` stays a stored value.
+     *
+     * @return void
+     */
+    public function testGetRevokedAtThrowsWhenAttributeIsNotLoaded(): void
+    {
+        $device = new class extends Model {
+            use ActsAsDevice;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        $device->setRawAttributes(['id' => 'device-123', 'os' => 'ios']);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(
+            'Cannot determine whether ' . $device::class . ' is revoked: its `revoked_at` attribute is not loaded.'
+            . ' Select the column or override getRevokedAtName().',
+        );
+
+        $device->getRevokedAt();
+    }
+
+    /**
+     * A device that renames its revocation column is checked for that column:
+     * the renamed column loaded reads normally without the default one, and the
+     * renamed column missing is reported by its own name.
+     *
+     * @return void
+     */
+    public function testGetRevokedAtChecksTheOverriddenColumnIsLoaded(): void
+    {
+        $device = new class extends Model {
+            use ActsAsDevice;
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+
+            /**
+             * Column name holding the revocation timestamp.
+             *
+             * @return string
+             */
+            protected function getRevokedAtName(): string
+            {
+                return 'cancelled_at';
+            }
+        };
+
+        $device->setRawAttributes(['cancelled_at' => $this->now]);
+
+        self::assertSame($this->now, $device->getRevokedAt());
+
+        $device->setRawAttributes(['revoked_at' => null]);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `cancelled_at` attribute is not loaded');
+
+        $device->getRevokedAt();
     }
 
     /**

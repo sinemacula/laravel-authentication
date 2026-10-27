@@ -283,13 +283,16 @@ abstract class JwtGuardTestCase extends TestCase
      * Swap the configured device model to `StubInjectableDevice`, whose
      * `newQuery()` yields a Builder mock that returns the supplied in-memory
      * device from `find()`, so the refresh tests control the exact device row
-     * the exchange sees without a database round trip.
+     * the exchange sees without a database round trip. The device is reloaded
+     * first so it carries every column, as the exchange's own lookup would.
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
      * @return void
      */
     protected function swapDeviceModelToInMemoryInstance(StubDevice $device): void
     {
+        $device->refresh();
+
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
             ->atLeast()->once()

@@ -72,7 +72,12 @@ interface Device
      * the write connection, so a revocation derived from a relation or another
      * table cannot come from a lagging replica.
      *
+     * A revocation that was not loaded must not read as `null`: `ActsAsDevice`
+     * throws a `LogicException` for a device loaded without its column.
+     *
      * @return ?\Carbon\CarbonInterface
+     *
+     * @throws \LogicException
      */
     public function getRevokedAt(): ?CarbonInterface;
 }

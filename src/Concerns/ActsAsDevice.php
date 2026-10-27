@@ -136,11 +136,31 @@ trait ActsAsDevice
      * date (the raw string the database returns) is converted rather than read
      * as "not revoked", so a model without a `datetime` cast fails closed.
      *
+     * The attribute must be loaded: a device selected without the column throws
+     * rather than reading the missing value as "not revoked", so a partial
+     * select surfaces as a misconfiguration instead of admitting a revoked
+     * device.
+     *
      * @return ?\Carbon\CarbonInterface
+     *
+     * @throws \LogicException
      */
     public function getRevokedAt(): ?CarbonInterface
     {
-        $value = $this->getAttribute($this->getRevokedAtName());
+        $name = $this->getRevokedAtName();
+
+        if (!array_key_exists($name, $this->getAttributes())) {
+            $message = sprintf(
+                'Cannot determine whether %s is revoked: its `%s` attribute is not loaded.'
+                . ' Select the column or override getRevokedAtName().',
+                static::class,
+                $name,
+            );
+
+            throw new \LogicException($message);
+        }
+
+        $value = $this->getAttribute($name);
 
         return $value === null || $value instanceof CarbonInterface ? $value : $this->asDateTime($value);
     }

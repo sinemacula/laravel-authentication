@@ -20,6 +20,9 @@ interface HasDevices
     /**
      * Eloquent relation builder for the identity's devices.
      *
+     * The devices it returns must carry the revocation column: `ActsAsDevice`
+     * throws for a device loaded without it.
+     *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
     public function devices(): Builder;

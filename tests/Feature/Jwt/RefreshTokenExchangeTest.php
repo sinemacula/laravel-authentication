@@ -906,13 +906,16 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * Swap the configured device model so the exchange resolves the supplied
      * in-memory device through `find()` instead of issuing a real polymorphic
-     * query.
+     * query. The device is reloaded first so it carries every column, as the
+     * exchange's own lookup would.
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
      * @return void
      */
     private function swapDeviceModelToInMemoryInstance(StubDevice $device): void
     {
+        $device->refresh();
+
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
             ->atLeast()->once()
