@@ -79,7 +79,7 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshReturnsNullWhenRefreshKeyDoesNotMatch`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshRevokesDeviceOnRotationReuseWhenCasAffectsZeroRows`
-- `tests/Feature/Guards/JwtGuardRefreshTest.php`
+- `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
   `testRefreshRotatesAndIssuesNewTokenPairOnSuccess`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshRejectsOldRefreshTokenAfterSuccessfulRotationWithoutRevokingDevice`

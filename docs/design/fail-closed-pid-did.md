@@ -93,11 +93,11 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testUserRejectsMalformedDidHintWithoutQueryingDevices`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserPropagatesDatabaseErrorFromDeviceLookup`
-- `tests/Feature/Guards/JwtGuardRefreshTest.php`
+- `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
   `testRefreshReturnsNullWhenPrincipalIsUnresolved`
-- `tests/Feature/Guards/JwtGuardRefreshTest.php`
+- `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
   `testRefreshReturnsNullWhenPidHintDoesNotMatchResolvedPrincipal`
-- `tests/Feature/Guards/JwtGuardRefreshTest.php`
+- `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
   `testRefreshReturnsNullWhenResolvedPrincipalIdentifierIsNull`
 - `tests/Integration/Guards/GuardScopedPrincipalResolverIntegrationTest.php`
   `testGuardsResolveDifferentPrincipalsWithoutCrossContamination`

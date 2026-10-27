@@ -96,7 +96,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testLoginFiresValidatedEventBeforeBindingState`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserBindsIdentityPrincipalAndDeviceFromValidToken`
-- `tests/Feature/Guards/JwtGuardRefreshTest.php`
+- `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
   `testRefreshDispatchesSuccessfulLifecycleEventsBeforeRefreshed`
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testSetRequestClearsBoundContextualState`
