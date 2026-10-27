@@ -144,7 +144,9 @@ trait VerifiesPinnedContext
      * principal. A principal whose owner cannot be read (`getIdentity()` throws
      * a `LogicException`, as `ActsAsPrincipal` does for a deleted owner or a
      * model without an identity relation) is not owned, so the pin fails the
-     * attempt rather than the request.
+     * attempt rather than the request. The copy may lazy-load its owner even
+     * when the principal was hydrated with lazy loading prevented (Eloquent
+     * strict mode), because the package re-reads the owner on purpose.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -152,7 +154,13 @@ trait VerifiesPinnedContext
      */
     private function isOwnedBy(Principal $principal, Identity $identity): bool
     {
-        $stored = $principal instanceof Model ? $principal->withoutRelations() : $principal;
+        $stored = $principal;
+
+        if ($principal instanceof Model) {
+            $stored = $principal->withoutRelations();
+
+            $stored->preventsLazyLoading = false;
+        }
 
         try {
             $owner = WriteConnection::during($stored, static fn (): Identity => $stored->getIdentity());

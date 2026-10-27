@@ -501,8 +501,9 @@ only pass it a principal and device you have already proven belong to the identi
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
-from the principal's own stored key, ignoring any identity relation the resolver already set, and a principal whose
-owner cannot be read (no relation, or an owner that has been deleted) fails the attempt.
+from the principal's own stored key, even when Eloquent's strict mode prevents lazy loading, ignoring any identity
+relation the resolver already set, and a principal whose owner cannot be read (no relation, or an owner that has been
+deleted) fails the attempt.
 
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 

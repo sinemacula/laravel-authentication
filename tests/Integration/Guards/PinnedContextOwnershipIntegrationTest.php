@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
@@ -20,6 +21,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
+use Tests\Integration\Fixtures\CollectionMembershipResolver;
 use Tests\Integration\Fixtures\InverseRelationMembershipResolver;
 use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
@@ -210,6 +212,34 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
+     * The member's own membership, hydrated as one of several rows with lazy
+     * loading prevented (Eloquent's strict mode), is still bound: the owner the
+     * package re-reads from the stored key is not a lazy-loading violation.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOwnMembershipHydratedWithLazyLoadingPreventedIsBound(): void
+    {
+        [$member, $membership] = $this->seedMember('strict@example.test');
+
+        $second = new ActivatableTenantMembership;
+        $second->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $membership->tenant_id])->save();
+
+        Model::preventLazyLoading();
+
+        try {
+            $guard = $this->freshGuard('collection');
+
+            self::assertTrue($guard->attempt($this->credentials($member), $second));
+            self::assertSame($second->getKey(), $guard->principal()?->getPrincipalIdentifier());
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+    }
+
+    /**
      * A principal of another class whose identifier equals the member's own
      * membership identifier fails the attempt.
      *
@@ -312,6 +342,12 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
             'driver'             => 'jwt',
             'provider'           => 'members',
             'principal_resolver' => UnscopedMembershipResolver::class,
+        ]);
+
+        $config->set('auth.guards.collection', [
+            'driver'             => 'jwt',
+            'provider'           => 'members',
+            'principal_resolver' => CollectionMembershipResolver::class,
         ]);
 
         $config->set('auth.guards.inverse', [

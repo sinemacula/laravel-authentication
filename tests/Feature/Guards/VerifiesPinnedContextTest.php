@@ -8,6 +8,9 @@ use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -236,6 +239,75 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 5)->andReturn($pinned);
 
         $this->assertAttemptFails($this->guardAttempt($pinned));
+    }
+
+    /**
+     * Under Eloquent's strict missing-attribute mode, a persisted pinned
+     * `ActsAsPrincipal` model without an identity relation still fails the
+     * attempt instead of the request.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttemptUnderStrictMode(): void
+    {
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
+
+        $pinned = new Stub3dPrincipal;
+        $pinned->forceFill(['id' => 5]);
+        $pinned->exists = true;
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 5)->andReturn($pinned);
+
+        Model::preventAccessingMissingAttributes();
+
+        try {
+            $result = $this->guardAttempt($pinned);
+        } finally {
+            Model::preventAccessingMissingAttributes(false);
+        }
+
+        $this->assertAttemptFails($result);
+    }
+
+    /**
+     * A pinned principal hydrated with lazy loading prevented (one of several
+     * rows under Eloquent's strict mode) is still proven owned: the package
+     * re-reads its owner on purpose, so that read is not a lazy-loading
+     * violation.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedPrincipalHydratedWithLazyLoadingPreventedIsOwned(): void
+    {
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
+
+        $owner = \Mockery::mock(BelongsTo::class);
+        $owner->shouldReceive('getResults')->once()->andReturn($identity);
+
+        // A subclass of its own, so the resolved relation stays off the shared
+        // stub class.
+        $pinned = new class extends Stub3dPrincipal {};
+
+        $pinned::resolveRelationUsing('identity', static fn (): Relation => $owner);
+
+        $pinned->forceFill(['id' => 5]);
+        $pinned->exists              = true;
+        $pinned->preventsLazyLoading = true;
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 5)->andReturn($pinned);
+
+        self::assertTrue($this->guardAttempt($pinned));
+        self::assertSame($pinned, $this->lastGuard?->principal());
     }
 
     /**

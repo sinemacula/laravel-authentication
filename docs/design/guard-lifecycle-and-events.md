@@ -57,8 +57,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
   by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
   identity's own `HasDevices` devices, of the same class and not revoked. The owner is read from the principal's stored
-  key, ignoring an identity relation the resolver set, and an owner that cannot be read fails the check. The resolved
-  instances are bound; a failed check fails the attempt. `login()` stays the trusted entry point.
+  key, ignoring an identity relation the resolver set and even when lazy loading is prevented, and an owner that cannot
+  be read fails the check. The resolved instances are bound; a failed check fails the attempt. `login()` stays the
+  trusted entry point.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null` or resolves a
   principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same thing as
   "fully bound".
@@ -151,8 +152,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
   `testAnotherMembersMembershipFailsEvenWhenTheResolverSetsTheInverseRelation`,
   `testMembershipWhoseOwnerIsDeletedFailsTheAttempt`
+- `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
+  `testOwnMembershipHydratedWithLazyLoadingPreventedIsBound`
 - `tests/Feature/Guards/VerifiesPinnedContextTest.php`
-  `testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttempt`
+  `testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttempt`,
+  `testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttemptUnderStrictMode`
 - `tests/Feature/AuthenticationServiceProviderTest.php`
   `testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind`
 

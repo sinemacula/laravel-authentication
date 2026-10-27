@@ -32,12 +32,15 @@ interface Principal
      *
      * `attempt()` relies on it to prove that a pinned principal belongs to the
      * identity signing in. It runs inside `WriteConnection::during()` for this
-     * principal, on an Eloquent principal it is called on a copy without loaded
+     * principal; on an Eloquent principal it is called on a copy without loaded
      * relations (so the owner comes from the stored key, not a relation the
-     * resolver set), and a `LogicException` from it (no owner relation, or an
-     * owner that cannot be loaded) fails the pin.
+     * resolver set), which may lazy-load the owner even when lazy loading is
+     * prevented. A `LogicException` from it (no owner relation, or an owner
+     * that cannot be loaded) fails the pin.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \LogicException
      */
     public function getIdentity(): Identity;
 

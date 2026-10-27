@@ -35,6 +35,11 @@ trait ActsAsPrincipal
     /**
      * Return the identity that owns this principal.
      *
+     * A model with no identity relation, attribute, or loaded relation throws
+     * the same `LogicException` as one whose relation yields nothing, without
+     * reading the absent key, which Eloquent's strict mode would otherwise
+     * reject with an exception of its own.
+     *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      *
      * @throws \LogicException
@@ -47,13 +52,16 @@ trait ActsAsPrincipal
             return $this;
         }
 
-        $identity = $this->getAttribute($this->getIdentityRelationName());
+        $name     = $this->getIdentityRelationName();
+        $identity = $this->hasAttribute($name) || $this->isRelation($name) || $this->relationLoaded($name)
+            ? $this->getAttribute($name)
+            : null;
 
         if (!$identity instanceof Identity) {
             $message = sprintf(
                 'Principal %s expected its identity relation `%s` to return an Identity instance, got %s.',
                 static::class,
-                $this->getIdentityRelationName(),
+                $name,
                 get_debug_type($identity),
             );
 

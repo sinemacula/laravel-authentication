@@ -113,6 +113,87 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
+     * A persisted principal with no identity relation throws the trait's own
+     * `LogicException` under Eloquent's strict missing-attribute mode, rather
+     * than the `MissingAttributeException` reading the absent key would raise.
+     *
+     * @return void
+     */
+    public function testGetIdentityThrowsLogicExceptionWithoutIdentityRelationUnderStrictMode(): void
+    {
+        $principal         = new Stub3dPrincipal;
+        $principal->exists = true;
+
+        Model::preventAccessingMissingAttributes();
+
+        try {
+            $principal->getIdentity();
+
+            self::fail('A principal without an identity relation should not report an owner.');
+        } catch (\LogicException $exception) {
+            self::assertSame(\LogicException::class, $exception::class);
+            self::assertStringContainsString('expected its identity relation `identity` to return an Identity instance, got null', $exception->getMessage());
+        } finally {
+            Model::preventAccessingMissingAttributes(false);
+        }
+    }
+
+    /**
+     * An identity exposed through an attribute accessor rather than a relation
+     * is still read.
+     *
+     * @return void
+     */
+    public function testGetIdentityReadsIdentityExposedThroughAttributeAccessor(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = new class extends Stub3dPrincipal {
+            /** @var ?\SineMacula\Laravel\Authentication\Contracts\Identity Identity returned by the accessor. */
+            public ?Identity $accessorIdentity = null;
+
+            /**
+             * Expose the identity through an attribute accessor.
+             *
+             * @formatter:off
+             *
+             * @return \Illuminate\Database\Eloquent\Casts\Attribute<?\SineMacula\Laravel\Authentication\Contracts\Identity, never>
+             *
+             * @formatter:on
+             */
+            protected function identity(): Attribute
+            {
+                return Attribute::get(fn (): ?Identity => $this->accessorIdentity);
+            }
+        };
+
+        $principal->accessorIdentity = $identity;
+
+        self::assertSame($identity, $principal->getIdentity());
+    }
+
+    /**
+     * An identity relation that has not been loaded yet is loaded and read.
+     *
+     * @return void
+     */
+    public function testGetIdentityLoadsAnIdentityRelationThatIsNotLoadedYet(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        $relation = \Mockery::mock(BelongsTo::class);
+        $relation->shouldReceive('getResults')->once()->andReturn($identity);
+
+        // A subclass of its own, so the resolved relation stays off the shared
+        // stub class.
+        $principal = new class extends Stub3dPrincipal {};
+
+        $principal::resolveRelationUsing('identity', static fn (): Relation => $relation);
+
+        self::assertSame($identity, $principal->getIdentity());
+    }
+
+    /**
      * Trait returns the tenant relation when it implements Tenant.
      *
      * @return void
