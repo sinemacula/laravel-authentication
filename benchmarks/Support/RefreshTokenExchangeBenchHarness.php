@@ -15,6 +15,8 @@ use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -28,6 +30,8 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
+use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -121,6 +125,7 @@ final class RefreshTokenExchangeBenchHarness
         $container = new Container;
         $container->instance('config', $config);
         Facade::setFacadeApplication($container);
+        Container::setInstance($container);
 
         $this->resolver = new DefaultPrincipalResolver;
         $this->events   = new Dispatcher($container);
@@ -138,6 +143,9 @@ final class RefreshTokenExchangeBenchHarness
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
         );
+        $container->instance(AudiencePolicy::class, new PermissiveAudiencePolicy($this->tokens->lifetimes()));
+        $container->instance(AttemptLimiter::class, new UnlimitedAttemptLimiter);
+
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
         $this->tenantAwareProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
         $this->timebox             = new Timebox;
@@ -317,7 +325,7 @@ final class RefreshTokenExchangeBenchHarness
 
             $device = new Device;
             $device->forceFill([
-                ...BenchSchema::liveSession(),
+                ...BenchSchema::signedIn('api'),
                 'authenticatable_type' => $ownerClass,
                 'authenticatable_id'   => $ownerId,
                 'client_name'          => $prefix . $index,
@@ -415,7 +423,7 @@ final class RefreshTokenExchangeBenchHarness
         // A well-formed id that names no row, so the bench measures the lookup
         // rather than the shape check that rejects malformed ids before it.
         $missingDevice = new Device;
-        $missingDevice->forceFill([...BenchSchema::liveSession(), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
+        $missingDevice->forceFill([...BenchSchema::signedIn('api'), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
         $this->unknownDeviceToken = $this->tokens->issueRefreshToken($missingDevice, 'bench-missing-device-rotation');
 
         $mismatchDevice = Device::query()->where('client_name', 'bench-refresh-mismatch')->first();
@@ -424,7 +432,7 @@ final class RefreshTokenExchangeBenchHarness
 
             $mismatchDevice = new Device;
             $mismatchDevice->forceFill([
-                ...BenchSchema::liveSession(),
+                ...BenchSchema::signedIn('api'),
                 'authenticatable_type' => StubPrincipal::class,
                 'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
                 'client_name'          => 'bench-refresh-mismatch',

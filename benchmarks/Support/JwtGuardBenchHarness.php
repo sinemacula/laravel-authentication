@@ -397,7 +397,7 @@ final class JwtGuardBenchHarness
         if (!$freshDevice instanceof Device) {
             $freshDevice = new Device;
             $freshDevice->forceFill([
-                ...BenchSchema::liveSession(),
+                ...BenchSchema::signedIn('device_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
                 'client_name'          => 'bench-device-fresh',
@@ -415,7 +415,7 @@ final class JwtGuardBenchHarness
 
             $device = new Device;
             $device->forceFill([
-                ...BenchSchema::liveSession(),
+                ...BenchSchema::signedIn('device_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
                 'client_name'          => 'bench-device-write-' . $index,
