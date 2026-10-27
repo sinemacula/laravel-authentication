@@ -28,7 +28,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(WriteConnection::class)]
-final class WriteConnectionIntegrationTest extends TestCase
+final class WriteConnectionTest extends TestCase
 {
     use InteractsWithLaggingReplica;
 
