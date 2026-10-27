@@ -63,7 +63,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   timebox) and the attempt limiter must grant a slot for the configured identifier and the request's IP address
   (`rate_limited`, with the wait). Then, inside the credential timebox: the password (`invalid_credentials`), `Validated`,
   the identity, the principal and its tenant (activity and pins), the audience policy's admission, the pinned device
-  (`device_mismatch`), and the additional-factor policy, which `attempt()` can only refuse
+  (`device_mismatch`), the password rehash (`PasswordSignIn::rehash()`, honouring `hashing.rehash_on_login`; no other
+  path writes a password), and the additional-factor policy, which `attempt()` can only refuse
   (`additional_factor_required`) and is never told of a pinned device. Only a success gives its slot back. `validate()`
   checks the credentials only, and still fires `Validated` when it accepts them.
 - A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted

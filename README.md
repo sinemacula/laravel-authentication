@@ -881,15 +881,17 @@ Sign in with credentials through `attempt()`, optionally pinning the principal a
 $guard->attempt(['email' => $email, 'password' => $password], $membership, $device);
 ```
 
-`attempt()` signs in through the password sign-in method and the guard's sign-in policies: the audience policy must allow
-the `password` method for the guard, the attempt takes a slot from the sign-in limits of the identifier (the
+`attempt()` signs in through the password sign-in method and the guard's sign-in policies: the audience policy must
+allow the `password` method for the guard, the attempt takes a slot from the sign-in limits of the identifier (the
 `sign_in.password_identifier` key of the credentials, whatever else they hold) and of the request's IP address, and only
 then are the credentials checked, inside the timebox. After the password, the identity, the principal and its tenant
-must be active, the pins must hold, the audience policy must admit the identity as that principal, and the
-additional-factor policy must not ask for a further factor: `attempt()` cannot hand out a pending sign-in, so a guard
-whose policy requires a factor fails it with `additional_factor_required`. A successful attempt gives its slots back;
-a failed one keeps them. Every failure fires Laravel's `Failed` and then `SignInFailed` with a reason (see
-[Events](#events)). `validate()` checks only the credentials, as with Laravel's own guards.
+must be active, the pins must hold, the audience policy must admit the identity as that principal, the password is
+rehashed when its stored hash no longer matches the hasher's algorithm or cost (unless Laravel's
+`hashing.rehash_on_login` is off), and the additional-factor policy must not ask for a further factor: `attempt()`
+cannot hand out a pending sign-in, so a guard whose policy requires a factor fails it with `additional_factor_required`.
+A successful attempt gives its slots back; a failed one keeps them. Every failure fires Laravel's `Failed` and then
+`SignInFailed` with a reason (see [Events](#events)). `validate()` checks only the credentials and never rehashes, as
+with Laravel's own guards; neither does a bearer request or a refresh, which never see a password.
 
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that

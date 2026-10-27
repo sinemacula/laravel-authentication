@@ -263,6 +263,77 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
+     * Rows of `[hashing.rehash_on_login, whether the provider is asked]`, the
+     * setting read as Laravel's own guards read it.
+     *
+     * @return iterable<string, array{0: mixed, 1: bool}>
+     */
+    public static function provideRehashSettings(): iterable
+    {
+        yield from [
+            'on'           => [true, true],
+            'off'          => [false, false],
+            'off as zero'  => [0, false],
+            'off as empty' => ['', false],
+            'on as one'    => ['1', true],
+        ];
+    }
+
+    /**
+     * `rehash()` asks the provider to rehash the identity's password with the
+     * credentials it signed in with, unless Laravel's `rehash_on_login` setting
+     * turns it off.
+     *
+     * @param  mixed  $setting
+     * @param  bool  $asked
+     * @return void
+     */
+    #[DataProvider('provideRehashSettings')]
+    public function testRehashFollowsLaravelsRehashOnLoginSetting(mixed $setting, bool $asked): void
+    {
+        $identity    = \Mockery::mock(Identity::class);
+        $credentials = ['email' => 'ada@example.test', 'password' => 'secret'];
+
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->times($asked ? 1 : 0)->with($identity, $credentials);
+
+        (new PasswordSignIn(new Repository(['hashing' => ['rehash_on_login' => $setting]])))->rehash($this->provider, $identity, $credentials);
+    }
+
+    /**
+     * Without the setting, the password is rehashed, as Laravel's default.
+     *
+     * @return void
+     */
+    public function testRehashIsOnByDefault(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->with($identity, ['password' => 'secret']);
+
+        (new PasswordSignIn(new Repository))->rehash($this->provider, $identity, ['password' => 'secret']);
+    }
+
+    /**
+     * Neither `authenticate()` nor `verifyCredentials()` rehashes: only an
+     * admitted sign-in does, through `rehash()`.
+     *
+     * @return void
+     */
+    public function testVerifyingNeverRehashes(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        $this->provider->shouldReceive('retrieveByCredentials')->twice()->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')->twice()->andReturnTrue();
+        $this->provider->shouldNotReceive('rehashPasswordIfRequired');
+
+        $method = $this->method('email');
+
+        self::assertSame($identity, $method->verifyCredentials($this->provider, ['email' => 'x', 'password' => 'y']));
+        self::assertSame($identity, $method->authenticate($this->request(['email' => 'x', 'password' => 'y'])));
+    }
+
+    /**
      * Build the method with the given identifier key configured.
      *
      * @param  mixed  $identifier

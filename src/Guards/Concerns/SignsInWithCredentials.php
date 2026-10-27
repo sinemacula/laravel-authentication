@@ -25,8 +25,8 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 /**
  * The sign-in policy checks behind `attempt()`: the audience policy, the
  * attempt limits, the password sign-in method inside the credential timebox,
- * the shared admission checks, the pinned device, and the additional-factor
- * policy.
+ * the shared admission checks, the pinned device, the password rehash, and the
+ * additional-factor policy.
  *
  * The policies are resolved from the container each time they are needed, so
  * the binding in effect then (the application's, or an MFA package's) is the
@@ -87,7 +87,14 @@ trait SignsInWithCredentials
 
             $this->fireValidatedEvent($user);
 
-            $outcome = $this->admitVerifiedIdentity(new SignInAdmission($audience), $user, $principal, $device, $type, $client);
+            $outcome = $this->admitVerifiedIdentity(new SignInAdmission($audience), $user, $principal, $device, $type);
+
+            if ($outcome instanceof AdmittedSignIn) {
+
+                $password->rehash($this->provider, $user, $credentials);
+
+                $outcome = $this->refuseIfAFactorIsRequired($outcome, $client);
+            }
 
             if ($outcome instanceof AdmittedSignIn) {
                 $timebox->returnEarly();
@@ -105,16 +112,14 @@ trait SignsInWithCredentials
 
     /**
      * Admit an identity whose password was accepted: activity, the principal
-     * (the pinned one, or the resolver's default), the audience policy, the
-     * pinned device, and the additional-factor policy, which `attempt()` can
-     * only refuse.
+     * (the pinned one, or the resolver's default), the audience policy, and the
+     * pinned device.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission  $admission
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $identifierType
-     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
      *
      * @throws \InvalidArgumentException
@@ -127,7 +132,6 @@ trait SignsInWithCredentials
         ?Principal $principal,
         ?Device $device,
         string $identifierType,
-        ClientContext $client,
     ): AdmittedSignIn|RefusedSignIn {
         $admitted = $admission->admit(
             $this->name,
@@ -141,18 +145,15 @@ trait SignsInWithCredentials
             return $admitted;
         }
 
-        if ($device !== null) {
-
-            $resolvedDevice = $this->resolvePinnedDevice($identity, $device);
-
-            if ($resolvedDevice === null) {
-                return RefusedSignIn::after(SignInFailureReason::DEVICE_MISMATCH, $admitted);
-            }
-
-            $admitted = $admitted->on($resolvedDevice);
+        if ($device === null) {
+            return $admitted;
         }
 
-        return $this->refuseIfAFactorIsRequired($admitted, $client);
+        $resolvedDevice = $this->resolvePinnedDevice($identity, $device);
+
+        return $resolvedDevice === null
+            ? RefusedSignIn::after(SignInFailureReason::DEVICE_MISMATCH, $admitted)
+            : $admitted->on($resolvedDevice);
     }
 
     /**

@@ -20,7 +20,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * (default `email`). `authenticate()` passes the provider only that key and
  * `password`, so no other input key reaches a query. `verifyCredentials()` is
  * the credential path `attempt()` and `validate()` use: it takes the caller's
- * credentials as the provider understands them, closures included.
+ * credentials as the provider understands them, closures included. Neither
+ * rehashes: a sign-in that is admitted calls `rehash()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,6 +39,9 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /** @var string Input key holding the password. */
     private const string PASSWORD_KEY = 'password';
+
+    /** @var string Laravel's setting for rehashing a password on sign-in. */
+    private const string REHASH_KEY = 'hashing.rehash_on_login';
 
     /**
      * Constructor.
@@ -129,6 +133,27 @@ final readonly class PasswordSignIn implements SignInMethod
         $user = $this->retrieve($provider, $credentials);
 
         return $user instanceof Identity && $this->accepts($provider, $user, $credentials) ? $user : null;
+    }
+
+    /**
+     * Rehash the identity's password through the provider when its stored hash
+     * no longer matches the hasher's current algorithm or cost, unless
+     * Laravel's `hashing.rehash_on_login` setting turns that off. Called only
+     * after a password sign-in is admitted, so a request authenticated by a
+     * bearer token or a refresh never writes a password.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  array<array-key, mixed>  $credentials
+     * @return void
+     */
+    public function rehash(IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): void
+    {
+        if (!(bool) $this->config->get(self::REHASH_KEY, true)) {
+            return;
+        }
+
+        $provider->rehashPasswordIfRequired($identity, $credentials);
     }
 
     /**

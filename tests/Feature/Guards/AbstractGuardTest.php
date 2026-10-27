@@ -96,8 +96,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * A successful attempt asks the audience policy for the method first, then
-     * reserves an attempt, checks the password, admits the identity, asks the
-     * factor policy, and gives the reservation back.
+     * reserves an attempt, checks the password, admits the identity, rehashes
+     * the password with the credentials it signed in with, asks the factor
+     * policy, and gives the reservation back.
      *
      * @return void
      *
@@ -109,6 +110,11 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $principal = $this->mockActivePrincipal();
 
         $this->expectPasswordAccepted($identity);
+
+        $this->provider->shouldReceive('rehashPasswordIfRequired')
+            ->once()
+            ->with($identity, ['email' => 'Ada@Example.test', 'password' => 'secret'])
+            ->andReturnUsing(fn (): mixed => $this->record('rehashPasswordIfRequired', null));
 
         $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
 
@@ -138,7 +144,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertTrue($this->makeGuard()->attempt(['email' => 'Ada@Example.test', 'password' => 'secret']));
         self::assertSame(
-            ['allowsMethod', 'acquire', 'retrieveByCredentials', 'validateCredentials', 'admit', 'requiresAdditionalFactor', 'release'],
+            ['allowsMethod', 'acquire', 'retrieveByCredentials', 'validateCredentials', 'admit', 'rehashPasswordIfRequired', 'requiresAdditionalFactor', 'release'],
             $this->calls,
         );
     }
@@ -285,6 +291,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->audience->shouldReceive('admit')->once()->andReturn(SignInFailureReason::PRINCIPAL_INELIGIBLE);
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
+        $this->provider->shouldNotReceive('rehashPasswordIfRequired');
         $this->limiter->shouldNotReceive('release');
 
         $events = $this->recordEvents();
@@ -479,7 +486,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * `validate()` checks only the credentials: no limit, audience policy or
-     * factor policy applies.
+     * factor policy applies, and the password is never rehashed.
      *
      * @return void
      *
@@ -495,6 +502,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->audience->shouldNotReceive('admit');
         $this->limiter->shouldNotReceive('acquire');
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
+        $this->provider->shouldNotReceive('rehashPasswordIfRequired');
 
         self::assertTrue($this->makeGuard()->validate(['email' => 'ada@example.test', 'password' => 'secret']));
     }
@@ -589,6 +597,39 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         );
 
         self::assertSame([SignInFailureReason::PRINCIPAL_UNRESOLVED, SignInFailureReason::PRINCIPAL_MISMATCH], $reasons);
+    }
+
+    /**
+     * A sign-in refused for its principal fails with that reason without
+     * looking its pinned device up.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusedPrincipalFailsBeforeThePinnedDeviceIsLookedUp(): void
+    {
+        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity->shouldNotReceive('devices');
+
+        $pinned = $this->mockActivePrincipal();
+        $pinned->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+
+        $device = \Mockery::mock(Device::class);
+        $device->shouldNotReceive('getDeviceIdentifier');
+
+        $this->expectPasswordAccepted($identity);
+
+        $this->resolver->shouldReceive('resolve')->once()->andReturnNull();
+
+        $events = $this->recordEvents();
+
+        self::assertFalse($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret'], $pinned, $device));
+
+        $signIn = $events[count($events) - 1];
+
+        self::assertInstanceOf(SignInFailed::class, $signIn);
+        self::assertSame(SignInFailureReason::PRINCIPAL_MISMATCH, $signIn->reason);
     }
 
     /**

@@ -124,6 +124,33 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * A sign-in whose stored hash the hasher no longer produces (a lower bcrypt
+     * cost) costs one write on top of its limits: the rehashed password. The
+     * hash is made before the cost goes up, so the stored one is outdated. The
+     * next sign-in finds the counters and the new hash in place.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSuccessfulAttemptWithAnOutdatedHashWritesTheRehashOnce(): void
+    {
+        $identity = $this->seedIdentity();
+
+        config()->set('hashing.bcrypt.rounds', 5);
+        app()->forgetInstance('hash');
+        app()->forgetInstance('hash.driver');
+
+        $guard = $this->freshGuard(self::TWO_D_GUARD);
+
+        self::assertTrue($this->assertQueryBudget(1, 7, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+
+        $guard = $this->freshGuard(self::TWO_D_GUARD);
+
+        self::assertTrue($this->assertQueryBudget(1, 4, fn (): bool => $guard->attempt($this->credentials($identity->email))));
+    }
+
+    /**
      * Rows of `[credentials, active]`: rejected sign-ins and whether the seeded
      * identity is active.
      *
