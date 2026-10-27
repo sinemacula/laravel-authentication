@@ -472,7 +472,7 @@ class ModelProvider implements IdentityProvider
         $column = $user->getAuthPasswordName();
 
         // @phpstan-ignore staticMethod.dynamicCall, staticMethod.dynamicCall
-        $query = WriteConnection::query($user->newQueryWithoutScopes()->whereKey($user->getKey())->where($column, $authenticated));
+        $query = $user->newQueryWithoutScopes()->whereKey($user->getKey())->where($column, $authenticated);
 
         if ($query->toBase()->update([$column => $rehashed]) !== 1) {
             return;
