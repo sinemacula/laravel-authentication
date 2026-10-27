@@ -92,6 +92,8 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshRejectsOldRefreshTokenAfterSuccessfulRotationWithoutRevokingDevice`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshReturnsNullWhenDeviceHasBeenRevoked`
+- `tests/Integration/Guards/UncastRevokedDeviceIntegrationTest.php`
+  `testRefreshRejectsTheRevokedDeviceWithDeviceRevokedReason`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testExchangeUsesPidHintWhenRefreshTokenCarriesPrincipalId`
 - `tests/Integration/Guards/JwtGuardRefreshPrincipalContinuityIntegrationTest.php`

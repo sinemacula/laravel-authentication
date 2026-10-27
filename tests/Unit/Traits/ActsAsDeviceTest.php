@@ -233,6 +233,33 @@ final class ActsAsDeviceTest extends TestCase
     }
 
     /**
+     * A revocation time stored without a `datetime` cast (the raw value the
+     * database returns) still reads as a revocation, converted to a Carbon
+     * instance, rather than as "not revoked".
+     *
+     * @return void
+     */
+    public function testGetRevokedAtReadsAnUncastStoredValueAsARevocation(): void
+    {
+        $device = new class extends Model {
+            use ActsAsDevice;
+
+            /** @var string|null The storage format of the model's date columns. */
+            protected $dateFormat = 'Y-m-d H:i:s';
+
+            /** @var array<string> Mass-assignment guard list. */
+            protected $guarded = [];
+        };
+
+        foreach (['2026-04-06 12:00:00', $this->now->getTimestamp()] as $stored) {
+
+            $device->setRawAttributes(['revoked_at' => $stored]);
+
+            self::assertSame($this->now->getTimestamp(), $device->getRevokedAt()?->getTimestamp());
+        }
+    }
+
+    /**
      * Asserts the public column-name accessors return the documented defaults
      * so consumer listeners (e.g. `UpdateDeviceTimestamp`) and the
      * refresh-token exchange resolve the correct columns without reflection.

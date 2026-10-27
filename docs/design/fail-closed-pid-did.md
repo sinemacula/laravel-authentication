@@ -13,8 +13,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
   whose hinted lookup is not scoped to the identity cannot bind another identity's principal.
 - A present bearer `did` must resolve to a real, unrevoked device owned by the resolved identity. A device with
   `revoked_at` set is treated exactly like a missing one, so revoking a device ends its access tokens at once; the check
-  reads the row the lookup already loaded, with no extra query. The same lookup verifies a device pinned on `attempt()`,
-  which must also come back as the same class.
+  reads the row the lookup already loaded, with no extra query. Any stored `revoked_at` counts, so a custom model using
+  `ActsAsDevice` without a `datetime` cast on the column is rejected too. The same lookup verifies a device pinned on
+  `attempt()`, which must also come back as the same class.
 - Refresh is stricter than bearer auth: refresh always requires a valid `did`, because refresh is device-backed.
 - A `did` is checked against the device model's key format before any query; one that cannot be a key fails closed as
   an unresolved device, and a database error on a well-formed `did` propagates instead of reading as a missing device.
@@ -100,6 +101,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testRevokingDeviceBlocksRefreshAndExistingAccessToken`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testBearerRejectsDeviceRevokedOnThePrimaryWhileTheReplicaLags`
+- `tests/Integration/Guards/UncastRevokedDeviceIntegrationTest.php`
+  `testBearerRejectsTheRevokedDevice`, `testAttemptRejectsTheRevokedDeviceWhenPinned`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsMalformedDidHintWithoutQueryingDevices`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`

@@ -132,13 +132,17 @@ trait ActsAsDevice
     /**
      * Return the revocation timestamp, or null when the device is not revoked.
      *
+     * Any stored value is a revocation: a column the model does not cast to a
+     * date (the raw string the database returns) is converted rather than read
+     * as "not revoked", so a model without a `datetime` cast fails closed.
+     *
      * @return ?\Carbon\CarbonInterface
      */
     public function getRevokedAt(): ?CarbonInterface
     {
         $value = $this->getAttribute($this->getRevokedAtName());
 
-        return $value instanceof CarbonInterface ? $value : null;
+        return $value === null || $value instanceof CarbonInterface ? $value : $this->asDateTime($value);
     }
 
     /**
