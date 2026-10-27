@@ -551,6 +551,44 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
+     * Rows of `[attributes, exception]`: polymorphic tenants that cannot say
+     * which model they name, and what reports them.
+     *
+     * @return iterable<string, array{0: array<string, mixed>, 1: class-string<\Throwable>}>
+     */
+    public static function provideMorphTenantsThatCannotNameTheirModel(): iterable
+    {
+        yield from [
+            'type not loaded'     => [['tenant_id' => 5], \LogicException::class],
+            'type empty, key set' => [['tenant_type' => '', 'tenant_id' => 5], TenantUnavailableException::class],
+        ];
+    }
+
+    /**
+     * A polymorphic tenant that cannot say which model it names is reported
+     * before its relation is lazy-loaded: Eloquent would build that load
+     * against the principal's own model with an empty type column, which
+     * PostgreSQL and MySQL reject.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @param  class-string<\Throwable>  $exception
+     * @return void
+     */
+    #[DataProvider('provideMorphTenantsThatCannotNameTheirModel')]
+    public function testGetTenantReportsAMorphTenantThatCannotNameItsModelBeforeLoadingIt(array $attributes, string $exception): void
+    {
+        $relation = $this->morphTo(new Stub3dPrincipal);
+        $relation->shouldNotReceive('getResults');
+
+        $principal = $this->principalWithTenantRelation($relation, $attributes);
+        $principal->unsetRelation('tenant');
+
+        $this->expectException($exception);
+
+        $principal->getTenant();
+    }
+
+    /**
      * A polymorphic tenant with an empty type and an empty key names no tenant.
      *
      * @return void

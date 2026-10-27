@@ -6,8 +6,10 @@ namespace Tests\Integration\Guards;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
@@ -26,6 +28,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\DefaultTenantMembership;
 use Tests\Integration\Fixtures\MorphTenantMembership;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 
 /**
  * Tenant activity is enforced wherever principal activity is: a member of a
@@ -48,6 +51,9 @@ final class TenantActivityIntegrationTest extends TestCase
 
     /** @var string */
     private const string ROTATION_ID = 'stored-rotation-id';
+
+    /** @var bool Whether a query that runs now fails the test. */
+    private bool $queriesForbidden = false;
 
     /**
      * Create the tenant, member, and membership tables.
@@ -98,6 +104,8 @@ final class TenantActivityIntegrationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        $this->queriesForbidden = false;
+
         Schema::dropIfExists('morph_tenant_memberships');
         Schema::dropIfExists('activatable_tenant_memberships');
         Schema::dropIfExists('activatable_tenant_members');
@@ -295,7 +303,9 @@ final class TenantActivityIntegrationTest extends TestCase
      * A membership whose tenant is a polymorphic relation, loaded without its
      * type column, is reported rather than read as acting within no tenant:
      * without the type Eloquent builds the relation against the membership's
-     * own model, so an inactive tenant would otherwise be skipped.
+     * own model, so an inactive tenant would otherwise be skipped. The report
+     * comes before any lazy load, which PostgreSQL and MySQL reject for a
+     * relation built without its type.
      *
      * @return void
      */
@@ -312,6 +322,8 @@ final class TenantActivityIntegrationTest extends TestCase
 
         self::assertInstanceOf(MorphTenantMembership::class, $partial);
 
+        $this->failOnAnyQuery();
+
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('its `tenant_type` attribute is not loaded');
 
@@ -321,7 +333,8 @@ final class TenantActivityIntegrationTest extends TestCase
     /**
      * A polymorphic tenant whose key is set but whose type is empty cannot be
      * loaded, so the membership is rejected rather than read as acting within
-     * no tenant.
+     * no tenant, without the lazy load PostgreSQL and MySQL reject for an empty
+     * type.
      *
      * @return void
      */
@@ -334,6 +347,9 @@ final class TenantActivityIntegrationTest extends TestCase
         $stored = MorphTenantMembership::query()->find($membership->getKey());
 
         self::assertInstanceOf(MorphTenantMembership::class, $stored);
+
+        $this->failOnAnyQuery();
+
         self::assertFalse(ActivationPolicy::isTenantActive($stored));
     }
 
@@ -359,6 +375,113 @@ final class TenantActivityIntegrationTest extends TestCase
 
         self::assertInstanceOf(DefaultTenantMembership::class, $orphaned);
         self::assertFalse(ActivationPolicy::isTenantActive($orphaned));
+    }
+
+    /**
+     * Signing in with a resolver that loads the membership without its tenant
+     * key reports the misconfiguration instead of signing in as if the member
+     * acted within no tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptReportsAMembershipLoadedWithoutItsTenantKey(): void
+    {
+        [$member, $membership] = $this->seedMembership();
+
+        $partial = ActivatableTenantMembership::query()->select(['id', 'identity_id'])->findOrFail($membership->getKey());
+
+        $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver($partial));
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `tenant_id` attribute is not loaded');
+
+        $guard->attempt(['email' => $member->email, 'password' => self::PASSWORD]);
+    }
+
+    /**
+     * A bearer request whose resolver loads a polymorphic membership without
+     * its tenant type reports the misconfiguration instead of authenticating a
+     * member of an inactive tenant.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerReportsAMorphMembershipLoadedWithoutItsTenantType(): void
+    {
+        $membership = $this->seedMorphMembership();
+        $member     = ActivatableTenantMember::query()->findOrFail($membership->identity_id);
+
+        $token   = $this->authManager()->jwt('api')->issueAccessToken($member, $membership, null);
+        $partial = MorphTenantMembership::query()->select(['id', 'identity_id', 'tenant_id'])->findOrFail($membership->getKey());
+
+        $guard = $this->bearerGuard($token)->setPrincipalResolver(new StubFixedPrincipalResolver($partial));
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `tenant_type` attribute is not loaded');
+
+        $guard->user();
+    }
+
+    /**
+     * Refresh for a polymorphic membership whose tenant key is set but whose
+     * type is empty fails with `tenant_inactive` and leaves the stored rotation
+     * untouched.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRefreshRejectsAMorphMembershipWhoseTenantTypeIsEmptyWithTenantInactiveReason(): void
+    {
+        $membership = $this->seedMorphMembership();
+        $member     = ActivatableTenantMember::query()->findOrFail($membership->identity_id);
+        $device     = $this->seedDevice($member);
+
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $membership);
+
+        MorphTenantMembership::query()->whereKey($membership->getKey())->update(['tenant_type' => '']);
+
+        $reasons = [];
+
+        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+            $reasons[] = $event->reason;
+        });
+
+        $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver(MorphTenantMembership::query()->findOrFail($membership->getKey())));
+
+        self::assertNull($guard->refresh($refreshToken));
+        self::assertSame([RefreshFailureReason::TENANT_INACTIVE], $reasons);
+
+        $fresh = Device::query()->findOrFail($device->getKey());
+
+        assert($fresh instanceof Device);
+
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $fresh->getRefreshKey());
+    }
+
+    /**
+     * Signing in as a member whose `withDefault()` membership names a
+     * soft-deleted tenant fails: the placeholder the relation returns is not a
+     * present, active tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptRejectsAWithDefaultMembershipOfASoftDeletedTenant(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMembership();
+
+        $tenant->delete();
+
+        $orphaned = DefaultTenantMembership::query()->findOrFail($membership->getKey());
+        $guard    = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver($orphaned));
+
+        self::assertFalse($guard->attempt(['email' => $member->email, 'password' => self::PASSWORD]));
+        self::assertNull($guard->identity());
     }
 
     /**
@@ -477,6 +600,44 @@ final class TenantActivityIntegrationTest extends TestCase
         ])->save();
 
         return $membership;
+    }
+
+    /**
+     * Persist a device holding the stored rotation for the member.
+     *
+     * @param  \Tests\Integration\Fixtures\ActivatableTenantMember  $member
+     * @return \SineMacula\Laravel\Authentication\Models\Device
+     */
+    private function seedDevice(ActivatableTenantMember $member): Device
+    {
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => ActivatableTenantMember::class,
+            'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'ios',
+            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+        ])->save();
+
+        return $device;
+    }
+
+    /**
+     * Fail the test as soon as any query runs, until tear-down.
+     *
+     * @return void
+     */
+    private function failOnAnyQuery(): void
+    {
+        $this->queriesForbidden = true;
+
+        DB::listen(function (QueryExecuted $query): void {
+
+            if (!$this->queriesForbidden) {
+                return;
+            }
+
+            self::fail('Expected no query, but ran: ' . $query->sql);
+        });
     }
 
     /**
