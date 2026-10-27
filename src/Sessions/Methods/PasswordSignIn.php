@@ -6,16 +6,12 @@ namespace SineMacula\Laravel\Authentication\Sessions\Methods;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository;
-use Illuminate\Contracts\Container\Container;
-use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
-use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
-use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -30,10 +26,11 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * other input key reaches a query.
  *
  * Every password checked for a sign-in is counted against the account it is
- * checked for (`verifyPassword()`), on top of the identifier's and the IP
- * address's limits the caller takes: a lookup can find one account by many
- * spellings of its identifier, and the account's own count is what bounds the
- * guesses made at its password.
+ * checked for, on top of the identifier's and the IP address's limits the
+ * caller takes, and the slot is the sign-in's to give back: a lookup can find
+ * one account by many spellings of its identifier, and through every guard
+ * whose provider returns it, so the account's own count is what bounds the
+ * guesses made at its password, and at a further factor its sign-in waits for.
  *
  * `verifyCredentials()` is the credential path `validate()` uses: it takes the
  * caller's credentials as the provider understands them, closures included, and
@@ -70,15 +67,11 @@ final readonly class PasswordSignIn implements SignInMethod
      * Constructor.
      *
      * @param  \Illuminate\Contracts\Config\Repository  $config
-     * @param  \Illuminate\Contracts\Container\Container  $container
      */
     public function __construct(
 
         /** Configuration the identifier keys are read from on every call. */
         private Repository $config,
-
-        /** Container the attempt limiter is resolved from when a password is checked. */
-        private Container $container,
     ) {}
 
     /**
@@ -157,7 +150,6 @@ final readonly class PasswordSignIn implements SignInMethod
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
     #[\Override]
@@ -177,7 +169,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
         $user = $this->retrieve($request->provider, $credentials);
 
-        return $user instanceof Identity && $this->verifyPassword($request->guard, $request->provider, $user, $credentials)
+        return $user instanceof Identity && $request->reserveAccountAttempt($user) && $request->provider->validateCredentials($user, $credentials)
             ? $user
             : SignInFailureReason::INVALID_CREDENTIALS;
     }
@@ -232,37 +224,26 @@ final readonly class PasswordSignIn implements SignInMethod
     }
 
     /**
-     * Check the credentials' password for a sign-in to the guard, counted
-     * against the account: a slot of the account's limit (the guard's sign-in
-     * limit per identifier) is taken first, and given back only when the
-     * password matches. When the account has no attempts left, its password is
-     * not checked and the answer is `false`, as for a wrong password, so the
+     * Check the credentials' password for a sign-in, counted against the
+     * account: a slot of the account's limit is taken first and held by the
+     * sign-in's account attempts, which give it back only if the sign-in
+     * succeeds. When the account has no attempts left, its password is not
+     * checked and the answer is `false`, as for a wrong password, so the
      * refusal does not reveal that the account exists.
      *
-     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $attempts
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<array-key, mixed>  $credentials
      * @return bool
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      *
      * @imperative
      */
-    public function verifyPassword(string $guard, IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): bool
+    public function verifyPassword(AccountAttempts $attempts, IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): bool
     {
-        $limiter     = $this->container->make(AttemptLimiter::class);
-        $account     = $identity::class . "\0" . IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $reservation = $limiter->acquire(new AttemptSubject($guard, AttemptFlow::SIGN_IN, null, null, null, $account));
-
-        if (!$reservation->granted() || !$provider->validateCredentials($identity, $credentials)) {
-            return false;
-        }
-
-        $limiter->release($reservation);
-
-        return true;
+        return $attempts->reserve($identity) && $provider->validateCredentials($identity, $credentials);
     }
 
     /**

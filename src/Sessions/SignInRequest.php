@@ -4,13 +4,15 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
  * What a sign-in method is asked to verify: the input a client sent to a guard,
  * with the guard's identity provider to look the identity up through and the
- * client the input came from.
+ * client the input came from, and the account limits to count each secret it
+ * checks against.
  *
  * @api
  *
@@ -26,6 +28,7 @@ final readonly class SignInRequest
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  array<array-key, mixed>  $input
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  ?\SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accountAttempts
      */
     public function __construct(
 
@@ -40,5 +43,34 @@ final readonly class SignInRequest
 
         /** Client the input came from. */
         public ClientContext $client,
+
+        /** The sign-in's slots on the limits of the accounts it checks, or `null` for a request built outside a sign-in, which counts nothing. */
+        private ?AccountAttempts $accountAttempts = null,
     ) {}
+
+    /**
+     * Count a check of a secret against the account it is for, before the check
+     * is made. Returns `false` when the account has no attempts left: then do
+     * not check the secret, and answer `invalid_credentials`, as for a wrong
+     * one, so the refusal does not reveal that the account exists.
+     *
+     * A method that looks an identity up and then checks a secret it was given
+     * calls this once it has the identity: a lookup can find one account by
+     * many spellings of an identifier, and through every guard whose provider
+     * returns it, so only the account's own count bounds the guesses at its
+     * secret. The slot is the sign-in's: given back when it starts a session,
+     * kept by a pending sign-in until that completes, and left counted when it
+     * fails.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     *
+     * @imperative
+     */
+    public function reserveAccountAttempt(Identity $identity): bool
+    {
+        return $this->accountAttempts?->reserve($identity) ?? true;
+    }
 }

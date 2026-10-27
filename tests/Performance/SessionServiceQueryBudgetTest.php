@@ -134,9 +134,10 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in that needs a further factor reads the identity once and writes
-     * the pending sign-in once, besides its limits, whose slots it keeps;
-     * looking that up reads it and the identity; and completing it reads them,
-     * deletes it, writes the device and gives the two slots back.
+     * the pending sign-in once, besides its limits, whose slots it keeps (the
+     * account's as well as the identifier's and the IP address's); looking that
+     * up reads it and the identity; and completing it reads them, deletes it,
+     * writes the device and gives the three slots back.
      *
      * @return void
      *
@@ -149,7 +150,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         self::requireAFurtherFactor();
 
         $sessions = $this->sessions();
-        $pending  = $this->assertQueryBudget(1, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
+        $pending  = $this->assertQueryBudget(1, 7, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
 
         self::assertNotNull($pending);
 
@@ -159,7 +160,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(2, 4, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(2, 5, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
     }
 
     /**

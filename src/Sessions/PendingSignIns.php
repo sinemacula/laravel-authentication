@@ -39,10 +39,15 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
  * write connection.
  *
  * A pending sign-in keeps the attempt-limit slots its sign-in took until it
- * completes: only a completed one gives them back. One that is discarded (its
- * factor failed) or expires leaves them counted, so each guess at a further
- * factor costs a sign-in attempt and the guesses are bounded by the sign-in
- * limits.
+ * completes, the account's as well as the identifier's and the IP address's:
+ * only a completed one gives them back. One that is discarded (its factor
+ * failed) or expires leaves them counted, so each guess at a further factor
+ * costs a sign-in attempt. With a method that counts the account it checks (the
+ * password method does), the guesses are bounded by the account's limit
+ * whatever spelling of the identifier or guard each sign-in used; with one that
+ * does not, by the identifier's and the IP address's limits. A pending sign-in
+ * that `start()` issued took no slots, since nothing was guessed, and the
+ * external verifier bounds its sign-ins.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -211,7 +216,8 @@ final readonly class PendingSignIns
      * The attempt-limit slots the pending sign-in's sign-in took, as a granted
      * reservation to give back once it completes: its windows, for the guard's
      * sign-in flow, with the identifier type and the IP address it recorded
-     * (not the identifier, which it does not keep). `null` when it took none.
+     * (neither the identifier nor the account, which it does not keep). `null`
+     * when it took none.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
      * @return ?\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation

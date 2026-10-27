@@ -23,7 +23,11 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * so a method must hold no state between calls (Octane, queue workers), and it
  * must never bind a guard, issue tokens or write session state itself. Its
  * timing must not reveal more than the session service's timebox hides: do the
- * same work whether or not the identifier exists.
+ * same work whether or not the identifier exists. A method that looks an
+ * identity up and then checks a secret counts the check against the account
+ * with `SignInRequest::reserveAccountAttempt()` before making it, so the
+ * account's own limit bounds the guesses at its secret however the identity was
+ * found.
  *
  * @api
  *

@@ -483,7 +483,9 @@ Earlier failures are not forgiven: they count until their window ends, so concur
 When the IP address's limit is full, the slot just taken for the identifier is given back.
 
 The password method also counts every password it checks against the account it checks it for, under the guard's
-`per_identifier` limit, and gives that slot back when the password matches. A lookup can find one account by many
+`per_identifier` limit, and holds that slot with the sign-in's own: it is given back only when the sign-in starts its
+session (a pending sign-in keeps it until it completes), so a correct password that goes on to fail, or to wait for a
+further factor, still counts. A lookup can find one account by many
 spellings of its identifier (a column collation that ignores accents, widths or invisible characters, as MySQL's default
 `utf8mb4_unicode_ci` does, a query closure in `attempt()`, another column), and through every guard whose provider
 returns it, so the account keeps one count whichever guard checks it, and only that count bounds the guesses made at its
@@ -1060,6 +1062,87 @@ is reconsidered without it: it starts on a new device, or hands out a pending si
 now asks for a further factor without the device's trust. The additional-factor policy is told of the device the client
 proved, so a factor policy can trust a device it has seen a factor on.
 
+#### Writing a sign-in method
+
+A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why
+it does not; the session service does everything else (the audience policy, the limits, activity, the principal, a
+further factor, the device and the tokens). Use a method for input the package verifies, such as a password, a code
+your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead
+when something outside the session service has already proven the identity, such as an SSO callback your identity
+provider's package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or
+timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three.
+
+```php
+use Illuminate\Contracts\Hashing\Hasher;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
+use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
+
+final readonly class BadgeSignIn implements SignInMethod
+{
+    public function __construct(private Hasher $hasher) {}
+
+    public function identifierType(string $guard): ?string
+    {
+        return 'badge_number';
+    }
+
+    public function identifier(string $guard, array $input): ?string
+    {
+        return is_string($input['badge_number'] ?? null) ? $input['badge_number'] : null;
+    }
+
+    public function authenticate(SignInRequest $request): Identity|SignInFailureReason
+    {
+        $badge    = $this->identifier($request->guard, $request->input);
+        $pin      = $request->input['pin'] ?? null;
+        $identity = $badge === null ? null : $request->provider->retrieveByCredentials(['badge_number' => $badge]);
+
+        if (! $identity instanceof Identity || ! is_string($pin) || ! $request->reserveAccountAttempt($identity)) {
+            return SignInFailureReason::INVALID_CREDENTIALS;
+        }
+
+        return $this->hasher->check($pin, $identity->pin_hash) ? $identity : SignInFailureReason::INVALID_CREDENTIALS;
+    }
+}
+```
+
+`identifierType()` names the identifier the method signs in by: the normaliser its limit counts it through, and the
+identifier a guard that requires verified identifiers checks. Return `null` for a method that uses no identifier (an
+assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
+does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
+never to look anyone up. `authenticate()` returns the identity, or a `SignInFailureReason` (`invalid_credentials` for
+anything the input did not prove); it must not bind a guard, issue tokens or write session state, and must hold no state
+between calls, since the manager keeps one instance per name for the life of the process. Do the same work whether or
+not the identifier exists: the timebox evens out only what the session service's own checks take.
+
+A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
+checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
+attempts). A lookup can find one account by many spellings of its identifier, and through every guard whose provider
+returns it, so only the account's own count bounds the guesses at its secret, and at a further factor its sign-in waits
+for. The slot belongs to the sign-in: it is given back only when the session starts.
+
+Register the method under a name of its own, from a service provider, and allow that name in each guard's audience:
+
+```php
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+
+$this->app->make(SignInMethodManager::class)->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+```
+
+```php
+'kiosk' => [
+    'driver'   => 'jwt',
+    'provider' => 'staff',
+    'audience' => ['methods' => ['badge']],
+],
+```
+
+```php
+$result = Auth::sessions('kiosk')->signIn('badge', $request->only('badge_number', 'pin'));
+```
+
 #### Additional factors
 
 The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that never asks for a factor; an MFA
@@ -1068,9 +1151,14 @@ with the guard, identity, principal, tenant, method, client, and the device the 
 requires a further factor, no session starts: the result's `pending` is a `PendingFactor` whose `token` completes the
 sign-in once, for this guard, within `sign_in.pending_ttl_seconds` (five minutes by default). The token is opaque (not a
 JWT), so it authenticates no request and refreshes nothing; only the digest of its secret is stored, in
-`pending_sign_ins`. The sign-in's attempt slots stay taken while it waits and are given back only when it completes: a
-pending sign-in that is discarded or expires leaves them counted, so a further factor can be guessed no more often than
-a password.
+`pending_sign_ins`. The sign-in's attempt slots stay taken while it waits, the one its password check took on the
+account included, and are given back only when it completes: a pending sign-in that is discarded or expires leaves them
+counted, so each guess at a further factor costs a sign-in attempt. With the password method the guesses are therefore
+bounded by the account's own limit, whichever spelling of the identifier and whichever guard each sign-in used, so a
+further factor can be guessed no more often than the password. A method that does not count the account it checks (see
+[Writing a sign-in method](#writing-a-sign-in-method)) bounds them by its identifier's and the IP address's limits only.
+A sign-in that `start()` holds for a factor took no slots, since nothing was guessed: the external verifier that proved
+the identity bounds how often it can be repeated.
 
 The code that verifies the factor looks the pending sign-in up, verifies the factor for its identity and principal, and
 only then completes it. Possessing the token proves nothing about the factor: `complete()` is a trusted entry point,

@@ -98,9 +98,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     /**
      * A successful attempt asks the audience policy for the method first, then
      * reserves an attempt, finds the account, reserves an attempt on the
-     * account, checks the password and gives the account's slot back, admits
-     * the identity, rehashes the password with the credentials it signed in
-     * with, asks the factor policy, and gives the attempt's reservation back.
+     * account, checks the password, admits the identity, rehashes the password
+     * with the credentials it signed in with, asks the factor policy, and only
+     * then gives both reservations back, the attempt's and the account's.
      *
      * @return void
      *
@@ -165,11 +165,11 @@ final class AbstractGuardTest extends AbstractGuardTestCase
                 'retrieveByCredentials',
                 'acquire account',
                 'validateCredentials',
-                'release account',
                 'admit',
                 'rehashPasswordIfRequired',
                 'requiresAdditionalFactor',
                 'release',
+                'release account',
             ],
             $this->calls,
         );
@@ -450,7 +450,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->audience->shouldReceive('admit')->once()->andReturn(SignInFailureReason::PRINCIPAL_INELIGIBLE);
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
-        $this->expectOnlyTheAccountSlotGivenBack();
+        $this->expectNoSlotGivenBack();
 
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
@@ -498,7 +498,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
             return true;
         });
-        $this->expectOnlyTheAccountSlotGivenBack();
+        $this->expectNoSlotGivenBack();
 
         $events = $this->recordEvents();
         $guard  = $this->makeGuard();
@@ -805,17 +805,15 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
-     * Expect the attempt to give back only the slot its accepted password took
-     * on the account: the attempt's own reservation is kept, as for any
-     * failure.
+     * Expect the attempt to give back no slot: a failure after the password was
+     * accepted keeps the attempt's own reservation and the one its password
+     * check took on the account, as any failure does.
      *
      * @return void
      */
-    private function expectOnlyTheAccountSlotGivenBack(): void
+    private function expectNoSlotGivenBack(): void
     {
-        $this->limiter->shouldReceive('release')
-            ->once()
-            ->with(\Mockery::on(static fn (AttemptReservation $released): bool => $released->subject->account !== null));
+        $this->limiter->shouldReceive('release')->never();
     }
 
     /**

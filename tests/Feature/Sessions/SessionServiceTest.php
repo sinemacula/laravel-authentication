@@ -366,7 +366,8 @@ final class SessionServiceTest extends TestCase
      * An attempt over its limit fails with the wait, without checking the
      * input; one under it takes a slot for the identifier as given, its type
      * and the client's IP address, then one on the account its password is
-     * checked against, and a success gives both back.
+     * checked against, which a wrong password keeps; a success gives both back
+     * once its session started.
      *
      * @return void
      *
@@ -406,7 +407,7 @@ final class SessionServiceTest extends TestCase
         self::assertCount(2, $released);
 
         [$limitedSubject, , $wrongAccount, $successSubject, $successAccount] = $subjects->getArrayCopy();
-        [$accountRelease, $release]                                          = $released->getArrayCopy();
+        [$release, $accountRelease]                                          = $released->getArrayCopy();
 
         self::assertSame($successAccount, $accountRelease->subject);
         self::assertSame($successSubject, $release->subject);
@@ -536,8 +537,8 @@ final class SessionServiceTest extends TestCase
      * The additional-factor policy is asked about every admitted sign-in, with
      * the client's description and no proven device; a sign-in it asks a factor
      * of starts no session: it hands out a pending sign-in for the identity and
-     * principal, which does not fail the sign-in and keeps the attempt's slots
-     * (only the account's, taken for the password check, goes back).
+     * principal, which does not fail the sign-in and keeps every slot the
+     * sign-in took, the account's included, recording their windows.
      *
      * @return void
      *
@@ -555,13 +556,13 @@ final class SessionServiceTest extends TestCase
             return true;
         });
 
-        $released = 0;
-
         $limiter = $this->bindMock(AttemptLimiter::class);
-        $limiter->shouldReceive('acquire')->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null));
-        $limiter->shouldReceive('release')->once()->andReturnUsing(static function (AttemptReservation $reservation) use (&$released): void {
-            $released += $reservation->subject->account === null ? 1 : 0;
+        $limiter->shouldReceive('acquire')->andReturnUsing(static function (AttemptSubject $subject): AttemptReservation {
+            $slot = $subject->account === null ? 'sign-in' : 'account';
+
+            return new AttemptReservation($subject, null, [$slot => '2026-04-06 12:05:00']);
         });
+        $limiter->shouldReceive('release')->never();
 
         $this->recordEvents([Failed::class, SignInFailed::class, DeviceCreated::class, SignedIn::class]);
 
@@ -579,7 +580,7 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($identity, $result->pending->identity);
         self::assertSame('password', $result->pending->method);
         self::assertSame('api', $result->pending->guard);
-        self::assertSame(0, $released);
+        self::assertSame(['sign-in' => '2026-04-06 12:05:00', 'account' => '2026-04-06 12:05:00'], PendingSignIn::query()->sole()->attempt_windows);
         self::assertSame(0, Device::query()->count());
         self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());

@@ -156,9 +156,9 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     /**
      * Rows of `[credentials, active, writes]`: rejected sign-ins, whether the
      * seeded identity is active, and the writes each costs: an unknown
-     * identifier reserves only the identifier's and the IP address's slots, a
-     * wrong password the account's too, and an inactive identity, whose
-     * password matched, gives the account's back.
+     * identifier reserves only the identifier's and the IP address's slots, and
+     * a wrong password or an inactive identity the account's too, which a
+     * failure keeps whether or not the password matched.
      *
      * @return iterable<string, array{0: array<string, string>, 1: bool, 2: int}>
      */
@@ -167,7 +167,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
         yield from [
             'unknown identifier' => [['email' => 'nobody@example.test', 'password' => self::PASSWORD], true, 4],
             'wrong password'     => [['email' => 'signer@example.test', 'password' => 'wrong'], true, 6],
-            'inactive identity'  => [['email' => 'signer@example.test', 'password' => self::PASSWORD], false, 7],
+            'inactive identity'  => [['email' => 'signer@example.test', 'password' => self::PASSWORD], false, 6],
         ];
     }
 
@@ -197,8 +197,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     /**
      * A pinned live device costs one read on top of the identity, plus the
      * first-use timestamp write besides the limits; a pinned revoked device
-     * costs the same reads, writes only its reservations and the account's
-     * returned slot, and fails the attempt.
+     * costs the same reads, writes only its reservations, the account's
+     * included, and fails the attempt.
      *
      * @return void
      *
@@ -218,7 +218,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::TWO_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(2, 4, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
+        self::assertFalse($this->assertQueryBudget(2, 3, fn (): bool => $guard->attempt($this->credentials($identity->email), null, $device)));
     }
 
     /**
@@ -260,7 +260,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
      * Pinning another identity's principal misses the hinted lookup; the
      * resolver falls back to the identity's default principal, whose id does
      * not match the pin, so the attempt fails without any owner read and keeps
-     * its reservations; the account's slot went back when the password matched.
+     * its reservations, the one its password check took on the account
+     * included.
      *
      * @return void
      *
@@ -273,7 +274,7 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $guard = $this->freshGuard(self::THREE_D_GUARD);
 
-        self::assertFalse($this->assertQueryBudget(3, 7, fn (): bool => $guard->attempt($this->credentials($identity->email), $foreignMember)));
+        self::assertFalse($this->assertQueryBudget(3, 6, fn (): bool => $guard->attempt($this->credentials($identity->email), $foreignMember)));
         self::assertFalse($guard->hasUser());
     }
 

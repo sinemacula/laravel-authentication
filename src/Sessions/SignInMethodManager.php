@@ -90,7 +90,7 @@ final class SignInMethodManager extends Manager
      */
     protected function createPasswordDriver(): PasswordSignIn
     {
-        return new PasswordSignIn($this->config, $this->container);
+        return new PasswordSignIn($this->config);
     }
 
     /**

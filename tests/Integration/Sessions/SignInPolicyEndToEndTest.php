@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -30,6 +31,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -324,6 +326,72 @@ final class SignInPolicyEndToEndTest extends TestCase
     }
 
     /**
+     * A sign-in waiting for a further factor keeps the slot its password check
+     * took on the account, so the factor can be guessed no more often than the
+     * password, however the sign-ins name the account: five pending sign-ins
+     * through two guards and two identifiers, each discarded as a failed
+     * factor, use the account's limit up, and a sixth sign-in with the right
+     * password mints no pending sign-in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFurtherFactorIsGuessedNoMoreOftenThanTheAccountsPassword(): void
+    {
+        $identity = $this->seedPasswordIdentity('ada@example.test');
+        $byNumber = ['id' => (string) $identity->getKey(), 'password' => self::PASSWORD]; // @phpstan-ignore cast.string
+
+        self::requireAFurtherFactor();
+
+        foreach ([['api', self::credentials()], ['by_number', $byNumber]] as [$guard, $credentials]) {
+            for ($guess = 0; $guess < ($guard === 'api' ? 3 : 2); $guess++) {
+
+                $pending = $this->sessions($guard)->signIn('password', $credentials)->pending;
+
+                self::assertNotNull($pending, "Expected a pending sign-in through {$guard}");
+                self::assertTrue($this->sessions($guard)->discard($pending->token));
+            }
+        }
+
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions('by_number')->signIn('password', $byNumber)->reason);
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * On MySQL, whose default collation finds one account by many variants of
+     * its address, each variant has its own identifier limit but the account
+     * one: five pending sign-ins through five variants use it up, and a sixth
+     * variant with the right password mints no pending sign-in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCollationVariantsCannotMintMorePendingSignInsThanTheAccountAllowsOnMySql(): void
+    {
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            self::markTestSkipped('Only MySQL\'s default collation finds an account by these variants.');
+        }
+
+        $this->seedPasswordIdentity('victim@example.test');
+
+        self::requireAFurtherFactor();
+
+        $variants = ["v\u{00ED}ctim@example.test", "vic\u{200B}tim@example.test", "\u{FF56}ictim@example.test", "victi\u{0301}m@example.test", "victim@ex\u{00E1}mple.test"];
+
+        foreach ($variants as $variant) {
+            self::assertTrue($this->sessions()->signIn('password', ['email' => $variant, 'password' => self::PASSWORD])->requiresFactor(), "No pending sign-in for {$variant}");
+        }
+
+        $refused = $this->sessions()->signIn('password', ['email' => "victi\u{200B}m@example.test", 'password' => self::PASSWORD]);
+
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $refused->reason);
+        self::assertSame(5, PendingSignIn::query()->count());
+    }
+
+    /**
      * A guard that names its own identifier column signs in by that column,
      * through `signIn()` and `attempt()` alike, ignores the package's, and
      * counts its attempts against the identifier under that column: after five
@@ -564,6 +632,20 @@ final class SignInPolicyEndToEndTest extends TestCase
 
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
+    }
+
+    /**
+     * Bind an additional-factor policy that asks every sign-in for a further
+     * factor.
+     *
+     * @return void
+     */
+    private static function requireAFurtherFactor(): void
+    {
+        $factors = \Mockery::mock(AdditionalFactorPolicy::class);
+        $factors->shouldReceive('requiresAdditionalFactor')->andReturnTrue();
+
+        app()->instance(AdditionalFactorPolicy::class, $factors);
     }
 
     /**

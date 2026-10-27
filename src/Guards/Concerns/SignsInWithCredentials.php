@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
@@ -42,10 +43,10 @@ trait SignsInWithCredentials
     /**
      * Run an `attempt()` sign-in up to the bind: the audience policy's method
      * check and the attempt limits, then, inside the credential timebox, the
-     * password check (refused before any lookup when the identifier is neither
-     * a string nor a query closure, and counted against the account the
-     * credentials find) and everything after it. The slots the attempt took are
-     * given back only when it succeeds.
+     * password check (refused before any lookup when the identifier key holds
+     * anything a lookup could not count, and counted against the account the
+     * credentials find) and everything after it. The slots the attempt took,
+     * the account's included, are given back only when it succeeds.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
@@ -77,34 +78,40 @@ trait SignsInWithCredentials
             return new RefusedSignIn(SignInFailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
-        $outcome = $this->timebox->call(function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $audience, $type): AdmittedSignIn|RefusedSignIn {
+        $accounts = new AccountAttempts($limiter, $this->name);
 
-            $user = $this->verifyAttemptedCredentials($password, $credentials);
+        $outcome = $this->timebox->call(
+            function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $audience, $type, $accounts): AdmittedSignIn|RefusedSignIn {
 
-            if ($user === null) {
-                return new RefusedSignIn(SignInFailureReason::INVALID_CREDENTIALS);
-            }
+                $user = $this->verifyAttemptedCredentials($password, $credentials, $accounts);
 
-            $this->fireValidatedEvent($user);
+                if ($user === null) {
+                    return new RefusedSignIn(SignInFailureReason::INVALID_CREDENTIALS);
+                }
 
-            $outcome = $this->admitVerifiedIdentity(new SignInAdmission($audience), $user, $principal, $device, $type);
+                $this->fireValidatedEvent($user);
 
-            if ($outcome instanceof AdmittedSignIn) {
+                $outcome = $this->admitVerifiedIdentity(new SignInAdmission($audience), $user, $principal, $device, $type);
 
-                $password->rehash($this->provider, $user, $credentials);
+                if ($outcome instanceof AdmittedSignIn) {
 
-                $outcome = $this->refuseIfAFactorIsRequired($outcome, $client);
-            }
+                    $password->rehash($this->provider, $user, $credentials);
 
-            if ($outcome instanceof AdmittedSignIn) {
-                $timebox->returnEarly();
-            }
+                    $outcome = $this->refuseIfAFactorIsRequired($outcome, $client);
+                }
 
-            return $outcome;
-        }, $this->timeboxMicroseconds());
+                if ($outcome instanceof AdmittedSignIn) {
+                    $timebox->returnEarly();
+                }
+
+                return $outcome;
+            },
+            $this->timeboxMicroseconds(),
+        );
 
         if ($outcome instanceof AdmittedSignIn) {
             $limiter->release($reservation);
+            $accounts->release();
         }
 
         return $outcome;
@@ -112,19 +119,19 @@ trait SignsInWithCredentials
 
     /**
      * Return the identity the credentials of an `attempt()` find and whose
-     * password they match, or `null`. Credentials whose identifier is neither a
-     * string nor a query closure are never looked up; otherwise the account
-     * found is remembered for Laravel's `Failed` event, and its password check
-     * is counted against it.
+     * password they match, or `null`. Credentials whose identifier key holds
+     * anything a lookup could not count are never looked up; otherwise the
+     * account found is remembered for Laravel's `Failed` event, and its
+     * password check is counted against it in the attempt's account slots.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function verifyAttemptedCredentials(PasswordSignIn $password, #[\SensitiveParameter] array $credentials): ?Identity
+    private function verifyAttemptedCredentials(PasswordSignIn $password, #[\SensitiveParameter] array $credentials, AccountAttempts $accounts): ?Identity
     {
         if (!$password->hasUsableIdentifier($this->name, $credentials)) {
             return null;
@@ -134,7 +141,7 @@ trait SignsInWithCredentials
 
         $this->lastRetrievedUser = $user;
 
-        return $user instanceof Identity && $password->verifyPassword($this->name, $this->provider, $user, $credentials) ? $user : null;
+        return $user instanceof Identity && $password->verifyPassword($accounts, $this->provider, $user, $credentials) ? $user : null;
     }
 
     /**

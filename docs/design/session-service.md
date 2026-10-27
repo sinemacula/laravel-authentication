@@ -23,11 +23,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   the principal (the context's pin, verified like an `attempt()` pin, else the resolver's default) and its tenant must
   be active, and the audience policy must admit them with the method's identifier type; a password is rehashed; the
   proof of a device is checked; the additional-factor policy is asked; the session is written, or a pending sign-in is
-  issued. Only a success gives the slots back; a pending sign-in keeps them, with their windows, until `complete()`
-  starts its session. The slots are written on `rate_limits.connection`, outside the session's own transaction but not
-  outside a transaction the caller opened on that connection: with the default (`null`, the default connection) a
-  caller that rolls back around a sign-in rolls its counts back too, so its attempts go uncounted. Only counters on a
-  connection of their own survive such a rollback.
+  issued. Only a success gives the slots back, those the method took on the accounts it checked included; a pending
+  sign-in keeps them all, with their windows, until `complete()` starts its session. The slots are written on
+  `rate_limits.connection`, outside the session's own transaction but not outside a transaction the caller opened on
+  that connection: with the default (`null`, the default connection) a caller that rolls back around a sign-in rolls its
+  counts back too, so its attempts go uncounted. Only counters on a connection of their own survive such a rollback.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
@@ -66,9 +66,12 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   guard-bound token's secret, who, as whom, how, from which client, the proven device and the digest it was proven
   against, the windows of the attempt-limit slots the sign-in took, and an expiry from
   `authentication.sign_in.pending_ttl_seconds`) and returns its token. The token is not a JWT, so no guard authenticates
-  a request or a refresh with it. The slots stay taken until the pending sign-in completes, and `discard()` uses one up
-  without a session (as when its factor fails), so each guess at a factor costs a sign-in attempt and the guesses are
-  bounded by the sign-in limits.
+  a request or a refresh with it. The slots stay taken until the pending sign-in completes, the one the method's check
+  took on the account (`SignInRequest::reserveAccountAttempt()`) among them, and `discard()` uses one up without a
+  session (as when its factor fails), so each guess at a factor costs a sign-in attempt. For the password method the
+  guesses are bounded by the account's limit, whatever spelling of the identifier or guard the sign-ins used; for a
+  method that counts no account, only by its identifier's and the IP address's limits. A pending sign-in from
+  `start()` holds no slots (nothing was guessed), so its external verifier bounds it.
 - `pending()` finds a live pending sign-in of the guard (identity reloaded through the provider as the recorded owner,
   principal through the hinted path as the recorded one, still owned) without using it up. `complete()` uses it up by a
   `DELETE` on its id, digest and unexpired `expires_at` that only one completion can win, checks it again (method,
@@ -88,6 +91,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 ## Implementation Anchors
 
 - `src/Sessions/SessionService.php`: `signIn()`, `start()`, `establish()`.
+- `src/Sessions/SignInRequest.php` (`reserveAccountAttempt()`) and `src/Sessions/AccountAttempts.php`: the slots a
+  sign-in's method takes on the accounts it checks, held with the sign-in's own.
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
 - `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Jwt/DeviceLookup.php`.
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
@@ -98,7 +103,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Authoritative Tests
 
-- `tests/Feature/Sessions/SessionServiceTest.php`
+- `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/Sessions/AccountAttemptsTest.php`
 - `tests/Integration/Sessions/SessionServiceTest.php`
 - `tests/Feature/Sessions/DeviceProofTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
 - `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`

@@ -125,8 +125,9 @@ final readonly class SessionService
      * is outdated; the client's refresh token, if any, is checked as proof of
      * an existing device; the additional-factor policy is asked, and when it
      * requires a further factor the result is a pending sign-in instead of a
-     * session; otherwise the session starts. A success gives the attempt's
-     * slots back; a pending sign-in keeps them until it completes.
+     * session; otherwise the session starts. A success gives back the attempt's
+     * slots and those the method took on the accounts it checked; a pending
+     * sign-in keeps them all until it completes.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -309,30 +310,36 @@ final readonly class SessionService
             return new RefusedSignIn(SignInFailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
+        $accounts = new AccountAttempts($limiter, $subject->guard);
+        $request  = new SignInRequest($subject->guard, $this->guard->getProvider(), $input, $context->client, $accounts);
+
         /** @var \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn $admitted */
         $admitted = ($this->timebox)(
-            fn (Timebox $timebox): AdmittedSignIn|RefusedSignIn => $this->verify($driver, $input, $context, $subject->identifierType, $timebox),
+            fn (Timebox $timebox): AdmittedSignIn|RefusedSignIn => $this->verify($driver, $request, $context, $subject->identifierType, $timebox),
         );
 
         if ($admitted instanceof AdmittedSignIn && $driver instanceof PasswordSignIn) {
             $driver->rehash($this->guard->getProvider(), $admitted->identity, $input);
         }
 
-        $outcome = $admitted instanceof AdmittedSignIn ? $this->proceed($admitted, $method, $subject->identifierType, $context, $reservation->windows) : $admitted;
+        $outcome = $admitted instanceof AdmittedSignIn
+            ? $this->proceed($admitted, $method, $subject->identifierType, $context, [...$reservation->windows, ...$accounts->windows()])
+            : $admitted;
 
         if ($outcome instanceof SignInResult && $outcome->isSignedIn()) {
             $limiter->release($reservation);
+            $accounts->release();
         }
 
         return $outcome;
     }
 
     /**
-     * Verify the input with the sign-in method and admit the identity it
+     * Verify the request with the sign-in method and admit the identity it
      * proves, cutting the timebox short only for an admitted sign-in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
-     * @param  array<array-key, mixed>  $input
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?string  $identifierType
      * @param  \Illuminate\Support\Timebox  $timebox
@@ -342,14 +349,9 @@ final readonly class SessionService
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function verify(
-        SignInMethod $driver,
-        #[\SensitiveParameter] array $input,
-        SignInContext $context,
-        ?string $identifierType,
-        Timebox $timebox,
-    ): AdmittedSignIn|RefusedSignIn {
-        $verified = $driver->authenticate(new SignInRequest($this->guard->getName(), $this->guard->getProvider(), $input, $context->client));
+    private function verify(SignInMethod $driver, SignInRequest $request, SignInContext $context, ?string $identifierType, Timebox $timebox): AdmittedSignIn|RefusedSignIn
+    {
+        $verified = $driver->authenticate($request);
 
         $outcome = $verified instanceof Identity
             ? $this->admit($verified, $context->principal, $identifierType)

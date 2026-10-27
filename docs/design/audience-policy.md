@@ -73,7 +73,8 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 - A lookup can still find one account by spellings no normaliser folds (a collation that ignores accents, widths or
   invisible characters, a query closure, a list of values, another column), so the password method counts every
   password it checks against the account it checks it for (`AttemptSubject::$account`, a `per_account` counter under
-  the `per_identifier` limit), taking the slot after the lookup and giving it back when the password matches. The
+  the `per_identifier` limit), taking the slot after the lookup and holding it with the sign-in's other slots: given
+  back when the sign-in starts its session, kept by a pending sign-in until it completes, counted on a failure. The
   account's counter is keyed without the guard, so every guard whose provider returns the account counts in it, each
   held to its own `per_identifier` maximum (a guard with that limit off neither checks nor counts it): adding a guard
   adds no guesses. An
