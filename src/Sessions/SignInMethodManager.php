@@ -12,8 +12,10 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * The registry of sign-in methods, keyed by the name each is recorded under on
  * the devices it signs in and allowed under in a guard's audience policy.
  *
- * The package registers `password`. Other methods register themselves with
- * `extend()`, for example from a service provider:
+ * The package registers `password`, which `attempt()` and `validate()` also use
+ * directly, so the name is reserved: `extend('password', ...)` throws. Other
+ * methods register themselves with `extend()`, for example from a service
+ * provider:
  *
  * `$app->make(SignInMethodManager::class)->extend('sso', fn ($app) => $app->make(SsoSignIn::class));`
  *
@@ -38,6 +40,34 @@ final class SignInMethodManager extends Manager
     public function method(string $name): SignInMethod
     {
         return self::assertSignInMethod($name, $this->driver($name));
+    }
+
+    /**
+     * Register a sign-in method under the name. The package's `password` method
+     * cannot be replaced: `attempt()`, `validate()` and the rehash on a
+     * password sign-in rely on it, so a replacement would change `signIn()` but
+     * not them.
+     *
+     * @param  mixed  $driver
+     * @param  \Closure  $callback
+     * @return $this
+     *
+     * @throws \InvalidArgumentException
+     *
+     * @phpstan-ignore missingType.callable
+     */
+    #[\Override]
+    public function extend(mixed $driver, \Closure $callback): self
+    {
+        if ($driver === PasswordSignIn::NAME) {
+            $message = sprintf('The [%s] sign-in method is the package\'s own and cannot be replaced; register yours under another name.', PasswordSignIn::NAME);
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        parent::extend($driver, $callback);
+
+        return $this;
     }
 
     /**

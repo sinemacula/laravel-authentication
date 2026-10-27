@@ -113,6 +113,28 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
+     * The package's `password` method cannot be replaced, since `attempt()` and
+     * `validate()` use it directly; the manager still builds the shipped one.
+     *
+     * @return void
+     */
+    public function testThePasswordMethodCannotBeReplaced(): void
+    {
+        $manager = $this->manager();
+
+        try {
+            $manager->extend('password', fn (): mixed => null);
+
+            self::fail('Expected the password method to be reserved.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('The [password] sign-in method is the package\'s own and cannot be replaced; register yours under another name.', $exception->getMessage());
+        }
+
+        self::assertInstanceOf(PasswordSignIn::class, $manager->method('password'));
+        self::assertSame($manager, $manager->extend('passkey', fn (): mixed => null));
+    }
+
+    /**
      * An unknown method name fails as a misconfiguration.
      *
      * @return void

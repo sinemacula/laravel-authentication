@@ -1290,19 +1290,23 @@ Concrete classes in this package are `final` except `AuthManager` (the package's
 shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
 inheritance:
 
-| Extension point                   | How                                                                        |
-|-----------------------------------|----------------------------------------------------------------------------|
-| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)     |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait                   |
-| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                  |
-| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                       |
-| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                        |
-| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                          |
-| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container                    |
-| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                    |
-| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                    |
-| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config        |
+| Extension point                   | How                                                                                                           |
+|-----------------------------------|---------------------------------------------------------------------------------------------------------------|
+| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                        |
+| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait                                                      |
+| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                     |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                          |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                           |
+| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                             |
+| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name other than `password` |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container                                                       |
+| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                       |
+| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                       |
+| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                           |
+
+The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
+`extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
+different password scheme under a name of its own and allow that name in the guard's audience.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
