@@ -17,10 +17,12 @@ namespace SineMacula\Laravel\Authentication\Contracts;
 interface ResolvesHintedPrincipal
 {
     /**
-     * Resolve the principal identified by the supplied hint. The default
-     * resolver runs it with reads on this identity's connection pinned to the
-     * write connection; a lookup on any other connection must pin itself (see
-     * `Database\WriteConnection`).
+     * Resolve the principal identified by the supplied hint, among this
+     * identity's own principals only: the hint can come from a caller, so a
+     * lookup by the hint alone could return another identity's principal. The
+     * default resolver runs it with reads on this identity's connection pinned
+     * to the write connection; a lookup on any other connection must pin itself
+     * (see `Database\WriteConnection`).
      *
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal

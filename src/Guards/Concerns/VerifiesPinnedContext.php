@@ -53,6 +53,11 @@ trait VerifiesPinnedContext
      * return the resolver's instance. Returns `null` when the identity does not
      * own a principal of the same class with that identifier.
      *
+     * Ownership is checked here as well, rather than trusted to the resolver:
+     * the resolved principal's own identity must be the authenticated one, so a
+     * resolver whose hinted lookup is not scoped to the identity cannot bind
+     * another identity's principal.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $pinned
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
@@ -64,9 +69,11 @@ trait VerifiesPinnedContext
         $hint     = $pinned->getPrincipalIdentifier();
         $resolved = $this->resolvePrincipal($identity, $hint);
 
-        return $resolved !== null && $resolved::class === $pinned::class && $this->matchesPidHint($resolved, $hint)
-            ? $resolved
-            : null;
+        if ($resolved === null || $resolved::class !== $pinned::class || !$this->matchesPidHint($resolved, $hint)) {
+            return null;
+        }
+
+        return $this->isOwnedBy($resolved, $identity) ? $resolved : null;
     }
 
     /**
@@ -113,5 +120,23 @@ trait VerifiesPinnedContext
         $device = $devices->find($hint);
 
         return $device instanceof Device && $device->getRevokedAt() === null ? $device : null;
+    }
+
+    /**
+     * Whether the principal's owning identity is the given identity: the same
+     * class with the same auth identifier. The owner is read with reads on the
+     * principal's connection pinned to the write connection. In 2D mode the
+     * principal is its own identity.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return bool
+     */
+    private function isOwnedBy(Principal $principal, Identity $identity): bool
+    {
+        $owner = WriteConnection::during($principal, static fn (): Identity => $principal->getIdentity());
+
+        return $owner::class === $identity::class
+            && IdentifierCoercion::matches($owner->getAuthIdentifier(), $identity->getAuthIdentifier());
     }
 }

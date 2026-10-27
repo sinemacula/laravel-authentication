@@ -256,8 +256,8 @@ The package pins the queries it builds. Code you plug in carries the same obliga
 ```php
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
-// A query you build: route it to the write PDO.
-$membership = WriteConnection::query(Membership::query())->find($hint);
+// A query you build: route it to the write PDO, scoped to the identity.
+$membership = WriteConnection::query(Membership::query()->where('identity_id', $identity->getKey()))->find($hint);
 
 // Code that reads through a model's connection: pin it for the callback.
 $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
@@ -381,7 +381,8 @@ Implement `ResolvesHintedPrincipal` on the identity to replace the default `prin
 with a custom query - for example, joining the tenant row in one SQL so `Auth::tenant()` does not lazy-load.
 
 For domain-specific resolution (subdomain, header, session claim), implement `PrincipalResolver` and bind it in
-a service provider:
+a service provider. A hint can come from a caller pinning a principal on `attempt()`, so a custom resolver or
+`resolveHintedPrincipal()` must look the hint up among the identity's own principals only, never by the hint alone:
 
 ```php
 $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
@@ -459,9 +460,10 @@ $guard->attempt(['email' => $email, 'password' => $password], $membership, $devi
 ```
 
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
-resolver returns for that identifier on the authenticated identity (same class, same identifier), and the device must be
-one of the identity's own devices (through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin
-that fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
+resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
+identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
+(through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin that fails either check fails the
+attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
 only pass it a principal and device you have already proven belong to the identity.
 
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:

@@ -139,6 +139,57 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
+     * A principal of another identity fails the attempt even when the resolver
+     * returns it for the hint, as one whose hinted lookup is not scoped to the
+     * identity does: the guard checks the principal's own identity.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedPrincipalOwnedByAnotherIdentityFailsTheAttempt(): void
+    {
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
+
+        $victim = $this->mockIdentity();
+        $victim->shouldReceive('getAuthIdentifier')->andReturn(8);
+
+        $pinned = $this->principal('p-victim', $victim);
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-victim')->andReturn($pinned);
+
+        $this->assertAttemptFails($this->guardAttempt($pinned));
+    }
+
+    /**
+     * A principal owned by an identity of another class that shares the
+     * authenticated identity's identifier fails the attempt.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPinnedPrincipalOwnedByAnIdentityOfAnotherClassWithACollidingIdentifierFailsTheAttempt(): void
+    {
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
+
+        $other = \Mockery::mock(Identity::class, HasDevices::class);
+        $other->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $pinned = $this->principal('p-1', $other);
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($pinned);
+
+        $this->assertAttemptFails($this->guardAttempt($pinned));
+    }
+
+    /**
      * An owned but inactive pinned principal fails the attempt.
      *
      * @return void
@@ -147,10 +198,14 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
      */
     public function testInactivePinnedPrincipalFailsTheAttempt(): void
     {
-        $identity = $this->acceptIdentity($this->mockIdentity());
+        $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $this->acceptIdentity($identity);
 
         $pinned = \Mockery::mock(Principal::class, CanBeActive::class);
         $pinned->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $pinned->shouldReceive('getIdentity')->andReturn($identity);
         $pinned->shouldReceive('isActive')->andReturnFalse();
 
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($pinned);
@@ -321,9 +376,11 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     {
         $guard = $this->makeStubGuard();
 
-        $principal = $this->principal('p-1');
         $identity  = \Mockery::mock(Identity::class, HasDevices::class);
+        $principal = $this->principal('p-1', $identity);
         $device    = $this->device(self::DEVICE_ID, null);
+
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
 
         $devices = \Mockery::mock(Builder::class);
         $devices->shouldReceive('useWritePdo')->twice()->andReturnSelf();
@@ -435,16 +492,21 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
     /**
      * Build a principal without the activation capability that acts within no
-     * tenant.
+     * tenant, owned by the supplied identity when one is given.
      *
      * @param  ?string  $identifier
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
      */
-    private function principal(?string $identifier): MockInterface
+    private function principal(?string $identifier, ?Identity $owner = null): MockInterface
     {
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn($identifier);
         $principal->shouldReceive('getTenant')->andReturnNull();
+
+        if ($owner !== null) {
+            $principal->shouldReceive('getIdentity')->andReturn($owner);
+        }
 
         return $principal;
     }

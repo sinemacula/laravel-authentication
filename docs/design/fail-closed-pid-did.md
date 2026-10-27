@@ -8,7 +8,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 ## Invariants
 
 - A present `pid` must resolve to that exact principal identifier. The same check verifies a principal pinned on
-  `attempt()`, which must also come back as the same class.
+  `attempt()`, which must also come back as the same class and be owned by the authenticated identity: its
+  `getIdentity()`, read from the write connection, must be that identity's class and auth identifier, so a resolver
+  whose hinted lookup is not scoped to the identity cannot bind another identity's principal.
 - A present bearer `did` must resolve to a real, unrevoked device owned by the resolved identity. A device with
   `revoked_at` set is treated exactly like a missing one, so revoking a device ends its access tokens at once; the check
   reads the row the lookup already loaded, with no extra query. The same lookup verifies a device pinned on `attempt()`,

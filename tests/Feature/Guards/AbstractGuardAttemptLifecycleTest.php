@@ -310,8 +310,11 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
         $explicit = $this->mockActivePrincipal();
         $explicit->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $explicit->shouldReceive('getIdentity')->andReturn($identity);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()

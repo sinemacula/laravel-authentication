@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
+use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
 use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\StubDevice;
@@ -26,7 +27,8 @@ use Tests\Unit\Stubs\StubDevice;
  * A principal or device pinned on `attempt()`, as an endpoint might load it
  * from request input, is bound only when it belongs to the identity whose
  * credentials were checked: another member's membership or device, or a model
- * of another class that shares an identifier, fails the attempt.
+ * of another class that shares an identifier, fails the attempt, even when the
+ * guard's resolver does not scope its hinted lookup to the identity.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -120,6 +122,31 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
 
         self::assertFalse($guard->attempt($this->credentials($member), $otherMembership));
         self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * Another member's membership fails the attempt even on a guard whose
+     * resolver finds a hinted membership by key alone, without scoping it to
+     * the identity, while the member's own membership is still bound there.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnotherMembersMembershipFailsEvenWhenTheResolverIsNotScoped(): void
+    {
+        [$member, $membership] = $this->seedMember('first@example.test');
+        [, $otherMembership]   = $this->seedMember('second@example.test');
+
+        $guard = $this->freshGuard('unscoped');
+
+        self::assertFalse($guard->attempt($this->credentials($member), $otherMembership));
+        self::assertFalse($guard->hasUser());
+
+        $guard = $this->freshGuard('unscoped');
+
+        self::assertTrue($guard->attempt($this->credentials($member), $membership));
+        self::assertSame($membership->getKey(), $guard->principal()?->getPrincipalIdentifier());
     }
 
     /**
@@ -221,6 +248,12 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
             'provider' => 'members',
         ]);
 
+        $config->set('auth.guards.unscoped', [
+            'driver'             => 'jwt',
+            'provider'           => 'members',
+            'principal_resolver' => UnscopedMembershipResolver::class,
+        ]);
+
         $config->set('auth.providers.members', [
             'driver' => 'model',
             'model'  => ActivatableTenantMember::class,
@@ -277,11 +310,12 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
-     * Resolve a fresh `api` JWT guard against a fresh request.
+     * Resolve a fresh JWT guard (`api` by default) against a fresh request.
      *
+     * @param  string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function freshGuard(): JwtGuard
+    private function freshGuard(string $name = 'api'): JwtGuard
     {
         app()->instance('request', Request::create('/sign-in', 'POST'));
 
@@ -291,7 +325,7 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
 
         $manager->forgetGuards();
 
-        $guard = $manager->guard('api');
+        $guard = $manager->guard($name);
 
         assert($guard instanceof JwtGuard);
 

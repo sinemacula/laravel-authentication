@@ -261,6 +261,33 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A membership pinned on `attempt()` whose member exists only on the
+     * primary is bound: the ownership check reads the membership's identity
+     * from the writer.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptReadsThePinnedPrincipalsOwnerFromTheWriteConnection(): void
+    {
+        $tenant = new ActivatableTenant;
+        $tenant->forceFill(['name' => 'Tenant', 'is_active' => true])->save();
+
+        $member = new ActivatableTenantMember;
+        $member->forceFill(['email' => 'member@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+        $membership = new ActivatableTenantMembership;
+        $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
+
+        $credentials = ['email' => 'member@example.test', 'password' => self::PASSWORD];
+        $guard       = $this->guardForRequest(Request::create('/sign-in', 'POST'), 'members');
+
+        self::assertTrue($guard->attempt($credentials, ActivatableTenantMembership::query()->useWritePdo()->findOrFail($membership->getKey())));
+        self::assertSame($membership->getKey(), $guard->principal()?->getPrincipalIdentifier());
+    }
+
+    /**
      * The model provider finds an identity by credentials when the row exists
      * only on the primary.
      *

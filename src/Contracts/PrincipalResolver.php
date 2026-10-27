@@ -15,6 +15,12 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * it from the write connection, never a read replica that can lag behind a
  * deactivation or deletion (see `Database\WriteConnection`).
  *
+ * A hint can come from a caller (a principal pinned on `attempt()`), not only
+ * from a signed token, so an implementation must only ever return a principal
+ * that belongs to the identity it is given: scope the hinted lookup to that
+ * identity. The guard also checks a pinned principal's owner, but a resolver
+ * must not rely on that.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -23,7 +29,8 @@ interface PrincipalResolver
     /**
      * Resolve a principal for the given identity. The optional `$hint`
      * (typically a principal id from a token payload) lets resolvers
-     * short-circuit the default lookup.
+     * short-circuit the default lookup. The result, hinted or not, must belong
+     * to `$identity`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed|null  $hint
