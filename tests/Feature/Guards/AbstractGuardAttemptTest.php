@@ -337,7 +337,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         $identity = $this->mockIdentity();
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnFalse();
@@ -365,6 +365,39 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(\Mockery::type(Failed::class));
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
+    }
+
+    /**
+     * Activation is opt-in: a principal that does not implement `CanBeActive`
+     * is active, so the attempt binds it without consulting any active flag.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAttemptBindsPrincipalWithoutActivationCapability(): void
+    {
+        $guard = $this->makeGuard();
+
+        $identity  = $this->mockIdentity();
+        $principal = \Mockery::mock(Principal::class);
+
+        $this->provider->shouldReceive('retrieveByCredentials')
+            ->once()
+            ->andReturn($identity);
+        $this->provider->shouldReceive('validateCredentials')
+            ->once()
+            ->andReturnTrue();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch');
+
+        self::assertTrue($guard->attempt(['email' => 'x', 'password' => 'y']));
+        self::assertSame($principal, $guard->principal());
     }
 
     /**

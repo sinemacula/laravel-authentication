@@ -73,16 +73,6 @@ trait ActsAsPrincipal
     }
 
     /**
-     * Return whether the principal is currently active and may authenticate.
-     *
-     * @return bool
-     */
-    public function isActive(): bool
-    {
-        return (bool) $this->getAttribute($this->getActiveAttributeName());
-    }
-
-    /**
      * Return the attribute name holding the principal identifier.
      *
      * @return string
@@ -110,15 +100,5 @@ trait ActsAsPrincipal
     protected function getTenantRelationName(): string
     {
         return 'tenant';
-    }
-
-    /**
-     * Return the attribute name holding the active flag.
-     *
-     * @return string
-     */
-    protected function getActiveAttributeName(): string
-    {
-        return 'is_active';
     }
 }

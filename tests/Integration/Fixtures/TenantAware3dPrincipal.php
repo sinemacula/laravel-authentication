@@ -7,6 +7,8 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
@@ -23,9 +25,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class TenantAware3dPrincipal extends Model implements Principal
+final class TenantAware3dPrincipal extends Model implements CanBeActive, Principal
 {
-    use ActsAsPrincipal;
+    use ActsAsPrincipal, ProvidesActiveState;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'tenant_aware_3d_principals';

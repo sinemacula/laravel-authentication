@@ -281,7 +281,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')->once()->andReturn('p-11');
         $principal->shouldReceive('isActive')->once()->andReturnFalse();
 
@@ -390,7 +390,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -482,7 +482,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-19');
         $principal->shouldReceive('isActive')
@@ -549,7 +549,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -605,7 +605,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $replacement = \Mockery::mock(PrincipalResolver::class);
-        $principal   = \Mockery::mock(Principal::class);
+        $principal   = \Mockery::mock(Principal::class, CanBeActive::class);
 
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-17');
@@ -652,7 +652,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $identity = \Mockery::mock(Identity::class);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')

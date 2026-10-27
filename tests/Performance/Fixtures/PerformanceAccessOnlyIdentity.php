@@ -30,15 +30,4 @@ final class PerformanceAccessOnlyIdentity extends Model implements Identity, Pri
 
     /** @var array<string> The attributes that aren't mass assignable. */
     protected $guarded = [];
-
-    /**
-     * This fixture is always active.
-     *
-     * @return bool
-     */
-    #[\Override]
-    public function isActive(): bool
-    {
-        return true;
-    }
 }

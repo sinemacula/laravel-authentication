@@ -8,6 +8,8 @@ use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -32,9 +34,9 @@ use SineMacula\Laravel\Authentication\Models\Device;
  *
  * @internal
  */
-final class IntegrationIdentity extends Model implements HasDevices, Identity, Principal
+final class IntegrationIdentity extends Model implements CanBeActive, HasDevices, Identity, Principal
 {
-    use ActsAsPrincipal, Authenticatable;
+    use ActsAsPrincipal, Authenticatable, ProvidesActiveState;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'integration_identities';

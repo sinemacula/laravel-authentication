@@ -232,7 +232,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $identity = \Mockery::mock(Identity::class);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -255,6 +255,42 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with(\Mockery::type(Failed::class));
 
         self::assertNull($guard->user());
+    }
+
+    /**
+     * Activation is opt-in: a principal that does not implement `CanBeActive`
+     * is bound without consulting any active flag.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserBindsPrincipalWithoutActivationCapability(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch');
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame($principal, $guard->principal());
     }
 
     /**
@@ -479,7 +515,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->once()
             ->andReturn($builder);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -531,7 +567,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->once()
             ->andReturn($builder);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -594,7 +630,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->once()
             ->andReturn($builder);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -658,7 +694,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $identity = \Mockery::mock(Identity::class);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')

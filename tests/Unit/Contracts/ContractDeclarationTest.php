@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
@@ -190,7 +191,6 @@ final class ContractDeclarationTest extends TestCase
             'getPrincipalIdentifier' => ['getPrincipalIdentifier'],
             'getIdentity'            => ['getIdentity'],
             'getTenant'              => ['getTenant'],
-            'isActive'               => ['isActive'],
         ];
     }
 
@@ -208,6 +208,18 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(Principal::class))->hasMethod($method),
             "Principal contract must declare {$method}().",
         );
+    }
+
+    /**
+     * Activation is opt-in: `Principal` does not declare `isActive()`, the
+     * `CanBeActive` capability does.
+     *
+     * @return void
+     */
+    public function testActivationIsDeclaredOnlyByTheCanBeActiveCapability(): void
+    {
+        self::assertFalse((new \ReflectionClass(Principal::class))->hasMethod('isActive'));
+        self::assertTrue((new \ReflectionClass(CanBeActive::class))->hasMethod('isActive'));
     }
 
     /**

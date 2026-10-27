@@ -7,6 +7,8 @@ namespace Tests\Integration\Fixtures;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
@@ -30,9 +32,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class Coexist2dIdentity extends Model implements Identity, Principal
+final class Coexist2dIdentity extends Model implements CanBeActive, Identity, Principal
 {
-    use ActsAsPrincipal, Authenticatable;
+    use ActsAsPrincipal, Authenticatable, ProvidesActiveState;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'coexist_2d_identities';

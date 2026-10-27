@@ -11,6 +11,9 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * from the underlying identity (in the 3D model) or be the identity itself (in
  * the 2D model).
  *
+ * Activation is not part of this contract: a principal that can be deactivated
+ * also implements `CanBeActive`.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
@@ -37,11 +40,4 @@ interface Principal
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */
     public function getTenant(): ?Tenant;
-
-    /**
-     * Return whether the principal is currently active and may authenticate.
-     *
-     * @return bool
-     */
-    public function isActive(): bool;
 }

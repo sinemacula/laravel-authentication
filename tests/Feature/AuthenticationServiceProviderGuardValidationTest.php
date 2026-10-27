@@ -10,6 +10,7 @@ use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
@@ -301,7 +302,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
      */
     private function mockPrincipal(string $id): Principal
     {
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn($id);
         $principal->shouldReceive('isActive')->andReturnTrue();
         $principal->shouldReceive('getTenant')->andReturnNull();

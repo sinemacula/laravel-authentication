@@ -18,6 +18,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
@@ -277,7 +278,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $exchange = $this->makeExchange();
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->times(3)
             ->andReturn('p-12');

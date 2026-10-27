@@ -260,6 +260,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
@@ -270,6 +271,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
 
 class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
@@ -292,9 +294,9 @@ class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
     }
 }
 
-class AppMembership extends Model implements PrincipalContract
+class AppMembership extends Model implements CanBeActive, PrincipalContract
 {
-    use ActsAsPrincipal;
+    use ActsAsPrincipal, ProvidesActiveState;
 
     protected $fillable = ['identity_id', 'tenant_id', 'role', 'is_active'];
 
@@ -317,6 +319,8 @@ With that shape:
   a `pid`, or via `resolveDefaultPrincipal()` otherwise.
 - `Auth::tenant()` returns the `AppTenant` the membership belongs to.
 - `Auth::type()` returns the tenant's type string, or `null` when `HasType` is absent.
+- A membership whose `is_active` is `false` cannot sign in, refresh, or authenticate a request (see
+  [Active-state enforcement](#active-state-enforcement)).
 
 Implement `ResolvesHintedPrincipal` on the identity to replace the default `principals()->find($hint)` lookup
 with a custom query - for example, joining the tenant row in one SQL so `Auth::tenant()` does not lazy-load.
@@ -330,8 +334,10 @@ $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 
 ### Active-state enforcement
 
-When an identity model implements `CanBeActive`, the guard consults `isActive()` on every bearer, refresh, and
-credential path and rejects authentication when it returns `false`:
+Activation is opt-in. A model that does not implement `CanBeActive` is always active, so the 2D example above, on
+Laravel's default `users` table, signs in without an activation column. Implement `CanBeActive` on an identity or a
+principal to have the guard consult `isActive()` on every credential, bearer, and refresh path and reject
+authentication when it returns `false`:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -346,6 +352,10 @@ class AppUser extends User implements Identity, Principal, CanBeActive
     }
 }
 ```
+
+To read the flag from a column instead, use the `ProvidesActiveState` trait, as `AppMembership` does above. It reads
+`is_active` (override `getActiveAttributeName()` to use another column) and throws a `LogicException` when the model
+was loaded without that column, so a partial select is reported instead of being read as either active or inactive.
 
 ## Usage
 

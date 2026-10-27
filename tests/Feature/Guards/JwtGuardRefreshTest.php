@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -340,7 +341,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-13');
         $principal->shouldReceive('isActive')->andReturnTrue();
 
@@ -404,7 +405,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $firstGuard = $this->makeGuard($this->makeRequest(null));
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->times(3)
             ->andReturn('p-18');

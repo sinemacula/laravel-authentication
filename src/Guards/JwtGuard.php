@@ -277,7 +277,7 @@ final class JwtGuard extends AbstractGuard
             $this->lastRetrievedUser = $user;
         }
 
-        if (!$user instanceof Identity || !$this->isIdentityActive($user)) {
+        if (!$user instanceof Identity || !ActivationPolicy::isActive($user)) {
             return null;
         }
 
@@ -295,7 +295,7 @@ final class JwtGuard extends AbstractGuard
     {
         $principal = $this->resolvePrincipalFromClaims($user, $claims);
 
-        return $principal instanceof Principal && $principal->isActive() ? $principal : null;
+        return $principal instanceof Principal && ActivationPolicy::isActive($principal) ? $principal : null;
     }
 
     /**

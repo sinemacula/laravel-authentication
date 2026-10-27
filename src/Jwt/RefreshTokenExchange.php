@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -18,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
@@ -352,7 +352,7 @@ final class RefreshTokenExchange
             return null;
         }
 
-        if (!$this->isIdentityActive($identity)) {
+        if (!ActivationPolicy::isActive($identity)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::IDENTITY_INACTIVE, $deviceId);
 
@@ -360,22 +360,6 @@ final class RefreshTokenExchange
         }
 
         return $identity;
-    }
-
-    /**
-     * Whether the identity opts into activation checking and, if it does,
-     * whether it currently reports active.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return bool
-     */
-    private function isIdentityActive(Identity $identity): bool
-    {
-        if (!$identity instanceof CanBeActive) {
-            return true;
-        }
-
-        return $identity->isActive();
     }
 
     /**
@@ -406,7 +390,7 @@ final class RefreshTokenExchange
             return null;
         }
 
-        if (!$principal->isActive()) {
+        if (!ActivationPolicy::isActive($principal)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_INACTIVE, $deviceId);
 

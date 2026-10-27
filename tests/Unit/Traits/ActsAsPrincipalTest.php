@@ -127,21 +127,4 @@ final class ActsAsPrincipalTest extends TestCase
 
         self::assertNull($principal->getTenant());
     }
-
-    /**
-     * Trait casts the is_active attribute to bool.
-     *
-     * @return void
-     */
-    public function testIsActiveCastsAttributeToBool(): void
-    {
-        $active = new Stub3dPrincipal;
-        $active->setAttribute('is_active', 1);
-
-        $inactive = new Stub3dPrincipal;
-        $inactive->setAttribute('is_active', 0);
-
-        self::assertTrue($active->isActive());
-        self::assertFalse($inactive->isActive());
-    }
 }

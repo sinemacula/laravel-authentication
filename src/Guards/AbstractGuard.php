@@ -11,7 +11,6 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -342,23 +341,6 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Whether the identity opts into activation checking and, if it does,
-     * whether it currently reports active. Returns `true` for identities that
-     * do not implement `CanBeActive`.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return bool
-     */
-    protected function isIdentityActive(Identity $identity): bool
-    {
-        if (!$identity instanceof CanBeActive) {
-            return true;
-        }
-
-        return $identity->isActive();
-    }
-
-    /**
      * Resolve a principal for the identity, catching
      * `UnresolvableIdentityException` and returning `null` so the calling auth
      * path surfaces a `Failed` event + 401 rather than propagating a 500.
@@ -430,7 +412,7 @@ abstract class AbstractGuard implements ContextualGuard
         // handles the null case internally.
         $credentialsAccepted = $this->hasValidCredentials($user, $credentials)
             && $user instanceof Identity
-            && $this->isIdentityActive($user);
+            && ActivationPolicy::isActive($user);
 
         if (!$credentialsAccepted) {
             return null;
@@ -439,6 +421,6 @@ abstract class AbstractGuard implements ContextualGuard
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
         $resolved = $principal ?? $this->safeResolvePrincipal($user);
 
-        return $resolved !== null && $resolved->isActive() ? [$user, $resolved] : null;
+        return $resolved !== null && ActivationPolicy::isActive($resolved) ? [$user, $resolved] : null;
     }
 }
