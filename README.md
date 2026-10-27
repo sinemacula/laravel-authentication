@@ -276,11 +276,13 @@ records every use).
 
 Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
 an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with
-daylight saving, the hour that repeats when the clocks go back is ambiguous: a time stored in its second pass reads back
-as the same time in its first pass, an hour early. A deadline stored there ends the session an hour early (with an idle
-lifetime of an hour or less, the refresh that sets it fails with an `InvalidArgumentException` and changes nothing), and
-a rotation stored there leaves the previous refresh token no grace window, so a retry of it counts as a replay and
-revokes the device. The error can end a session early or fail a refresh; it never extends a session.
+daylight saving, both passes through the hour that repeats when the clocks go back store the same value, and
+`ActsAsDevice` reads it as the first pass, whichever pass PHP itself would pick. A time stored in the second pass
+therefore reads back early by the length of the shift (an hour in most zones): a deadline stored there ends the session
+that much early (and when the idle lifetime is no longer than the shift, the refresh that sets it fails with an
+`InvalidArgumentException` and changes nothing), and a rotation stored there leaves the previous refresh token no grace
+window, so a retry of it counts as a replay and revokes the device. The ambiguity can end a session early or fail a
+refresh; it never extends a session or a grace window.
 
 The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
