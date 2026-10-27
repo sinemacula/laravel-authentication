@@ -150,6 +150,17 @@ other rotated token as a replay that revokes the device.
   soft-deleted) also produces `tenant_inactive`.
 - An `UnresolvableIdentityException` from the principal resolver is a misconfiguration, not a failure reason: it
   propagates as a server error without a `RefreshFailed` event, and the stored digests are left as they were.
+- Device times are stored as wall-clock times in the application timezone without an offset, as Laravel stores
+  `datetime` columns, so the package expects `app.timezone` to be UTC (Laravel's default) or another zone without
+  daylight saving. In a zone with daylight saving, a time stored in the second pass of the hour that repeats when the
+  clocks go back reads back as the same time in the first pass, an hour early, so the error only ever moves a stored
+  time earlier: a deadline stored there ends the session an hour early (with an idle lifetime of an hour or less, the
+  refresh that sets it reads it back as already reached, so issuing the new pair throws `InvalidArgumentException`
+  before anything is written), and a rotation stored there leaves no grace window (at most 300 seconds, less than the
+  hour), so a retry of the previous token is a replay and revokes the device. Storing UTC whatever the application
+  timezone would remove this, but the application's own queries against these columns (Laravel binds a date in its own
+  timezone) and any custom device model that keeps Laravel's `datetime` cast would then be off by the timezone's offset
+  all year.
 - Refresh does not rely on Eloquent observers. The swap and the revocation are query-builder updates that deliberately
   bypass them; consumers should hang side effects off `RefreshFailed`, `Refreshed`, and `DeviceRevoked` instead.
 
@@ -293,6 +304,12 @@ other rotated token as a replay that revokes the device.
   `testSuccessorChainsDoNotRepeat`
 - `tests/Unit/Jwt/TokenLifetimesTest.php`
   `testGraceWindowEndsAtItsLastSecond`, `testZeroGraceWindowNeverApplies`
+- `tests/Integration/Guards/RepeatedHourStorageIntegrationTest.php`
+  `testTimesInTheSecondPassOfTheRepeatedHourReadBackAnHourEarly`,
+  `testWithUtcARotationAtTheEndOfTheRepeatedHourKeepsItsGraceWindow`,
+  `testWithDaylightSavingARotationInTheSecondPassLeavesNoGraceWindow`,
+  `testWithDaylightSavingARefreshSettingAnIdleDeadlineInTheSecondPassFailsWithoutWriting`,
+  `testWithDaylightSavingADeadlineInTheSecondPassEndsTheSessionEarly`
 - `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php`
   `testRefreshSuccessUsesTwoReadsAndOneWrite`, `testGraceRetryUsesTwoReadsAndNoWrites`,
   `testLostRotationResolvedAsAGraceRetryUsesThreeReadsAndOneWrite`, `testReplayRevocationUsesOneReadAndOneWrite`,
@@ -320,5 +337,6 @@ Update this note when any of the following change:
 - whether refresh still preserves `pid` across the new pair
 - whether refresh ever starts consulting shared cross-request caches
 - whether refresh still reads the device and its owner from the write connection
+- how device times are stored or read (wall-clock times in the application timezone, to the whole second)
 - which activity checks refresh applies, or whether an `UnresolvableIdentityException` still propagates
 - whether the package opens its own transaction around a refresh

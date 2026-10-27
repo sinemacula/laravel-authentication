@@ -274,6 +274,14 @@ records its last use: the time, the request's IP address (only when it is a vali
 agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
 records every use).
 
+Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
+an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with
+daylight saving, the hour that repeats when the clocks go back is ambiguous: a time stored in its second pass reads back
+as the same time in its first pass, an hour early. A deadline stored there ends the session an hour early (with an idle
+lifetime of an hour or less, the refresh that sets it fails with an `InvalidArgumentException` and changes nothing), and
+a rotation stored there leaves the previous refresh token no grace window, so a retry of it counts as a replay and
+revokes the device. The error can end a session early or fail a refresh; it never extends a session.
+
 The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
 the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
