@@ -67,11 +67,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   and `refresh()`, with no `Failed` or `RefreshFailed` event.
 - Activation is opt-in through `CanBeActive` on the identity, the principal, or the tenant, and is decided by
   `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active. The
-  tenant is read with the principal's connection pinned to the write connection. A principal whose tenant key names a
-  tenant that opts in (`CanBeActive`) but cannot be loaded (deleted, soft-deleted, or scoped out) fails like one in an
-  inactive tenant: `getTenant()` throws `TenantUnavailableException` rather than reporting no tenant, and a principal
-  loaded without that tenant's key throws a `LogicException`. A tenant that does not opt in is never checked, and a
-  relation to a model that is not a `Tenant` reports no tenant.
+  tenant is read from the write connection, also when it lives on another connection than the principal. A principal
+  whose tenant key names a tenant that opts in (`CanBeActive`) but cannot be loaded (deleted, soft-deleted, or scoped
+  out) fails like one in an inactive tenant: `getTenant()` throws `TenantUnavailableException` rather than reporting no
+  tenant, and a principal loaded without that tenant's key throws a `LogicException`. A tenant that does not opt in is
+  never checked, and a relation to a model that is not a `Tenant` reports no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
   machine-readable reason.
 - `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`

@@ -26,8 +26,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `pid`, `did`, and active-state checks run live on every request; nothing is cached across requests.
 - The identity, principal, tenant, and device reads behind those checks go to the write connection, so a lagging read
   replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises. The identity and
-  principal lookups run with their model's connection pinned, so relations they eager-load (a `$with` tenant, say) come
-  from the writer too, not only the lookup's own query, and so does each `CanBeActive::isActive()` check.
+  principal lookups run inside `WriteConnection::during()`, which pins their model's connection and every connection a
+  model resolves while they run, so relations they eager-load (a `$with` tenant, say) come from the writer too, not only
+  the lookup's own query, even on another connection; so does each `CanBeActive::isActive()` check and the tenant read.
 
 ## Success Path
 
@@ -67,7 +68,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and device
-  reads to the write connection.
+  reads to the write connection; `src/Database/PinningConnectionResolver.php` carries the pin to every connection a
+  model resolves inside `during()`.
 - `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behavior that the guard hardens with explicit pid
   matching, including the optional `ResolvesHintedPrincipal` shortcut ahead of the generic `HasPrincipals` lookup.
 - `src/Contracts/ResolvesHintedPrincipal.php`: optional 3D optimization seam for hinted principal hydration.
@@ -130,6 +132,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testBearerRejectsMemberWhoseEagerLoadedTenantIsDeactivatedOnThePrimary`
 - `tests/Integration/Guards/JwtGuardEagerLoadWriteConnectionIntegrationTest.php`
   `testBearerRejectsUserWhoseEagerLoadedTenantIsDeactivatedOnThePrimary`
+- `tests/Integration/Guards/JwtGuardCrossConnectionTenantIntegrationTest.php`
+  `testBearerRejectsMemberWhoseLandlordTenantIsDeactivatedOnItsPrimary`
+- `tests/Integration/Guards/JwtGuardCrossConnectionTenantIntegrationTest.php`
+  `testBearerRejectsMemberWhoseEagerLoadedLandlordTenantIsDeactivatedOnItsPrimary`
 - `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
   `testBearerRejectsIdentitySuspendedOnThePrimaryWhileTheReplicaLags`
 

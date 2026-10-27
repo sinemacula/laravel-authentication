@@ -20,7 +20,8 @@ stateful per-device credentials with server-side replay detection.
   access token.
 - Refresh reads device state, revocation, and replay detection live on every exchange, from the write connection, so
   a lagging read replica cannot serve a stale digest or miss a revocation. The owner, principal, and tenant behind the
-  activity checks are read from the write connection too, including a tenant the owner or principal eager-loads.
+  activity checks are read from the write connection too, including a tenant the owner or principal eager-loads and a
+  tenant kept on another connection.
 - Refresh applies the same opt-in activation checks as sign-in and bearer requests: the reloaded owner, the resolved
   principal, and the tenant it acts within must each be active when they implement `CanBeActive`.
 

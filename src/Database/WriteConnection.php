@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Database;
 
 use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Database\Connection;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -16,12 +17,13 @@ use Illuminate\Database\Eloquent\Model;
  * state. A read replica can lag behind a revocation, a deactivation, or a
  * refresh rotation, so a lookup served from it can admit a credential the
  * primary has already rejected. `query()` routes one query the package builds;
- * `during()` covers every other read on a model's connection while a callback
- * runs: the relations a lookup eager-loads, which Eloquent fetches with
- * separate queries `query()` does not reach, and reads made inside application
- * code the package calls (for example `resolveDefaultPrincipal()`), which the
- * package cannot rewrite. Custom identity providers and principal resolvers
- * carry the same obligation and use whichever method covers their reads.
+ * `during()` covers every other read while a callback runs: the relations a
+ * lookup eager-loads, which Eloquent fetches with separate queries `query()`
+ * does not reach, relations on other connections (a tenant in a landlord
+ * database), and reads made inside application code the package calls (for
+ * example `resolveDefaultPrincipal()`), which the package cannot rewrite.
+ * Custom identity providers and principal resolvers carry the same obligation
+ * and use whichever method covers their reads.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,9 +56,15 @@ final class WriteConnection
     }
 
     /**
-     * Run the callback with every read on the subject's connection routed to
-     * the write PDO, restoring the connection's previous read mode afterwards
-     * (also when the callback throws).
+     * Run the callback with reads routed to the write PDO, restoring each
+     * connection's previous read mode afterwards (also when the callback
+     * throws).
+     *
+     * Reads on the subject's connection are pinned, including ones made through
+     * the query builder rather than a model. So is every connection a model
+     * resolves inside the callback, so a relation on another connection,
+     * eager-loaded by a lookup or lazily loaded by an activity check, is read
+     * from that connection's writer as well.
      *
      * A subject that is not an Eloquent model has no connection to pin, so the
      * callback simply runs; reads it makes are then the caller's obligation.
@@ -75,14 +83,45 @@ final class WriteConnection
             return $callback();
         }
 
-        $connection = $subject->getConnection();
-        $previous   = self::readsOnWriteConnection($connection);
+        /** @var array<int, array{0: \Illuminate\Database\Connection, 1: bool}> $pinned */
+        $pinned = [];
 
-        $connection->useWriteConnectionWhenReading();
+        $pin = static function (Connection $connection) use (&$pinned): void {
+            $pinned[spl_object_id($connection)] ??= [$connection, self::readsOnWriteConnection($connection)];
+
+            $connection->useWriteConnectionWhenReading();
+        };
+
+        $pin($subject->getConnection());
+
+        $resolver = Model::getConnectionResolver();
+
+        if ($resolver !== null) {
+            Model::setConnectionResolver(new PinningConnectionResolver($resolver, $pin));
+        }
 
         try {
             return $callback();
         } finally {
+            self::release($resolver, $pinned);
+        }
+    }
+
+    /**
+     * Reinstate the model connection resolver `during()` replaced, if any, and
+     * return each pinned connection to the read mode it had before.
+     *
+     * @param  ?\Illuminate\Database\ConnectionResolverInterface  $resolver
+     * @param  array<int, array{0: \Illuminate\Database\Connection, 1: bool}>  $pinned
+     * @return void
+     */
+    private static function release(?ConnectionResolverInterface $resolver, array $pinned): void
+    {
+        if ($resolver !== null) {
+            Model::setConnectionResolver($resolver);
+        }
+
+        foreach ($pinned as [$connection, $previous]) {
             $connection->useWriteConnectionWhenReading($previous);
         }
     }

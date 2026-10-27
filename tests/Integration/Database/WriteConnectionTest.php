@@ -6,12 +6,17 @@ namespace Tests\Integration\Database;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Connection;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Schema\Blueprint;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Integration\Fixtures\LandlordTenant;
 use Tests\TestCase;
 
 /**
@@ -28,6 +33,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversClass(WriteConnection::class)]
+#[CoversClass(PinningConnectionResolver::class)]
 final class WriteConnectionTest extends TestCase
 {
     use InteractsWithLaggingReplica;
@@ -120,6 +126,101 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
+     * A model on another connection that is read inside the callback (a tenant
+     * in a landlord database, say) is read from that connection's writer too,
+     * and that connection reads from its replica again once the callback
+     * returns.
+     *
+     * @return void
+     */
+    public function testDuringPinsAnotherConnectionAModelResolvesInsideTheCallback(): void
+    {
+        $tenant = $this->seedLandlordTenant();
+
+        $found = WriteConnection::during(new Device, static fn (): ?LandlordTenant => LandlordTenant::query()->whereKey($tenant->getKey())->first());
+
+        self::assertInstanceOf(LandlordTenant::class, $found);
+        self::assertNull(LandlordTenant::query()->find($tenant->getKey()));
+    }
+
+    /**
+     * The model connection resolver is swapped only for the callback: inside it
+     * Eloquent resolves connections through the pinning resolver, and the
+     * original resolver is back afterwards, also when the callback throws.
+     *
+     * @return void
+     */
+    public function testDuringReinstatesTheModelConnectionResolver(): void
+    {
+        $resolver = Model::getConnectionResolver();
+
+        $inside = WriteConnection::during(new Device, static fn (): ?ConnectionResolverInterface => Model::getConnectionResolver());
+
+        self::assertInstanceOf(PinningConnectionResolver::class, $inside);
+        self::assertSame($resolver, Model::getConnectionResolver());
+
+        try {
+            WriteConnection::during(new Device, static fn (): Device => Device::query()->whereKey('missing')->firstOrFail());
+
+            self::fail('The lookup inside the callback should have thrown.');
+        } catch (ModelNotFoundException) {
+            self::assertSame($resolver, Model::getConnectionResolver());
+        }
+    }
+
+    /**
+     * A nested `during()` leaves the outer pin in place: reads after the inner
+     * callback returns still go to the write connection until the outer one
+     * does.
+     *
+     * @return void
+     */
+    public function testNestedDuringKeepsTheOuterPin(): void
+    {
+        $device = $this->seedDevice();
+
+        $found = WriteConnection::during(new Device, static function () use ($device): ?Device {
+
+            WriteConnection::during(new Device, static fn (): ?Device => Device::query()->whereKey($device->getKey())->first());
+
+            return Device::query()->whereKey($device->getKey())->first();
+        });
+
+        self::assertInstanceOf(Device::class, $found);
+        self::assertNull(Device::query()->find($device->getKey()));
+    }
+
+    /**
+     * Without a model connection resolver to wrap, the subject's own connection
+     * is still pinned for the callback and restored afterwards, and no resolver
+     * is installed.
+     *
+     * @return void
+     */
+    public function testDuringPinsTheSubjectsConnectionWithoutAModelConnectionResolver(): void
+    {
+        $device     = $this->seedDevice();
+        $connection = $this->splitConnection();
+        $resolver   = Model::getConnectionResolver();
+
+        $subject = \Mockery::mock(Device::class)->makePartial();
+        $subject->shouldReceive('getConnection')->andReturn($connection);
+
+        Model::unsetConnectionResolver();
+
+        try {
+            $found = WriteConnection::during($subject, static fn (): ?object => $connection->table('devices')->where('id', $device->getKey())->first());
+
+            self::assertNull(Model::getConnectionResolver());
+        } finally {
+            Model::setConnectionResolver($resolver);
+        }
+
+        self::assertNotNull($found);
+        self::assertNull($connection->table('devices')->where('id', $device->getKey())->first());
+    }
+
+    /**
      * A subject that is not an Eloquent model has no connection to pin: the
      * callback runs, its value is returned, and reads inside it still go to the
      * replica.
@@ -150,6 +251,7 @@ final class WriteConnectionTest extends TestCase
         parent::defineEnvironment($app);
 
         $this->configureLaggingReplica(app(ConfigRepository::class));
+        $this->configureLaggingLandlordReplica(app(ConfigRepository::class));
     }
 
     /**
@@ -180,6 +282,27 @@ final class WriteConnectionTest extends TestCase
         ])->save();
 
         return $device;
+    }
+
+    /**
+     * Write an active tenant through the landlord split connection, so it
+     * exists on the landlord primary only.
+     *
+     * @return \Tests\Integration\Fixtures\LandlordTenant
+     */
+    private function seedLandlordTenant(): LandlordTenant
+    {
+        $this->createOnPrimaryAndReplica('landlord_tenants', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('name');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        }, self::LANDLORD_PRIMARY_CONNECTION, self::LANDLORD_REPLICA_CONNECTION);
+
+        $tenant = new LandlordTenant;
+        $tenant->forceFill(['name' => 'Tenant', 'is_active' => true])->save();
+
+        return $tenant;
     }
 
     /**

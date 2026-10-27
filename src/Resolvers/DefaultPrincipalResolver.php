@@ -20,10 +20,10 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
  *
  * Principal lookups decide authentication, so every read goes to the write
  * connection: the `principals()->find()` query, and the identity's own
- * `resolveHintedPrincipal()` / `resolveDefaultPrincipal()` hooks, each run with
- * reads on the identity's connection pinned to the writer, which also covers
- * the relations a principal eager-loads. A custom resolver carries the same
- * obligation (see `WriteConnection`).
+ * `resolveHintedPrincipal()` / `resolveDefaultPrincipal()` hooks, each run
+ * inside `WriteConnection::during()` for the identity, which also covers the
+ * relations a principal eager-loads, on any connection. A custom resolver
+ * carries the same obligation (see `WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

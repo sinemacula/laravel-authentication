@@ -214,10 +214,10 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Run the lookup with every read on the model's connection pinned to the
-     * write connection, so relations the identity eager-loads (`$with`) come
-     * from the writer as well: Eloquent runs each eager load as a separate
-     * query that the root query's write-PDO flag does not reach.
+     * Run the lookup inside `WriteConnection::during()` for the model, so
+     * relations the identity eager-loads (`$with`) come from the writer as
+     * well, on whichever connection they live: Eloquent runs each eager load as
+     * a separate query that the root query's write-PDO flag does not reach.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
      * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>  $query

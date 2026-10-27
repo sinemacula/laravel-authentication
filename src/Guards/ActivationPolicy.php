@@ -33,9 +33,9 @@ final class ActivationPolicy
      * Whether the subject (an identity, principal, or tenant) may authenticate.
      * Returns `true` for subjects that do not implement `CanBeActive`.
      *
-     * `isActive()` runs with reads on the subject's connection pinned to the
-     * write connection, so a check that reads the database (a suspension row, a
-     * lazily loaded relation) cannot be answered by a lagging replica.
+     * `isActive()` runs inside `WriteConnection::during()` for the subject, so
+     * a check that reads the database (a suspension row, a lazily loaded
+     * relation) cannot be answered by a lagging replica.
      *
      * @param  object  $subject
      * @return bool
@@ -51,9 +51,9 @@ final class ActivationPolicy
      * activation but cannot be loaded (a `TenantUnavailableException`, for a
      * deleted or soft-deleted tenant) fails.
      *
-     * The tenant is read with the principal's connection pinned to the write
-     * connection, so a lazily loaded tenant relation cannot come from a replica
-     * that has not yet seen a deactivation.
+     * The tenant is read inside `WriteConnection::during()` for the principal,
+     * so a tenant relation loaded there cannot come from a replica that has not
+     * yet seen a deactivation, even one on another connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return bool

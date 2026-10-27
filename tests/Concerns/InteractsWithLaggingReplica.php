@@ -36,6 +36,15 @@ trait InteractsWithLaggingReplica
     /** @var string Direct connection to the primary file. */
     protected const string PRIMARY_CONNECTION = 'primary';
 
+    /** @var string Second split connection, for models kept in a separate (landlord) database. */
+    protected const string LANDLORD_CONNECTION = 'landlord';
+
+    /** @var string Direct connection to the landlord replica file. */
+    protected const string LANDLORD_REPLICA_CONNECTION = 'landlord_replica';
+
+    /** @var string Direct connection to the landlord primary file. */
+    protected const string LANDLORD_PRIMARY_CONNECTION = 'landlord_primary';
+
     /** @var array<int, string> Temporary SQLite files created for this test. */
     private array $laggingReplicaFiles = [];
 
@@ -48,33 +57,22 @@ trait InteractsWithLaggingReplica
      */
     protected function configureLaggingReplica(ConfigRepository $config): void
     {
-        $primary = $this->createLaggingReplicaFile();
-        $replica = $this->createLaggingReplicaFile();
-
-        $config->set('database.connections.' . self::PRIMARY_CONNECTION, [
-            'driver'   => 'sqlite',
-            'database' => $primary,
-            'prefix'   => '',
-        ]);
-
-        $config->set('database.connections.' . self::REPLICA_CONNECTION, [
-            'driver'   => 'sqlite',
-            'database' => $replica,
-            'prefix'   => '',
-        ]);
-
-        // The top-level `database` is what Testbench inspects; Laravel uses the
-        // `read` and `write` entries for the two PDOs.
-        $config->set('database.connections.' . self::SPLIT_CONNECTION, [
-            'driver'   => 'sqlite',
-            'database' => $primary,
-            'read'     => ['database' => $replica],
-            'write'    => ['database' => $primary],
-            'sticky'   => false,
-            'prefix'   => '',
-        ]);
+        $this->registerLaggingConnection($config, self::SPLIT_CONNECTION, self::PRIMARY_CONNECTION, self::REPLICA_CONNECTION);
 
         $config->set('database.default', self::SPLIT_CONNECTION);
+    }
+
+    /**
+     * Register a second lagging split connection, `landlord`, with its own
+     * primary and replica files, for models that live outside the default
+     * connection.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return void
+     */
+    protected function configureLaggingLandlordReplica(ConfigRepository $config): void
+    {
+        $this->registerLaggingConnection($config, self::LANDLORD_CONNECTION, self::LANDLORD_PRIMARY_CONNECTION, self::LANDLORD_REPLICA_CONNECTION);
     }
 
     /**
@@ -98,34 +96,40 @@ trait InteractsWithLaggingReplica
     }
 
     /**
-     * Create the same table on the primary and the replica.
+     * Create the same table on a primary and its replica (the default pair
+     * unless others are named).
      *
      * @param  string  $table
      * @param  \Closure(\Illuminate\Database\Schema\Blueprint): void  $definition
+     * @param  string  $primary
+     * @param  string  $replica
      * @return void
      */
-    protected function createOnPrimaryAndReplica(string $table, \Closure $definition): void
+    protected function createOnPrimaryAndReplica(string $table, \Closure $definition, string $primary = self::PRIMARY_CONNECTION, string $replica = self::REPLICA_CONNECTION): void
     {
-        foreach ([self::PRIMARY_CONNECTION, self::REPLICA_CONNECTION] as $connection) {
+        foreach ([$primary, $replica] as $connection) {
             Schema::connection($connection)->create($table, $definition);
         }
     }
 
     /**
-     * Copy a row as it stands on the primary into the replica, so the replica
-     * holds that version until the test changes the primary again.
+     * Copy a row as it stands on a primary into its replica (the default pair
+     * unless others are named), so the replica holds that version until the
+     * test changes the primary again.
      *
      * @param  string  $table
      * @param  mixed  $key
+     * @param  string  $primary
+     * @param  string  $replica
      * @return void
      */
-    protected function copyRowToReplica(string $table, mixed $key): void
+    protected function copyRowToReplica(string $table, mixed $key, string $primary = self::PRIMARY_CONNECTION, string $replica = self::REPLICA_CONNECTION): void
     {
-        $row = DB::connection(self::PRIMARY_CONNECTION)->table($table)->where('id', $key)->first();
+        $row = DB::connection($primary)->table($table)->where('id', $key)->first();
 
         self::assertNotNull($row);
 
-        DB::connection(self::REPLICA_CONNECTION)->table($table)->insert((array) $row);
+        DB::connection($replica)->table($table)->insert((array) $row);
     }
 
     /**
@@ -145,6 +149,46 @@ trait InteractsWithLaggingReplica
         }
 
         $this->laggingReplicaFiles = [];
+    }
+
+    /**
+     * Register a direct connection to a new primary file, one to a new replica
+     * file, and a split connection that writes to the primary and reads from
+     * the replica.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @param  string  $split
+     * @param  string  $primaryName
+     * @param  string  $replicaName
+     * @return void
+     */
+    private function registerLaggingConnection(ConfigRepository $config, string $split, string $primaryName, string $replicaName): void
+    {
+        $primary = $this->createLaggingReplicaFile();
+        $replica = $this->createLaggingReplicaFile();
+
+        $config->set('database.connections.' . $primaryName, [
+            'driver'   => 'sqlite',
+            'database' => $primary,
+            'prefix'   => '',
+        ]);
+
+        $config->set('database.connections.' . $replicaName, [
+            'driver'   => 'sqlite',
+            'database' => $replica,
+            'prefix'   => '',
+        ]);
+
+        // The top-level `database` is what Testbench inspects; Laravel uses the
+        // `read` and `write` entries for the two PDOs.
+        $config->set('database.connections.' . $split, [
+            'driver'   => 'sqlite',
+            'database' => $primary,
+            'read'     => ['database' => $replica],
+            'write'    => ['database' => $primary],
+            'sticky'   => false,
+            'prefix'   => '',
+        ]);
     }
 
     /**

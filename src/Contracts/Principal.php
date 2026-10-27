@@ -31,11 +31,11 @@ interface Principal
      * principal itself).
      *
      * `attempt()` relies on it to prove that a pinned principal belongs to the
-     * identity signing in. It runs with reads on this principal's connection
-     * pinned to the write connection, on an Eloquent principal it is called on
-     * a copy without loaded relations (so the owner comes from the stored key,
-     * not a relation the resolver set), and a `LogicException` from it (no
-     * owner relation, or an owner that cannot be loaded) fails the pin.
+     * identity signing in. It runs inside `WriteConnection::during()` for this
+     * principal, on an Eloquent principal it is called on a copy without loaded
+     * relations (so the owner comes from the stored key, not a relation the
+     * resolver set), and a `LogicException` from it (no owner relation, or an
+     * owner that cannot be loaded) fails the pin.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      */
@@ -43,9 +43,11 @@ interface Principal
 
     /**
      * Return the tenant the principal acts within, if any. The activity check
-     * runs it with reads on this principal's connection pinned to the write
-     * connection; a lookup on any other connection must pin itself (see
-     * `Database\WriteConnection`).
+     * runs it inside `WriteConnection::during()` for this principal: model
+     * reads on any connection (a tenant in a landlord database included), and
+     * query-builder reads on this principal's connection, go to the write
+     * connection; a query-builder read on another connection must pin itself
+     * (see `Database\WriteConnection`).
      *
      * When the principal names a tenant that opts into activation (its model
      * implements `CanBeActive`) and that tenant cannot be loaded (deleted,

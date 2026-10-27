@@ -125,9 +125,9 @@ trait VerifiesPinnedContext
 
     /**
      * Whether the principal's owning identity is the given identity: the same
-     * class with the same auth identifier. The owner is read with reads on the
-     * principal's connection pinned to the write connection. In 2D mode the
-     * principal is its own identity.
+     * class with the same auth identifier. The owner is read inside
+     * `WriteConnection::during()` for the principal. In 2D mode the principal
+     * is its own identity.
      *
      * An Eloquent principal's owner is read from its own stored key on a copy
      * without loaded relations, so an identity relation the resolver already

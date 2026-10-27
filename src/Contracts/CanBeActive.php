@@ -16,9 +16,10 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * short access-token lifetimes alone. `ProvidesActiveState` implements it from
  * a declared column.
  *
- * The activity check runs `isActive()` with reads on the model's connection
- * pinned to the write connection; a read it makes on another connection must
- * pin itself (see `Database\WriteConnection`).
+ * The activity check runs `isActive()` inside `WriteConnection::during()` for
+ * the model: model reads on any connection, and query-builder reads on the
+ * model's own connection, go to the write connection; a query-builder read on
+ * another connection must pin itself (see `Database\WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
