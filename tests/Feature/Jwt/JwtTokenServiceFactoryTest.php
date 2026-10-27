@@ -234,15 +234,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken($service);
 
-        // Decode the JWT header to verify the active kid.
-        $parts = explode('.', $token);
-
-        self::assertCount(3, $parts, 'JWT must have three segments');
-
-        /** @var array<string, mixed> $header */
-        $header = json_decode(base64_decode(strtr($parts[0], '-_', '+/'), true) ?: '', true);
-
-        self::assertSame(self::KID_NEW, $header['kid'] ?? null);
+        self::assertSame(self::KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
 
         // The token must be parseable by the same service (which accepts both
         // the new and old kid for verification).
