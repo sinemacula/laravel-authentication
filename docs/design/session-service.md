@@ -111,6 +111,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/SessionServiceTest.php`, `tests/Unit/Sessions/AccountAttemptsTest.php`
+- `tests/Feature/Sessions/SessionRoutesTest.php`: the README's sign-in and further-factor routes over HTTP, through
+  `Auth::sessions()`, with tokens checked through `auth:api`
 - `tests/Integration/Sessions/SessionServiceTest.php`
 - `tests/Feature/Sessions/DeviceProofTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
 - `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
