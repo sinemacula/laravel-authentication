@@ -24,10 +24,7 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
- * The sign-in policy checks behind `attempt()`: the audience policy, the
- * attempt limits, the password sign-in method inside the credential timebox,
- * the shared admission checks, the pinned device, the password rehash, and the
- * additional-factor policy.
+ * The sign-in policy checks behind `attempt()`.
  *
  * The policies are resolved from the container each time they are needed, so
  * the binding in effect then (the application's, or an MFA package's) is the

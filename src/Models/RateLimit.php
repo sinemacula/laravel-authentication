@@ -11,9 +11,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 
 /**
- * One attempt counter: how many attempts a key (a digest of the guard, the
- * flow, the scope and the identifier or IP address, keyed with a key derived
- * from the application key) has made in the window that ends at
+ * One attempt counter: how many attempts a key (a keyed digest of what it
+ * counts, see `RateLimiting\CounterKeys`) has made in the window that ends at
  * `window_ends_at`.
  *
  * The table and connection come from `authentication.rate_limits`. The limiter

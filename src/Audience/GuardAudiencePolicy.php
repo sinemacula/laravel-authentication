@@ -24,9 +24,7 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * otherwise the package value applies. Nothing falls back to a literal: a key
  * missing at both levels, a malformed value, or a key the policy does not know
  * fails closed with an `InvalidArgumentException` naming the guard and the key.
- * Every setting is read and checked on every call, so a malformed one fails the
- * first use of the guard's policy, whichever check that is, and nothing is
- * cached past a change.
+ * Nothing is cached, so a change to the configuration applies at once.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

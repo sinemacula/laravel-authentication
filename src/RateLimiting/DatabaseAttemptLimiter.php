@@ -13,15 +13,10 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  * and one per IP address, kept in the `rate_limits` table on the write
  * connection, so the limits hold across servers without a cache.
  *
- * A counter's key is a keyed digest of the guard, the flow, the scope and the
- * canonical identifier or IP address (see `CounterKeys`), so the table alone
- * gives neither back, however easily they could be guessed. The canonical
- * identifier is what the normaliser registered for its type returns, the same
- * form an identity is looked up by, so `Ben@x.com` and `ben@x.com` share a
- * counter; without a normaliser, or for a value it rejects, it is the trimmed,
- * lower-cased value with invalid UTF-8 replaced. An IPv6 address is counted by
- * its /64 network, and one that carries an IPv4 client's address (IPv4-mapped,
- * or translated through the NAT64 well-known prefix) as that IPv4 address.
+ * A counter's key is a keyed digest of what it counts (see `CounterKeys`). An
+ * identifier is counted in its canonical form, the one an identity is looked up
+ * by, and an IP address by the client it stands for (see
+ * `canonicalIdentifier()` and `canonicalIp()`).
  *
  * An account a subject names (the row an Eloquent identity is stored in, see
  * `AttemptSubject::$account`) gets a counter of its own, kept as given and

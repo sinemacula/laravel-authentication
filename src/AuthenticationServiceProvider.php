@@ -42,15 +42,9 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
- * Package service provider.
- *
- * Registers configuration, the package `AuthManager` singleton, the `model`
- * user provider driver, the `jwt` guard driver, the default principal resolver
- * and audience policy bindings, the identifier normaliser registry, the
- * database attempt limiter, the sign-in method registry, the default
- * additional-factor policy (never require one), the package-aware `auth`
- * middleware and `401` guest response, the `DeviceAuthenticated` listener, and
- * the config + migration publishing tags.
+ * Package service provider: registers the package's configuration, auth
+ * manager, guard and provider drivers, sign-in collaborators and policies,
+ * middleware, listener and publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
