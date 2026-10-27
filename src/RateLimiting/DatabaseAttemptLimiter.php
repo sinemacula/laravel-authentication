@@ -18,7 +18,8 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  * canonical identifier is what the normaliser registered for its type returns,
  * the same form an identity is looked up by, so `Ben@x.com` and `ben@x.com`
  * share a counter; without a normaliser, or for a value it rejects, it is the
- * trimmed, lower-cased value with invalid UTF-8 replaced.
+ * trimmed, lower-cased value with invalid UTF-8 replaced. An IPv6 address is
+ * counted by its /64 network, and an IPv4-mapped one as its IPv4 address.
  *
  * Counts change only through single statements (see `RateLimitStore`), and
  * reservations record the window each slot came from, so concurrent attempts
@@ -31,6 +32,9 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  */
 final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 {
+    /** @var string The first twelve bytes of an IPv4-mapped IPv6 address (`::ffff:0:0/96`). */
+    private const string IPV4_MAPPED_PREFIX = "\0\0\0\0\0\0\0\0\0\0\xff\xff";
+
     /**
      * Constructor.
      *
@@ -169,7 +173,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
         }
 
         if ($subject->ip !== null && $limits[AttemptLimits::PER_IP] !== null) {
-            $counters[$this->key($subject, AttemptLimits::PER_IP, $subject->ip)] = $limits[AttemptLimits::PER_IP];
+            $counters[$this->key($subject, AttemptLimits::PER_IP, self::canonicalIp($subject->ip))] = $limits[AttemptLimits::PER_IP];
         }
 
         return $counters;
@@ -191,6 +195,33 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
         $normalised = $type !== null && $this->normalisers->has($type) ? $this->normalisers->get($type)->normalise($identifier) : null;
 
         return $normalised ?? mb_strtolower(trim(mb_scrub($identifier, 'UTF-8')), 'UTF-8');
+    }
+
+    /**
+     * The canonical form of an IP address: an IPv4 address, or the IPv4 address
+     * an IPv4-mapped IPv6 address carries, in dotted decimal; an IPv6 address
+     * as the /64 network it belongs to, since a single client is usually given
+     * a whole /64 and could otherwise count each of its addresses separately.
+     * Anything that is not an IP address is counted as given.
+     *
+     * @param  string  $ip
+     * @return string
+     */
+    private static function canonicalIp(string $ip): string
+    {
+        $packed = inet_pton($ip);
+
+        if ($packed === false) {
+            return $ip;
+        }
+
+        if (str_starts_with($packed, self::IPV4_MAPPED_PREFIX)) {
+            $packed = substr($packed, strlen(self::IPV4_MAPPED_PREFIX));
+        }
+
+        return strlen($packed) === 4
+            ? (string) inet_ntop($packed)
+            : inet_ntop(substr($packed, 0, 8) . str_repeat("\0", 8)) . '/64';
     }
 
     /**

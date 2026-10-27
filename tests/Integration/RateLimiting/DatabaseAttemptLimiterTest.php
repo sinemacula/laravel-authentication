@@ -366,6 +366,28 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
+     * IP addresses are counted in their canonical form: every address of an
+     * IPv6 /64 network, however it is written, shares one counter, an
+     * IPv4-mapped address shares its IPv4 address's counter, and anything that
+     * is not an address is counted as given.
+     *
+     * @return void
+     */
+    public function testIpAddressesAreCountedInTheirCanonicalForm(): void
+    {
+        $ips = ['2001:db8:1:2::1', '2001:DB8:1:2:ffff:ffff:ffff:fffe', '2001:0db8:0001:0002:0:0:0:9', '2001:db8:1:3::1', '::ffff:198.51.100.7', '198.51.100.7', 'Not An Address'];
+
+        foreach ($ips as $attempt => $ip) {
+            self::assertTrue($this->limiter()->acquire($this->signIn("user{$attempt}@example.com", $ip))->granted());
+        }
+
+        self::assertSame(3, $this->hitsOfIp('2001:db8:1:2::/64'));
+        self::assertSame(1, $this->hitsOfIp('2001:db8:1:3::/64'));
+        self::assertSame(2, $this->hitsOfIp('198.51.100.7'));
+        self::assertSame(1, $this->hitsOfIp('Not An Address'));
+    }
+
+    /**
      * A normaliser registered for the identifier's type gives the canonical
      * form, even where it differs from trimming and lower-casing.
      *
@@ -705,6 +727,20 @@ final class DatabaseAttemptLimiterTest extends TestCase
     private function hitsOf(AttemptSubject $subject, string $scope): int
     {
         $hits = DB::table('rate_limits')->where('key', $this->keyOf($subject, $scope))->value('hits');
+
+        return is_numeric($hits) ? (int) $hits : 0;
+    }
+
+    /**
+     * The hits of the guard's sign-in counter for the IP address in its
+     * documented canonical form, 0 when it has none.
+     *
+     * @param  string  $canonicalIp
+     * @return int
+     */
+    private function hitsOfIp(string $canonicalIp): int
+    {
+        $hits = DB::table('rate_limits')->where('key', hash('sha256', implode("\0", [self::GUARD, 'sign_in', 'per_ip', $canonicalIp])))->value('hits');
 
         return is_numeric($hits) ? (int) $hits : 0;
     }
