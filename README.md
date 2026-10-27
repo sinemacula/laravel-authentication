@@ -440,8 +440,10 @@ A principal whose opted-in tenant cannot be loaded is rejected on the same paths
 tenant key names a `CanBeActive` tenant that is deleted, soft-deleted, or hidden by a scope,
 `ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive tenant,
 instead of returning `null` as if the principal acted within no tenant. A `Principal` that implements `getTenant()`
-itself should do the same. A tenant that does not implement `CanBeActive` is never checked, so a missing one reads as
-no tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
+itself should do the same. As with `ProvidesActiveState`, a principal loaded without the key of an opted-in tenant (a
+partial select) throws a `LogicException` rather than being read as acting within no tenant. A tenant that does not
+implement `CanBeActive` is never checked, so a missing one reads as no tenant, and a `tenant` relation to a model that
+is not a `Tenant` is not a tenant at all.
 
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.

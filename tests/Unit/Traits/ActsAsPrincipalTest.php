@@ -264,6 +264,36 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
+     * A principal loaded without the key of a tenant that opts into activation
+     * (a partial select) is reported instead of being read as acting within no
+     * tenant.
+     *
+     * @return void
+     */
+    public function testGetTenantThrowsWhenTheActivatableTenantKeyIsNotLoaded(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), []);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('acts within: its `tenant_id` attribute is not loaded. Select the column so the tenant can be checked.');
+
+        $principal->getTenant();
+    }
+
+    /**
+     * Without the key of a tenant that does not opt in, the principal still
+     * acts within no tenant: that tenant is never checked.
+     *
+     * @return void
+     */
+    public function testGetTenantReturnsNullWithoutTheKeyOfATenantThatDoesNotOptIn(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubTenant), []);
+
+        self::assertNull($principal->getTenant());
+    }
+
+    /**
      * Only a `BelongsTo` key names a tenant: another relation that loads
      * nothing reads as no tenant, even when the key it would be read from is
      * set.

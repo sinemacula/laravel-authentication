@@ -253,6 +253,34 @@ final class TenantActivityIntegrationTest extends TestCase
     }
 
     /**
+     * A membership loaded without its tenant key (a partial select) is reported
+     * rather than read as acting within no tenant, so an inactive tenant cannot
+     * be skipped by leaving the key out.
+     *
+     * @return void
+     */
+    public function testTenantCheckReportsAMembershipLoadedWithoutItsTenantKey(): void
+    {
+        [, $membership, $tenant] = $this->seedMembership();
+
+        $tenant->forceFill(['is_active' => false])->save();
+
+        $full = ActivatableTenantMembership::query()->find($membership->getKey());
+
+        self::assertInstanceOf(ActivatableTenantMembership::class, $full);
+        self::assertFalse(ActivationPolicy::isTenantActive($full));
+
+        $partial = ActivatableTenantMembership::query()->select(['id', 'identity_id'])->find($membership->getKey());
+
+        self::assertInstanceOf(ActivatableTenantMembership::class, $partial);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('its `tenant_id` attribute is not loaded');
+
+        ActivationPolicy::isTenantActive($partial);
+    }
+
+    /**
      * Refresh for a member of a soft-deleted tenant fails with the
      * `tenant_inactive` reason.
      *

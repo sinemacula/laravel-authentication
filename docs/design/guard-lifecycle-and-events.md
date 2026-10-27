@@ -69,8 +69,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active. The
   tenant is read with the principal's connection pinned to the write connection. A principal whose tenant key names a
   tenant that opts in (`CanBeActive`) but cannot be loaded (deleted, soft-deleted, or scoped out) fails like one in an
-  inactive tenant: `getTenant()` throws `TenantUnavailableException` rather than reporting no tenant. A tenant that does
-  not opt in is never checked, and a relation to a model that is not a `Tenant` reports no tenant.
+  inactive tenant: `getTenant()` throws `TenantUnavailableException` rather than reporting no tenant, and a principal
+  loaded without that tenant's key throws a `LogicException`. A tenant that does not opt in is never checked, and a
+  relation to a model that is not a `Tenant` reports no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
   machine-readable reason.
 - `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`
@@ -119,6 +120,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testUserWithoutActiveColumnSignsInWithCredentials`
 - `tests/Integration/Guards/TenantActivityIntegrationTest.php`
   `testBearerRejectsMemberOfTenantDeactivatedAfterIssue`, `testBearerRejectsMemberOfSoftDeletedTenant`
+- `tests/Integration/Guards/TenantActivityIntegrationTest.php`
+  `testTenantCheckReportsAMembershipLoadedWithoutItsTenantKey`
 - `tests/Integration/Guards/TenantOptInIntegrationTest.php`
   `testUserWhoseTenantRelationIsNotATenantActsWithinNoTenant`, `testUserWhoseNonActivatableTenantIsDeletedStillSignsIn`
 - `tests/Integration/Guards/MisconfiguredIdentityIntegrationTest.php`
