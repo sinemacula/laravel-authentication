@@ -7,10 +7,12 @@ namespace Tests\Performance;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -22,6 +24,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
@@ -412,6 +416,107 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
         self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::SESSION_EXPIRED, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh for a device of another guard is refused from the device row,
+     * before the owner is loaded: the limits' read, the device read, and the
+     * failure's count.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testGuardMismatchRefreshFailureStopsAtTheDeviceLookup(): void
+    {
+        $device = $this->seedDevice($this->seedIdentity(), ['guard' => 'other', 'refresh_key' => RefreshTokenHasher::hash('other-guard-rotation-id')]);
+        $token  = $this->tokens()->issueRefreshToken($device, 'other-guard-rotation-id');
+        $guard  = $this->freshJwtGuard(self::GUARD);
+        $events = $this->recordRefreshEvents();
+
+        self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_GUARD_MISMATCH, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh whose session began with a method the guard no longer allows is
+     * refused once the owner is loaded, before any rotation write.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testDisallowedMethodRefreshFailureStopsBeforeTheRotation(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity, ['sign_in_method' => 'sso', 'refresh_key' => RefreshTokenHasher::hash('sso-rotation-id')]);
+        $token    = $this->tokens()->issueRefreshToken($device, 'sso-rotation-id', $identity);
+        $guard    = $this->freshJwtGuard(self::GUARD);
+        $events   = $this->recordRefreshEvents();
+
+        self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::METHOD_NOT_ALLOWED, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh for a principal the guard's audience no longer admits is
+     * refused once the owner is loaded, before any rotation write.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testIneligiblePrincipalRefreshFailureStopsBeforeTheRotation(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity, ['refresh_key' => RefreshTokenHasher::hash('ineligible-rotation-id')]);
+        $token    = $this->tokens()->issueRefreshToken($device, 'ineligible-rotation-id', $identity);
+
+        app(ConfigRepository::class)->set('auth.guards.' . self::GUARD . '.audience', ['principal_types' => ['staff']]);
+
+        $guard  = $this->freshJwtGuard(self::GUARD);
+        $events = $this->recordRefreshEvents();
+
+        self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::PRINCIPAL_INELIGIBLE, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh for a device that has used up its failures is refused from the
+     * limits' read alone, with a 429 and nothing written, so a flood of them
+     * never reaches the device.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRateLimitedRefreshIsRefusedFromTheLimitsAlone(): void
+    {
+        $device = $this->seedDevice($this->seedIdentity(), ['refresh_key' => RefreshTokenHasher::hash('limited-rotation-id')]);
+        $token  = $this->tokens()->issueRefreshToken($device, 'limited-rotation-id');
+
+        $limits = ['refresh' => ['per_identifier' => ['max' => 1, 'decay_seconds' => 60], 'per_ip' => null]];
+
+        app(ConfigRepository::class)->set('auth.guards.' . self::GUARD . '.rate_limits', $limits);
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        app(AttemptLimiter::class)->recordFailure(new AttemptSubject(self::GUARD, AttemptFlow::REFRESH, (string) $device->getKey(), null, null)); // @phpstan-ignore cast.string
+
+        $events = $this->recordRefreshEvents();
+        $thrown = $this->assertQueryBudget(1, 0, static function () use ($guard, $token): ?\Throwable {
+            try {
+                $guard->refresh($token);
+            } catch (ThrottleRequestsException $e) {
+                return $e;
+            }
+
+            return null;
+        });
+
+        self::assertInstanceOf(ThrottleRequestsException::class, $thrown);
+        self::assertCount(1, $events);
+        self::assertSame(RefreshFailureReason::RATE_LIMITED, $events[0]->reason ?? null);
     }
 
     /**

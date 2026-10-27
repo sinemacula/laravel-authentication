@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
@@ -25,11 +26,12 @@ use Tests\Concerns\InteractsWithSessions;
  * A sign-in through a method also writes its attempt limits: it reserves a slot
  * on the identifier's and the IP address's counters (on a fresh window, for
  * each, an update that changes nothing and the insert that creates the counter;
- * later in the window, one update each), and a sign-in that succeeds gives both
- * back; one that asks for a further factor keeps them until it completes. A
- * password checked against an account reserves a slot on the account's counter
- * as well, given back when it matches. `start()` and `complete()` are not
- * limited.
+ * later in the window, one update each), and a password checked against an
+ * account reserves one on the account's counter too. A sign-in that starts its
+ * session gives every slot back; one that asks for a further factor keeps them
+ * all, the account's included, until its pending sign-in completes, which then
+ * gives them back. `start()` reserves nothing, and `complete()` checks no
+ * limit.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -186,6 +188,33 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         self::assertTrue($this->assertQueryBudget(2, 1, static fn (): bool => $sessions->discard($pending->token)));
         self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => $sessions->discard($pending->token)));
+    }
+
+    /**
+     * Completing with a token that names no pending sign-in costs no more than
+     * the one read that finds none, writes nothing, and checks no limit: a
+     * well-formed token that was used up, and a garbled one, which costs no
+     * query at all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCompletingWithATokenThatNamesNothingCostsAtMostOneRead(): void
+    {
+        $this->seedIdentity();
+
+        self::requireAFurtherFactor();
+
+        $pending = $this->sessions()->signIn('password', self::credentials())->pending;
+
+        self::assertNotNull($pending);
+        self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
+
+        $sessions = $this->sessions();
+
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->assertQueryBudget(1, 0, static fn (): SignInResult => $sessions->complete($pending->token))->reason);
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->complete('not-a-pending-token'))->reason);
     }
 
     /**
