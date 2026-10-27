@@ -397,8 +397,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * An account whose own limit is used up is not checked at all: its password
-     * is never compared, and the attempt fails as a wrong password would, so
-     * the refusal does not tell anyone the account exists.
+     * is never compared, and the attempt fails as a wrong password would to the
+     * caller (Laravel's `Failed` carries the account found, as for any wrong
+     * password), while `SignInFailed` tells server-side listeners the truth:
+     * the account's limit refused it, with the wait.
      *
      * @return void
      *
@@ -425,8 +427,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(Failed::class, $failed);
         self::assertSame($identity, $failed->user);
         self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $signIn->reason);
-        self::assertNull($signIn->retryAfter);
+        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $signIn->reason);
+        self::assertSame(90, $signIn->retryAfter);
+        self::assertNull($signIn->identity);
     }
 
     /**

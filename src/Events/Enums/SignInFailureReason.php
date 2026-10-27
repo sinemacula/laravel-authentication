@@ -6,7 +6,10 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
  * Machine-readable reason a sign-in failed, carried on the `SignInFailed` event
- * and on a failed `SignInResult`.
+ * and on a failed `SignInResult`. `account_rate_limited` is the one reason the
+ * result never carries: a refusal by the account's own limit is answered as
+ * `invalid_credentials`, so it does not reveal that the account exists, and
+ * only the server-side event says why.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -21,6 +24,10 @@ enum SignInFailureReason: string
 
     // The identifier or the IP address has used up its attempts for now
     case RATE_LIMITED = 'rate_limited';
+
+    // The account the identifier found has used up its attempts for now; only
+    // on SignInFailed, while the result says invalid_credentials
+    case ACCOUNT_RATE_LIMITED = 'account_rate_limited';
 
     // The guard's identity provider does not return the identity
     case IDENTITY_UNKNOWN = 'identity_unknown';

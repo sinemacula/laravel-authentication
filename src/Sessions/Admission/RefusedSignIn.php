@@ -48,7 +48,7 @@ final readonly class RefusedSignIn
         /** The device the sign-in concerned, if any. */
         public ?Device $device = null,
 
-        /** Seconds until another attempt may be made, for `rate_limited` only. */
+        /** Seconds until another attempt may be made, for `rate_limited` and `account_rate_limited` only. */
         public ?int $retryAfter = null,
     ) {}
 

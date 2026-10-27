@@ -71,15 +71,15 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   address therefore shares one counter, and a lookup by a designated identifier normalises the credential before it
   queries, so the address is found however it was typed.
 - A lookup can still find one account by spellings no normaliser folds (a collation that ignores accents, widths or
-  invisible characters, a query closure, a list of values, another column), so the password method counts every
-  password it checks against the account it checks it for (`AttemptSubject::$account`, a `per_account` counter under
-  the `per_identifier` limit), taking the slot after the lookup and holding it with the sign-in's other slots: given
-  back when the sign-in starts its session, kept by a pending sign-in until it completes, counted on a failure. The
-  account's counter is keyed without the guard, so every guard whose provider returns the account counts in it, each
-  held to its own `per_identifier` maximum (a guard with that limit off neither checks nor counts it): adding a guard
-  adds no guesses. An
-  account with no attempts left is not checked and fails as `invalid_credentials`, so the refusal is no existence
-  oracle. `attempt()` refuses an identifier that is neither a string, a `Stringable` nor a query closure before any
+  invisible characters, a query closure, a list of values, another column), so the password method counts every password
+  it checks against the account it checks it for (`AttemptSubject::$account`, a `per_account` counter under the
+  `per_identifier` limit), taking the slot after the lookup and holding it with the sign-in's other slots: given back
+  when the sign-in starts its session, kept by a pending sign-in until it completes, counted on a failure. The account's
+  counter is keyed without the guard, so every guard whose provider returns the account counts in it, each held to its
+  own `per_identifier` maximum (a guard with that limit off neither checks nor counts it): adding a guard adds no
+  guesses. An account with no attempts left is not checked and fails as `invalid_credentials`, so the refusal is no
+  existence oracle; only `SignInFailed`, which goes to server-side listeners, says `account_rate_limited`, with the
+  wait. `attempt()` refuses an identifier that is neither a string, a `Stringable` nor a query closure before any
   lookup, and an IPv6 client is counted per /64 network, except that an address carrying an IPv4 client's address
   (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4 address.
 - A custom `AudiencePolicy` decides the session's deadlines (the device's on sign-in, the idle deadline on each

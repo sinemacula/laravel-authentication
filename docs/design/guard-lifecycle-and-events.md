@@ -63,7 +63,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A failed `attempt()` emits `Attempting`, `Failed` and then the package `SignInFailed` with a
   `SignInFailureReason`, but not `Login` or `Authenticated`. `Failed` carries the account the credentials found (as
   Laravel's guards do), `SignInFailed` only an identity whose password was accepted, plus the principal and tenant once
-  resolved and the identifier as given; never a credential.
+  resolved and the identifier as given; never a credential. An account whose own limit refused the password check is
+  `account_rate_limited` on `SignInFailed`, with the wait, while the caller sees only a failure (the session service's
+  result says `invalid_credentials`).
 - `attempt()` runs on the password sign-in method and the sign-in policies, resolved from the container when it runs:
   after `Attempting`, the audience policy must allow the `password` method (`method_not_allowed`, nothing counted, no
   timebox) and the attempt limiter must grant a slot for the configured identifier and the request's IP address

@@ -20,7 +20,8 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * spelling of an identifier that finds the account mint a pending sign-in, and
  * so a guess at a further factor, outside the account's limit.
  *
- * Made for one sign-in and dropped with it.
+ * It remembers when an account had no attempts left, so the failure events can
+ * say so. Made for one sign-in and dropped with it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -31,6 +32,9 @@ final class AccountAttempts
 {
     /** @var list<\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation> The granted reservations held. */
     private array $held = [];
+
+    /** @var ?int Seconds until an account that had no attempts left allows another, once one has refused. */
+    private ?int $refusedFor = null;
 
     /**
      * Constructor.
@@ -65,6 +69,9 @@ final class AccountAttempts
         $reservation = $this->limiter->acquire(new AttemptSubject($this->guard, AttemptFlow::SIGN_IN, null, null, null, $account));
 
         if (!$reservation->granted()) {
+
+            $this->refusedFor = $reservation->retryAfter;
+
             return false;
         }
 
@@ -94,5 +101,16 @@ final class AccountAttempts
     public function windows(): array
     {
         return array_merge(...array_map(static fn (AttemptReservation $reservation): array => $reservation->windows, $this->held));
+    }
+
+    /**
+     * Seconds until the account that had no attempts left allows another, or
+     * `null` when no account refused.
+     *
+     * @return ?int
+     */
+    public function refusedFor(): ?int
+    {
+        return $this->refusedFor;
     }
 }

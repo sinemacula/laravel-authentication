@@ -79,6 +79,7 @@ final class SignInFailedTest extends TestCase
             'invalid_credentials',
             'method_not_allowed',
             'rate_limited',
+            'account_rate_limited',
             'identity_unknown',
             'identity_inactive',
             'principal_unresolved',

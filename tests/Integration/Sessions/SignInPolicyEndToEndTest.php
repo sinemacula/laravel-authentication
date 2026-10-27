@@ -230,7 +230,9 @@ final class SignInPolicyEndToEndTest extends TestCase
      * however the attempt found it: after five wrong passwords through query
      * closures (which name no identifier to count), the right password is
      * refused, as a wrong one is, even through the plain address, until the
-     * window ends.
+     * window ends. The client is told only `invalid_credentials`;
+     * `SignInFailed` tells listeners the account's limit refused it, with the
+     * wait.
      *
      * @return void
      *
@@ -249,8 +251,19 @@ final class SignInPolicyEndToEndTest extends TestCase
         $this->recordEvents([SignInFailed::class]);
 
         self::assertFalse($this->freshGuard()->attempt(['email' => $byClosure, 'password' => self::PASSWORD]));
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->recordedEvent(SignInFailed::class)->reason);
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials())->reason);
+        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertSame(280, $this->recordedEvent(SignInFailed::class)->retryAfter);
+
+        $this->recordEvents([SignInFailed::class]);
+
+        $refused = $this->sessions()->signIn('password', self::credentials());
+
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $refused->reason);
+        self::assertNull($refused->retryAfter);
+        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
+        self::assertSame(280, $this->recordedEvent(SignInFailed::class)->retryAfter);
+        self::assertNull($this->recordedEvent(SignInFailed::class)->identity);
+        self::assertSame('ada@example.test', $this->recordedEvent(SignInFailed::class)->identifier);
 
         Carbon::setTestNow(Carbon::now()->addSeconds(280));
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(280));

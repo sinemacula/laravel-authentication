@@ -315,7 +315,7 @@ final readonly class SessionService
 
         /** @var \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn $admitted */
         $admitted = ($this->timebox)(
-            fn (Timebox $timebox): AdmittedSignIn|RefusedSignIn => $this->verify($driver, $request, $context, $subject->identifierType, $timebox),
+            fn (Timebox $timebox): AdmittedSignIn|RefusedSignIn => $this->verify($driver, $request, $accounts, $context, $subject->identifierType, $timebox),
         );
 
         if ($admitted instanceof AdmittedSignIn && $driver instanceof PasswordSignIn) {
@@ -336,10 +336,14 @@ final readonly class SessionService
 
     /**
      * Verify the request with the sign-in method and admit the identity it
-     * proves, cutting the timebox short only for an admitted sign-in.
+     * proves, cutting the timebox short only for an admitted sign-in. A method
+     * that failed after an account it checked had no attempts left is refused
+     * as `account_rate_limited`, with that account's wait, for the failure
+     * events; the result still says `invalid_credentials`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  ?string  $identifierType
      * @param  \Illuminate\Support\Timebox  $timebox
@@ -349,13 +353,21 @@ final readonly class SessionService
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function verify(SignInMethod $driver, SignInRequest $request, SignInContext $context, ?string $identifierType, Timebox $timebox): AdmittedSignIn|RefusedSignIn
-    {
+    private function verify(
+        SignInMethod $driver,
+        SignInRequest $request,
+        AccountAttempts $accounts,
+        SignInContext $context,
+        ?string $identifierType,
+        Timebox $timebox,
+    ): AdmittedSignIn|RefusedSignIn {
         $verified = $driver->authenticate($request);
 
-        $outcome = $verified instanceof Identity
-            ? $this->admit($verified, $context->principal, $identifierType)
-            : new RefusedSignIn($verified);
+        $outcome = match (true) {
+            $verified instanceof Identity    => $this->admit($verified, $context->principal, $identifierType),
+            $accounts->refusedFor() !== null => new RefusedSignIn(SignInFailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $accounts->refusedFor()),
+            default                          => new RefusedSignIn($verified),
+        };
 
         if ($outcome instanceof AdmittedSignIn) {
             $timebox->returnEarly();

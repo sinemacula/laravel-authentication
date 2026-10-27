@@ -107,6 +107,21 @@ final class SignInResultTest extends TestCase
     }
 
     /**
+     * A refusal by the account's own limit is answered as invalid credentials
+     * with no wait, so the result never reveals that the account exists.
+     *
+     * @return void
+     */
+    public function testAnAccountsOwnLimitIsAnsweredAsInvalidCredentials(): void
+    {
+        $refused = SignInResult::failed(SignInFailureReason::ACCOUNT_RATE_LIMITED, 30);
+
+        self::assertTrue($refused->isFailed());
+        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $refused->reason);
+        self::assertNull($refused->retryAfter);
+    }
+
+    /**
      * Results are made only through their named constructors.
      *
      * @return void

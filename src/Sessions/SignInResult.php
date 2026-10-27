@@ -71,7 +71,10 @@ final readonly class SignInResult
     }
 
     /**
-     * A sign-in that failed.
+     * A sign-in that failed. A refusal by the account's own limit is answered
+     * as `invalid_credentials`, with no wait, as a wrong secret would be, so
+     * the result never reveals that the account exists; only the server-side
+     * `SignInFailed` event says why.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
      * @param  ?int  $retryAfter
@@ -79,6 +82,10 @@ final readonly class SignInResult
      */
     public static function failed(SignInFailureReason $reason, ?int $retryAfter = null): self
     {
+        if ($reason === SignInFailureReason::ACCOUNT_RATE_LIMITED) {
+            return new self(SignInStatus::FAILED, reason: SignInFailureReason::INVALID_CREDENTIALS);
+        }
+
         return new self(SignInStatus::FAILED, reason: $reason, retryAfter: $retryAfter);
     }
 

@@ -86,7 +86,7 @@ trait SignsInWithCredentials
                 $user = $this->verifyAttemptedCredentials($password, $credentials, $accounts);
 
                 if ($user === null) {
-                    return new RefusedSignIn(SignInFailureReason::INVALID_CREDENTIALS);
+                    return self::refuseCredentials($accounts);
                 }
 
                 $this->fireValidatedEvent($user);
@@ -142,6 +142,23 @@ trait SignsInWithCredentials
         $this->lastRetrievedUser = $user;
 
         return $user instanceof Identity && $password->verifyPassword($accounts, $this->provider, $user, $credentials) ? $user : null;
+    }
+
+    /**
+     * Refuse credentials that did not prove an identity: as invalid, or, when
+     * the account they found had no attempts left, as refused by the account's
+     * own limit with its wait, which only the failure events report.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\AccountAttempts  $accounts
+     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     */
+    private static function refuseCredentials(AccountAttempts $accounts): RefusedSignIn
+    {
+        $wait = $accounts->refusedFor();
+
+        return $wait === null
+            ? new RefusedSignIn(SignInFailureReason::INVALID_CREDENTIALS)
+            : new RefusedSignIn(SignInFailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $wait);
     }
 
     /**

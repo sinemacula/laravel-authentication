@@ -22,6 +22,11 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
  * were resolved. The identifier is the one the input named, as given. Never a
  * password, a code, a token or any other secret.
  *
+ * It says why a sign-in failed even where the client is not told: a refusal by
+ * the account's own limit is `account_rate_limited` here, with the wait, while
+ * the sign-in's result says `invalid_credentials`, so listeners (lockout
+ * notices, a SIEM) can tell a locked account from a wrong password.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -74,7 +79,7 @@ final readonly class SignInFailed
         /** Identifier the input named, as given, if any. */
         public ?string $identifier = null,
 
-        /** Seconds until another attempt may be made, for `rate_limited` only. */
+        /** Seconds until another attempt may be made, for `rate_limited` and `account_rate_limited` only. */
         public ?int $retryAfter = null,
     ) {}
 }

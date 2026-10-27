@@ -485,16 +485,17 @@ When the IP address's limit is full, the slot just taken for the identifier is g
 The password method also counts every password it checks against the account it checks it for, under the guard's
 `per_identifier` limit, and holds that slot with the sign-in's own: it is given back only when the sign-in starts its
 session (a pending sign-in keeps it until it completes), so a correct password that goes on to fail, or to wait for a
-further factor, still counts. A lookup can find one account by many
-spellings of its identifier (a column collation that ignores accents, widths or invisible characters, as MySQL's default
-`utf8mb4_unicode_ci` does, a query closure in `attempt()`, another column), and through every guard whose provider
-returns it, so the account keeps one count whichever guard checks it, and only that count bounds the guesses made at its
-password whichever spelling and guard they use: two guards on one provider allow no more guesses than one. Each guard
-holds the count to its own `max`, so a stricter guard stops sooner, and a guard whose `per_identifier` is `null` neither
-checks nor counts it. Once an account has no attempts left, its password is not checked until the window ends, and the
-sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal does not reveal that the account
-exists. A refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its
-failures, per device and per IP address, and a successful refresh costs one read. A refresh refused for its failures
+further factor, still counts. A lookup can find one account by many spellings of its identifier (a column collation that
+ignores accents, widths or invisible characters, as MySQL's default `utf8mb4_unicode_ci` does, a query closure in
+`attempt()`, another column), and through every guard whose provider returns it, so the account keeps one count
+whichever guard checks it, and only that count bounds the guesses made at its password whichever spelling and guard they
+use: two guards on one provider allow no more guesses than one. Each guard holds the count to its own `max`, so a
+stricter guard stops sooner, and a guard whose `per_identifier` is `null` neither checks nor counts it. Once an account
+has no attempts left, its password is not checked until the window ends, and the sign-in fails as `invalid_credentials`,
+as a wrong password would, so the refusal does not reveal that the account exists. Only your own listeners are told why:
+`SignInFailed` carries `account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from
+a wrong password. A refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only
+its failures, per device and per IP address, and a successful refresh costs one read. A refresh refused for its failures
 answers `429` with a `Retry-After` header.
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
@@ -1360,13 +1361,16 @@ client (IP address and user agent), and never a token.
 `SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's
 client (IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a
 wrong password or an unknown identifier carries none), the principal and tenant once resolved, the wait for
-`rate_limited`, and a `SignInFailureReason`. It never carries a password, code or token:
+`rate_limited` and `account_rate_limited`, and a `SignInFailureReason`. It never carries a password, code or token. It
+says why a sign-in failed even where the client is not told: a refusal by the account's own limit is
+`account_rate_limited` on the event, while the sign-in's result says `invalid_credentials`:
 
 | Reason                       | Meaning                                                            |
 |------------------------------|--------------------------------------------------------------------|
 | `invalid_credentials`        | The sign-in method did not accept the input                        |
 | `method_not_allowed`         | The guard does not allow the sign-in method                        |
 | `rate_limited`               | The identifier or IP address used up its attempts for now          |
+| `account_rate_limited`       | The account used up its attempts; event only, not on the result    |
 | `identity_unknown`           | The guard's identity provider does not return the identity         |
 | `identity_inactive`          | The identity reported inactive                                     |
 | `principal_unresolved`       | No principal could be resolved for the identity                    |

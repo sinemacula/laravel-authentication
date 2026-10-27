@@ -534,6 +534,42 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
+     * An account with no attempts left is refused without its password being
+     * checked: the client is answered `invalid_credentials` with no wait, as
+     * for a wrong password, while `SignInFailed` reports the account's own
+     * limit and its wait, with no identity, since none was verified.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARefusalByTheAccountsLimitIsReportedOnlyToListeners(): void
+    {
+        $this->seedIdentity();
+
+        $limiter = $this->bindMock(AttemptLimiter::class);
+        $limiter->shouldReceive('acquire')->twice()->andReturnUsing(
+            static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, $subject->account === null ? null : 90),
+        );
+        $limiter->shouldReceive('release')->never();
+
+        $this->recordEvents([Failed::class, SignInFailed::class]);
+
+        $result = $this->sessions()->signIn('password', self::credentials());
+
+        $this->assertSignInFails(SignInFailureReason::INVALID_CREDENTIALS, $result);
+        self::assertNull($result->retryAfter);
+
+        $failed = $this->recordedEvent(SignInFailed::class);
+
+        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $failed->reason);
+        self::assertSame(90, $failed->retryAfter);
+        self::assertNull($failed->identity);
+        self::assertSame('ada@example.test', $failed->identifier);
+        self::assertNull($this->recordedEvent(Failed::class)->user);
+    }
+
+    /**
      * The additional-factor policy is asked about every admitted sign-in, with
      * the client's description and no proven device; a sign-in it asks a factor
      * of starts no session: it hands out a pending sign-in for the identity and

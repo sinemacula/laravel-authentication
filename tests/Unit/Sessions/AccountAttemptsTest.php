@@ -80,8 +80,11 @@ final class AccountAttemptsTest extends TestCase
         $attempts = new AccountAttempts($limiter, 'api');
 
         self::assertSame([], $attempts->windows());
+        self::assertNull($attempts->refusedFor());
         self::assertTrue($attempts->reserve($this->identity(1)));
+        self::assertNull($attempts->refusedFor());
         self::assertFalse($attempts->reserve($this->identity(2)));
+        self::assertSame(30, $attempts->refusedFor());
         self::assertTrue($attempts->reserve($this->identity(3)));
         self::assertSame(['first' => '2026-04-06 12:05:00', 'second' => '2026-04-06 12:10:00'], $attempts->windows());
 
