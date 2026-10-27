@@ -117,8 +117,10 @@ abstract class AbstractGuard implements ContextualGuard
      * so a bad credential is not re-parsed, re-queried, or re-reported on every
      * call. After `logout()` the guard stays signed out for the rest of the
      * request, as Laravel's session guard does. An explicit `login()`,
-     * `attempt()`, or `setUser()` still binds an identity, and `setRequest()`
-     * starts over for the next request.
+     * `attempt()`, or `setUser()` still binds an identity, and a successful
+     * `login()` or `attempt()` settles the request as well, so the request's
+     * own credential is never resolved in the middle of that sign-in.
+     * `setRequest()` starts over for the next request.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
@@ -452,6 +454,11 @@ abstract class AbstractGuard implements ContextualGuard
      *
      * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
      *
+     * An explicit bind settles the request: a `Login` listener that reads the
+     * guard before the identity is set gets no identity rather than resolving
+     * the request's own credential, whose device would otherwise stay bound to
+     * the identity signing in.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
@@ -459,6 +466,8 @@ abstract class AbstractGuard implements ContextualGuard
      */
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
     {
+        $this->requestResolved = true;
+
         $this->clearContextualState();
 
         $this->events->dispatch(new Login($this->name, $identity, false));

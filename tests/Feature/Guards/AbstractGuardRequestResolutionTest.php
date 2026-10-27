@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Guards;
 
+use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -157,6 +158,38 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
         self::assertNull($guard->identity());
         self::assertNull($guard->principal());
         self::assertSame(1, $guard->resolutions);
+    }
+
+    /**
+     * An explicit `login()` settles the request before it fires `Login`: a
+     * listener that reads the guard mid-bind gets no identity instead of
+     * resolving the request's own credential, and the guard ends up bound to
+     * the identity signing in.
+     *
+     * @return void
+     */
+    public function testLoginSettlesTheRequestBeforeListenersReadTheGuard(): void
+    {
+        $guard = $this->makeResolvingGuard($this->mockIdentity());
+        $seen  = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use ($guard, &$seen): void {
+
+                if (!$event instanceof Login) {
+                    return;
+                }
+
+                $seen[] = $guard->id();
+            });
+
+        $identity = $this->mockIdentity();
+
+        $guard->login($identity, \Mockery::mock(Principal::class));
+
+        self::assertSame([null], $seen);
+        self::assertSame(0, $guard->resolutions);
+        self::assertSame($identity, $guard->user());
     }
 
     /**

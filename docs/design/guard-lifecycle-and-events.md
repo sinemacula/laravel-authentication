@@ -23,8 +23,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
   rejected token fires `Attempting` and `Failed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
-  the request. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request reads the
-  identity, principal, tenant, and device live, from the write connection.
+  the request. A successful `login()` or `attempt()` (and so `refresh()`) settles the request before it fires `Login`,
+  so a listener that reads the guard mid-bind never resolves the request's own token and leaves its device bound to
+  the identity signing in. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request
+  reads the identity, principal, tenant, and device live, from the write connection.
 - `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on
   a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()`
   and `setDevice()` resolve the request first too, so a pin set before the first access replaces the principal or
@@ -119,6 +121,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testBearerRequestAnswersWithServerError`
 - `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`
   `testAccessorResolvesBearerTokenWhenCalledFirst`, `testPinsSetBeforeFirstAccessAreNotReplacedByTheBearerToken`
+- `tests/Integration/Guards/LazyContextResolutionIntegrationTest.php`
+  `testLoginListenerReadingTheGuardDoesNotBindTheBearerTokensDevice`
 - `tests/Integration/Guards/RequestResolutionIntegrationTest.php`
   `testRejectedBearerTokenIsAttemptedOncePerRequest`, `testLogoutKeepsTheRequestSignedOut`
 - `tests/Integration/Guards/ActingAsIntegrationTest.php`

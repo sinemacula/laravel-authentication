@@ -4,8 +4,11 @@ declare(strict_types = 1);
 
 namespace Tests\Integration\Guards;
 
+use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -192,6 +195,60 @@ final class LazyContextResolutionIntegrationTest extends TestCase
                 'identity'  => $member->getKey(),
                 'principal' => $otherMembership->getKey(),
                 'device'    => $otherDevice->getKey(),
+            ]);
+    }
+
+    /**
+     * A `Login` listener that reads the guard while `attempt()` signs another
+     * member in, on a route without `auth` middleware whose request carries a
+     * bearer token, does not resolve that token: the member signing in is bound
+     * with no device rather than with the bearer's.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testLoginListenerReadingTheGuardDoesNotBindTheBearerTokensDevice(): void
+    {
+        [$bearer, $bearerMembership, $tenant, $bearerDevice] = $this->seedContext();
+
+        $member = new ActivatableTenantMember;
+        $member->forceFill(['email' => 'signing-in@example.test', 'password' => app(Hasher::class)->make('secret')])->save();
+
+        $membership = new ActivatableTenantMembership;
+        $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
+
+        $manager = app('auth');
+
+        assert($manager instanceof AuthManager);
+
+        $token = $manager->jwt('api')->issueAccessToken($bearer, $bearerMembership, $bearerDevice);
+
+        Event::listen(Login::class, static function (): void {
+            app('auth')->guard('api')->id();
+        });
+
+        Route::post('/sign-in', static function (): array {
+
+            $guard = app('auth')->guard('api');
+
+            assert($guard instanceof JwtGuard);
+
+            return [
+                'signed_in' => $guard->attempt(['email' => 'signing-in@example.test', 'password' => 'secret']),
+                'identity'  => $guard->identity()?->getAuthIdentifier(),
+                'principal' => $guard->principal()?->getPrincipalIdentifier(),
+                'device'    => $guard->device()?->getDeviceIdentifier(),
+            ];
+        });
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $token])->postJson('/sign-in')
+            ->assertOk()
+            ->assertExactJson([
+                'signed_in' => true,
+                'identity'  => $member->getKey(),
+                'principal' => $membership->getKey(),
+                'device'    => null,
             ]);
     }
 
