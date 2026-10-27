@@ -90,11 +90,17 @@ trait ReadsDeviceAttributes
      */
     private static function earliestInstantOf(CarbonInterface $time): CarbonInterface
     {
-        $offset  = $time->getOffset();
-        $before  = $time->toImmutable()->subDay()->getOffset();
-        $earlier = $time::createFromTimestamp($time->getTimestamp() - ($before - $offset), $time->getTimezone());
+        $zone   = $time->getTimezone();
+        $offset = $time->getOffset();
+        $before = $zone->getOffset((new \DateTimeImmutable('@' . $time->getTimestamp()))->modify('-1 day'));
 
-        return $before > $offset && $earlier->getOffset() === $before ? $earlier : $time;
+        if ($before <= $offset) {
+            return $time;
+        }
+
+        $earlier = $time->getTimestamp() - ($before - $offset);
+
+        return $zone->getOffset(new \DateTimeImmutable('@' . $earlier)) === $before ? $time::createFromTimestamp($earlier, $zone) : $time;
     }
 
     /**

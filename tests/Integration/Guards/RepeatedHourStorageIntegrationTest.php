@@ -12,6 +12,7 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
@@ -28,6 +29,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -64,6 +66,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtTokenService::class)]
 #[CoversClass(RefreshRotationStore::class)]
 #[CoversClass(RefreshTokenExchange::class)]
+#[CoversClass(RecordDeviceUsage::class)]
 #[CoversTrait(ActsAsDevice::class)]
 final class RepeatedHourStorageIntegrationTest extends TestCase
 {
@@ -98,6 +101,8 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
+
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
     }
 
     /**
@@ -164,7 +169,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         self::assertTrue($this->store()->rotate($device, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $time, $time));
 
-        $row    = (array) DB::table('devices')->where('id', $device->getKey())->first();
+        $row    = $this->storedRow($device);
         $stored = $this->stored($device);
 
         self::assertSame($wallClock, $row['refresh_rotated_at']);
@@ -295,6 +300,33 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     }
 
     /**
+     * With a timezone that observes daylight saving, a last use recorded in the
+     * second pass of the repeated hour reads back an hour early, so the next
+     * bearer request is outside the throttle window and is recorded too: for
+     * that hour every use is written.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testWithDaylightSavingEveryUseInTheSecondPassIsRecorded(): void
+    {
+        $firstUse = $this->atUtc('2026-10-25 01:30:00', self::LONDON);
+
+        [$identity, $device] = $this->signIn($firstUse);
+
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $device))->getJson('/me')->assertOk();
+
+        self::assertSame('2026-10-25 01:30:00', $this->storedRow($device)['last_used_at']);
+
+        $this->moveClockTo($firstUse->copy()->addSeconds(30));
+
+        $this->withToken($this->tokens()->issueAccessToken($identity, $identity, $device))->getJson('/me')->assertOk();
+
+        self::assertSame('2026-10-25 01:30:30', $this->storedRow($device)['last_used_at']);
+    }
+
+    /**
      * Define the `api` guard.
      *
      * @param  mixed  $app
@@ -319,6 +351,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
                 'refresh_grace_seconds'        => 30,
             ],
         ]);
+        $config->set('authentication.device.last_used_throttle_seconds', 60);
     }
 
     /**
@@ -434,6 +467,17 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     private function stored(Device $device): Device
     {
         return Device::query()->whereKey($device->getKey())->firstOrFail();
+    }
+
+    /**
+     * Read a device's raw row.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @return array<string, mixed>
+     */
+    private function storedRow(Device $device): array
+    {
+        return (array) DB::table('devices')->where('id', $device->getKey())->first();
     }
 
     /**
