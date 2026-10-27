@@ -10,7 +10,10 @@ stateful per-device credentials with server-side replay detection.
 - Refresh tokens are bound to a device via `did`.
 - The token carries a plaintext rotation id in `jti`; the device row stores only a SHA-256 digest of that value.
 - Verification is constant-time against the stored digest.
-- Every successful refresh rotates the stored digest with a compare-and-swap update before issuing the next token pair.
+- Every successful refresh issues the next token pair first and then rotates the stored digest with a compare-and-swap
+  update; the pair is returned only once the update has committed. A failure while issuing (signing, randomness, an
+  identifier that cannot be read) therefore happens before anything is written and leaves the presented refresh token
+  valid.
 - Refresh reuse is handled at the device-family level. When the package detects a lost CAS race, it revokes the device
   by clearing the digest and setting `revoked_at`.
 - Refresh can preserve principal continuity by carrying `pid` forward into both the rotated refresh token and the new
@@ -25,8 +28,9 @@ stateful per-device credentials with server-side replay detection.
 - Verify the plaintext `jti` against the stored digest.
 - Reload the device's owner through the guard's identity provider, confirm it is that exact owner (see
   `guard-bound-tokens.md`), and resolve the active principal.
-- Rotate the stored digest with a single CAS update keyed on device id, old digest, and `revoked_at IS NULL`.
 - Issue a fresh access token and a fresh refresh token bound to the same device and principal context.
+- Rotate the stored digest with a single CAS update keyed on device id, old digest, and `revoked_at IS NULL`, and return
+  the new pair only if it affected the row.
 
 ## Failure / Edge Cases
 
@@ -39,7 +43,10 @@ stateful per-device credentials with server-side replay detection.
 - A digest mismatch on a token that is already stale produces `rotation_mismatch`.
 - `rotation_reuse` is narrower than `rotation_mismatch`: it is reserved for the branch where the token verified against
   the in-memory digest but lost the CAS race before rotation completed.
-- `rotation_reuse` revokes the device family immediately; a plain stale-token `rotation_mismatch` does not.
+- `rotation_reuse` revokes the device family immediately; a plain stale-token `rotation_mismatch` does not. The pair
+  already issued for the losing request is discarded.
+- An exception while issuing the new pair propagates without a `RefreshFailed` event and without touching the device
+  row, so the client can retry with the same refresh token.
 - Revoked devices produce `device_revoked`. Revocation is not refresh-only: the bearer path rejects an access token
   naming a revoked device as if the device were missing (see `fail-closed-pid-did.md`).
 - Refresh does not rely on Eloquent observers. The raw update path deliberately bypasses them; consumers should hang
@@ -83,6 +90,8 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshReadsDeviceAndIdentityFromTheWriteConnection`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testExchangeRejectsMalformedDeviceIdWithoutQuerying`
+- `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
+  `testExchangeLeavesTheRefreshTokenValidWhenIssuingFails`
 - `tests/Integration/Guards/JwtGuardDatabaseFailureIntegrationTest.php`
   `testRefreshPropagatesAConnectionFailureDuringDeviceLookup`
 
@@ -92,6 +101,7 @@ Update this note when any of the following change:
 
 - the digest algorithm or the decision to store digests rather than plaintext rotation ids
 - the CAS predicate used for rotation
+- whether the new pair is still issued before the CAS commits
 - the meanings of `rotation_mismatch`, `rotation_reuse`, `device_revoked`, or `device_unknown`
 - whether database errors still propagate instead of mapping to a failure reason
 - whether replay revokes one device row or a broader credential family

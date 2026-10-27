@@ -13,12 +13,14 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Random\RandomException;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -351,6 +353,75 @@ final class RefreshTokenExchangeTest extends TestCase
         ]);
 
         self::assertNull($exchange->exchange($token));
+    }
+
+    /**
+     * Both tokens are issued before the rotation commits, so a failure while
+     * issuing leaves the stored digest untouched and the presented refresh
+     * token still rotates on the next attempt. The failure is injected through
+     * the principal identifier the access token embeds.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangeLeavesTheRefreshTokenValidWhenIssuingFails(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+        $storedDigest    = RefreshTokenHasher::hash($plainRotationId);
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 31]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '31',
+            'refresh_key'          => $storedDigest,
+        ])->save();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->twice()
+            ->with('31')
+            ->andReturn($identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $failing = \Mockery::mock(Principal::class);
+        $failing->shouldReceive('getTenant')->andReturnNull();
+        $failing->shouldReceive('getPrincipalIdentifier')->andThrow(new RandomException('random source unavailable'));
+
+        $working = \Mockery::mock(Principal::class);
+        $working->shouldReceive('getTenant')->andReturnNull();
+        $working->shouldReceive('getPrincipalIdentifier')->andReturn('p-31');
+
+        $this->resolver->shouldReceive('resolve')
+            ->twice()
+            ->with($identity)
+            ->andReturn($failing, $working);
+
+        $this->events->shouldNotReceive('dispatch');
+
+        $exchange = $this->makeExchange();
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        try {
+            $exchange->exchange($token);
+
+            self::fail('The issuing failure should have propagated.');
+        } catch (RandomException $exception) {
+            self::assertSame('random source unavailable', $exception->getMessage());
+        }
+
+        self::assertSame($storedDigest, $this->storedDigest($device->id));
+
+        self::assertNotNull($exchange->exchange($token));
+        self::assertNotSame($storedDigest, $this->storedDigest($device->id));
     }
 
     /**
@@ -714,5 +785,16 @@ final class RefreshTokenExchangeTest extends TestCase
             ->once()
             ->with($device->getAttribute('authenticatable_id'))
             ->andReturn($identity);
+    }
+
+    /**
+     * Read the refresh digest stored on the device row.
+     *
+     * @param  string  $deviceId
+     * @return mixed
+     */
+    private function storedDigest(string $deviceId): mixed
+    {
+        return DB::table('stub_devices')->where('id', $deviceId)->value('refresh_key');
     }
 }

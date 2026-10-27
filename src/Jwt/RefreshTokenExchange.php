@@ -466,13 +466,19 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Atomically rotate the digest via a compare-and-swap UPDATE, issue the new
-     * tokens, and assemble the DTO. Does NOT bind any state on a guard.
+     * Issue the new token pair, then atomically rotate the digest via a
+     * compare-and-swap UPDATE, and assemble the DTO. Does NOT bind any state on
+     * a guard.
+     *
+     * Both tokens are issued before the CAS, so a failure while issuing
+     * (signing, randomness, an identifier that cannot be read) propagates
+     * before anything is written and the presented refresh token stays valid.
+     * The pair is only returned once the CAS has committed.
      *
      * Returns `null` when the CAS affects zero rows: the token verified earlier
      * but a concurrent refresh (or a stolen-token replay) has rotated the
-     * digest in between. The whole device is revoked and `rotation_reuse` is
-     * dispatched.
+     * digest in between. The issued pair is discarded, the whole device is
+     * revoked, and `rotation_reuse` is dispatched.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -485,6 +491,11 @@ final class RefreshTokenExchange
     private function completeExchange(EloquentDevice&Model $device, Identity $identity, Principal $principal, #[\SensitiveParameter] string $oldRotationId): ?ExchangedRefresh
     {
         $newRotationId = RefreshTokenHasher::generate();
+
+        $tokens = new RefreshResult(
+            $this->tokens->issueAccessToken($identity, $principal, $device),
+            $this->tokens->issueRefreshToken($device, $newRotationId, $principal),
+        );
 
         $rotated = $this->atomicallyRotateRefreshKey($device, $oldRotationId, $newRotationId);
 
@@ -503,11 +514,6 @@ final class RefreshTokenExchange
         // during this request see the new digest.
         $refreshKeyColumn = $this->refreshKeyColumn($device);
         $device->setAttribute($refreshKeyColumn, RefreshTokenHasher::hash($newRotationId));
-
-        $tokens = new RefreshResult(
-            $this->tokens->issueAccessToken($identity, $principal, $device),
-            $this->tokens->issueRefreshToken($device, $newRotationId, $principal),
-        );
 
         return new ExchangedRefresh($identity, $principal, $device, $tokens);
     }
