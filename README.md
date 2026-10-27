@@ -368,8 +368,9 @@ class AppTenant extends Model implements HasType, TenantContract
 With that shape:
 
 - `Auth::identity()` returns the `AppIdentity`.
-- `Auth::principal()` returns the `AppMembership` - resolved via `principals()->find($pid)` when the JWT carries
-  a `pid`, or via `resolveDefaultPrincipal()` otherwise.
+- `Auth::principal()` returns the `AppMembership` - resolved via `principals()->find($pid)` from the token's `pid`
+  (every access token carries one), or via `resolveDefaultPrincipal()` on sign-in and on a refresh token issued
+  without a principal.
 - `Auth::tenant()` returns the `AppTenant` the membership belongs to.
 - `Auth::type()` returns the tenant's type string, or `null` when `HasType` is absent.
 - A membership whose `is_active` is `false` cannot sign in, refresh, or authenticate a request (see
