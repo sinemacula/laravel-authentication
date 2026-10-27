@@ -130,7 +130,8 @@ Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-
 
 1. Do not implement `HasDevices` on your identity model.
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-3. Do not call `$guard->refresh(...)` or the session service. Clients re-authenticate when the access token expires.
+3. Do not call `$guard->refresh(...)` or the session service, which throws a `LogicException` for an identity without
+   `HasDevices`. Clients re-authenticate when the access token expires.
 
 `Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Bearer requests need
 none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the `rate_limits` table (see
@@ -1088,8 +1089,11 @@ as `pending_invalid`, without saying why.
 Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see
 [Rate limits](#rate-limits)).
 
-`attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. Access-only guards
-(identities without `HasDevices`) keep issuing access tokens with `Auth::jwt('api')->issueAccessToken()`.
+`attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. A session lives on a
+device, so the session service signs in only identities that implement `HasDevices`: for any other identity `signIn()`,
+`start()` and `complete()` throw a `LogicException` naming its class, since the access token it would issue names a
+device the guard could never find again. Access-only guards (identities without `HasDevices`) sign in with `attempt()`
+and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 
 Exchange the refresh token through the guard:
 

@@ -12,15 +12,19 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
@@ -37,10 +41,13 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
+use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -50,6 +57,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\NormalisedEmailIdentity;
 use Tests\TestCase;
 
 /**
@@ -773,7 +781,76 @@ final class SessionServiceTest extends TestCase
     }
 
     /**
-     * Configure the guards.
+     * Signing in an identity that does not own devices fails as the
+     * misconfiguration it is, naming the identity class, and writes no device.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSignInRefusesAnIdentityWithoutDevices(): void
+    {
+        $this->seedIdentityWithoutDevices();
+
+        $this->expectRefusalOfIdentitiesWithoutDevices();
+
+        try {
+            $this->sessions('plain')->signIn('password', self::credentials());
+        } finally {
+            self::assertSame(0, Device::query()->count());
+        }
+    }
+
+    /**
+     * Starting a session for an identity that does not own devices fails the
+     * same way.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testStartRefusesAnIdentityWithoutDevices(): void
+    {
+        $identity = $this->seedIdentityWithoutDevices();
+
+        $this->expectRefusalOfIdentitiesWithoutDevices();
+
+        $this->sessions('plain')->start($identity, null, 'password');
+    }
+
+    /**
+     * Completing a pending sign-in of an identity that does not own devices
+     * fails the same way before anything is written, so the pending sign-in is
+     * not used up.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testCompleteRefusesAnIdentityWithoutDevicesAndKeepsThePendingSignIn(): void
+    {
+        $identity = $this->seedIdentityWithoutDevices();
+        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
+            'plain',
+            new AdmittedSignIn($identity, $identity, null),
+            'password',
+            'email',
+            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            CarbonImmutable::now()->startOfSecond(),
+        );
+
+        $this->expectRefusalOfIdentitiesWithoutDevices();
+
+        try {
+            $this->sessions('plain')->complete($pending->token);
+        } finally {
+            self::assertSame(1, PendingSignIn::query()->count());
+            self::assertSame(0, Device::query()->count());
+        }
+    }
+
+    /**
+     * Configure the guards, and a guard over identities without devices.
      *
      * @param  mixed  $app
      * @return void
@@ -787,7 +864,46 @@ final class SessionServiceTest extends TestCase
 
         assert($app instanceof Application);
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+
+        $config->set('auth.providers.plain', ['driver' => 'model', 'model' => NormalisedEmailIdentity::class]);
+        $config->set('auth.guards.plain', ['driver' => 'jwt', 'provider' => 'plain']);
+    }
+
+    /**
+     * Create the table of identities without devices, dropped with the
+     * application, and seed one.
+     *
+     * @return \Tests\Integration\Fixtures\NormalisedEmailIdentity
+     */
+    private function seedIdentityWithoutDevices(): NormalisedEmailIdentity
+    {
+        Schema::create('normalised_email_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->nullable()->unique();
+            $blueprint->string('name');
+            $blueprint->string('password');
+            $blueprint->timestamps();
+        });
+
+        $this->beforeApplicationDestroyed(static function (): void {
+            Schema::dropIfExists('normalised_email_identities');
+        });
+
+        return NormalisedEmailIdentity::query()->create(['email' => 'ada@example.test', 'name' => 'Ada', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+    }
+
+    /**
+     * Expect the refusal of an identity class without devices.
+     *
+     * @return void
+     */
+    private function expectRefusalOfIdentitiesWithoutDevices(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(sprintf('identities that implement %s; %s does not.', HasDevices::class, NormalisedEmailIdentity::class));
     }
 
     /**

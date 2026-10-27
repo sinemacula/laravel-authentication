@@ -405,9 +405,11 @@ final readonly class SessionService
      */
     private function completeWith(FoundPendingSignIn $found, SignInContext $context, CarbonImmutable $now): array|RefusedSignIn
     {
-        $factor   = $found->factor;
-        $audience = $this->collaborator(AudiencePolicy::class);
+        $factor = $found->factor;
 
+        SessionPreconditions::assertHoldsDevices($factor->identity);
+
+        $audience = $this->collaborator(AudiencePolicy::class);
         $admitted = match (true) {
             !$this->pendings->consume($found, $now)                            => new RefusedSignIn(SignInFailureReason::PENDING_INVALID),
             !$audience->allowsMethod($this->guard->getName(), $factor->method) => new RefusedSignIn(SignInFailureReason::METHOD_NOT_ALLOWED, $factor->identity, $factor->principal),
@@ -433,7 +435,8 @@ final readonly class SessionService
 
     /**
      * Admit the identity as the pinned principal, verified like a principal
-     * pinned on `attempt()`, or as the resolver's default.
+     * pinned on `attempt()`, or as the resolver's default, once it is known to
+     * own devices.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $pinned
@@ -446,6 +449,8 @@ final readonly class SessionService
      */
     private function admit(Identity $identity, ?Principal $pinned, ?string $identifierType): AdmittedSignIn|RefusedSignIn
     {
+        SessionPreconditions::assertHoldsDevices($identity);
+
         $resolver = $this->guard->getPrincipalResolver();
 
         return (new SignInAdmission($this->collaborator(AudiencePolicy::class)))->admit(

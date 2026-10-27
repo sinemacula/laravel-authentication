@@ -11,7 +11,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 - Failures are results (`SignInResult::failed()` with a `SignInFailureReason`), each reported with Laravel's `Failed` and
   then `SignInFailed`. Exceptions are reserved for misconfiguration (an unknown method, an identity that is not an
-  Eloquent model, an invalid device model, an `UnresolvableIdentityException`) and server errors.
+  Eloquent model or does not implement `HasDevices`, an invalid device model, an `UnresolvableIdentityException`) and
+  server errors. An identity without `HasDevices` is refused before it is admitted (in `signIn()`, after its slot was
+  taken; in `start()` and `complete()`, before anything is written), because a bearer token names a device the guard
+  can only find through that relation, so the session's access token would never authenticate.
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
   `['identifier' => ...]` for a method without a type, or nothing); `SignInFailed` carries the identifier as given.
 - `signIn()` order: the method is resolved (unknown throws); `Attempting`; the audience policy must allow the method

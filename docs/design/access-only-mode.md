@@ -34,7 +34,9 @@ principal auth without device tracking or refresh rotation.
 - A forged non-null `did` does not cause a best-effort downgrade. The bearer path fails closed even in a deployment that
   has no `devices` table.
 - This mode is intentionally bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Device`, and the
-  refresh exchange still depends on an `EloquentDevice` model plus persisted device state.
+  refresh exchange still depends on an `EloquentDevice` model plus persisted device state. The session service throws a
+  `LogicException` for an identity without `HasDevices`: every session it starts lives on a device, and the access token
+  it would issue names one this identity can never resolve.
 - Guard construction still validates the configured device model class. The package tolerates a missing table on this
   path because bearer auth with `did = null` never tries to query it.
 - Access-token `jti` values are not consulted on the bearer path. Revocation behavior therefore comes from identity and

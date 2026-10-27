@@ -8,6 +8,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -28,6 +29,29 @@ use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 final class SessionPreconditionsTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
+
+    /**
+     * An identity that owns devices may be signed in; one that does not is
+     * refused as a misconfiguration naming its class.
+     *
+     * @return void
+     */
+    public function testOnlyAnIdentityThatOwnsDevicesMayStartASession(): void
+    {
+        SessionPreconditions::assertHoldsDevices(\Mockery::mock(Identity::class, HasDevices::class));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(sprintf(
+            'The session service can only start sessions for identities that implement %s; %s does not. '
+            . 'Sign this guard\'s identities in with attempt() and issue access tokens instead.',
+            HasDevices::class,
+            $identity::class,
+        ));
+
+        SessionPreconditions::assertHoldsDevices($identity);
+    }
 
     /**
      * The pin is the principal given as the argument, or else the one on the
