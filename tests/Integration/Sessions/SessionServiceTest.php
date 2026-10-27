@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -424,6 +425,46 @@ final class SessionServiceTest extends TestCase
         }
 
         self::assertSame(0, Device::query()->count());
+    }
+
+    /**
+     * A failure after the compare-and-swap that continues a proven device (here
+     * just after the device is updated) rolls the swap back with it: the device
+     * keeps the refresh key the client holds, so its current refresh token
+     * still refreshes instead of becoming a replay that revokes the device.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureAfterContinuingADeviceRollsTheSwapBack(): void
+    {
+        $this->seedIdentity();
+
+        $first   = $this->signIn();
+        $key     = Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey();
+        $failure = new \ArrayObject(['armed' => true]);
+
+        DB::listen(static function (QueryExecuted $query) use ($failure): void {
+            if ($failure['armed'] && str_starts_with(strtolower($query->sql), 'update') && str_contains($query->sql, 'devices')) {
+                throw new \RuntimeException('failed after the swap');
+            }
+        });
+
+        try {
+            $this->signIn(refreshToken: $first->tokens->refreshToken);
+            self::fail('Expected the sign-in to fail after the swap.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('failed after the swap', $exception->getMessage());
+        }
+
+        $failure['armed'] = false;
+        $device           = Device::query()->whereKey($first->device->getKey())->firstOrFail();
+
+        self::assertSame($key, $device->getRefreshKey());
+        self::assertNull($device->getRevokedAt());
+        self::assertNotNull($this->freshGuard()->refresh($first->tokens->refreshToken));
+        self::assertNull(Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRevokedAt());
     }
 
     /**

@@ -11,6 +11,7 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -229,6 +230,45 @@ final class PendingFactorSessionServiceTest extends TestCase
 
         self::assertSame(SignInFailureReason::IDENTITY_INACTIVE, $this->completionGuard()->sessions()->complete($pending->token)->reason);
         self::assertSame(self::COMPLETION_IP, $this->recordedEvent(SignInFailed::class)->client->ip);
+    }
+
+    /**
+     * A failure after a completion has used the pending sign-in up (here just
+     * after the device is written) rolls the whole completion back: the pending
+     * sign-in survives, no device is left, and the completion can be retried.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailureWhileCompletingKeepsThePendingSignIn(): void
+    {
+        $this->seedIdentity();
+
+        $pending = $this->pendingFor();
+        $failure = new \ArrayObject(['armed' => true]);
+
+        DB::listen(static function (QueryExecuted $query) use ($failure): void {
+            if ($failure['armed'] && str_starts_with(strtolower($query->sql), 'insert into') && str_contains($query->sql, 'devices')) {
+                throw new \RuntimeException('failed after the write');
+            }
+        });
+
+        try {
+            $this->sessions()->complete($pending->token);
+            self::fail('Expected the completion to fail after the write.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('failed after the write', $exception->getMessage());
+        }
+
+        self::assertSame(1, PendingSignIn::query()->count());
+        self::assertSame(0, Device::query()->count());
+        self::assertNotNull($this->sessions()->pending($pending->token));
+
+        $failure['armed'] = false;
+
+        self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
+        self::assertSame(1, Device::query()->count());
     }
 
     /**
