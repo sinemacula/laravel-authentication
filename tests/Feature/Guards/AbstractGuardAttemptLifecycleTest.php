@@ -265,8 +265,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
      */
     public function testTimeboxBudgetFallsBackToDefaultWhenConfigFacadeThrows(): void
     {
-        // Set config to a non-numeric value that triggers a Throwable
-        // when Config::integer() is invoked.
         config()->set('authentication.timebox.credentials_microseconds', 'not-a-number');
 
         $this->timebox = \Mockery::mock(Timebox::class);

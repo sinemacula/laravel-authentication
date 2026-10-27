@@ -67,7 +67,7 @@ final class ModelProviderConstructorTest extends TestCase
 
         $provider = new ModelProvider($this->hasher, '');
 
-        unset($provider); // Constructor must throw before this point.
+        unset($provider);
     }
 
     /**
@@ -82,7 +82,7 @@ final class ModelProviderConstructorTest extends TestCase
 
         $provider = new ModelProvider($this->hasher, 'App\Models\Nope');
 
-        unset($provider); // Constructor must throw before this point.
+        unset($provider);
     }
 
     /**
@@ -99,7 +99,7 @@ final class ModelProviderConstructorTest extends TestCase
 
         $provider = new ModelProvider($this->hasher, \stdClass::class);
 
-        unset($provider); // Constructor must throw before this point.
+        unset($provider);
     }
 
     /**
@@ -175,8 +175,6 @@ final class ModelProviderConstructorTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        // After dropping the malformed key the credentials array is empty - the
-        // provider returns null without composing a query.
         self::assertNull($provider->retrieveByCredentials([
             'email; drop table users' => 'malicious',
         ]));
@@ -216,9 +214,6 @@ final class ModelProviderConstructorTest extends TestCase
     {
         $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
 
-        // The password-family key is the only entry, so after filtering the
-        // credentials array is empty and the provider returns null without
-        // composing a query.
         self::assertNull($provider->retrieveByCredentials([$key => 'secret']));
     }
 
@@ -347,10 +342,6 @@ final class ModelProviderConstructorTest extends TestCase
      */
     public function testRetrieveByCredentialsReturnsNullForUnsupportedValueType(): void
     {
-        // The mocked builder receives no `where`/`whereIn` calls -
-        // applyCredentialClause's default arm returns false BEFORE touching the
-        // query, so the caller bails out with null and the query is never
-        // executed.
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
             ->once()

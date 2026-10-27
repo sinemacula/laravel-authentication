@@ -75,11 +75,10 @@ abstract class AbstractGuardTestCase extends TestCase
         $this->request  = \Mockery::mock(Request::class);
         $this->timebox  = \Mockery::mock(Timebox::class);
 
-        // Default: an accepted password whose hash needs no rehash.
+        // attempt() rehashes a password once it is accepted.
         $this->provider->shouldReceive('rehashPasswordIfRequired')
             ->byDefault();
 
-        // Default: a sign-in request from an unknown client.
         $this->request->shouldReceive('ip')
             ->byDefault()
             ->andReturnNull();

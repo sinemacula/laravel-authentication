@@ -235,10 +235,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      * `attempt()` MUST route the entire `retrieveByCredentials` → credential
      * check → `fireFailedEvent` pipeline through `Timebox::call()` so the
      * elapsed time is uniform regardless of whether the supplied identifier
-     * resolved to a persisted user. Before the fix, the short-circuit on a null
-     * user bypassed the timebox entirely, leaking "user exists" vs "user does
-     * not exist" over a timing side-channel. This test asserts `Timebox::call`
-     * is invoked once even on the null-user path.
+     * resolved to a persisted user; otherwise the null-user path would leak
+     * whether the identifier exists through timing.
      *
      * @return void
      *
@@ -246,9 +244,6 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      */
     public function testAttemptAlwaysInvokesTimeboxOnNullUserPath(): void
     {
-        // Replace the default pass-through timebox expectation with a strict
-        // "called exactly once" expectation that still invokes the closure so
-        // the rest of the test observes the failure event dispatch.
         $this->timebox->shouldReceive('call')
             ->once()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));

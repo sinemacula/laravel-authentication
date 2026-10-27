@@ -96,7 +96,7 @@ final readonly class SessionService
         /** Runs a callback inside the guard's credential timebox, so a failed sign-in takes as long as any other. */
         private \Closure $timebox,
 
-        // The guard's token service.
+        // Only builds the writer and the device proof.
         JwtTokenService $tokens,
 
         /** Container the sign-in methods and policies are resolved from. */
