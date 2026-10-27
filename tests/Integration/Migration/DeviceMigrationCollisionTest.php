@@ -9,16 +9,17 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Database\TableAlreadyExistsException;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
 
 /**
  * Integration test for the shipped devices migration's collision safety guard.
  *
- * Verifies that the migration aborts with a `\RuntimeException` carrying an
- * actionable message when the configured devices table already exists on the
- * target connection, and that the abort occurs before any schema mutation. Also
- * verifies the happy path when no collision is present.
+ * Verifies that the migration aborts with a `TableAlreadyExistsException`
+ * carrying an actionable message when the configured devices table already
+ * exists on the target connection, and that the abort occurs before any schema
+ * mutation. Also verifies the happy path when no collision is present.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,8 +66,8 @@ final class DeviceMigrationCollisionTest extends TestCase
 
     /**
      * Running the migration when a `devices` table already exists throws a
-     * `\RuntimeException` whose message contains the documented actionable
-     * substring and the conflicting table name.
+     * `TableAlreadyExistsException` whose message names the conflicting table
+     * and the `device.table` key that renames it.
      *
      * @return void
      */
@@ -79,9 +80,9 @@ final class DeviceMigrationCollisionTest extends TestCase
 
         $migration = $this->loadMigration();
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/Cannot install the laravel-authentication devices migration/');
-        $this->expectExceptionMessageMatches('/\'devices\'/');
+        $this->expectException(TableAlreadyExistsException::class);
+        $this->expectExceptionMessageMatches('/Cannot install the laravel-authentication migration for the \'devices\' table/');
+        $this->expectExceptionMessageMatches('/Set `device\.table` in config\/authentication\.php/');
 
         $this->runMigrationUp($migration);
     }

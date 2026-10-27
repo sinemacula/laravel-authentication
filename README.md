@@ -94,13 +94,17 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the migrations (the `devices` and `rate_limits` tables), then migrate:
+Publish the config and the migrations (the `devices`, `pending_sign_ins` and `rate_limits` tables), then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
 php artisan vendor:publish --tag=authentication-migrations
 php artisan migrate
 ```
+
+Each migration refuses to run over an existing table of the same name, before changing anything, with a
+`TableAlreadyExistsException` that names the configuration key renaming its table (`device.table`,
+`sign_in.pending_table`, `rate_limits.table`).
 
 Generate a random JWT signing key into `.env`:
 

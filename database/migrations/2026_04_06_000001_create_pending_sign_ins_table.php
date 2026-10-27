@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
+use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 
 /**
  * Create the pending sign-ins table: sign-ins waiting for a further factor.
@@ -19,10 +20,16 @@ return new class extends Migration {
      * Run the migrations.
      *
      * @return void
+     *
+     * @throws \RuntimeException
      */
     public function up(): void
     {
-        Schema::create(Config::string('authentication.sign_in.pending_table', 'pending_sign_ins'), static function (Blueprint $blueprint): void {
+        $table = Config::string('authentication.sign_in.pending_table', 'pending_sign_ins');
+
+        (new MigrationCollisionGuard(Schema::getConnection()->getSchemaBuilder()))->ensureNotExists($table, 'sign_in.pending_table');
+
+        Schema::create($table, static function (Blueprint $blueprint): void {
             $blueprint->uuid('id')->primary();
 
             // SHA-256 hex digest of the token's secret, compared in constant

@@ -29,7 +29,7 @@ return new class extends Migration {
 
         $schema = Schema::getConnection()->getSchemaBuilder();
 
-        (new MigrationCollisionGuard($schema))->ensureNotExists($table);
+        (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'device.table');
 
         Schema::create($table, static function (Blueprint $blueprint): void {
             $blueprint->uuid('id')->primary();

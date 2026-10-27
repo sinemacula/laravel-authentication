@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
+use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 
 /**
  * Create the rate limits table.
@@ -19,10 +20,16 @@ return new class extends Migration {
      * Run the migrations.
      *
      * @return void
+     *
+     * @throws \RuntimeException
      */
     public function up(): void
     {
-        Schema::connection($this->getConnection())->create($this->table(), static function (Blueprint $blueprint): void {
+        $schema = Schema::connection($this->getConnection());
+
+        (new MigrationCollisionGuard($schema))->ensureNotExists($this->table(), 'rate_limits.table');
+
+        $schema->create($this->table(), static function (Blueprint $blueprint): void {
             // SHA-256 hex digest of the guard, flow, scope and identifier or IP
             // address, so neither is stored in clear.
             $blueprint->char('key', 64)->primary();
