@@ -236,8 +236,9 @@ return [
     | its `config/auth.php` entry, where a scope that is present wins, `null`
     | included, and a flow set to `null` turns both of its limits off. A
     | malformed limit or an unknown key fails closed with an
-    | `InvalidArgumentException` naming the guard and the key. Prune ended
-    | windows with `model:prune`.
+    | `InvalidArgumentException` naming the guard and the key. Counters are
+    | stored under digests keyed from `app.key`, so rotating it starts every
+    | window afresh. Prune ended windows with `model:prune`.
     |
     */
 

@@ -623,6 +623,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
+        $config->set('app.key', 'base64:' . base64_encode('service-provider-test-app-key-32'));
         $config->set('authentication.jwt.keys', ['default' => self::JWT_SECRET]);
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', self::JWT_ALGORITHM);

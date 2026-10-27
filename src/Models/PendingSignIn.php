@@ -65,7 +65,7 @@ final class PendingSignIn extends Model
     protected $fillable = [];
 
     /** @var list<string> The attributes hidden from serialisation. */
-    protected $hidden = ['token_digest', 'device_refresh_key'];
+    protected $hidden = ['token_digest', 'device_refresh_key', 'attempt_windows'];
 
     /**
      * Create a pending sign-in on the device model's connection, in the

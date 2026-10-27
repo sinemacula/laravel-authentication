@@ -56,6 +56,7 @@ abstract class TestCase extends OrchestraTestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = app(ConfigRepository::class);
 
+        $config->set('app.key', 'base64:' . base64_encode('laravel-authentication test key!'));
         $config->set('database.default', 'testing');
         $config->set('database.connections.testing', $this->databaseConnection());
 

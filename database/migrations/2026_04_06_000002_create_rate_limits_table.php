@@ -30,8 +30,9 @@ return new class extends Migration {
         (new MigrationCollisionGuard($schema))->ensureNotExists($this->table(), 'rate_limits.table');
 
         $schema->create($this->table(), static function (Blueprint $blueprint): void {
-            // SHA-256 hex digest of the guard, flow, scope and identifier or IP
-            // address, so neither is stored in clear.
+            // HMAC-SHA256 hex digest, keyed from the application key, of the
+            // guard, flow, scope and identifier, IP address or account, so the
+            // table alone gives none of them back.
             $blueprint->char('key', 64)->primary();
             $blueprint->unsignedInteger('hits');
 

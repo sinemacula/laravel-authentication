@@ -94,8 +94,10 @@ final class PendingSignInsTest extends TestCase
 
     /**
      * Issuing stores who signed in, as whom, how, from which client, on which
-     * proven device at which digest, and until when, but only the digest of the
-     * token's secret; the token is the row's identifier and the secret.
+     * proven device at which digest, the attempt-limit windows, and until when,
+     * but only the digest of the token's secret; the token is the row's
+     * identifier and the secret. Neither digest nor the windows, which hold the
+     * counters' keys, are serialised.
      *
      * @return void
      *
@@ -106,7 +108,8 @@ final class PendingSignInsTest extends TestCase
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity);
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
-        $pending  = $this->pendings()->issue('api', (new AdmittedSignIn($identity, $identity, null))->on($device), 'password', 'email', $context, $this->now);
+        $windows  = [['counter-key' => '2026-04-06 12:05:00']];
+        $pending  = $this->pendings()->issue('api', (new AdmittedSignIn($identity, $identity, null))->on($device), 'password', 'email', $context, $this->now, $windows);
 
         [$id, $secret] = explode('.', $pending->token, 2);
 
@@ -131,6 +134,8 @@ final class PendingSignInsTest extends TestCase
         self::assertSame($this->now->addMinutes(5)->getTimestamp(), $row->expires_at->getTimestamp());
         self::assertArrayNotHasKey('token_digest', $row->toArray());
         self::assertArrayNotHasKey('device_refresh_key', $row->toArray());
+        self::assertSame($windows, $row->attempt_windows);
+        self::assertArrayNotHasKey('attempt_windows', $row->toArray());
 
         self::assertSame('api', $pending->guard);
         self::assertSame($identity, $pending->identity);

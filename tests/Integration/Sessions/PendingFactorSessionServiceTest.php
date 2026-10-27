@@ -46,6 +46,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\TwoSecretSignIn;
@@ -66,7 +67,7 @@ use Tests\TestCase;
 #[CoversClass(SessionService::class)]
 final class PendingFactorSessionServiceTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithRateLimits, InteractsWithSessions;
 
     /** @var string IP address the completion request comes from. */
     private const string COMPLETION_IP = '198.51.100.9';
@@ -928,9 +929,7 @@ final class PendingFactorSessionServiceTest extends TestCase
      */
     private function identifierHits(): int
     {
-        $hits = DB::table('rate_limits')->where('key', hash('sha256', "api\0sign_in\0per_identifier\0ada@example.test"))->value('hits');
-
-        return is_numeric($hits) ? (int) $hits : 0;
+        return self::counterHits('api', 'sign_in', 'per_identifier', 'ada@example.test');
     }
 
     /**
@@ -941,10 +940,7 @@ final class PendingFactorSessionServiceTest extends TestCase
      */
     private function accountHits(IntegrationIdentity $identity): int
     {
-        $account = AccountAttempts::account($identity);
-        $hits    = DB::table('rate_limits')->where('key', hash('sha256', "sign_in\0per_account\0{$account}"))->value('hits');
-
-        return is_numeric($hits) ? (int) $hits : 0;
+        return self::counterHits('sign_in', 'per_account', AccountAttempts::account($identity));
     }
 
     /**

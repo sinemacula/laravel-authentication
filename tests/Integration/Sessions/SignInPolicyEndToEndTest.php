@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
+use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
@@ -74,7 +75,7 @@ use Tests\TestCase;
 #[CoversClass(VerificationLinks::class)]
 final class SignInPolicyEndToEndTest extends TestCase
 {
-    use InteractsWithSessions, InteractsWithTypedPrincipals, InteractsWithVerifiableIdentities;
+    use InteractsWithRateLimits, InteractsWithSessions, InteractsWithTypedPrincipals, InteractsWithVerifiableIdentities;
 
     /** @var int Access lifetime of a `client_staff` principal, in minutes. */
     private const int CLIENT_STAFF_ACCESS_MINUTES = 2;
@@ -465,7 +466,7 @@ final class SignInPolicyEndToEndTest extends TestCase
         self::assertFalse($this->freshGuard('by_number')->attempt(['id' => $number, 'password' => self::PASSWORD]));
         self::assertSame(SignInFailureReason::RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
         self::assertSame($number, $this->recordedEvent(SignInFailed::class)->identifier);
-        self::assertEquals(5, DB::table('rate_limits')->where('key', hash('sha256', "by_number\0sign_in\0per_identifier\0{$number}"))->value('hits'));
+        self::assertEquals(5, self::counterHits('by_number', 'sign_in', 'per_identifier', $number));
     }
 
     /**

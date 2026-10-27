@@ -7,22 +7,21 @@ namespace SineMacula\Laravel\Authentication\RateLimiting;
 use Carbon\CarbonImmutable;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
-use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 
 /**
  * The package's attempt limiter: per guard and flow, one counter per identifier
  * and one per IP address, kept in the `rate_limits` table on the write
  * connection, so the limits hold across servers without a cache.
  *
- * A counter's key is the SHA-256 digest of the guard, the flow, the scope and
- * the canonical identifier or IP address, so neither is stored in clear. The
- * canonical identifier is what the normaliser registered for its type returns,
- * the same form an identity is looked up by, so `Ben@x.com` and `ben@x.com`
- * share a counter; without a normaliser, or for a value it rejects, it is the
- * trimmed, lower-cased value with invalid UTF-8 replaced. An IPv6 address is
- * counted by its /64 network, and one that carries an IPv4 client's address
- * (IPv4-mapped, or translated through the NAT64 well-known prefix) as that IPv4
- * address.
+ * A counter's key is a keyed digest of the guard, the flow, the scope and the
+ * canonical identifier or IP address (see `CounterKeys`), so the table alone
+ * gives neither back, however easily they could be guessed. The canonical
+ * identifier is what the normaliser registered for its type returns, the same
+ * form an identity is looked up by, so `Ben@x.com` and `ben@x.com` share a
+ * counter; without a normaliser, or for a value it rejects, it is the trimmed,
+ * lower-cased value with invalid UTF-8 replaced. An IPv6 address is counted by
+ * its /64 network, and one that carries an IPv4 client's address (IPv4-mapped,
+ * or translated through the NAT64 well-known prefix) as that IPv4 address.
  *
  * An account a subject names (the row an Eloquent identity is stored in, see
  * `AttemptSubject::$account`) gets a counter of its own, kept as given and
@@ -45,9 +44,6 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  */
 final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 {
-    /** @var string Scope of the counter kept per account, under the identifier's limit. */
-    private const string PER_ACCOUNT = 'per_account';
-
     /** @var list<string> The first twelve bytes of the IPv6 prefixes whose last four carry an IPv4 client's address: IPv4-mapped (`::ffff:0:0/96`) and the NAT64 well-known prefix (`64:ff9b::/96`). */
     private const array IPV4_CARRYING_PREFIXES = ["\0\0\0\0\0\0\0\0\0\0\xff\xff", "\0\x64\xff\x9b\0\0\0\0\0\0\0\0"];
 
@@ -57,6 +53,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits  $limits
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\RateLimitStore  $store
      * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers  $normalisers
+     * @param  \SineMacula\Laravel\Authentication\RateLimiting\CounterKeys  $keys
      */
     public function __construct(
 
@@ -68,6 +65,9 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 
         /** Normalisers that give identifiers their canonical form. */
         private IdentifierNormalisers $normalisers,
+
+        /** The keys the counters are stored under. */
+        private CounterKeys $keys,
     ) {}
 
     /**
@@ -187,15 +187,15 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 
             $identifier = $this->canonicalIdentifier($subject->identifier, $subject->identifierType);
 
-            $counters[$this->key($subject, AttemptLimits::PER_IDENTIFIER, $identifier)] = $limits[AttemptLimits::PER_IDENTIFIER];
+            $counters[$this->keys->counter($subject->guard, $subject->flow, AttemptLimits::PER_IDENTIFIER, $identifier)] = $limits[AttemptLimits::PER_IDENTIFIER];
         }
 
         if ($subject->account !== null && $limits[AttemptLimits::PER_IDENTIFIER] !== null) {
-            $counters[self::accountKey($subject->flow, $subject->account)] = $limits[AttemptLimits::PER_IDENTIFIER];
+            $counters[$this->keys->account($subject->flow, $subject->account)] = $limits[AttemptLimits::PER_IDENTIFIER];
         }
 
         if ($subject->ip !== null && $limits[AttemptLimits::PER_IP] !== null) {
-            $counters[$this->key($subject, AttemptLimits::PER_IP, self::canonicalIp($subject->ip))] = $limits[AttemptLimits::PER_IP];
+            $counters[$this->keys->counter($subject->guard, $subject->flow, AttemptLimits::PER_IP, self::canonicalIp($subject->ip))] = $limits[AttemptLimits::PER_IP];
         }
 
         return $counters;
@@ -246,33 +246,6 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
         return strlen($packed) === 4
             ? (string) inet_ntop($packed)
             : inet_ntop(substr($packed, 0, 8) . str_repeat("\0", 8)) . '/64';
-    }
-
-    /**
-     * The digest a counter is stored under.
-     *
-     * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
-     * @param  string  $scope
-     * @param  string  $value
-     * @return string
-     */
-    private function key(AttemptSubject $subject, string $scope, #[\SensitiveParameter] string $value): string
-    {
-        return hash('sha256', implode("\0", [$subject->guard, $subject->flow->value, $scope, $value]));
-    }
-
-    /**
-     * The digest an account's counter is stored under: the flow, the scope and
-     * the account, without the guard, so every guard counts the account's
-     * attempts in one counter.
-     *
-     * @param  \SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow  $flow
-     * @param  string  $account
-     * @return string
-     */
-    private static function accountKey(AttemptFlow $flow, string $account): string
-    {
-        return hash('sha256', implode("\0", [$flow->value, self::PER_ACCOUNT, $account]));
     }
 
     /**

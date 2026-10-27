@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\RateLimiting\RateLimitStore;
+use Tests\Concerns\InteractsWithRateLimits;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubReversingNormaliser;
 
@@ -39,6 +40,8 @@ use Tests\Unit\Stubs\StubReversingNormaliser;
 #[CoversClass(RateLimitStore::class)]
 final class DatabaseAttemptLimiterTest extends TestCase
 {
+    use InteractsWithRateLimits;
+
     /** @var string Guard the limits are configured on. */
     private const string GUARD = 'api';
 
@@ -465,7 +468,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
     public function testAnAccountIsCountedUnderTheIdentifiersLimit(): void
     {
         $account = new AttemptSubject(self::GUARD, AttemptFlow::SIGN_IN, null, null, null, "App\\Models\\User\x0042");
-        $key     = hash('sha256', implode("\0", ['sign_in', 'per_account', "App\\Models\\User\x0042"]));
+        $key     = self::counterKey('sign_in', 'per_account', "App\\Models\\User\x0042");
 
         for ($attempt = 0; $attempt < 3; $attempt++) {
             self::assertTrue($this->limiter()->acquire($account)->granted());
@@ -531,13 +534,14 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
         $this->limiter()->acquire($this->signIn('Abc', type: 'reversed'));
 
-        self::assertEquals(1, DB::table('rate_limits')->where('key', hash('sha256', "api\0sign_in\0per_identifier\0cbA"))->value('hits'));
+        self::assertEquals(1, self::counterHits('api', 'sign_in', 'per_identifier', 'cbA'));
     }
 
     /**
-     * Counters are stored under digests, never the identifier or the IP
-     * address, and are separate per guard, flow and scope (an account's alone
-     * is shared by the guards).
+     * Counters are stored under digests keyed from the application key, never
+     * the identifier or the IP address, nor a plain digest anyone could
+     * recompute from a guessed one, and are separate per guard, flow and scope
+     * (an account's alone is shared by the guards).
      *
      * @return void
      */
@@ -556,8 +560,31 @@ final class DatabaseAttemptLimiterTest extends TestCase
             self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $key);
         }
 
-        self::assertSame(hash('sha256', "api\0sign_in\0per_identifier\0ben@example.com"), $this->keyOf($this->signIn('ben@example.com'), 'per_identifier'));
-        self::assertSame(hash('sha256', "api\0sign_in\0per_ip\0" . self::IP), $this->keyOf($this->signIn('ben@example.com'), 'per_ip'));
+        self::assertSame(self::counterKey('api', 'sign_in', 'per_identifier', 'ben@example.com'), $this->keyOf($this->signIn('ben@example.com'), 'per_identifier'));
+        self::assertSame(self::counterKey('api', 'sign_in', 'per_ip', self::IP), $this->keyOf($this->signIn('ben@example.com'), 'per_ip'));
+        self::assertNotContains(hash('sha256', implode("\0", ['api', 'sign_in', 'per_identifier', 'ben@example.com'])), $keys);
+        self::assertNotContains(hash('sha256', implode("\0", ['api', 'sign_in', 'per_ip', self::IP])), $keys);
+    }
+
+    /**
+     * The counters are keyed with the application key, so rotating it starts
+     * every counter afresh: an identifier refused under one key has its whole
+     * limit again under the next.
+     *
+     * @return void
+     */
+    public function testRotatingTheApplicationKeyStartsTheCountersAfresh(): void
+    {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            self::assertTrue($this->limiter()->acquire($this->signIn('ben@example.com', "198.51.100.{$attempt}"))->granted());
+        }
+
+        self::assertFalse($this->limiter()->acquire($this->signIn('ben@example.com', '198.51.100.9'))->granted());
+
+        config()->set('app.key', 'base64:' . base64_encode('a rotated application key, 32 b.'));
+
+        self::assertTrue($this->limiter()->acquire($this->signIn('ben@example.com', '198.51.100.9'))->granted());
+        self::assertSame(1, self::counterHits('api', 'sign_in', 'per_identifier', 'ben@example.com'));
     }
 
     /**
@@ -873,9 +900,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
      */
     private function hitsOfIp(string $canonicalIp): int
     {
-        $hits = DB::table('rate_limits')->where('key', hash('sha256', implode("\0", [self::GUARD, 'sign_in', 'per_ip', $canonicalIp])))->value('hits');
-
-        return is_numeric($hits) ? (int) $hits : 0;
+        return self::counterHits(self::GUARD, 'sign_in', 'per_ip', $canonicalIp);
     }
 
     /**
@@ -898,7 +923,7 @@ final class DatabaseAttemptLimiterTest extends TestCase
             $value = mb_strtolower(trim(mb_scrub((string) $value, 'UTF-8')), 'UTF-8');
         }
 
-        return hash('sha256', implode("\0", [$subject->guard, $subject->flow->value, $scope, (string) $value]));
+        return self::counterKey($subject->guard, $subject->flow->value, $scope, (string) $value);
     }
 
     /**
