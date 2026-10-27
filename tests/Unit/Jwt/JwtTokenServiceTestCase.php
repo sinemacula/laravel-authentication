@@ -37,6 +37,9 @@ abstract class JwtTokenServiceTestCase extends TestCase
     /** @var string Kid the shared secret is registered under. */
     protected const string KID = 'test-kid';
 
+    /** @var string Guard the test services are bound to. */
+    protected const string GUARD = 'api';
+
     /** @var string HMAC algorithm used by the service under test. */
     protected const string ALGORITHM = 'HS256';
 
@@ -107,6 +110,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     {
         return new JwtTokenService(
             $this->makeKeyring(),
+            self::GUARD,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );

@@ -358,7 +358,10 @@ final class JwtGuardIntegrationTest extends TestCase
     private function encodeAccessToken(array $claims): string
     {
         return JWT::encode(
-            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
+            array_merge($claims, [
+                Claims::TYPE->value  => TokenType::ACCESS->value,
+                Claims::GUARD->value => 'api',
+            ]),
             self::JWT_SECRET,
             'HS256',
             self::JWT_KID,

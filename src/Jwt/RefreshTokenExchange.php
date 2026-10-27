@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -25,9 +26,10 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  * Refresh-token exchange service.
  *
  * Encapsulates the refresh round trip: parse the token, verify the rotation id
- * against the device's stored digest in constant time, hydrate the contextual
- * lifecycle from the device's polymorphic `authenticatable` relation, rotate
- * the digest server-side, and issue a new access + refresh token pair.
+ * against the device's stored digest in constant time, reload the device's
+ * owner through the guard's identity provider (so the provider's scopes apply
+ * and an owner the guard does not serve is rejected), resolve the principal,
+ * rotate the digest server-side, and issue a new access + refresh token pair.
  *
  * Failure paths dispatch `RefreshFailed` events with machine-readable reason
  * codes for SIEM attribution.
@@ -41,6 +43,7 @@ final class RefreshTokenExchange
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
+     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connections
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
@@ -50,6 +53,9 @@ final class RefreshTokenExchange
 
         /** Token service for parsing and issuing tokens. */
         private readonly JwtTokenService $tokens,
+
+        /** The guard's identity provider, which reloads the device owner. */
+        private readonly IdentityProvider $provider,
 
         /** Connection resolver for raw CAS digest rotation. */
         private readonly ConnectionResolverInterface $connections,
@@ -336,8 +342,16 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Validate the device's `authenticatable` relation, loaded from the write
-     * connection, and confirm the resolved identity is currently active.
+     * Reload the device's owner through the guard's identity provider, so the
+     * provider's own scoping applies, and confirm it is that exact owner and
+     * currently active. A device row with no owner key, or a provider answer
+     * that is not the owner (no row through this provider, or another model
+     * sharing the key), fails as `authenticatable_missing`.
+     *
+     * The provider is asked for the owner key the device row stores, which is
+     * the identity's primary key; providers find identities by their auth
+     * identifier, which is the primary key unless the identity model overrides
+     * `getAuthIdentifierName()`.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  ?string  $deviceId
@@ -345,10 +359,10 @@ final class RefreshTokenExchange
      */
     private function resolveRefreshIdentity(EloquentDevice&Model $device, ?string $deviceId): ?Identity
     {
-        /** @var ?\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
-        $identity = WriteConnection::during($device, static fn (): mixed => $device->getRelationValue('authenticatable'));
+        $ownerKey = DeviceOwnership::ownerKey($device);
+        $identity = $ownerKey === null ? null : $this->provider->retrieveById($ownerKey);
 
-        if (!$identity instanceof Identity) {
+        if (!$identity instanceof Identity || !DeviceOwnership::isOwner($device, $identity)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::AUTHENTICATABLE_MISSING, $deviceId);
 

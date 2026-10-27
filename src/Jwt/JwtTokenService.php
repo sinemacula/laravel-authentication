@@ -23,6 +23,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  * - signing material and algorithm live in a `JwtKeyring` that fails closed
  * - kid-based rotation via the active kid header and `kid -> Key` map
  * - `typ` claim distinguishes access from refresh
+ * - `grd` claim binds every token to the guard whose service issued it; a token
+ *   from another guard is rejected even when the guards share a key
  * - configurable clock skew via `leewaySeconds` on every verification
  * - optional strict `iss` / `aud` verification
  *
@@ -38,17 +40,23 @@ final class JwtTokenService
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtKeyring  $keyring
+     * @param  string  $guard
      * @param  int  $accessTtlMinutes
      * @param  int  $refreshTtlMinutes
      * @param  int  $leewaySeconds
      * @param  ?string  $issuer
      * @param  ?string  $audience
      * @param  ?\Psr\Log\LoggerInterface  $logger
+     *
+     * @throws \InvalidArgumentException
      */
     public function __construct(
 
         /** Signing and verification material, keyed by kid. */
         private JwtKeyring $keyring,
+
+        /** Guard the service issues for; written to and required in `grd`. */
+        private string $guard,
 
         /** Access-token lifetime in minutes, written into the `exp` claim. */
         private int $accessTtlMinutes,
@@ -69,6 +77,10 @@ final class JwtTokenService
         // NullLogger.
         ?LoggerInterface $logger = null,
     ) {
+        if ($guard === '') {
+            throw new \InvalidArgumentException('JWT token service requires a non-empty guard name.');
+        }
+
         $this->logger = $logger ?? new NullLogger;
     }
 
@@ -127,9 +139,10 @@ final class JwtTokenService
      * Decode and verify a token, returning claims as an array.
      *
      * Returns `null` on any failure so callers can treat parse as a total
-     * function. When `$expectedType` is supplied, tokens whose `typ` claim does
-     * not match are rejected to prevent a refresh token being presented as an
-     * access token (and vice versa).
+     * function. A token whose `grd` claim does not name this service's guard is
+     * always rejected. When `$expectedType` is supplied, tokens whose `typ`
+     * claim does not match are rejected to prevent a refresh token being
+     * presented as an access token (and vice versa).
      *
      * @param  string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -149,7 +162,7 @@ final class JwtTokenService
     }
 
     /**
-     * Build the base claim set (iat, exp, typ, iss, aud).
+     * Build the base claim set (iat, exp, typ, grd, iss, aud).
      *
      * @param  int  $issuedAt
      * @param  int  $expiresAt
@@ -162,6 +175,7 @@ final class JwtTokenService
             Claims::ISSUED_AT->value  => $issuedAt,
             Claims::EXPIRES_AT->value => $expiresAt,
             Claims::TYPE->value       => $type->value,
+            Claims::GUARD->value      => $this->guard,
         ];
 
         if ($this->issuer !== null) {
@@ -240,7 +254,7 @@ final class JwtTokenService
     }
 
     /**
-     * Verify issuer, audience, and `typ` against expected values.
+     * Verify guard, issuer, audience, and `typ` against expected values.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -263,8 +277,9 @@ final class JwtTokenService
     }
 
     /**
-     * Locate the first issuer/audience/`typ` mismatch, or return `null` when
-     * every check passes.
+     * Locate the first guard/issuer/audience/`typ` mismatch, or return `null`
+     * when every check passes. The guard is always checked, so a token missing
+     * `grd` is rejected.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -273,6 +288,7 @@ final class JwtTokenService
     private function firstClaimMismatch(array $claims, ?TokenType $expectedType): ?array
     {
         $checks = [
+            [Claims::GUARD->value, $this->guard, 'JWT guard mismatch'],
             [Claims::ISSUER->value, $this->issuer, 'JWT issuer mismatch'],
             [Claims::AUDIENCE->value, $this->audience, 'JWT audience mismatch'],
             [Claims::TYPE->value, $expectedType?->value, 'JWT typ mismatch'],

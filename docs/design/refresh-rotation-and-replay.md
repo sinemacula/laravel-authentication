@@ -20,10 +20,11 @@ stateful per-device credentials with server-side replay detection.
 
 ## Success Path
 
-- Parse the refresh JWT and extract `did`, `jti`, and optional `pid`.
+- Parse the refresh JWT (which must carry this guard's `grd`) and extract `did`, `jti`, and optional `pid`.
 - Load the configured device model and reject revoked rows before digest verification.
 - Verify the plaintext `jti` against the stored digest.
-- Hydrate the identity from the device's `authenticatable` relation and resolve the active principal.
+- Reload the device's owner through the guard's identity provider, confirm it is that exact owner (see
+  `guard-bound-tokens.md`), and resolve the active principal.
 - Rotate the stored digest with a single CAS update keyed on device id, old digest, and `revoked_at IS NULL`.
 - Issue a fresh access token and a fresh refresh token bound to the same device and principal context.
 

@@ -18,7 +18,9 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -37,6 +39,7 @@ use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 use Tests\Unit\Stubs\StubInjectableDevice;
+use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Feature tests for the `RefreshTokenExchange` service that fill in the few
@@ -82,6 +85,9 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var string Well-formed device id for lookups that reach the builder. */
     private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
+    /** @var \Mockery\MockInterface Identity provider mock that reloads the device owner. */
+    private MockInterface $provider;
+
     /** @var \Mockery\MockInterface Resolver mock. */
     private MockInterface $resolver;
 
@@ -111,10 +117,12 @@ final class RefreshTokenExchangeTest extends TestCase
 
         JWT::$timestamp = $this->now->getTimestamp();
 
+        $this->provider = \Mockery::mock(IdentityProvider::class);
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
         $this->events   = \Mockery::mock(Dispatcher::class);
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
+            self::GUARD_NAME,
             self::ACCESS_TTL,
             self::REFRESH_TTL,
         );
@@ -199,7 +207,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -251,7 +259,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'authenticatable_id'   => '10',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -283,6 +291,66 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertNull($exchange->exchange($token));
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+    }
+
+    /**
+     * Provider answers for owner key `9` of a `StubIdentity` device that are
+     * not that owner.
+     *
+     * @return iterable<string, array{0: \Closure(): mixed}>
+     */
+    public static function provideAnswersThatAreNotTheDeviceOwner(): iterable
+    {
+        yield from [
+            'no identity through the provider'          => [static fn (): null => null],
+            'another identity model with the owner key' => [static fn (): StubPrincipal => (new StubPrincipal)->forceFill(['id' => 9])],
+        ];
+    }
+
+    /**
+     * The device owner is reloaded through the provider and must be that exact
+     * owner: no identity, or an identity of another model that shares the owner
+     * key, fails as `authenticatable_missing` before any principal is resolved.
+     *
+     * @param  \Closure(): mixed  $answer
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideAnswersThatAreNotTheDeviceOwner')]
+    public function testExchangeRejectsAProviderAnswerThatIsNotTheDeviceOwner(\Closure $answer): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '9',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $this->expectOwnerReload($device, $answer());
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $exchange = $this->makeExchange();
+
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::AUTHENTICATABLE_MISSING
+                    && $event->deviceId === $device->id),
+            );
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        self::assertNull($exchange->exchange($token));
     }
 
     /**
@@ -337,7 +405,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'authenticatable_id'   => '12',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -400,7 +468,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'authenticatable_id'   => '14',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -579,6 +647,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         return new RefreshTokenExchange(
             $this->tokens,
+            $this->provider,
             $app->make(ConnectionResolverInterface::class),
             $this->events,
             $this->resolver,
@@ -601,6 +670,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'iat' => $now,
             'exp' => $now + (self::REFRESH_TTL * 60),
             'typ' => TokenType::REFRESH->value,
+            'grd' => self::GUARD_NAME,
         ]), self::SECRET, self::ALGORITHM, self::KID);
     }
 
@@ -627,5 +697,22 @@ final class RefreshTokenExchangeTest extends TestCase
         StubInjectableDevice::$injectedBuilder = $builder;
 
         config()->set('authentication.device.model', StubInjectableDevice::class);
+    }
+
+    /**
+     * Expect the exchange's identity provider to reload the device's owner
+     * once, by the owner key stored on the device row, and answer with the
+     * supplied identity.
+     *
+     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  mixed  $identity
+     * @return void
+     */
+    private function expectOwnerReload(StubDevice $device, mixed $identity): void
+    {
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with($device->getAttribute('authenticatable_id'))
+            ->andReturn($identity);
     }
 }

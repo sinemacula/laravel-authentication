@@ -117,6 +117,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
         $exchange = new RefreshTokenExchange(
             $tokens,
+            $provider,
             $app->make(ConnectionResolverInterface::class),
             $events,
             $resolver,

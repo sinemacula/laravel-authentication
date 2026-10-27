@@ -166,6 +166,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
                 Claims::ISSUED_AT->value  => $this->now->getTimestamp(),
                 Claims::EXPIRES_AT->value => $this->now->getTimestamp() + 600,
                 Claims::TYPE->value       => TokenType::ACCESS->value,
+                Claims::GUARD->value      => self::GUARD,
             ],
             self::SECRET,
             self::ALGORITHM,
@@ -186,6 +187,7 @@ final class JwtTokenServiceKidTest extends JwtTokenServiceTestCase
     {
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, $activeKid, self::ALGORITHM),
+            self::GUARD,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );

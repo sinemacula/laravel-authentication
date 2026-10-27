@@ -231,6 +231,7 @@ final class DeviceModelOverrideTest extends TestCase
         $events   = app(Dispatcher::class);
         $exchange = new RefreshTokenExchange(
             $tokens,
+            $provider,
             app(ConnectionResolverInterface::class),
             $events,
             $resolver,

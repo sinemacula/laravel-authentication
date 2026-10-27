@@ -40,8 +40,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - A resolver that returns an unsaved principal with a `null` identifier is rejected for the same reason.
 - On the bearer path, `did` resolution is identity-scoped through `HasDevices`; a token that claims a device against an
   identity with no device capability fails closed instead of silently binding no device.
-- On the refresh path, `did` resolution is global through the configured device model and the device's `authenticatable`
-  relation.
+- On the refresh path, `did` resolution is global through the configured device model, and the device's owner is
+  reloaded through the guard's identity provider (see `guard-bound-tokens.md`).
 - When bearer auth rejects a token after the identity has already been loaded, the emitted `Failed` event still carries
   that resolved identity for attribution.
 

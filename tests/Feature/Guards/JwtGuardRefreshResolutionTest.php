@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -26,8 +27,10 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Feature tests for the identity and principal resolution paths within
@@ -60,12 +63,27 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     {
         $plainRotationId = 'stored-rotation-id';
 
-        $identity = \Mockery::mock(Identity::class, CanBeActive::class);
-        $identity->shouldReceive('isActive')->once()->andReturnFalse();
+        $identity = new class extends StubIdentity implements CanBeActive {
+            /**
+             * Report the identity as deactivated.
+             *
+             * @return bool
+             */
+            #[\Override]
+            public function isActive(): bool
+            {
+                return false;
+            }
+        };
+        $identity->forceFill(['id' => 21]);
 
         $device = new StubDevice;
-        $device->forceFill(['refresh_key' => RefreshTokenHasher::hash($plainRotationId)])->save();
-        $device->setRelation('authenticatable', $identity);
+        $device->forceFill([
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => '21',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -84,6 +102,113 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
                     && $event->reason === RefreshFailureReason::IDENTITY_INACTIVE),
+            );
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * Provider answers for the owner key `9` of a `StubIdentity` device that
+     * are not that owner.
+     *
+     * @return iterable<string, array{0: \Closure(): mixed}>
+     */
+    public static function provideAnswersThatAreNotTheDeviceOwner(): iterable
+    {
+        yield from [
+            'no identity through the provider'           => [static fn (): null => null],
+            'an authenticatable that is not an identity' => [static fn (): StubAuthenticatableModel => (new StubAuthenticatableModel)->forceFill(['id' => 9])],
+            'another identity model with the owner key'  => [static fn (): StubPrincipal => (new StubPrincipal)->forceFill(['id' => 9])],
+            'the owner model with another key'           => [static fn (): StubIdentity => (new StubIdentity)->forceFill(['id' => 10])],
+            'an identity that is not an eloquent model'  => [static fn (): Identity => \Mockery::mock(Identity::class)],
+        ];
+    }
+
+    /**
+     * Refresh reloads the device owner through the guard's provider by the
+     * owner key on the device row and accepts only that exact owner; any other
+     * answer fails with `authenticatable_missing` before a principal is
+     * resolved.
+     *
+     * @param  \Closure(): mixed  $answer
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideAnswersThatAreNotTheDeviceOwner')]
+    public function testRefreshRejectsAProviderAnswerThatIsNotTheDeviceOwner(\Closure $answer): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '9',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $this->expectOwnerReload($device, $answer());
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::AUTHENTICATABLE_MISSING
+                    && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($guard->refresh($token));
+    }
+
+    /**
+     * A device row with no owner key has no owner to reload: refresh fails with
+     * `authenticatable_missing` without asking the provider.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testRefreshRejectsADeviceWithoutAnOwnerKeyWithoutAskingTheProvider(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $guard = $this->makeGuard($this->makeRequest(null));
+
+        $token = $this->encodeRefreshToken([
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->expectRefreshFailureEvents();
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason === RefreshFailureReason::AUTHENTICATABLE_MISSING),
             );
 
         self::assertNull($guard->refresh($token));
@@ -112,7 +237,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -163,7 +288,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'authenticatable_id'   => '10',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -219,7 +344,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'authenticatable_id'   => '15',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -275,7 +400,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'authenticatable_id'   => '11',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -331,7 +456,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'authenticatable_id'   => '25',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -384,7 +509,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'refresh_key'          => $oldDigest,
         ])->save();
 
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -477,7 +602,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -545,7 +670,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -601,7 +726,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 

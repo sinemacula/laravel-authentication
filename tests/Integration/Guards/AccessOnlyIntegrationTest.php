@@ -124,6 +124,7 @@ final class AccessOnlyIntegrationTest extends TestCase
             'iat' => $now,
             'exp' => $now + 900,
             'typ' => TokenType::ACCESS->value,
+            'grd' => self::GUARD,
         ], self::JWT_SECRET, 'HS256', self::JWT_KID);
 
         self::assertFalse(Schema::hasTable('devices'));

@@ -41,9 +41,10 @@ device record live in the `devices` table so replay and stale credentials can be
 - **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
-- **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), strict `iss` / `aud` / `typ` / `exp` /
-  leeway enforcement, per-token `jti`, and fail-closed behaviour on empty or short keys, unsupported algorithms,
-  type confusion, and `pid` / `did` mismatches.
+- **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
+  issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, per-token `jti`, and fail-closed behaviour on
+  empty or short keys, unsupported algorithms, type confusion, tokens from another guard, and `pid` / `did`
+  mismatches.
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
   machine-readable `RefreshFailed` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
@@ -62,6 +63,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/refresh-rotation-and-replay.md`
 - `docs/design/fail-closed-pid-did.md`
 - `docs/design/access-only-mode.md`
+- `docs/design/guard-bound-tokens.md`
 
 ## Installation
 
@@ -169,8 +171,11 @@ entry; missing fields fall back to the defaults:
 ],
 ```
 
-Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. The `aud` claim on each issued token
-matches the guard that issued it, so tokens minted for one audience cannot authenticate against the other. Every
+Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
+guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
+authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
+audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the device's owner
+through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. Every
 field in the package `jwt` block is overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`,
 `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a
 guard that overrides `keys` should also set `active_kid` to a kid in its own map.
@@ -534,12 +539,12 @@ the published config:
 
 | Reason                    | Meaning                                              |
 |---------------------------|------------------------------------------------------|
-| `token_invalid`           | Decode, expiry, typ, iss, or aud failure             |
+| `token_invalid`           | Decode, expiry, typ, guard, iss, or aud failure      |
 | `device_unknown`          | Device id is not a device key or names no device     |
 | `rotation_mismatch`       | Digest did not match the stored refresh key          |
 | `rotation_reuse`          | Replay or concurrent rotation; device revoked        |
 | `device_revoked`          | Device row marked revoked                            |
-| `authenticatable_missing` | Device authenticatable relation missing              |
+| `authenticatable_missing` | Guard's provider did not return the device owner     |
 | `identity_inactive`       | Resolved identity reported inactive                  |
 | `principal_unresolved`    | Principal resolver returned null                     |
 | `principal_mismatch`      | Resolved principal does not match refresh token hint |

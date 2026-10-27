@@ -25,4 +25,5 @@ enum Claims: string
     case TYPE         = 'typ';
     case PRINCIPAL_ID = 'pid';
     case DEVICE_ID    = 'did';
+    case GUARD        = 'grd';
 }

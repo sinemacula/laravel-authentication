@@ -77,7 +77,9 @@ return [
     | its kid, and any kid in the map verifies. Signing is HMAC only:
     | `algorithm` must be HS256, HS384, or HS512, and every key must be at
     | least 32, 48, or 64 bytes respectively. Invalid signing material fails
-    | closed when a JWT guard or token service is resolved. `issuer`/`audience`
+    | closed when a JWT guard or token service is resolved. Every token carries
+    | a `grd` claim naming the guard that issued it, and a guard rejects tokens
+    | issued by any other guard, even with a shared key. `issuer`/`audience`
     | are optional; when set they are strictly verified on every parse.
     |
     */

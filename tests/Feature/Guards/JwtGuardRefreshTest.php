@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
-use Tests\Unit\Stubs\StubModel;
 
 /**
  * Feature tests for the token-level and device-level validation paths within
@@ -148,47 +147,6 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
                     && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
                     && $event->deviceId === $device->id),
-            );
-
-        self::assertNull($guard->refresh($token));
-    }
-
-    /**
-     * When `device->authenticatable` is not an Identity, `refresh()` returns
-     * null and fires `RefreshFailed` with reason `authenticatable_missing`.
-     *
-     * @return void
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \Random\RandomException
-     */
-    public function testRefreshReturnsNullWhenAuthenticatableRelationIsNotIdentity(): void
-    {
-        $plainRotationId = 'stored-rotation-id';
-
-        $device = new StubDevice;
-        $device->forceFill(['refresh_key' => RefreshTokenHasher::hash($plainRotationId)])->save();
-
-        $nonIdentity = new StubModel;
-        $device->setRelation('authenticatable', $nonIdentity);
-
-        $this->swapDeviceModelToInMemoryInstance($device);
-
-        $guard = $this->makeGuard($this->makeRequest(null));
-
-        $token = $this->encodeRefreshToken([
-            'did' => $device->id,
-            'jti' => $plainRotationId,
-        ]);
-
-        $this->resolver->shouldNotReceive('resolve');
-
-        $this->expectRefreshFailureEvents();
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::AUTHENTICATABLE_MISSING),
             );
 
         self::assertNull($guard->refresh($token));
@@ -327,7 +285,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'refresh_key'          => $staleDigest,
         ])->save();
 
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
@@ -400,7 +358,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $device->setRelation('authenticatable', $identity);
+        $this->expectOwnerReload($device, $identity);
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
