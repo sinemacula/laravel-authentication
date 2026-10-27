@@ -1150,7 +1150,8 @@ account by many spellings of its identifier, and through every guard whose provi
 own count, held to the most permissive limit among those guards, bounds the guesses at its secret, and at a further
 factor its sign-in waits for. Reserve before each secret you check: a method that checks two (a password and a PIN, say)
 takes two slots. The slots belong to the sign-in: they are all given back when the session starts, or when its pending
-sign-in completes.
+sign-in's completion commits. A completion that your transaction rolls back gives nothing back, since the pending
+sign-in it used comes back with the rollback and can be completed again.
 
 To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
 account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request

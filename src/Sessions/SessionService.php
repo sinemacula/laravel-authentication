@@ -70,7 +70,7 @@ final readonly class SessionService
     /** @var \SineMacula\Laravel\Authentication\Sessions\DeviceProof Decides which device a client proved it holds. */
     private DeviceProof $proof;
 
-    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers the lifecycle events until the session commits. */
+    /** @var \SineMacula\Laravel\Authentication\Database\AfterCommit Defers the lifecycle events, and a completion's released slots, until the writes commit. */
     private AfterCommit $afterCommit;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\PendingSignIns Issues and completes the sign-ins waiting for a further factor. */
@@ -223,13 +223,14 @@ final readonly class SessionService
      *
      * The pending sign-in is used up whatever the outcome, by a delete that
      * only one completion can make, and gives the attempt-limit slots its
-     * sign-in took back only when the session starts. In the same transaction
-     * it is checked again (the method still allowed, the identity, principal
-     * and tenant active, and the audience policy admitting them with the
-     * identifier type the sign-in used) and the session is written, continuing
-     * the proven device when it is unchanged and otherwise creating one. The
-     * factor policy is not asked again. Every token that does not complete a
-     * live pending sign-in of this guard fails as `pending_invalid`.
+     * sign-in took back only when the session starts, once the delete is
+     * committed on the pending sign-in's connection. In the same transaction it
+     * is checked again (the method still allowed, the identity, principal and
+     * tenant active, and the audience policy admitting them with the identifier
+     * type the sign-in used) and the session is written, continuing the proven
+     * device when it is unchanged and otherwise creating one. The factor policy
+     * is not asked again. Every token that does not complete a live pending
+     * sign-in of this guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
@@ -254,9 +255,14 @@ final readonly class SessionService
 
         [$admitted, $session] = $outcome;
 
-        foreach (PendingSignIns::reservations($found->pending) as $reservation) {
-            $this->collaborator(AttemptLimiter::class)->release($reservation);
-        }
+        // A rolled-back completion restores the pending sign-in, whose token
+        // can then be completed again: giving its slots back before the commit,
+        // on a counter connection of its own, would give them back twice.
+        $this->afterCommit->run($found->pending, function () use ($found): void {
+            foreach (PendingSignIns::reservations($found->pending) as $reservation) {
+                $this->collaborator(AttemptLimiter::class)->release($reservation);
+            }
+        });
 
         return $this->signedIn($session, $admitted, $context);
     }

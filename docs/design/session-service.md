@@ -28,6 +28,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   `rate_limits.connection`, outside the session's own transaction but not outside a transaction the caller opened on
   that connection: with the default (`null`, the default connection) a caller that rolls back around a sign-in rolls its
   counts back too, so its attempts go uncounted. Only counters on a connection of their own survive such a rollback.
+  `complete()` therefore gives the slots back only once its delete of the pending sign-in commits on that row's
+  connection: a rollback restores the pending sign-in, and slots given back before it would be given back again when
+  the token is completed a second time.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
