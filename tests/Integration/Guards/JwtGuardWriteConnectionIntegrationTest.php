@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -23,6 +24,9 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Integration\Fixtures\ActivatableTenant;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
@@ -49,6 +53,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(RefreshTokenExchange::class)]
 #[CoversClass(ModelProvider::class)]
 #[CoversClass(DefaultPrincipalResolver::class)]
+#[CoversClass(ActivationPolicy::class)]
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 {
@@ -102,6 +107,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         });
 
         $this->createTenantAwareTables();
+        $this->createActivatableTenantTables();
     }
 
     /**
@@ -221,6 +227,40 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A tenant deactivated on the primary while the replica still shows it
+     * active rejects its members' bearer tokens: the tenant the principal acts
+     * within is read from the writer.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsMemberOfTenantDeactivatedOnThePrimaryWhileTheReplicaLags(): void
+    {
+        $tenant = new ActivatableTenant;
+        $tenant->forceFill(['name' => 'Tenant', 'is_active' => true])->save();
+
+        $member = new ActivatableTenantMember;
+        $member->forceFill(['email' => 'member@example.test', 'password' => 'hashed'])->save();
+
+        $membership = new ActivatableTenantMembership;
+        $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
+
+        $this->copyRowToReplica('activatable_tenants', $tenant->getKey());
+        $this->copyRowToReplica('activatable_tenant_members', $member->getKey());
+        $this->copyRowToReplica('activatable_tenant_memberships', $membership->getKey());
+
+        $token   = $this->authManager()->jwt('members')->issueAccessToken($member, $membership, null);
+        $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
+
+        self::assertTrue($member->is($this->guardForRequest($request, 'members')->user()));
+
+        ActivatableTenant::query()->whereKey($tenant->getKey())->update(['is_active' => false]);
+
+        self::assertNull($this->guardForRequest($request, 'members')->user());
+    }
+
+    /**
      * The model provider finds an identity by credentials when the row exists
      * only on the primary.
      *
@@ -324,6 +364,16 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             'model'  => StubPrincipal::class,
         ]);
 
+        $config->set('auth.guards.members', [
+            'driver'   => 'jwt',
+            'provider' => 'members',
+        ]);
+
+        $config->set('auth.providers.members', [
+            'driver' => 'model',
+            'model'  => ActivatableTenantMember::class,
+        ]);
+
         // Failed attempts wait out the timebox; keep it short.
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }
@@ -368,6 +418,36 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
             $blueprint->unsignedInteger('tenant_id');
             $blueprint->string('name');
             $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+    }
+
+    /**
+     * Create the activatable tenant fixture tables on the primary and the
+     * replica.
+     *
+     * @return void
+     */
+    private function createActivatableTenantTables(): void
+    {
+        $this->createOnPrimaryAndReplica('activatable_tenants', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('name');
+            $blueprint->boolean('is_active')->default(true);
+            $blueprint->timestamps();
+        });
+
+        $this->createOnPrimaryAndReplica('activatable_tenant_members', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->timestamps();
+        });
+
+        $this->createOnPrimaryAndReplica('activatable_tenant_memberships', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->unsignedInteger('tenant_id');
             $blueprint->timestamps();
         });
     }
@@ -443,16 +523,17 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Resolve a fresh `api` guard bound to the supplied request.
+     * Resolve a fresh JWT guard bound to the supplied request.
      *
      * @param  \Illuminate\Http\Request  $request
+     * @param  string  $name
      * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
      */
-    private function guardForRequest(Request $request): JwtGuard
+    private function guardForRequest(Request $request, string $name = 'api'): JwtGuard
     {
         app()->instance('request', $request);
 
-        $guard = $this->authManager()->guard('api');
+        $guard = $this->authManager()->guard($name);
 
         assert($guard instanceof JwtGuard);
 

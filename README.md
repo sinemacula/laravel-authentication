@@ -238,17 +238,18 @@ Must exceed the worst-case hasher cost.
 
 ### Read replicas
 
-Every read that decides authentication - the identity, the principal, and the device with its refresh digest and
-revocation state - goes to the write connection, even when the database connection has `read` and `write` hosts. A
-replica can lag behind a revocation, a deactivation, or a refresh rotation, and a lookup it served could admit a
-credential the primary has already rejected.
+Every read that decides authentication - the identity, the principal and the tenant it acts within, and the device with
+its refresh digest and revocation state - goes to the write connection, even when the database connection has `read`
+and `write` hosts. A replica can lag behind a revocation, a deactivation, or a refresh rotation, and a lookup it served
+could admit a credential the primary has already rejected.
 
 The package pins the queries it builds. Code you plug in carries the same obligation:
 
 - a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
   must read from the write connection;
 - `resolveDefaultPrincipal()` and `resolveHintedPrincipal()` already run with reads on the identity's connection pinned
-  to the write connection; a lookup they make on another connection must pin itself.
+  to the write connection, and `getTenant()` with reads on the principal's connection pinned; a lookup they make on
+  another connection must pin itself.
 
 `WriteConnection` does both:
 

@@ -6,6 +6,8 @@ namespace SineMacula\Laravel\Authentication\Guards;
 
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
 /**
  * The package's activation policy, shared by the credential, bearer-token and
@@ -42,12 +44,16 @@ final class ActivationPolicy
      * Whether the tenant the principal acts within, if any, may authenticate. A
      * principal with no tenant passes.
      *
+     * The tenant is read with the principal's connection pinned to the write
+     * connection, so a lazily loaded tenant relation cannot come from a replica
+     * that has not yet seen a deactivation.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return bool
      */
     public static function isTenantActive(Principal $principal): bool
     {
-        $tenant = $principal->getTenant();
+        $tenant = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
 
         return $tenant === null || self::isActive($tenant);
     }

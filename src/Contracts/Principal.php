@@ -35,7 +35,10 @@ interface Principal
     public function getIdentity(): Identity;
 
     /**
-     * Return the tenant the principal acts within, if any.
+     * Return the tenant the principal acts within, if any. The activity check
+     * runs it with reads on this principal's connection pinned to the write
+     * connection; a lookup on any other connection must pin itself (see
+     * `Database\WriteConnection`).
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      */

@@ -24,7 +24,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   rejected token fires `Attempting` and `Failed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
   the request. Nothing is persisted: there is no cross-request cache, and every bearer and refresh request reads the
-  identity, principal, and device live, from the write connection.
+  identity, principal, tenant, and device live, from the write connection.
 - `id()`, `identity()`, `principal()`, `device()`, `tenant()`, and `type()` go through `user()`, so the first access on
   a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do.
 
@@ -60,7 +60,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   misconfiguration, not a failed authentication. It propagates as a server error from `attempt()`, bearer resolution,
   and `refresh()`, with no `Failed` or `RefreshFailed` event.
 - Activation is opt-in through `CanBeActive` on the identity, the principal, or the tenant, and is decided by
-  `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active.
+  `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active. The
+  tenant is read with the principal's connection pinned to the write connection.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
   machine-readable reason.
 - `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`

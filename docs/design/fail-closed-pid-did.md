@@ -20,8 +20,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - Failure attribution should still point at the already resolved identity when `pid` or `did` rejection happens late in
   the bearer flow.
 - `pid`, `did`, and active-state checks run live on every request; nothing is cached across requests.
-- The identity, principal, and device reads behind those checks go to the write connection, so a lagging read replica
-  cannot satisfy a `pid` or `did` the primary no longer recognises.
+- The identity, principal, tenant, and device reads behind those checks go to the write connection, so a lagging read
+  replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises.
 
 ## Success Path
 
@@ -57,8 +57,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Jwt/IdentifierCoercion.php`: `stringify()`.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
-- `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, and device reads to
-  the write connection.
+- `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and device
+  reads to the write connection.
 - `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behavior that the guard hardens with explicit pid
   matching, including the optional `ResolvesHintedPrincipal` shortcut ahead of the generic `HasPrincipals` lookup.
 - `src/Contracts/ResolvesHintedPrincipal.php`: optional 3D optimization seam for hinted principal hydration.
@@ -125,5 +125,5 @@ Update this note when any of the following change:
 - whether a revoked device is still rejected on the bearer path like a missing one
 - whether refresh `did` remains backed by the configured device model
 - how late-path bearer failures are attributed on the `Failed` event
-- whether the identity, principal, and device reads still go to the write connection
+- whether the identity, principal, tenant, and device reads still go to the write connection
 - how guard-local or rebound principal resolvers are propagated into refresh
