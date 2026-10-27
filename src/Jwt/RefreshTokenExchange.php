@@ -456,7 +456,8 @@ final class RefreshTokenExchange
      * `method_not_allowed`), and the policy must still admit the identity as
      * the principal (`principal_ineligible`). A refresh names no identifier, so
      * the verified-identifier requirement does not apply to it. The method is
-     * read inside `WriteConnection::during()`, as the device's state is.
+     * read on the write connection, so a lagging replica cannot allow a method
+     * the primary no longer records for the device.
      *
      * @formatter:off
      *
