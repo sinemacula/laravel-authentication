@@ -114,7 +114,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A rate-limited refresh emits `Attempting`, `RefreshFailed` (`rate_limited`, with `retryAfter`), and `Failed`, and
   then throws `ThrottleRequestsException` (a 429 with `Retry-After`) instead of returning `null`.
 - Verifying an identifier (`IdentifierVerifier::verify()`, behind `VerificationLinks::consume()`) never binds a guard
-  or starts a session. Only the call whose conditional update marked the identifier verified dispatches
+  or starts a session. Only the call whose locked update marked the identifier verified dispatches
   `IdentifierVerified`, once that update is committed on the identity's connection (at once for an identity that is
   not an Eloquent model); a repeat or a mismatch dispatches nothing.
 - A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events

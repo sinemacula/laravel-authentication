@@ -61,28 +61,42 @@ trait ProvidesIdentifierVerification
     }
 
     /**
-     * Record the identifier as verified now, with one conditional update on
-     * the identity's row: `WHERE <key> = :id AND <type> = :identifier AND
-     * <type>_verified_at IS NULL`. The model is updated to match only when
-     * that row changed. The write fires no model events and leaves
-     * `updated_at` alone.
+     * Record the identifier as verified now, in one transaction on the
+     * identity's connection: the row is read again under a lock (`FOR UPDATE`
+     * where the database has one), and `<type>_verified_at` is set only when
+     * the row's identifier is the one given, byte for byte (not merely equal
+     * under the column's collation), and its verification time is still `null`.
+     * The model is updated to match only when the row changed. The write fires
+     * no model events and leaves `updated_at` alone.
      *
      * @param  string  $type
      * @param  string  $identifier
      * @return bool
      *
      * @throws \InvalidArgumentException
+     * @throws \Throwable
      *
      * @imperative
      */
     public function markIdentifierAsVerified(string $type, string $identifier): bool
     {
-        $column     = $this->getVerifiedAtName(IdentifierType::assertValid($type));
-        $verifiedAt = $this->fromDateTime(Carbon::now());
+        $column = $this->getVerifiedAtName(IdentifierType::assertValid($type));
 
-        $query = WriteConnection::query($this->newQueryWithoutScopes()->whereKey($this->getKey())->where($type, $identifier)->whereNull($column));
+        $verifiedAt = $this->getConnection()->transaction(function () use ($type, $identifier, $column): mixed {
 
-        if ($query->toBase()->update([$column => $verifiedAt]) !== 1) {
+            $row    = $this->newQueryWithoutScopes()->whereKey($this->getKey())->toBase();
+            $stored = (array) (clone $row)->lockForUpdate()->first([$type, $column]);
+
+            if (($stored[$type] ?? null) !== $identifier || ($stored[$column] ?? null) !== null) {
+                return null;
+            }
+
+            $verifiedAt = $this->fromDateTime(Carbon::now());
+
+            return $row->update([$column => $verifiedAt]) === 1 ? $verifiedAt : null;
+        });
+
+        if ($verifiedAt === null) {
             return false;
         }
 

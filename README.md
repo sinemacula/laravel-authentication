@@ -829,9 +829,11 @@ class AppUser extends User implements HasVerifiableIdentifiers, Identity, Princi
 ```
 
 A type is a lower-case letter followed by lower-case letters, digits and underscores (`email`, `phone`). Recording a
-verification is one conditional update, `WHERE <key> = :id AND <type> = :identifier AND <type>_verified_at IS NULL`, so
-a proof for one address can never verify another, even when the address changes while the proof is checked; it fires
-no model events and leaves `updated_at` alone. When an identifier changes, clear its `<type>_verified_at` with it.
+verification reads the identity's row again under a lock (`SELECT ... FOR UPDATE`) and sets `<type>_verified_at` only
+when the row's identifier is the proven one byte for byte and still unverified, all in one transaction, so a proof for
+one address can never verify another, even when the address changes while the proof is checked to one the column's
+collation counts as equal (`Ben@` or `bén@` for `ben@`); it fires no model events and leaves `updated_at` alone. When
+an identifier changes, clear its `<type>_verified_at` with it.
 
 Verify by signed link with `Verification\VerificationLinks`. The application owns the route, the message and its
 delivery:

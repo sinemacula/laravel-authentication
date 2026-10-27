@@ -6,6 +6,8 @@ namespace Tests\Integration\Verification;
 
 use Carbon\Carbon;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
@@ -98,23 +100,30 @@ final class ProvidesIdentifierVerificationTest extends TestCase
     }
 
     /**
-     * Marking writes the verification time to the row and the model in one
-     * statement, fires no model event, leaves `updated_at` alone and the model
-     * clean, and reports that it recorded the verification.
+     * Marking reads the row again under a lock and writes the verification time
+     * to the row and the model, all in one transaction; it fires no model
+     * event, leaves `updated_at` alone and the model clean, and reports that it
+     * recorded the verification.
      *
      * @return void
      */
-    public function testMarkingRecordsTheVerificationInOneStatement(): void
+    public function testMarkingRecordsTheVerificationUnderALock(): void
     {
         $identity   = self::seedVerifiableIdentity();
         $updated    = DB::table('verifiable_identities')->value('updated_at');
         $statements = $this->recordStatements();
         $events     = $this->recordModelEvents();
+        $lock       = DB::connection()->getDriverName() === 'sqlite' ? '' : ' for update';
 
         Carbon::setTestNow(Carbon::parse('2027-03-01 09:00:00'));
 
         self::assertTrue($identity->markIdentifierAsVerified('email', 'ben@example.com'));
-        self::assertCount(1, $statements());
+        self::assertCount(4, $statements());
+        self::assertSame('begin', $statements()[0]);
+        self::assertStringStartsWith('select', $statements()[1]);
+        self::assertStringEndsWith('limit 1' . $lock, $statements()[1]);
+        self::assertStringStartsWith('update', $statements()[2]);
+        self::assertSame('commit', $statements()[3]);
         self::assertSame('2027-03-01 09:00:00', DB::table('verifiable_identities')->value('email_verified_at'));
         self::assertSame('2027-03-01 09:00:00', $identity->email_verified_at?->format('Y-m-d H:i:s'));
         self::assertTrue($identity->hasVerifiedIdentifier('email'));
@@ -148,7 +157,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
 
     /**
      * An identifier changed between the decision to mark it and the mark is not
-     * verified: the conditional update finds no row.
+     * verified: the row the mark reads again no longer holds it.
      *
      * @return void
      */
@@ -159,7 +168,7 @@ final class ProvidesIdentifierVerificationTest extends TestCase
         $ran = false;
 
         DB::connection()->beforeExecuting(static function (string $query) use (&$ran): void {
-            if ($ran || !str_starts_with(strtolower($query), 'update')) {
+            if ($ran || !str_starts_with(strtolower($query), 'select')) {
                 return;
             }
 
@@ -225,6 +234,8 @@ final class ProvidesIdentifierVerificationTest extends TestCase
      *
      * @param  string  $type
      * @return void
+     *
+     * @throws \Throwable
      */
     #[DataProvider('provideMalformedTypes')]
     public function testMalformedTypesAreRefused(string $type): void
@@ -283,6 +294,14 @@ final class ProvidesIdentifierVerificationTest extends TestCase
 
         DB::listen(static function (QueryExecuted $query) use (&$statements): void {
             $statements[] = $query->sql;
+        });
+
+        Event::listen(TransactionBeginning::class, static function () use (&$statements): void {
+            $statements[] = 'begin';
+        });
+
+        Event::listen(TransactionCommitted::class, static function () use (&$statements): void {
+            $statements[] = 'commit';
         });
 
         return static function () use (&$statements): array {

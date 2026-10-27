@@ -64,37 +64,38 @@ final class IdentifierVerificationQueryBudgetTest extends PerformanceContractTes
     }
 
     /**
-     * A verification is one conditional write; a repeat adds the re-read that
-     * tells it from a mismatch; a mismatch with the identifier in hand costs
-     * nothing.
+     * A verification is one locked read and one write; a repeat reads the row
+     * under the lock, writes nothing, and adds the re-read that tells it from a
+     * mismatch; a mismatch with the identifier in hand costs nothing.
      *
      * @return void
      */
-    public function testVerificationIsOneWrite(): void
+    public function testVerificationIsOneLockedReadAndOneWrite(): void
     {
         $identity = self::seedVerifiableIdentity();
         $verifier = app(IdentifierVerifier::class);
 
         $verify = static fn (string $identifier): \Closure => static fn (): mixed => $verifier->verify(self::GUARD, $identity, 'email', $identifier);
 
-        self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(0, 1, $verify('ben@example.com')));
-        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->assertQueryBudget(1, 1, $verify('ben@example.com')));
+        self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(1, 1, $verify('ben@example.com')));
+        self::assertSame(IdentifierVerification::ALREADY_VERIFIED, $this->assertQueryBudget(2, 0, $verify('ben@example.com')));
         self::assertSame(IdentifierVerification::MISMATCH, $this->assertQueryBudget(0, 0, $verify('eve@example.com')));
     }
 
     /**
-     * Following a link loads the identity once and writes once; a link with a
-     * bad signature costs nothing.
+     * Following a link loads the identity, reads its row again under the
+     * verification's lock and writes once; a link with a bad signature costs
+     * nothing.
      *
      * @return void
      */
-    public function testFollowingALinkIsOneReadAndOneWrite(): void
+    public function testFollowingALinkIsTwoReadsAndOneWrite(): void
     {
         $identity = self::seedVerifiableIdentity();
         $links    = app(VerificationLinks::class);
         $link     = $links->create(self::GUARD, $identity, 'email', 'verify');
 
-        self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(1, 1, static fn (): mixed => $links->consume(Request::create($link))));
+        self::assertSame(IdentifierVerification::VERIFIED, $this->assertQueryBudget(2, 1, static fn (): mixed => $links->consume(Request::create($link))));
         self::assertNull($this->assertQueryBudget(0, 0, static fn (): mixed => $links->consume(Request::create($link . 'x'))));
     }
 
