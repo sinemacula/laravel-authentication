@@ -35,7 +35,9 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * `verifyCredentials()` is the credential path `validate()` uses: it takes the
  * caller's credentials as the provider understands them, closures included, and
  * counts nothing. None of them rehashes: a sign-in that is admitted calls
- * `rehash()`.
+ * `rehash()`. `lookupCredentials()`, `retrieve()`, `verifyPassword()` and
+ * `accepts()` exist for the guard's `attempt()` and are internal: they are not
+ * part of the method's API and may change without notice.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -234,6 +236,8 @@ final readonly class PasswordSignIn implements SignInMethod
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  array<array-key, mixed>  $credentials
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
+     *
+     * @internal
      */
     public function retrieve(IdentityProvider $provider, #[\SensitiveParameter] array $credentials): ?Authenticatable
     {
@@ -256,6 +260,8 @@ final readonly class PasswordSignIn implements SignInMethod
      *
      * @throws \InvalidArgumentException
      *
+     * @internal
+     *
      * @imperative
      */
     public function verifyPassword(AccountAttempts $attempts, IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): bool
@@ -272,6 +278,8 @@ final readonly class PasswordSignIn implements SignInMethod
      * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
      * @return bool
+     *
+     * @internal
      */
     public function accepts(IdentityProvider $provider, ?Authenticatable $user, #[\SensitiveParameter] array $credentials): bool
     {
