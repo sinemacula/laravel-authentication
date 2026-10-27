@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
@@ -493,6 +494,63 @@ final class PendingSignInsTest extends TestCase
         self::assertFalse($this->pendings()->consume($found, $this->now->addSeconds(300)));
         self::assertTrue($this->pendings()->consume($found, $this->now->addSeconds(299)));
         self::assertFalse($this->pendings()->consume($found, $this->now));
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * A pending sign-in keeps the windows of the attempt-limit slots its
+     * sign-in took, and gives them back as a granted reservation of the guard's
+     * sign-in flow, for the identifier type and IP address it recorded; one
+     * that took none gives back nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSlotsTheSignInTookAreKeptForCompletion(): void
+    {
+        $identity = $this->seedIdentity();
+        $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'));
+        $windows  = ['identifier-key' => '2026-04-06 12:05:00', 'ip-key' => '2026-04-06 12:05:00'];
+        $kept     = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', 'email', $context, $this->now, $windows);
+        $none     = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'sso', null, $context, $this->now);
+
+        $reservation = PendingSignIns::reservation(PendingSignIn::query()->whereKey(explode('.', $kept->token, 2)[0])->firstOrFail());
+
+        self::assertNotNull($reservation);
+        self::assertTrue($reservation->granted());
+        self::assertSame($windows, $reservation->windows);
+        self::assertSame('api', $reservation->subject->guard);
+        self::assertSame(AttemptFlow::SIGN_IN, $reservation->subject->flow);
+        self::assertNull($reservation->subject->identifier);
+        self::assertSame('email', $reservation->subject->identifierType);
+        self::assertSame('192.0.2.1', $reservation->subject->ip);
+        self::assertNull(PendingSignIns::reservation(PendingSignIn::query()->whereKey(explode('.', $none->token, 2)[0])->firstOrFail()));
+        self::assertNull(PendingSignIn::query()->whereKey(explode('.', $none->token, 2)[0])->value('attempt_windows'));
+    }
+
+    /**
+     * Discarding uses the live pending sign-in of the guard up, once, while its
+     * token holds the secret and it has not expired, and needs nothing it
+     * records to resolve.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testDiscardUsesTheLivePendingSignInUpOnce(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = $this->issue($identity);
+        $id       = explode('.', $pending->token, 2)[0];
+
+        $identity->delete();
+
+        self::assertFalse($this->pendings()->discard('admin', $pending->token, $this->now));
+        self::assertFalse($this->pendings()->discard('api', $id . '.not-the-secret', $this->now));
+        self::assertFalse($this->pendings()->discard('api', $pending->token, $this->now->addSeconds(300)));
+        self::assertTrue($this->pendings()->discard('api', $pending->token, $this->now->addSeconds(299)));
+        self::assertFalse($this->pendings()->discard('api', $pending->token, $this->now));
         self::assertSame(0, PendingSignIn::query()->count());
     }
 

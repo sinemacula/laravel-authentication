@@ -22,6 +22,9 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 
 /**
@@ -34,6 +37,12 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
  * lifetime (`authentication.sign_in.pending_ttl_seconds`, 30 to 3600 seconds,
  * 300 by default) ends, for the guard that issued it. Every read is from the
  * write connection.
+ *
+ * A pending sign-in keeps the attempt-limit slots its sign-in took until it
+ * completes: only a completed one gives them back. One that is discarded (its
+ * factor failed) or expires leaves them counted, so each guess at a further
+ * factor costs a sign-in attempt and the guesses are bounded by the sign-in
+ * limits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -67,8 +76,9 @@ final readonly class PendingSignIns
 
     /**
      * Store a pending sign-in for the admitted sign-in, recording the device
-     * the client proved it holds and the digest it was proven against, and
-     * return its credential.
+     * the client proved it holds and the digest it was proven against, and the
+     * windows of the attempt-limit slots the sign-in took, and return its
+     * credential.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
@@ -76,6 +86,7 @@ final readonly class PendingSignIns
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  array<string, string>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\PendingFactor
      *
      * @throws \InvalidArgumentException
@@ -83,8 +94,15 @@ final readonly class PendingSignIns
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
-    public function issue(string $guard, AdmittedSignIn $admitted, string $method, ?string $identifierType, SignInContext $context, CarbonImmutable $now): PendingFactor
-    {
+    public function issue(
+        string $guard,
+        AdmittedSignIn $admitted,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        CarbonImmutable $now,
+        array $attemptWindows = [],
+    ): PendingFactor {
         $identity  = self::eloquentIdentity($admitted);
         $device    = $admitted->device;
         $secret    = RefreshTokenHasher::generate();
@@ -108,6 +126,7 @@ final readonly class PendingSignIns
             'created_user_agent'   => $context->client->userAgent,
             'device_id'            => $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier()),
             'device_refresh_key'   => $device?->getRefreshKey(),
+            'attempt_windows'      => $attemptWindows === [] ? null : $attemptWindows,
             'expires_at'           => $expiresAt,
         ])->save();
 
@@ -139,12 +158,9 @@ final readonly class PendingSignIns
      */
     public function find(string $guard, #[\SensitiveParameter] string $token, IdentityProvider $provider, PrincipalResolver $resolver, CarbonImmutable $now): ?FoundPendingSignIn
     {
-        $parts  = explode('.', $token, 2);
-        $secret = $parts[1] ?? '';
+        [$pending, $secret] = self::live($guard, $token, $now) ?? [null, ''];
 
-        $pending = $secret !== '' && Str::isUuid($parts[0]) ? self::load($parts[0]) : null;
-
-        if ($pending === null || !self::isLive($pending, $guard, $secret, $now)) {
+        if ($pending === null) {
             return null;
         }
 
@@ -167,14 +183,50 @@ final readonly class PendingSignIns
      */
     public function consume(FoundPendingSignIn $found, CarbonImmutable $now): bool
     {
-        $pending = $found->pending;
+        return self::delete($found->pending, $found->secret, $now);
+    }
 
-        return $pending->newQueryWithoutScopes()
-            ->toBase()
-            ->where($pending->getKeyName(), $pending->getKey())
-            ->where('token_digest', RefreshTokenHasher::hash($found->secret))
-            ->where('expires_at', '>', $pending->fromDateTime($now))
-            ->delete() === 1;
+    /**
+     * Use up the live pending sign-in of the guard the token names, without
+     * reloading anything it records, so a sign-in whose factor failed can be
+     * ended whatever has changed since. Returns whether this call used it up.
+     *
+     * @param  string  $guard
+     * @param  string  $token
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return bool
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     *
+     * @imperative
+     */
+    public function discard(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now): bool
+    {
+        [$pending, $secret] = self::live($guard, $token, $now) ?? [null, ''];
+
+        return $pending !== null && self::delete($pending, $secret, $now);
+    }
+
+    /**
+     * The attempt-limit slots the pending sign-in's sign-in took, as a granted
+     * reservation to give back once it completes: its windows, for the guard's
+     * sign-in flow, with the identifier type and the IP address it recorded
+     * (not the identifier, which it does not keep). `null` when it took none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @return ?\SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
+     */
+    public static function reservation(PendingSignIn $pending): ?AttemptReservation
+    {
+        $windows = $pending->attempt_windows ?? [];
+
+        if ($windows === []) {
+            return null;
+        }
+
+        $subject = new AttemptSubject($pending->guard, AttemptFlow::SIGN_IN, null, $pending->identifier_type, $pending->created_ip);
+
+        return new AttemptReservation($subject, null, $windows);
     }
 
     /**
@@ -229,6 +281,50 @@ final readonly class PendingSignIns
         }
 
         return $ttl;
+    }
+
+    /**
+     * The live pending sign-in of the guard the token names, with the token's
+     * secret: `null` for a token that cannot name one (no UUID, or no secret),
+     * without a query, and for one that names no live pending sign-in of the
+     * guard holding the secret's digest.
+     *
+     * @param  string  $guard
+     * @param  string  $token
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?array{0: \SineMacula\Laravel\Authentication\Models\PendingSignIn, 1: string}
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    private static function live(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now): ?array
+    {
+        $parts  = explode('.', $token, 2);
+        $secret = $parts[1] ?? '';
+
+        $pending = $secret !== '' && Str::isUuid($parts[0]) ? self::load($parts[0]) : null;
+
+        return $pending !== null && self::isLive($pending, $guard, $secret, $now) ? [$pending, $secret] : null;
+    }
+
+    /**
+     * Delete the pending sign-in while it still holds the secret's digest and
+     * has not expired. Returns whether this call deleted it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @param  string  $secret
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return bool
+     *
+     * @imperative
+     */
+    private static function delete(PendingSignIn $pending, #[\SensitiveParameter] string $secret, CarbonImmutable $now): bool
+    {
+        return $pending->newQueryWithoutScopes()
+            ->toBase()
+            ->where($pending->getKeyName(), $pending->getKey())
+            ->where('token_digest', RefreshTokenHasher::hash($secret))
+            ->where('expires_at', '>', $pending->fromDateTime($now))
+            ->delete() === 1;
     }
 
     /**

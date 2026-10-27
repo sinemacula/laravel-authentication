@@ -25,10 +25,11 @@ use Tests\Concerns\InteractsWithSessions;
  * A sign-in through a method also writes its attempt limits: it reserves a slot
  * on the identifier's and the IP address's counters (on a fresh window, for
  * each, an update that changes nothing and the insert that creates the counter;
- * later in the window, one update each), and a sign-in that succeeds or asks
- * for a further factor gives both back. A password checked against an account
- * reserves a slot on the account's counter as well, given back when it matches.
- * `start()` and `complete()` are not limited.
+ * later in the window, one update each), and a sign-in that succeeds gives both
+ * back; one that asks for a further factor keeps them until it completes. A
+ * password checked against an account reserves a slot on the account's counter
+ * as well, given back when it matches. `start()` and `complete()` are not
+ * limited.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -133,15 +134,15 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
     /**
      * A sign-in that needs a further factor reads the identity once and writes
-     * the pending sign-in once, besides its limits; looking that up reads it
-     * and the identity; and completing it reads them, deletes it and writes the
-     * device.
+     * the pending sign-in once, besides its limits, whose slots it keeps;
+     * looking that up reads it and the identity; and completing it reads them,
+     * deletes it, writes the device and gives the two slots back.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAPendingSignInCostsOneWriteToIssueAndTwoToComplete(): void
+    public function testAPendingSignInCostsOneWriteToIssueAndKeepsItsSlotsUntilItCompletes(): void
     {
         $this->seedIdentity();
 
@@ -160,7 +161,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
         });
 
         $sessions = $this->sessions();
-        $pending  = $this->assertQueryBudget(1, 10, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
+        $pending  = $this->assertQueryBudget(1, 8, static fn (): SignInResult => $sessions->signIn('password', self::credentials()))->pending;
 
         self::assertNotNull($pending);
 
@@ -170,7 +171,7 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertTrue($this->assertQueryBudget(2, 2, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
+        self::assertTrue($this->assertQueryBudget(2, 4, static fn (): SignInResult => $sessions->complete($pending->token))->isSignedIn());
     }
 
     /**

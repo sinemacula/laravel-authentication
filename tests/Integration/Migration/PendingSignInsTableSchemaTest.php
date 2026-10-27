@@ -89,6 +89,7 @@ final class PendingSignInsTableSchemaTest extends TestCase
         ksort($columns);
 
         self::assertSame([
+            'attempt_windows'      => true,
             'authenticatable_id'   => false,
             'authenticatable_type' => false,
             'client_name'          => true,

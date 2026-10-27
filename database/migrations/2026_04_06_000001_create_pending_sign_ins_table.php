@@ -58,6 +58,11 @@ return new class extends Migration {
             $blueprint->string('device_id')->nullable();
             $blueprint->string('device_refresh_key', 64)->nullable();
 
+            // The windows of the attempt-limit slots the sign-in took, as JSON,
+            // kept until it completes and given back only then, so a further
+            // factor cannot be guessed by signing in again.
+            $blueprint->text('attempt_windows')->nullable();
+
             $blueprint->dateTime('expires_at', 0);
             $blueprint->datetimes(0);
 

@@ -446,6 +446,74 @@ final class PendingFactorSessionServiceTest extends TestCase
     }
 
     /**
+     * A pending sign-in whose factor failed is discarded: it is used up without
+     * a session, whatever has changed about its identity since, its token then
+     * looks up and completes nothing, and nothing is dispatched. A token that
+     * names no live pending sign-in of the guard discards nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADiscardedPendingSignInCannotBeCompleted(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = $this->pendingFor();
+        $other    = $this->pendingFor();
+
+        $identity->forceFill(['is_active' => false])->save();
+
+        $this->recordEvents([Failed::class, SignInFailed::class, SignedIn::class]);
+
+        self::assertFalse($this->sessions('admin')->discard($pending->token));
+        self::assertFalse($this->sessions()->discard('not-a-pending-token'));
+        self::assertFalse($this->sessions()->discard(explode('.', $pending->token, 2)[0] . '.wrong-secret'));
+        self::assertTrue($this->sessions()->discard($pending->token));
+        self::assertSame([], $this->recordedClasses());
+        self::assertFalse($this->sessions()->discard($pending->token));
+        self::assertNull($this->sessions()->pending($pending->token));
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete($pending->token)->reason);
+        self::assertSame(1, PendingSignIn::query()->count());
+
+        $this->freezeClocksAt($this->now->addSeconds(300));
+
+        self::assertFalse($this->sessions()->discard($other->token));
+        self::assertSame(1, PendingSignIn::query()->count());
+    }
+
+    /**
+     * A pending sign-in keeps the attempt-limit slots its sign-in took: with
+     * the password, five pending sign-ins whose factor failed use the
+     * identifier's limit up, and the sixth sign-in is refused, so a further
+     * factor can be guessed only as often as a password can. A completed
+     * pending sign-in gives its slots back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testFactorGuessesAreBoundedByTheSignInLimits(): void
+    {
+        $this->seedIdentity();
+
+        $completed = $this->pendingFor();
+
+        self::assertSame(1, $this->identifierHits());
+        self::assertTrue($this->sessions()->complete($completed->token)->isSignedIn());
+        self::assertSame(0, $this->identifierHits());
+
+        for ($guess = 0; $guess < 5; $guess++) {
+            self::assertTrue($this->sessions()->discard($this->pendingFor()->token));
+        }
+
+        $refused = $this->sessions()->signIn('password', self::credentials());
+
+        self::assertSame(SignInFailureReason::RATE_LIMITED, $refused->reason);
+        self::assertSame(5, $this->identifierHits());
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -557,6 +625,18 @@ final class PendingFactorSessionServiceTest extends TestCase
         app()->instance(AudiencePolicy::class, $audience);
 
         return $audience;
+    }
+
+    /**
+     * The hits on the `api` guard's sign-in counter for the seeded address.
+     *
+     * @return int
+     */
+    private function identifierHits(): int
+    {
+        $hits = DB::table('rate_limits')->where('key', hash('sha256', "api\0sign_in\0per_identifier\0ada@example.test"))->value('hits');
+
+        return is_numeric($hits) ? (int) $hits : 0;
     }
 
     /**

@@ -27,7 +27,6 @@ use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -119,8 +118,8 @@ final readonly class SessionService
      * is outdated; the client's refresh token, if any, is checked as proof of
      * an existing device; the additional-factor policy is asked, and when it
      * requires a further factor the result is a pending sign-in instead of a
-     * session; otherwise the session starts. A success or a pending sign-in
-     * gives the attempt's slots back.
+     * session; otherwise the session starts. A success gives the attempt's
+     * slots back; a pending sign-in keeps them until it completes.
      *
      * @param  string  $method
      * @param  array<array-key, mixed>  $input
@@ -171,8 +170,8 @@ final readonly class SessionService
      */
     public function start(Identity $identity, ?Principal $principal, string $method, ?SignInContext $context = null): SignInResult
     {
-        $pinned = self::pinnedPrincipal($principal, $context);
         $context ??= SignInContext::fromRequest($this->guard->getRequest());
+        $pinned = SessionPreconditions::pinnedPrincipal($principal, $context);
 
         $outcome = $this->startFor($identity, $pinned, $method, $context);
 
@@ -213,13 +212,14 @@ final readonly class SessionService
      * principal.
      *
      * The pending sign-in is used up whatever the outcome, by a delete that
-     * only one completion can make. In the same transaction it is checked again
-     * (the method still allowed, the identity, principal and tenant active, and
-     * the audience policy admitting them with the identifier type the sign-in
-     * used) and the session is written, continuing the proven device when it is
-     * unchanged and otherwise creating one. The factor policy is not asked
-     * again. Every token that does not complete a live pending sign-in of this
-     * guard fails as `pending_invalid`.
+     * only one completion can make, and gives the attempt-limit slots its
+     * sign-in took back only when the session starts. In the same transaction
+     * it is checked again (the method still allowed, the identity, principal
+     * and tenant active, and the audience policy admitting them with the
+     * identifier type the sign-in used) and the session is written, continuing
+     * the proven device when it is unchanged and otherwise creating one. The
+     * factor policy is not asked again. Every token that does not complete a
+     * live pending sign-in of this guard fails as `pending_invalid`.
      *
      * @param  string  $token
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
@@ -244,7 +244,32 @@ final readonly class SessionService
 
         [$admitted, $session] = $outcome;
 
+        $reservation = PendingSignIns::reservation($found->pending);
+
+        if ($reservation !== null) {
+            $this->collaborator(AttemptLimiter::class)->release($reservation);
+        }
+
         return $this->signedIn($session, $admitted, $context);
+    }
+
+    /**
+     * Use up a pending sign-in without starting a session, as when its further
+     * factor was not verified, so its token cannot be tried again. The
+     * attempt-limit slots its sign-in took stay counted: each factor guess
+     * costs a sign-in attempt. Returns whether the token named a live pending
+     * sign-in of this guard, which this call used up; nothing is dispatched.
+     *
+     * @param  string  $token
+     * @return bool
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     *
+     * @imperative
+     */
+    public function discard(#[\SensitiveParameter] string $token): bool
+    {
+        return $this->pendings->discard($this->guard->getName(), $token, CarbonImmutable::now()->startOfSecond());
     }
 
     /**
@@ -285,9 +310,9 @@ final readonly class SessionService
             $driver->rehash($this->guard->getProvider(), $admitted->identity, $input);
         }
 
-        $outcome = $admitted instanceof AdmittedSignIn ? $this->proceed($admitted, $method, $subject->identifierType, $context) : $admitted;
+        $outcome = $admitted instanceof AdmittedSignIn ? $this->proceed($admitted, $method, $subject->identifierType, $context, $reservation->windows) : $admitted;
 
-        if ($outcome instanceof SignInResult) {
+        if ($outcome instanceof SignInResult && $outcome->isSignedIn()) {
             $limiter->release($reservation);
         }
 
@@ -345,7 +370,7 @@ final readonly class SessionService
     {
         $reloaded = $this->guard->getProvider()->retrieveById($identity->getAuthIdentifier());
 
-        if (!$reloaded instanceof Identity || !self::isSameIdentity($reloaded, $identity)) {
+        if (!$reloaded instanceof Identity || !SessionPreconditions::isSameIdentity($reloaded, $identity)) {
             return new RefusedSignIn(SignInFailureReason::IDENTITY_UNKNOWN, $identity);
         }
 
@@ -438,26 +463,28 @@ final readonly class SessionService
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  array<string, string>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
      */
-    private function proceed(AdmittedSignIn $admitted, string $method, ?string $identifierType, SignInContext $context): SignInResult
+    private function proceed(AdmittedSignIn $admitted, string $method, ?string $identifierType, SignInContext $context, array $attemptWindows = []): SignInResult
     {
         $proven = $context->refreshToken === null
             ? null
             : $this->proof->provenDevice($this->guard->getName(), $admitted, $context->refreshToken);
 
-        return $this->establish($admitted, $proven, $method, $identifierType, $context, CarbonImmutable::now()->startOfSecond());
+        return $this->establish($admitted, $proven, $method, $identifierType, $context, CarbonImmutable::now()->startOfSecond(), $attemptWindows);
     }
 
     /**
      * Ask the additional-factor policy about the sign-in on the proven device
      * (or none): when it requires a further factor, hand out a pending sign-in
-     * that remembers the device; otherwise start the session, continuing the
-     * proven device or creating one. When the proven device changed before it
-     * could be continued, the sign-in is reconsidered without it, factor policy
-     * included; it never retries the device.
+     * that remembers the device and the attempt-limit slots the sign-in took;
+     * otherwise start the session, continuing the proven device or creating
+     * one. When the proven device changed before it could be continued, the
+     * sign-in is reconsidered without it, factor policy included; it never
+     * retries the device.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
@@ -465,6 +492,7 @@ final readonly class SessionService
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  array<string, string>  $attemptWindows
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
@@ -476,17 +504,18 @@ final readonly class SessionService
         ?string $identifierType,
         SignInContext $context,
         CarbonImmutable $now,
+        array $attemptWindows,
     ): SignInResult {
         $admitted = $admitted->on($proven);
 
         if ($this->requiresAdditionalFactor($admitted, $method, $context)) {
-            return SignInResult::pendingFactor($this->pendings->issue($this->guard->getName(), $admitted, $method, $identifierType, $context, $now));
+            return SignInResult::pendingFactor($this->pendings->issue($this->guard->getName(), $admitted, $method, $identifierType, $context, $now, $attemptWindows));
         }
 
         $session = $this->write($admitted, $proven, $method, $context, $now);
 
         return $session === null
-            ? $this->establish($admitted, null, $method, $identifierType, $context, $now)
+            ? $this->establish($admitted, null, $method, $identifierType, $context, $now, $attemptWindows)
             : $this->signedIn($session, $admitted, $context);
     }
 
@@ -602,43 +631,6 @@ final readonly class SessionService
         ));
 
         return SignInResult::failed($refused->reason, $refused->retryAfter);
-    }
-
-    /**
-     * The principal a session started for an externally verified identity is
-     * pinned to: the one given as the argument or on the context, which must
-     * not both name one.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function pinnedPrincipal(?Principal $principal, ?SignInContext $context): ?Principal
-    {
-        if ($principal === null) {
-            return $context?->principal;
-        }
-
-        if ($context?->principal !== null) {
-            throw new \InvalidArgumentException('Name the principal to start a session as either as the argument or on the context, not both.');
-        }
-
-        return $principal;
-    }
-
-    /**
-     * Whether the provider's answer is the very identity the caller verified:
-     * the same class with the same auth identifier.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $reloaded
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return bool
-     */
-    private static function isSameIdentity(Identity $reloaded, Identity $identity): bool
-    {
-        return $reloaded::class === $identity::class && IdentifierCoercion::matches($reloaded->getAuthIdentifier(), $identity->getAuthIdentifier());
     }
 
     /**

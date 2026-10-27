@@ -1043,7 +1043,9 @@ with the guard, identity, principal, tenant, method, client, and the device the 
 requires a further factor, no session starts: the result's `pending` is a `PendingFactor` whose `token` completes the
 sign-in once, for this guard, within `sign_in.pending_ttl_seconds` (five minutes by default). The token is opaque (not a
 JWT), so it authenticates no request and refreshes nothing; only the digest of its secret is stored, in
-`pending_sign_ins`. The attempt slots are given back as for a session.
+`pending_sign_ins`. The sign-in's attempt slots stay taken while it waits and are given back only when it completes: a
+pending sign-in that is discarded or expires leaves them counted, so a further factor can be guessed no more often than
+a password.
 
 The code that verifies the factor looks the pending sign-in up, verifies the factor for its identity and principal, and
 only then completes it. Possessing the token proves nothing about the factor: `complete()` is a trusted entry point,
@@ -1051,14 +1053,27 @@ like `start()`.
 
 ```php
 $sessions = Auth::sessions('api');
-$pending  = $sessions->pending($request->input('pending_token'));
+$token    = $request->string('pending_token')->toString();
+$pending  = $sessions->pending($token);
 
-if ($pending === null || ! $factors->verify($pending->identity, $pending->principal, $request->input('code'))) {
+if ($pending === null) {
     abort(401);
 }
 
-$result = $sessions->complete($request->input('pending_token'));
+if (! $factors->verify($pending->identity, $pending->principal, $request->string('code')->toString())) {
+    // One guess per pending sign-in; another needs a new sign-in, which counts
+    // against the sign-in limits.
+    $sessions->discard($token);
+
+    abort(401);
+}
+
+$result = $sessions->complete($token);
 ```
+
+`discard()` uses a pending sign-in up without starting a session, whatever has changed about its identity since; call
+it when the factor fails, so each pending sign-in allows one guess. It returns whether the token named a live pending
+sign-in of this guard and dispatches nothing: the code that verified the factor reports the failure.
 
 `pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
 guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome,

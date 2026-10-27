@@ -20,8 +20,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   the principal (the context's pin, verified like an `attempt()` pin, else the resolver's default) and its tenant must
   be active, and the audience policy must admit them with the method's identifier type; a password is rehashed; the
   proof of a device is checked; the additional-factor policy is asked; the session is written, or a pending sign-in is
-  issued. Only a success or a pending sign-in gives the slots back. The slots are taken and given back outside the
-  session's transaction, so a sign-in rolled back by its caller still counts.
+  issued. Only a success gives the slots back; a pending sign-in keeps them, with their windows, until `complete()`
+  starts its session. The slots are taken and given back outside the session's transaction, so a sign-in rolled back by
+  its caller still counts.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
@@ -57,8 +58,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 - A required additional factor starts no session: the service stores a pending sign-in (the digest of a single-use,
   guard-bound token's secret, who, as whom, how, from which client, the proven device and the digest it was proven
-  against, and an expiry from `authentication.sign_in.pending_ttl_seconds`) and returns its token. The token is not a
-  JWT, so no guard authenticates a request or a refresh with it.
+  against, the windows of the attempt-limit slots the sign-in took, and an expiry from
+  `authentication.sign_in.pending_ttl_seconds`) and returns its token. The token is not a JWT, so no guard authenticates
+  a request or a refresh with it. The slots stay taken until the pending sign-in completes, and `discard()` uses one up
+  without a session (as when its factor fails), so each guess at a factor costs a sign-in attempt and the guesses are
+  bounded by the sign-in limits.
 - `pending()` finds a live pending sign-in of the guard (identity reloaded through the provider as the recorded owner,
   principal through the hinted path as the recorded one, still owned) without using it up. `complete()` uses it up by a
   `DELETE` on its id, digest and unexpired `expires_at` that only one completion can win, checks it again (method,

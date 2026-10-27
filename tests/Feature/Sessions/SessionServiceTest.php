@@ -528,8 +528,8 @@ final class SessionServiceTest extends TestCase
      * The additional-factor policy is asked about every admitted sign-in, with
      * the client's description and no proven device; a sign-in it asks a factor
      * of starts no session: it hands out a pending sign-in for the identity and
-     * principal, which does not fail the sign-in and gives its attempt slot
-     * back.
+     * principal, which does not fail the sign-in and keeps the attempt's slots
+     * (only the account's, taken for the password check, goes back).
      *
      * @return void
      *
@@ -551,7 +551,7 @@ final class SessionServiceTest extends TestCase
 
         $limiter = $this->bindMock(AttemptLimiter::class);
         $limiter->shouldReceive('acquire')->andReturnUsing(static fn (AttemptSubject $subject): AttemptReservation => new AttemptReservation($subject, null));
-        $limiter->shouldReceive('release')->twice()->andReturnUsing(static function (AttemptReservation $reservation) use (&$released): void {
+        $limiter->shouldReceive('release')->once()->andReturnUsing(static function (AttemptReservation $reservation) use (&$released): void {
             $released += $reservation->subject->account === null ? 1 : 0;
         });
 
@@ -571,7 +571,7 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($identity, $result->pending->identity);
         self::assertSame('password', $result->pending->method);
         self::assertSame('api', $result->pending->guard);
-        self::assertSame(1, $released);
+        self::assertSame(0, $released);
         self::assertSame(0, Device::query()->count());
         self::assertSame([], $this->recordedClasses());
         self::assertFalse($guard->hasUser());
