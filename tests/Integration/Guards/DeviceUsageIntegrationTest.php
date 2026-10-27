@@ -171,6 +171,115 @@ final class DeviceUsageIntegrationTest extends TestCase
     }
 
     /**
+     * A bearer request and a refresh record their client on the device they
+     * used and on no other: another device of the same identity and a device of
+     * another identity keep their own last use.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRecordsTheClientOnlyOnTheDeviceThatWasUsed(): void
+    {
+        [$identity, $device] = $this->seedIdentityWithDevice();
+        [$stranger]          = $this->seedIdentityWithDevice('stranger@example.test');
+
+        $earlier = $this->now->copy()->subDay();
+        $others  = [
+            $this->seedDevice($identity, ['last_used_at' => $earlier, 'last_used_ip' => '198.51.100.9', 'last_used_user_agent' => 'Sibling/1.0']),
+            $this->seedDevice($stranger, ['last_used_at' => $earlier, 'last_used_ip' => '198.51.100.10', 'last_used_user_agent' => 'Stranger/1.0']),
+        ];
+
+        $before = array_map($this->storedUsage(...), $others);
+
+        Route::post('/refresh', fn (): array => ['refreshed' => $this->guard()->refresh(request()->string('refresh_token')->toString()) !== null]);
+
+        $this->bearerRequest($identity, $device, '203.0.113.7', 'Client/1.0')->assertOk();
+
+        self::assertSame([$this->now->format(self::DATETIME_FORMAT), '203.0.113.7', 'Client/1.0'], $this->storedUsage($device));
+        self::assertSame($before, array_map($this->storedUsage(...), $others));
+
+        $this->moveClockTo($this->now->copy()->addMinutes(2));
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])
+            ->withHeaders(['User-Agent' => 'Refresher/3.1'])
+            ->postJson('/refresh', ['refresh_token' => $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity)])
+            ->assertExactJson(['refreshed' => true]);
+
+        self::assertSame('192.0.2.10', $this->storedUsage($device)[1]);
+        self::assertSame($before, array_map($this->storedUsage(...), $others));
+    }
+
+    /**
+     * A device created as the README shows records the guard, the principal,
+     * and the client it was created from, with the client's IP address and user
+     * agent cleaned by `ClientContext` so a crafted header is stored rather
+     * than failing the insert, and the tokens issued for it then work on the
+     * bearer path and on refresh.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testDeviceCreatedAsDocumentedRecordsWhereItWasCreated(): void
+    {
+        [$identity] = $this->seedIdentityWithDevice();
+
+        Route::post('/sign-in', function () use ($identity): array {
+            $tokens    = $this->tokens();
+            $lifetimes = $tokens->lifetimes();
+            $absolute  = $lifetimes->absoluteDeadline(Carbon::now());
+            $rotation  = RefreshTokenHasher::generate();
+            $client    = ClientContext::fromRequest(request());
+
+            $device = new Device(['client_name' => request()->input('client_name'), 'platform' => request()->input('platform')]);
+            $device->forceFill([
+                'authenticatable_type' => $identity->getMorphClass(),
+                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+                'principal_type'       => $identity->getMorphClass(),
+                'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
+                'guard'                => 'api',
+                'created_ip'           => $client->ip,
+                'created_user_agent'   => $client->userAgent,
+                'refresh_key'          => RefreshTokenHasher::hash($rotation),
+                'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
+                'absolute_expires_at'  => $absolute,
+            ])->save();
+
+            return [
+                'device'        => $device->getKey(),
+                'access_token'  => $tokens->issueAccessToken($identity, $identity, $device),
+                'refresh_token' => $tokens->issueRefreshToken($device, $rotation, $identity),
+            ];
+        });
+
+        $response = $this->withServerVariables(['REMOTE_ADDR' => '2001:db8::7'])
+            ->withHeaders(['User-Agent' => "Crafted\0/1.0 \xC3\x28" . str_repeat('x', 600)])
+            ->postJson('/sign-in', ['client_name' => 'Work laptop', 'platform' => 'macOS'])
+            ->assertOk();
+
+        $row = (array) DB::table('devices')->where('id', $response->json('device'))->first();
+
+        self::assertSame('api', $row['guard']);
+        self::assertSame(StubPrincipal::class, $row['principal_type']);
+        self::assertSame((string) $identity->getKey(), $row['principal_id']); // @phpstan-ignore cast.string
+        self::assertSame(['Work laptop', 'macOS', '2001:db8::7'], [$row['client_name'], $row['platform'], $row['created_ip']]);
+        self::assertIsString($row['created_user_agent']);
+        self::assertStringStartsWith('Crafted/1.0 ?(', $row['created_user_agent']);
+        self::assertSame(512, mb_strlen($row['created_user_agent'], 'UTF-8'));
+
+        $access  = $response->json('access_token');
+        $refresh = $response->json('refresh_token');
+
+        self::assertIsString($access);
+        self::assertIsString($refresh);
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $access])->getJson('/device')->assertOk()->assertJsonPath('id', $response->json('device'));
+
+        self::assertNotNull($this->guard()->refresh($refresh));
+    }
+
+    /**
      * A user agent with a NUL byte and invalid UTF-8 is stored cleaned instead
      * of failing the request, on every engine (PostgreSQL rejects both in a
      * text column).
@@ -278,25 +387,38 @@ final class DeviceUsageIntegrationTest extends TestCase
     /**
      * Persist an identity with one live device holding the stored rotation.
      *
+     * @param  string  $email
      * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device}
      */
-    private function seedIdentityWithDevice(): array
+    private function seedIdentityWithDevice(string $email = 'device-usage@example.test'): array
     {
         $identity            = new StubPrincipal;
-        $identity->email     = 'device-usage@example.test';
+        $identity->email     = $email;
         $identity->password  = 'irrelevant';
         $identity->is_active = true;
         $identity->save();
 
+        return [$identity, $this->seedDevice($identity, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)])];
+    }
+
+    /**
+     * Persist a live device of the identity with any further state.
+     *
+     * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @param  array<string, mixed>  $state
+     * @return \SineMacula\Laravel\Authentication\Models\Device
+     */
+    private function seedDevice(StubPrincipal $identity, array $state): Device
+    {
         $device = new Device;
         $device->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+            ...$state,
         ])->save();
 
-        return [$identity, $device];
+        return $device;
     }
 
     /**

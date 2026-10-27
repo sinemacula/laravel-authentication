@@ -115,6 +115,40 @@ final class RecordDeviceUsageTest extends TestCase
     }
 
     /**
+     * The use is recorded on the device that was used and on no other: devices
+     * of the same owner and of another owner keep their own last use.
+     *
+     * @return void
+     */
+    public function testRecordsTheUseOnTheUsedDeviceOnly(): void
+    {
+        $device = $this->persistedDevice(null, ['authenticatable_type' => 'owner', 'authenticatable_id' => '1']);
+
+        $earlier = $this->now->copy()->subDay();
+        $others  = [
+            $this->persistedDevice($earlier, [
+                'authenticatable_type' => 'owner',
+                'authenticatable_id'   => '1',
+                'last_used_ip'         => '198.51.100.9',
+                'last_used_user_agent' => 'Other/1.0',
+            ]),
+            $this->persistedDevice($earlier, [
+                'authenticatable_type' => 'owner',
+                'authenticatable_id'   => '2',
+                'last_used_ip'         => '198.51.100.10',
+                'last_used_user_agent' => 'Another/1.0',
+            ]),
+        ];
+
+        $before = array_map(fn (StubDevice $other): array => $this->storedRow($other->id), $others);
+
+        $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device));
+
+        self::assertSame(self::IP, $this->storedRow($device->id)['last_used_ip']);
+        self::assertSame($before, array_map(fn (StubDevice $other): array => $this->storedRow($other->id), $others));
+    }
+
+    /**
      * Within the throttle window nothing is written, neither the time nor the
      * client the request came from.
      *
@@ -343,15 +377,17 @@ final class RecordDeviceUsageTest extends TestCase
     }
 
     /**
-     * Persist a stub device last used at the given time.
+     * Persist a stub device last used at the given time, with any further
+     * state.
      *
      * @param  ?\Carbon\Carbon  $lastUsedAt
+     * @param  array<string, mixed>  $state
      * @return \Tests\Unit\Stubs\StubDevice
      */
-    private function persistedDevice(?Carbon $lastUsedAt): StubDevice
+    private function persistedDevice(?Carbon $lastUsedAt, array $state = []): StubDevice
     {
         $device = new StubDevice;
-        $device->forceFill(['last_used_at' => $lastUsedAt])->save();
+        $device->forceFill(['last_used_at' => $lastUsedAt, ...$state])->save();
 
         return $device;
     }

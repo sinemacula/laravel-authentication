@@ -17,10 +17,14 @@ use Illuminate\Http\Request;
  * a text column and a crafted header must not turn a request into a server
  * error. A value that is missing, invalid, or empty after cleaning is `null`.
  *
+ * The package records last use with it. Code that creates a device records the
+ * client it was created from (`created_ip`, `created_user_agent`) with
+ * `fromRequest()` too, so those columns are cleaned the same way.
+ *
+ * @api
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
- *
- * @internal
  */
 final readonly class ClientContext
 {

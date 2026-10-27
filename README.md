@@ -590,6 +590,7 @@ Issue tokens through the guard-scoped JWT service, then use the guard for refres
 before anything is issued for it; stamp them from the guard's lifetimes when the device is created:
 
 ```php
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 
@@ -597,11 +598,17 @@ $tokens    = Auth::jwt('api');
 $lifetimes = $tokens->lifetimes();
 $absolute  = $lifetimes->absoluteDeadline(now());
 $rotation  = RefreshTokenHasher::generate();
+$client    = ClientContext::fromRequest($request);
 
 $device = new Device(['client_name' => $request->input('client_name'), 'platform' => $request->input('platform')]);
 $device->forceFill([
     'authenticatable_type' => $identity->getMorphClass(),
     'authenticatable_id'   => (string) $identity->getKey(),
+    'principal_type'       => $principal->getMorphClass(),
+    'principal_id'         => (string) $principal->getKey(),
+    'guard'                => 'api',
+    'created_ip'           => $client->ip,
+    'created_user_agent'   => $client->userAgent,
     'refresh_key'          => RefreshTokenHasher::hash($rotation),
     'idle_expires_at'      => $lifetimes->idleDeadline(now(), $absolute),
     'absolute_expires_at'  => $absolute,
@@ -610,6 +617,12 @@ $device->forceFill([
 $refreshToken = $tokens->issueRefreshToken($device, $rotation, $principal);
 $accessToken  = $tokens->issueAccessToken($identity, $principal, $device);
 ```
+
+Until the package creates devices itself, the code that creates one is the only writer of its creation metadata: the
+guard, the principal it acts as, and the client it was created from. Record the client with
+`ClientContext::fromRequest()`, which cleans the IP address and user agent the way the package cleans them for last
+use: a raw user agent with NUL bytes, invalid UTF-8 or more than 512 characters fails the insert on PostgreSQL and on
+MySQL in strict mode.
 
 Then exchange the refresh token through the guard:
 
