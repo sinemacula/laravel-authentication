@@ -101,6 +101,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/SessionWriter.php`: `create()`, `continueOn()` and the compare-and-swap.
 - `src/Sessions/DeviceProof.php`, `src/Jwt/JwtTokenService.php` (`parseRefreshProof()`), `src/Jwt/DeviceLookup.php`.
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
+- `src/Sessions/SessionPreconditions.php`: the `HasDevices` refusal, and `start()`'s one-principal rule and
+  reloaded-identity check.
 - `src/Sessions/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Guards/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
 - `src/Guards/JwtGuard.php` (`sessions()`), `src/AuthManager.php` (`sessions()`), and the factory
@@ -112,6 +114,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `tests/Integration/Sessions/SessionServiceTest.php`
 - `tests/Feature/Sessions/DeviceProofTest.php`, `tests/Feature/Sessions/SessionWriterTest.php`
 - `tests/Feature/Sessions/PendingSignInsTest.php`, `tests/Integration/Sessions/PendingFactorSessionServiceTest.php`
+- `tests/Integration/Sessions/ReplicaPendingSignInsTest.php`: pending sign-ins read from the writer
+- `tests/Unit/Sessions/SessionPreconditionsTest.php`
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php`: the shipped audience policy, attempt limiter, normalisers
   and verified-identifier gate, through `signIn()`, `start()` and `attempt()`
 - `tests/Integration/Migration/PendingSignInsTableSchemaTest.php`

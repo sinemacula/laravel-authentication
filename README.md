@@ -986,6 +986,8 @@ Each JWT guard has a session service, `Auth::sessions('api')` (or `Auth::guard('
 creates the device, issues the first token pair and binds the guard in one call:
 
 ```php
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
@@ -1011,8 +1013,12 @@ $result = Auth::sessions('api')->signIn(
 );
 
 if ($result->isFailed()) {
-    // Failed and SignInFailed were dispatched; $result->reason says why, and
-    // $result->retryAfter how long to wait when it is rate_limited.
+    // Failed and SignInFailed were dispatched; $result->reason says why.
+    if ($result->reason === SignInFailureReason::RATE_LIMITED) {
+        // A 429 with Retry-After, as a refused refresh answers, so clients wait.
+        throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
+    }
+
     abort(401);
 }
 

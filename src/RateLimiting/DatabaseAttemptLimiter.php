@@ -70,9 +70,10 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     ) {}
 
     /**
-     * Take a slot from the identifier's counter, then from the IP address's;
-     * when the second is full, the first is given back, and the wait is until
-     * the full counter's window, as stored, ends.
+     * Take a slot from each counter the subject counts against, in turn: the
+     * identifier's, the account's, then the IP address's. When one is full,
+     * every slot taken before it is given back, and the wait is until the full
+     * counter's window, as stored, ends.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return \SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation
@@ -148,7 +149,7 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     }
 
     /**
-     * Count the failure against the identifier's and the IP address's counters.
+     * Count the failure against each counter the subject counts against.
      *
      * @param  \SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject  $subject
      * @return void
