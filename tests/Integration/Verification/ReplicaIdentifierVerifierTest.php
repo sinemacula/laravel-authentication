@@ -157,6 +157,30 @@ final class ReplicaIdentifierVerifierTest extends TestCase
     }
 
     /**
+     * A link created for an identity that reads its identifier with a query,
+     * while the replica holds an older address, is signed for the address the
+     * primary holds, so following it verifies.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALinkIsSignedForTheIdentifierThePrimaryHolds(): void
+    {
+        Route::get('/verify', static fn (): array => [])->name('verify');
+
+        DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->update(['email_verified_at' => null]);
+        DB::connection(self::REPLICA_CONNECTION)->table('verifiable_identities')->update(['email' => 'old@example.com']);
+
+        $identity = (new QueryingVerifiableIdentity)->newFromBuilder(['id' => 1]);
+        $links    = app(VerificationLinks::class);
+        $link     = $links->create('querying', $identity, 'email', 'verify');
+
+        self::assertSame(IdentifierVerification::VERIFIED, $links->consume(Request::create($link)));
+        self::assertNotNull(DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->value('email_verified_at'));
+    }
+
+    /**
      * Reading a verification time that an accessor derives with a query reads
      * the primary, even when the identity is asked directly rather than by the
      * package.

@@ -69,12 +69,13 @@ final readonly class VerificationLinks
 
     /**
      * Sign a link to the named route that verifies the identity's current
-     * identifier of the type for the guard. The route's own parameters are
-     * kept, and the link expires after `$ttlMinutes`, or the configured
-     * lifetime. An identity that cannot verify identifiers is a
-     * misconfiguration (`LogicException`), and so is a route whose path takes a
-     * reserved name as a placeholder (`InvalidArgumentException`): the link's
-     * fields must reach `consume()` in its query string.
+     * identifier of the type for the guard, read on the write connection as
+     * `consume()` reads it. The route's own parameters are kept, and the link
+     * expires after `$ttlMinutes`, or the configured lifetime. An identity that
+     * cannot verify identifiers is a misconfiguration (`LogicException`), and
+     * so is a route whose path takes a reserved name as a placeholder
+     * (`InvalidArgumentException`): the link's fields must reach `consume()` in
+     * its query string.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -91,7 +92,7 @@ final readonly class VerificationLinks
         $this->guardConfig($guard);
 
         $verifiable = IdentifierVerifier::verifiable($identity);
-        $identifier = $verifiable->getIdentifierForVerification(IdentifierType::assertValid($type));
+        $identifier = self::currentIdentifier($verifiable, IdentifierType::assertValid($type));
         $hash       = $identifier === null ? null : $this->digest($type, $identifier);
 
         if ($hash === null) {
@@ -188,10 +189,24 @@ final readonly class VerificationLinks
      */
     private function provenIdentifier(HasVerifiableIdentifiers&Identity $identity, string $type, string $hash): ?string
     {
-        $identifier = WriteConnection::during($identity, static fn (): ?string => $identity->getIdentifierForVerification($type));
+        $identifier = self::currentIdentifier($identity, $type);
         $digest     = $identifier === null ? null : $this->digest($type, $identifier);
 
         return $digest !== null && hash_equals($digest, $hash) ? $identifier : null;
+    }
+
+    /**
+     * The identity's current identifier of the type, read on the write
+     * connection, so a link is signed for, and checked against, the address the
+     * primary holds.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $type
+     * @return ?string
+     */
+    private static function currentIdentifier(HasVerifiableIdentifiers&Identity $identity, string $type): ?string
+    {
+        return WriteConnection::during($identity, static fn (): ?string => $identity->getIdentifierForVerification($type));
     }
 
     /**
