@@ -11,12 +11,14 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -818,6 +820,56 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         }
 
         self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * The identity's devices relation is built while reads are pinned to the
+     * write connection, so a relation that queries while it is built cannot
+     * read a lagging replica.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserBuildsTheDevicesRelationWithReadsPinnedToTheWriteConnection(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')->andReturnSelf();
+        $builder->shouldReceive('getModel')->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->with(self::DEVICE_ID)
+            ->andReturn(new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => null]));
+
+        $resolvers = [];
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturnUsing(static function () use ($builder, &$resolvers): Builder {
+                $resolvers[] = Model::getConnectionResolver();
+
+                return $builder;
+            });
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->with($identity, 'p-1')->andReturn($principal);
+        $this->events->shouldReceive('dispatch');
+
+        self::assertNotNull($guard->user());
+        self::assertSame($identity, $guard->identity());
+        self::assertCount(1, $resolvers);
+        self::assertInstanceOf(PinningConnectionResolver::class, $resolvers[0]);
+        self::assertNotInstanceOf(PinningConnectionResolver::class, Model::getConnectionResolver());
     }
 
     /**

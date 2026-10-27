@@ -100,10 +100,12 @@ trait VerifiesPinnedContext
      * made), or the device is not found or has been revoked: a revoked device
      * is treated exactly like a missing one, from the row already loaded.
      *
-     * The lookup and the revocation read both run inside
-     * `WriteConnection::during()` for the device model, so a device that
-     * derives its revocation from a relation or another table reads it from the
-     * writer as well.
+     * Building the `devices()` relation, the lookup, and the revocation read
+     * all run inside `WriteConnection::during()` for the identity, which pins
+     * every connection a model resolves meanwhile: a relation that queries
+     * while it is built (a list of permitted devices, say) and a device that
+     * derives its revocation from a relation or another table read the writer
+     * as well.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -115,14 +117,13 @@ trait VerifiesPinnedContext
             return null;
         }
 
-        $devices = WriteConnection::query($identity->devices());
-        $model   = $devices->getModel();
+        return WriteConnection::during($identity, static function () use ($identity, $hint): ?Device {
 
-        if (!DeviceKeyShape::matches($model, $hint)) {
-            return null;
-        }
+            $devices = WriteConnection::query($identity->devices());
 
-        return WriteConnection::during($model, static function () use ($devices, $hint): ?Device {
+            if (!DeviceKeyShape::matches($devices->getModel(), $hint)) {
+                return null;
+            }
 
             $device = $devices->find($hint);
 

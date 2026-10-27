@@ -31,7 +31,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
   principal, and device lookups run inside `WriteConnection::during()`, which pins their model's connection and every
   connection a model resolves while they run, so relations they eager-load (a `$with` tenant, say) come from the writer
   too, not only the lookup's own query, even on another connection; so does each `CanBeActive::isActive()` check, the
-  tenant read, and a device's `getRevokedAt()`, whether or not the subject is an Eloquent model.
+  tenant read, and a device's `getRevokedAt()`, whether or not the subject is an Eloquent model. The identity's
+  `devices()` relation is built inside the identity's window, so a relation that queries while it is built reads the
+  writer as well.
 
 ## Success Path
 
@@ -112,8 +114,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `tests/Integration/Guards/UncastRevokedDeviceIntegrationTest.php`
   `testBearerRejectsTheRevokedDevice`, `testAttemptRejectsTheRevokedDeviceWhenPinned`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
-  `testUserReportsDidHintNamingDeviceLoadedWithoutItsRevocation`
+  `testUserReportsDidHintNamingDeviceLoadedWithoutItsRevocation`,
+  `testUserBuildsTheDevicesRelationWithReadsPinnedToTheWriteConnection`
 - `tests/Integration/Guards/PartiallySelectedDeviceIntegrationTest.php`
+- `tests/Integration/Guards/DeviceRelationWriteConnectionIntegrationTest.php`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsMalformedDidHintWithoutQueryingDevices`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
