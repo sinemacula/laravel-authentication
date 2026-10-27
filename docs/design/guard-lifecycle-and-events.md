@@ -78,8 +78,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   a model that is not a `Tenant` reports no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
   machine-readable reason.
-- `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`
-  instances participate in that write path.
+- `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and
+  user agent of the use, at most once per `authentication.device.last_used_throttle_seconds`. Only persisted
+  `EloquentDevice` instances participate in that write path. The listener is resolved from the container on every
+  dispatch with the current request, so a long-running worker records the request it is serving, and the client values
+  are cleaned by `ClientContext` before they are stored.
 
 ## Implementation Anchors
 
@@ -98,7 +101,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/JwtGuard.php` and `src/Jwt/RefreshTokenExchange.php`: `setDispatcher()` and `setPrincipalResolver()`, which
   keep the exchange on the guard's dispatcher and resolver.
 - `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
-- `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
+- `src/Listeners/RecordDeviceUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound devices.
 
 ## Authoritative Tests
 
@@ -160,6 +163,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttemptUnderStrictMode`
 - `tests/Feature/AuthenticationServiceProviderTest.php`
   `testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind`
+- `tests/Integration/Guards/DeviceUsageIntegrationTest.php`
+  `testEachRequestRecordsItsOwnClientOutsideTheThrottleWindow`, `testRefreshRecordsTheClientItCameFrom`,
+  `testCraftedUserAgentIsStoredCleaned`
 
 ## Change Triggers
 

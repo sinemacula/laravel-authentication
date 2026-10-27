@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -48,6 +49,8 @@ use Tests\Integration\Fixtures\UncheckedTenantUser;
 #[CoversClass(RefreshTokenExchange::class)]
 final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Plaintext rotation id stored on the seeded devices. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
@@ -327,11 +330,11 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => $member::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
-            'last_logged_in_at'    => $this->now,
+            'last_used_at'         => $this->now,
         ])->save();
 
         return $device;

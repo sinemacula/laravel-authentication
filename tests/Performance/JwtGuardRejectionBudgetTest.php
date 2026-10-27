@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
@@ -39,6 +40,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 #[CoversClass(RefreshTokenExchange::class)]
 final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Guard under test. */
     private const string GUARD = 'api';
 
@@ -246,7 +249,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
         $device   = $this->seedDevice($identity);
         $token    = $this->tokens()->issueAccessToken($identity, $identity, $device);
 
-        $device->forceFill(['last_logged_in_at' => $this->now])->save();
+        $device->forceFill(['last_used_at' => $this->now])->save();
 
         $started = hrtime(true);
 
@@ -289,7 +292,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'model'  => IntegrationIdentity::class,
         ]);
 
-        $config->set('authentication.device.last_seen_throttle_seconds', 60);
+        $config->set('authentication.device.last_used_throttle_seconds', 60);
     }
 
     /**
@@ -318,9 +321,9 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

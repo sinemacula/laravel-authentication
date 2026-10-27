@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
@@ -68,7 +69,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 {
-    use InteractsWithLaggingReplica;
+    use InteractsWithDevices, InteractsWithLaggingReplica;
 
     /** @var string Plaintext rotation id stored on the seeded device. */
     private const string ROTATION_ID = 'stored-rotation-id';
@@ -697,9 +698,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
@@ -730,9 +731,9 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $device = new $model;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => RevocationLogIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

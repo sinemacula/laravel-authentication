@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -32,6 +33,8 @@ use Tests\Performance\Fixtures\PerformanceAccessOnlyIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Shared plaintext password for the seeded fixtures. */
     private const string TEST_PASSWORD = 'correct horse battery staple';
 
@@ -166,8 +169,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A bearer token with a valid device hint and a fresh last-seen timestamp
-     * should do the identity read plus the device read, but no update.
+     * A bearer token with a valid device hint and a recent last use should do
+     * the identity read plus the device read, but no update.
      *
      * @return void
      *
@@ -180,11 +183,11 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => null,
-            'last_logged_in_at'    => $this->now,
+            'last_used_at'         => $this->now,
         ])->save();
 
         $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
@@ -207,8 +210,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A stale or missing last-seen timestamp should add exactly one write to
-     * the mandatory identity + device reads.
+     * A last use outside the throttle window, or none, should add exactly one
+     * write to the mandatory identity + device reads.
      *
      * @return void
      *
@@ -221,11 +224,11 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => null,
-            'last_logged_in_at'    => null,
+            'last_used_at'         => null,
         ])->save();
 
         $jwt = PackageAuth::jwt(self::DEVICE_GUARD);
@@ -412,7 +415,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             'model'  => TenantAware3dIdentity::class,
         ]);
 
-        $config->set('authentication.device.last_seen_throttle_seconds', 60);
+        $config->set('authentication.device.last_used_throttle_seconds', 60);
     }
 
     /**

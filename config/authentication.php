@@ -16,16 +16,17 @@ return [
     | implementing the package `EloquentDevice` contract. Column names come from
     | that contract's accessors (e.g. `getRefreshKeyName()`); the shipped
     | migration and model use the default names, so a custom model that renames
-    | a column ships its own migration. Bearer-path last-seen persistence is
-    | driven by the bound device instance itself, so it only runs when that
-    | resolved device is a persisted EloquentDevice.
+    | a column ships its own migration. Every authentication that binds a
+    | persisted EloquentDevice records when, from which IP address, and with
+    | which user agent it was last used, at most once per
+    | `last_used_throttle_seconds` (0 records every use).
     |
     */
 
     'device' => [
         'model'                      => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
         'table'                      => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
-        'last_seen_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_SEEN_THROTTLE_SECONDS', 60),
+        'last_used_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_USED_THROTTLE_SECONDS', 60),
     ],
 
     /*
@@ -72,7 +73,7 @@ return [
     | store, but JwtGuard still rehydrates identity, principal, and optional
     | device state on bearer authentication. A resolved, persisted device may
     | still trigger normal device-authenticated side effects such as debounced
-    | last-seen writes. Signing material is always a `kid => secret` map in
+    | last-use writes. Signing material is always a `kid => secret` map in
     | `keys` plus the `active_kid` that signs new tokens; every token carries
     | its kid, and any kid in the map verifies. Signing is HMAC only:
     | `algorithm` must be HS256, HS384, or HS512, and every key must be at

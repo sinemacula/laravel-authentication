@@ -10,22 +10,22 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Facade;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
+use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Runtime benchmark fixtures for device timestamp writes.
+ * Runtime benchmark fixtures for device last-use writes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final class UpdateDeviceTimestampBenchHarness
+final class RecordDeviceUsageBenchHarness
 {
     /** @var int Number of mutable write-path devices to pre-seed. */
     private const int WRITE_DEVICE_POOL_SIZE = 128;
 
-    /** @var \SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp */
-    private readonly UpdateDeviceTimestamp $listener;
+    /** @var \SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage */
+    private readonly RecordDeviceUsage $listener;
 
     /** @var \Tests\Unit\Stubs\StubDevice */
     private readonly StubDevice $freshDevice;
@@ -49,7 +49,7 @@ final class UpdateDeviceTimestampBenchHarness
         $config = new ConfigRepository([
             'authentication' => [
                 'device' => [
-                    'last_seen_throttle_seconds' => 60,
+                    'last_used_throttle_seconds' => 60,
                 ],
             ],
         ]);
@@ -58,15 +58,16 @@ final class UpdateDeviceTimestampBenchHarness
         $container->instance('config', $config);
         Facade::setFacadeApplication($container);
 
-        $this->listener = new UpdateDeviceTimestamp;
+        $this->listener = new RecordDeviceUsage(BenchRequest::client());
 
         $this->createSchema();
 
         $freshDevice = new StubDevice;
         $freshDevice->forceFill([
-            'os'                => 'bench-device-fresh',
-            'refresh_key'       => 'bench-device-fresh',
-            'last_logged_in_at' => Carbon::now(),
+            ...BenchSchema::liveSession(),
+            'client_name'  => 'bench-device-fresh',
+            'refresh_key'  => 'bench-device-fresh',
+            'last_used_at' => Carbon::now(),
         ])->save();
 
         $this->freshDevice = $freshDevice;
@@ -75,9 +76,10 @@ final class UpdateDeviceTimestampBenchHarness
 
             $device = new StubDevice;
             $device->forceFill([
-                'os'                => 'bench-device-stale-' . $index,
-                'refresh_key'       => 'bench-device-stale-' . $index,
-                'last_logged_in_at' => null,
+                ...BenchSchema::liveSession(),
+                'client_name'  => 'bench-device-stale-' . $index,
+                'refresh_key'  => 'bench-device-stale-' . $index,
+                'last_used_at' => null,
             ])->save();
 
             $this->staleDevices[] = $device;
@@ -121,12 +123,7 @@ final class UpdateDeviceTimestampBenchHarness
         }
 
         $schema->create('stub_devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key')->default('');
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
+            BenchSchema::defineDeviceColumns($blueprint);
         });
     }
 }

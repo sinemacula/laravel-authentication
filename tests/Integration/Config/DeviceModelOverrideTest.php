@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -41,6 +42,8 @@ use Tests\Unit\Stubs\StubTwoDPrincipalResolver;
 #[CoversClass(RefreshTokenExchange::class)]
 final class DeviceModelOverrideTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> */
     private string $customModel;
 
@@ -71,17 +74,7 @@ final class DeviceModelOverrideTest extends TestCase
         // The Device model reads the table name lazily in its constructor, so
         // no manual cache priming is needed - the config swap in
         // `defineEnvironment()` is picked up on the next instantiation.
-        Schema::create('custom_devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type')->nullable();
-            $blueprint->string('authenticatable_id')->nullable();
-            $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
-        });
+        self::createDeviceTable('custom_devices');
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
             $blueprint->id();
@@ -150,9 +143,9 @@ final class DeviceModelOverrideTest extends TestCase
         /** @var \SineMacula\Laravel\Authentication\Models\Device $device */
         $device = new $this->customModel;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 

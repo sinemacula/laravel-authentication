@@ -27,7 +27,7 @@ final class JwtBenchSetup
                 'device' => [
                     'model'                      => Device::class,
                     'table'                      => 'devices',
-                    'last_seen_throttle_seconds' => 60,
+                    'last_used_throttle_seconds' => 60,
                 ],
                 'timebox' => [
                     'credentials_microseconds' => 400000,

@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\DefaultUsersTableIdentity;
 use Tests\TestCase;
 
@@ -35,6 +36,8 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class ActivationOptInIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -126,9 +129,9 @@ final class ActivationOptInIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => DefaultUsersTableIdentity::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

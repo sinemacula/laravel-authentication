@@ -23,15 +23,11 @@ final readonly class PlainDeviceFixture implements Device
      * Constructor.
      *
      * @param  string  $id
-     * @param  string  $os
      */
     public function __construct(
 
         /** Stable identifier used as the `did` claim. */
         public string $id,
-
-        /** Operating-system string embedded in the device row. */
-        public string $os = 'plain-os',
     ) {}
 
     /**
@@ -46,45 +42,67 @@ final readonly class PlainDeviceFixture implements Device
     }
 
     /**
-     * Return when the device was last successfully authenticated.
+     * Return when the device was last used.
      *
      * @return ?\Carbon\CarbonInterface
      */
     #[\Override]
-    public function getLastLoggedIn(): ?CarbonInterface
+    public function getLastUsedAt(): ?CarbonInterface
     {
         return null;
     }
 
     /**
-     * Return when the device's MFA factor was last verified.
-     *
-     * @return ?\Carbon\CarbonInterface
-     */
-    #[\Override]
-    public function getLastMfaVerification(): ?CarbonInterface
-    {
-        return null;
-    }
-
-    /**
-     * Return the operating system string captured at registration.
-     *
-     * @return string
-     */
-    #[\Override]
-    public function getOperatingSystem(): string
-    {
-        return $this->os;
-    }
-
-    /**
-     * Return the hashed refresh-key digest stored on the device row.
+     * Return the digest of the current refresh rotation id.
      *
      * @return ?string
      */
     #[\Override]
     public function getRefreshKey(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Return the digest of the previous refresh rotation id.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPreviousRefreshKey(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Return when the current refresh rotation id replaced the previous one.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getRefreshRotatedAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Return the idle deadline.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getIdleExpiresAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Return the absolute deadline.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getAbsoluteExpiresAt(): ?CarbonInterface
     {
         return null;
     }
@@ -96,6 +114,17 @@ final readonly class PlainDeviceFixture implements Device
      */
     #[\Override]
     public function getRevokedAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Return why the device was revoked, or null.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getRevokedReason(): ?string
     {
         return null;
     }

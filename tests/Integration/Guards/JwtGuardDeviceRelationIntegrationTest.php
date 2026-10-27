@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\RelationDevicesIdentity;
 use Tests\TestCase;
 
@@ -33,6 +34,8 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardDeviceRelationIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /**
      * Freeze the clocks and create the identity table.
      *
@@ -184,7 +187,7 @@ final class JwtGuardDeviceRelationIntegrationTest extends TestCase
     private function seedDevice(RelationDevicesIdentity $identity): Device
     {
         $device = $identity->devices()->make();
-        $device->forceFill(['os' => 'ios'])->save();
+        $device->forceFill(self::liveSession())->save();
 
         return $device;
     }

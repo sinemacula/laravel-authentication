@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -38,6 +39,8 @@ use Tests\Unit\Stubs\StubIdentity;
 #[CoversClass(IdentifierCoercion::class)]
 final class JwtGuardRefreshTest extends JwtGuardTestCase
 {
+    use InteractsWithDevices;
+
     /**
      * When the refresh token cannot be parsed, `refresh()` returns null and
      * fires `RefreshFailed` with reason `token_invalid`.
@@ -229,6 +232,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'refresh_key' => RefreshTokenHasher::hash($plainRotationId),
             'revoked_at'  => Carbon::now(),
         ])->save();
@@ -281,6 +285,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '13',
             'refresh_key'          => $staleDigest,
@@ -351,6 +356,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '18',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),

@@ -7,7 +7,6 @@ namespace Tests\Feature\Models;
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
@@ -16,6 +15,7 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 
 /**
  * Feature tests for the shipped Device Eloquent model.
@@ -32,7 +32,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 #[CoversClass(Device::class)]
 final class DeviceTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
+    use InteractsWithDevices, MockeryPHPUnitIntegration;
 
     /** @var string Shared timestamp for device factory tests. */
     private const string FIXED_TIMESTAMP = '2026-04-06 12:00:00';
@@ -48,17 +48,7 @@ final class DeviceTest extends TestCase
     {
         parent::setUp();
 
-        Schema::create('devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type')->nullable();
-            $blueprint->string('authenticatable_id')->nullable();
-            $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
-        });
+        self::createDeviceTable('devices');
     }
 
     /**
@@ -111,33 +101,23 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts `last_logged_in_at` is cast to a Carbon instance.
+     * Every timestamp column is cast to a Carbon instance when read back.
      *
      * @return void
      */
-    public function testCastsLastLoggedInAtToCarbon(): void
+    public function testCastsTimestampColumnsToCarbon(): void
     {
+        $columns = ['last_used_at', 'refresh_rotated_at', 'idle_expires_at', 'absolute_expires_at', 'revoked_at'];
+
         $device = new Device;
-        $device->forceFill(['last_logged_in_at' => self::FIXED_TIMESTAMP])->save();
+        $device->forceFill(array_fill_keys($columns, self::FIXED_TIMESTAMP))->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 
-        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
-    }
-
-    /**
-     * Asserts `last_mfa_verified_at` is cast to a Carbon instance.
-     *
-     * @return void
-     */
-    public function testCastsLastMfaVerifiedAtToCarbon(): void
-    {
-        $device = new Device;
-        $device->forceFill(['last_mfa_verified_at' => self::FIXED_TIMESTAMP])->save();
-
-        $fresh = Device::query()->findOrFail($device->id);
-
-        self::assertInstanceOf(Carbon::class, $fresh->last_mfa_verified_at);
+        foreach ($columns as $column) {
+            self::assertInstanceOf(Carbon::class, $fresh->getAttribute($column), $column);
+            self::assertSame(self::FIXED_TIMESTAMP, $fresh->getAttribute($column)->format('Y-m-d H:i:s'), $column);
+        }
     }
 
     /**
@@ -148,18 +128,86 @@ final class DeviceTest extends TestCase
      */
     public function testCastsStringColumnsToString(): void
     {
+        $columns = [
+            'authenticatable_type',
+            'authenticatable_id',
+            'principal_type',
+            'principal_id',
+            'guard',
+            'sign_in_method',
+            'client_name',
+            'platform',
+            'created_ip',
+            'created_user_agent',
+            'last_used_ip',
+            'last_used_user_agent',
+            'refresh_key',
+            'previous_refresh_key',
+            'revoked_reason',
+        ];
+
         $device = new Device;
-        $device->forceFill([
-            'authenticatable_type' => 1,
-            'authenticatable_id'   => 2,
-            'os'                   => 3,
-            'refresh_key'          => 4,
+        $device->forceFill(array_combine($columns, range(1, count($columns))));
+
+        foreach ($columns as $index => $column) {
+            self::assertSame((string) ($index + 1), $device->getAttribute($column), $column);
+        }
+    }
+
+    /**
+     * Only the client-described metadata is mass assignable: ownership, the
+     * request-derived columns, and the session state are set with `forceFill()`
+     * or by the package's own writes.
+     *
+     * @return void
+     */
+    public function testOnlyClientMetadataIsMassAssignable(): void
+    {
+        $device = new Device([
+            'client_name'          => 'Work laptop',
+            'platform'             => 'macOS',
+            'authenticatable_type' => 'App\Models\User',
+            'authenticatable_id'   => '1',
+            'principal_type'       => 'App\Models\Member',
+            'principal_id'         => '2',
+            'guard'                => 'api',
+            'sign_in_method'       => 'password',
+            'created_ip'           => '203.0.113.7',
+            'created_user_agent'   => 'Mozilla/5.0',
+            'last_used_at'         => self::FIXED_TIMESTAMP,
+            'last_used_ip'         => '203.0.113.7',
+            'last_used_user_agent' => 'Mozilla/5.0',
+            'refresh_key'          => 'digest',
+            'previous_refresh_key' => 'previous-digest',
+            'refresh_rotated_at'   => self::FIXED_TIMESTAMP,
+            'idle_expires_at'      => self::FIXED_TIMESTAMP,
+            'absolute_expires_at'  => self::FIXED_TIMESTAMP,
+            'revoked_at'           => self::FIXED_TIMESTAMP,
+            'revoked_reason'       => 'rotation_reuse',
         ]);
 
-        self::assertSame('1', $device->authenticatable_type);
-        self::assertSame('2', $device->authenticatable_id);
-        self::assertSame('3', $device->os);
-        self::assertSame('4', $device->refresh_key);
+        self::assertSame(['client_name' => 'Work laptop', 'platform' => 'macOS'], $device->getAttributes());
+    }
+
+    /**
+     * The shipped model leaves both refresh digests out of its serialised form.
+     *
+     * @return void
+     */
+    public function testDigestsAreHiddenFromSerialisation(): void
+    {
+        $device = new Device;
+        $device->forceFill([
+            'client_name'          => 'Work laptop',
+            'refresh_key'          => 'current-digest',
+            'previous_refresh_key' => 'previous-digest',
+        ])->save();
+
+        $serialised = Device::query()->findOrFail($device->id)->toArray();
+
+        self::assertSame('Work laptop', $serialised['client_name']);
+        self::assertArrayNotHasKey('refresh_key', $serialised);
+        self::assertArrayNotHasKey('previous_refresh_key', $serialised);
     }
 
     /**
@@ -175,8 +223,22 @@ final class DeviceTest extends TestCase
     }
 
     /**
+     * `principal()` is a polymorphic relation over the principal columns, which
+     * are strings so a principal with any key type can be recorded.
+     *
+     * @return void
+     */
+    public function testPrincipalRelationIsMorphToOverThePrincipalColumns(): void
+    {
+        $relation = (new Device)->principal();
+
+        self::assertSame('principal_type', $relation->getMorphType());
+        self::assertSame('principal_id', $relation->getForeignKeyName());
+    }
+
+    /**
      * Asserts the shipped model satisfies the explicit Eloquent-backed device
-     * persistence boundary used by refresh rotation and last-seen writes.
+     * persistence boundary used by refresh rotation and last-use writes.
      *
      * @return void
      */
@@ -242,95 +304,41 @@ final class DeviceTest extends TestCase
     }
 
     /**
-     * Asserts `getLastLoggedIn()` returns the Carbon instance when the
-     * attribute holds a datetime, and null when the attribute is null.
-     * Exercises the `ActsAsDevice::getLastLoggedIn()` accessor through the
-     * shipped Device model.
+     * Asserts `getLastUsedAt()` returns the Carbon instance when the attribute
+     * holds a datetime, and null when the attribute is null, through the
+     * shipped model.
      *
      * @return void
      */
-    public function testGetLastLoggedInReturnsCarbonOrNull(): void
+    public function testGetLastUsedAtReturnsCarbonOrNull(): void
     {
         $device = new Device;
-        $device->forceFill(['last_logged_in_at' => self::FIXED_TIMESTAMP])->save();
+        $device->forceFill(['last_used_at' => self::FIXED_TIMESTAMP])->save();
 
         $fresh = Device::query()->findOrFail($device->id);
 
-        self::assertInstanceOf(Carbon::class, $fresh->getLastLoggedIn());
+        self::assertInstanceOf(Carbon::class, $fresh->getLastUsedAt());
 
         $nilDevice = new Device;
         $nilDevice->save();
 
         $freshNil = Device::query()->findOrFail($nilDevice->id);
 
-        self::assertNull($freshNil->getLastLoggedIn());
+        self::assertNull($freshNil->getLastUsedAt());
     }
 
     /**
-     * Asserts `getLastMfaVerification()` returns the Carbon instance when set,
-     * and null when the attribute is null. Exercises the
-     * `ActsAsDevice::getLastMfaVerification()` accessor.
+     * The identifier of the shipped model is its generated primary key.
      *
      * @return void
      */
-    public function testGetLastMfaVerificationReturnsCarbonOrNull(): void
+    public function testDeviceIdentifierIsThePrimaryKey(): void
     {
         $device = new Device;
-        $device->forceFill(['last_mfa_verified_at' => self::FIXED_TIMESTAMP])->save();
+        $device->save();
 
-        $fresh = Device::query()->findOrFail($device->id);
-
-        self::assertInstanceOf(Carbon::class, $fresh->getLastMfaVerification());
-
-        $nilDevice = new Device;
-        $nilDevice->save();
-
-        $freshNil = Device::query()->findOrFail($nilDevice->id);
-
-        self::assertNull($freshNil->getLastMfaVerification());
-    }
-
-    /**
-     * Asserts `getLastMfaVerificationName()` returns the documented default
-     * column name. Exercises the `ActsAsDevice::getLastMfaVerificationName()`
-     * accessor.
-     *
-     * @return void
-     */
-    public function testGetLastMfaVerificationNameReturnsDefault(): void
-    {
-        $device = new Device;
-
-        self::assertSame('last_mfa_verified_at', $device->getLastMfaVerificationName());
-    }
-
-    /**
-     * Asserts `getOperatingSystem()` casts the underlying attribute to string.
-     * Exercises the `ActsAsDevice::getOperatingSystem()` accessor.
-     *
-     * @return void
-     */
-    public function testGetOperatingSystemCastsToString(): void
-    {
-        $device = new Device;
-        $device->forceFill(['os' => 'macOS 15'])->save();
-
-        $fresh = Device::query()->findOrFail($device->id);
-
-        self::assertSame('macOS 15', $fresh->getOperatingSystem());
-    }
-
-    /**
-     * Asserts `getOperatingSystemName()` returns the documented default column
-     * name. Exercises the `ActsAsDevice::getOperatingSystemName()` accessor.
-     *
-     * @return void
-     */
-    public function testGetOperatingSystemNameReturnsDefault(): void
-    {
-        $device = new Device;
-
-        self::assertSame('os', $device->getOperatingSystemName());
+        self::assertSame($device->getKey(), $device->getDeviceIdentifier());
+        self::assertSame($device->id, Device::query()->whereKey($device->getDeviceIdentifier())->firstOrFail()->id);
     }
 
     /**

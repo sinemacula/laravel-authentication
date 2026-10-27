@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -35,6 +36,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string */
     private const string JWT_SECRET = 'integration-secret-with-at-least-32-bytes!';
 
@@ -217,9 +220,9 @@ final class JwtGuardIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 
@@ -255,20 +258,20 @@ final class JwtGuardIntegrationTest extends TestCase
 
     /**
      * A bearer token carrying a `did` still resolves the device from storage
-     * and can therefore trigger the debounced `last_logged_in_at` write on the
+     * and can therefore trigger the debounced `last_used_at` write on the
      * persisted device row.
      *
      * @return void
      */
-    public function testBearerAuthWithDeviceUpdatesLastLoggedInAt(): void
+    public function testBearerAuthWithDeviceRecordsItsLastUse(): void
     {
         $user = $this->seedUser();
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
         ])->save();
 
         $token = $this->encodeAccessToken([
@@ -279,9 +282,9 @@ final class JwtGuardIntegrationTest extends TestCase
             'exp' => $this->now->getTimestamp() + 600,
         ]);
 
-        Route::middleware(self::AUTH_MIDDLEWARE)->get('/last-seen', static fn (): string => 'ok');
+        Route::middleware(self::AUTH_MIDDLEWARE)->get('/last-used', static fn (): string => 'ok');
 
-        $response = $this->withHeaders(['Authorization' => self::BEARER_PREFIX . $token])->get('/last-seen');
+        $response = $this->withHeaders(['Authorization' => self::BEARER_PREFIX . $token])->get('/last-used');
 
         $response->assertOk();
 
@@ -289,8 +292,8 @@ final class JwtGuardIntegrationTest extends TestCase
 
         assert($fresh instanceof Device);
 
-        self::assertInstanceOf(Carbon::class, $fresh->last_logged_in_at);
-        self::assertTrue($this->now->equalTo($fresh->last_logged_in_at));
+        self::assertInstanceOf(Carbon::class, $fresh->last_used_at);
+        self::assertTrue($this->now->equalTo($fresh->last_used_at));
     }
 
     /**
@@ -308,9 +311,9 @@ final class JwtGuardIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 

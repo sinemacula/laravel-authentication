@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
 
@@ -55,6 +56,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(RefreshTokenExchange::class)]
 final class CustomEventsIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string The name of the jwt-driven guard under test. */
     private const string JWT_GUARD = 'api';
 
@@ -171,9 +174,9 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash('rotation-' . (string) $user->getKey()), // @phpstan-ignore cast.string
         ])->save();
 
@@ -240,9 +243,9 @@ final class CustomEventsIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 

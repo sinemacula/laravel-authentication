@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\PartiallySelectedDevice;
 use Tests\Integration\Fixtures\PartiallySelectedDeviceIdentity;
 use Tests\TestCase;
@@ -47,6 +48,8 @@ use Tests\TestCase;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class PartiallySelectedDeviceIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Plaintext password of the seeded identity. */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -218,9 +221,9 @@ final class PartiallySelectedDeviceIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => PartiallySelectedDeviceIdentity::class,
             'authenticatable_id'   => $identity->getKey(),
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
             'revoked_at'           => Carbon::now(),
         ])->save();

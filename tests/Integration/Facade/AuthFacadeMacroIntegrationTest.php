@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Facades\Auth as IlluminateAuth;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -35,6 +36,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(AuthManager::class)]
 final class AuthFacadeMacroIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /**
      * `Auth::principal()` returns null for an unauthenticated request when the
      * default guard is the package's `api` jwt guard.
@@ -105,8 +108,8 @@ final class AuthFacadeMacroIntegrationTest extends TestCase
     {
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'id'          => '019590e0-0000-7000-8000-000000000001',
-            'os'          => 'ios',
             'refresh_key' => 'rk',
         ]);
 

@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\PrefixedKeyDevice;
 use Tests\Integration\Fixtures\PrefixedKeyDeviceIdentity;
 use Tests\TestCase;
@@ -40,6 +41,8 @@ use Tests\TestCase;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class DeviceKeyValidationIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Plaintext rotation id stored on the seeded devices. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
@@ -70,11 +73,17 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             $blueprint->string('id')->primary();
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
-            $blueprint->string('os');
             $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamps();
+            $blueprint->string('previous_refresh_key', 64)->nullable();
+            $blueprint->timestamp('refresh_rotated_at', 0)->nullable();
+            $blueprint->timestamp('idle_expires_at', 0);
+            $blueprint->timestamp('absolute_expires_at', 0);
+            $blueprint->timestamp('revoked_at', 0)->nullable();
+            $blueprint->string('revoked_reason', 64)->nullable();
+            $blueprint->timestamp('last_used_at', 0)->nullable();
+            $blueprint->string('last_used_ip', 45)->nullable();
+            $blueprint->string('last_used_user_agent', 512)->nullable();
+            $blueprint->timestamps(0);
         });
     }
 
@@ -195,10 +204,10 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
     {
         $device = new PrefixedKeyDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'id'                   => $key,
             'authenticatable_type' => PrefixedKeyDeviceIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

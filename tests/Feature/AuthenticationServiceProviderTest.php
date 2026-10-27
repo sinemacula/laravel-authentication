@@ -28,7 +28,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
+use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Symfony\Component\HttpFoundation\Response;
@@ -109,7 +109,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The `DeviceAuthenticated` event listener is registered with the
-     * dispatcher and resolves to the package `UpdateDeviceTimestamp` invokable
+     * dispatcher and resolves to the package `RecordDeviceUsage` invokable
      * listener class.
      *
      * @return void
@@ -121,9 +121,9 @@ final class AuthenticationServiceProviderTest extends TestCase
         $listeners = Event::getRawListeners()[DeviceAuthenticated::class] ?? [];
 
         self::assertContains(
-            UpdateDeviceTimestamp::class,
+            RecordDeviceUsage::class,
             $listeners,
-            'UpdateDeviceTimestamp must be registered as a listener for DeviceAuthenticated.',
+            'RecordDeviceUsage must be registered as a listener for DeviceAuthenticated.',
         );
     }
 

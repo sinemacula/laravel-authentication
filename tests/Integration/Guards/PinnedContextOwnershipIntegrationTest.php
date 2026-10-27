@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -43,6 +44,8 @@ use Tests\Unit\Stubs\StubDevice;
 #[CoversClass(AbstractGuard::class)]
 final class PinnedContextOwnershipIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -392,9 +395,9 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
         ])->save();
 
         return [$member, $membership, $device];

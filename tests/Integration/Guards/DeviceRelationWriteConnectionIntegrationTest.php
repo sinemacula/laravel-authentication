@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Integration\Fixtures\GrantedDevicesIdentity;
 use Tests\TestCase;
@@ -44,7 +45,7 @@ use Tests\TestCase;
 #[CoversTrait(VerifiesPinnedContext::class)]
 final class DeviceRelationWriteConnectionIntegrationTest extends TestCase
 {
-    use InteractsWithLaggingReplica;
+    use InteractsWithDevices, InteractsWithLaggingReplica;
 
     /** @var string Plaintext password of the seeded identity. */
     private const string PASSWORD = 'correct horse battery staple';
@@ -267,9 +268,9 @@ final class DeviceRelationWriteConnectionIntegrationTest extends TestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => GrantedDevicesIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
         ])->save();
 
         return $device;

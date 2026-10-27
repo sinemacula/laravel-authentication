@@ -50,7 +50,9 @@ device record live in the `devices` table so replay and stale credentials can be
   machine-readable `RefreshFailed` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
   it, so keys rotate without signing anyone out.
-- **Device tracking** with debounced `last_logged_in_at` writes.
+- **Device records**, one per signed-in session: owner, optional principal and client metadata, the last use (time,
+  IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a reason. Refresh
+  digests are hidden from serialisation.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`.
 - **Pluggable everywhere**: identity model, device model, principal resolver, table names.
@@ -203,26 +205,59 @@ Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::cl
 
 ### Device
 
-The published `authentication.php` config controls the device model, table, and last-seen debounce:
+The published `authentication.php` config controls the device model, table, and how often a device's last use is
+written:
 
 ```php
 'device' => [
     'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
     'table'                      => 'devices',
-    'last_seen_throttle_seconds' => 60,
+    'last_used_throttle_seconds' => 60,
 ],
 ```
 
-The shipped `Device` model uses UUID v7 primary keys and a polymorphic `authenticatable` relation. Subclass it
-or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. Column names come from
-that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates
-the default names, so a model that renames a column needs its own migration.
+A device is one signed-in session. The shipped migration creates these columns:
+
+| Column                                                 | Holds                                                  |
+|--------------------------------------------------------|--------------------------------------------------------|
+| `id`                                                   | UUID v7 primary key, carried in every token as `did`   |
+| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
+| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
+| `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
+| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
+| `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
+| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
+| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids       |
+| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one |
+| `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
+| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
+
+Every timestamp is stored to the whole second, and the table is indexed on the owner, the principal, the guard, both
+deadlines, and the revocation time. Every authentication that binds a persisted device (a bearer request or a refresh)
+records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
+agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
+records every use).
+
+The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
+`principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
+the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
+and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The package does not yet act on the
+stored `guard`, principal, or sign-in method: a session is bound to its guard by the `grd` claim of its tokens, and
+refresh does not record the principal it resolves on the device.
+
+Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
+device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
+by primary key, whatever the key column is called. Other column names come from the contract's accessors
+(`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates the default names, so a model
+that renames a column needs its own migration.
 
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
-than when its access tokens expire. `ActsAsDevice` reads any stored value as a revocation, with or without a `datetime`
-cast on the column, and throws a `LogicException` when the device was loaded without that column (a `devices()` relation
-or a global scope that selects other columns), so a partial select is reported instead of being read as not revoked.
+than when its access tokens expire. `ActsAsDevice` reads any stored timestamp as a value, with or without a `datetime`
+cast on the column, and throws a `LogicException` when the device was loaded without one of its refresh or revocation
+state columns (both digests, the rotation time, both deadlines, and the revocation time), for example through a
+`devices()` relation or a global scope that selects other columns, so a partial select is reported instead of being read
+as a device that is not revoked or has no deadline.
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
@@ -256,7 +291,7 @@ in carries the same obligation:
   must read from the write connection, including the relations its results eager-load;
 - `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `devices()` and, when `ModelProvider` checks a password,
   `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
-  `isActive()` for the model it belongs to, and a device's `getRevokedAt()` and `getRefreshKey()` for the device: every
+  `isActive()` for the model it belongs to, and a device's refresh and revocation state for the device: every
   model read made there, on any connection, goes to that connection's writer, and so does a query-builder read on the
   model's own connection. A query-builder or `DB` read on another connection, or made by a principal or identity that
   is not an Eloquent model, must pin itself.

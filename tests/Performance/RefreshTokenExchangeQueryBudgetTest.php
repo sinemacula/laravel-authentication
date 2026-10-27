@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dTenant;
@@ -30,6 +31,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtGuard::class)]
 final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Guard name for standard refresh tests. */
     private const string GUARD = 'api';
 
@@ -98,7 +101,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     /**
      * Refresh success should do the device lookup and authenticatable
      * hydration, then one CAS write. The timestamp write is suppressed here by
-     * seeding `last_logged_in_at` inside the throttle window.
+     * seeding `last_used_at` inside the throttle window.
      *
      * @return void
      *
@@ -111,11 +114,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
-            'last_logged_in_at'    => $this->now,
+            'last_used_at'         => $this->now,
         ])->save();
 
         $jwt = PackageAuth::jwt(self::GUARD);
@@ -192,9 +195,9 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 
@@ -225,11 +228,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'tenant-aware-ios',
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
-            'last_logged_in_at'    => $this->now,
+            'last_used_at'         => $this->now,
         ])->save();
 
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
@@ -266,11 +269,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'tenant-aware-ios-secondary',
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
-            'last_logged_in_at'    => $this->now,
+            'last_used_at'         => $this->now,
         ])->save();
 
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
@@ -310,11 +313,11 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'tenant-aware-ios-failure',
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
-            'last_logged_in_at'    => $this->now,
+            'last_used_at'         => $this->now,
         ])->save();
 
         $jwt = PackageAuth::jwt(self::TENANT_AWARE_GUARD);
@@ -373,7 +376,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'model'  => TenantAware3dIdentity::class,
         ]);
 
-        $config->set('authentication.device.last_seen_throttle_seconds', 60);
+        $config->set('authentication.device.last_used_throttle_seconds', 60);
     }
 
     /**

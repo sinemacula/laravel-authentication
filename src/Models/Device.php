@@ -15,11 +15,18 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * Default shipped Device Eloquent model.
  *
  * Polymorphic device record bound to an authenticatable identity via the
- * `authenticatable()` morphTo relation. UUID v7 primary key. Swappable via
+ * `authenticatable()` morphTo relation, and optionally to the principal it acts
+ * as via `principal()`. UUID v7 primary key. Swappable via
  * `config('authentication.device.model')` / `device.table` as the package's
  * default Eloquent adapter. Non-`final` so consumers may subclass; subclasses
  * that remain refreshable MUST continue satisfying the `EloquentDevice`
  * persistence boundary.
+ *
+ * Only the client-described metadata is mass assignable. Ownership, the
+ * request-derived columns, and the session state (digests, rotation time,
+ * deadlines, revocation, last use) are not: the package writes the columns it
+ * owns with query-builder updates, and code that creates a device sets the rest
+ * with `forceFill()`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,11 +34,24 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * @property string $id
  * @property string $authenticatable_type
  * @property string $authenticatable_id
- * @property string $os
+ * @property ?string $principal_type
+ * @property ?string $principal_id
+ * @property ?string $guard
+ * @property ?string $sign_in_method
+ * @property ?string $client_name
+ * @property ?string $platform
+ * @property ?string $created_ip
+ * @property ?string $created_user_agent
+ * @property ?\Carbon\CarbonInterface $last_used_at
+ * @property ?string $last_used_ip
+ * @property ?string $last_used_user_agent
  * @property ?string $refresh_key
+ * @property ?string $previous_refresh_key
+ * @property ?\Carbon\CarbonInterface $refresh_rotated_at
+ * @property \Carbon\CarbonInterface $idle_expires_at
+ * @property \Carbon\CarbonInterface $absolute_expires_at
  * @property ?\Carbon\CarbonInterface $revoked_at
- * @property ?\Carbon\CarbonInterface $last_logged_in_at
- * @property ?\Carbon\CarbonInterface $last_mfa_verified_at
+ * @property ?string $revoked_reason
  *
  * @inheritable
  */
@@ -41,13 +61,8 @@ class Device extends Model implements EloquentDevice
 
     /** @var list<string> The attributes that are mass assignable. */
     protected $fillable = [
-        'authenticatable_type',
-        'authenticatable_id',
-        'os',
-        'refresh_key',
-        'revoked_at',
-        'last_logged_in_at',
-        'last_mfa_verified_at',
+        'client_name',
+        'platform',
     ];
 
     /**
@@ -84,6 +99,21 @@ class Device extends Model implements EloquentDevice
     }
 
     /**
+     * Polymorphic relation to the principal the device acts as, when its
+     * creator recorded one.
+     *
+     * @formatter:off
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, $this>
+     *
+     * @formatter:on
+     */
+    public function principal(): MorphTo
+    {
+        return $this->morphTo();
+    }
+
+    /**
      * Columns that receive a generated unique identifier on insert.
      *
      * @return array<int, string>
@@ -105,11 +135,24 @@ class Device extends Model implements EloquentDevice
         return [
             'authenticatable_type' => 'string',
             'authenticatable_id'   => 'string',
-            'os'                   => 'string',
+            'principal_type'       => 'string',
+            'principal_id'         => 'string',
+            'guard'                => 'string',
+            'sign_in_method'       => 'string',
+            'client_name'          => 'string',
+            'platform'             => 'string',
+            'created_ip'           => 'string',
+            'created_user_agent'   => 'string',
+            'last_used_at'         => 'datetime',
+            'last_used_ip'         => 'string',
+            'last_used_user_agent' => 'string',
             'refresh_key'          => 'string',
+            'previous_refresh_key' => 'string',
+            'refresh_rotated_at'   => 'datetime',
+            'idle_expires_at'      => 'datetime',
+            'absolute_expires_at'  => 'datetime',
             'revoked_at'           => 'datetime',
-            'last_logged_in_at'    => 'datetime',
-            'last_mfa_verified_at' => 'datetime',
+            'revoked_reason'       => 'string',
         ];
     }
 

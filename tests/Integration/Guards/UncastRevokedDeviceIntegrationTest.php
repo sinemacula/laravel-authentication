@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\UncastDevice;
 use Tests\Integration\Fixtures\UncastDeviceIdentity;
 use Tests\TestCase;
@@ -42,6 +43,8 @@ use Tests\TestCase;
 #[CoversTrait(ActsAsDevice::class)]
 final class UncastRevokedDeviceIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Plaintext password of the seeded identity. */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -190,7 +193,7 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
         ])->save();
 
         $device = $identity->devices()->make();
-        $device->forceFill(['os' => 'ios', 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)])->save();
+        $device->forceFill([...self::liveSession(), 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)])->save();
 
         return [$identity, $device];
     }

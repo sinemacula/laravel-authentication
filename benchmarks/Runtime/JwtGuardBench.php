@@ -56,7 +56,7 @@ final class JwtGuardBench
 
     /**
      * Benchmark device-bearing bearer path when the listener persists
-     * `last_logged_in_at`.
+     * `last_used_at`.
      *
      * @return void
      *

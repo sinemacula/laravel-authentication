@@ -49,6 +49,6 @@ final class PartiallySelectedDeviceIdentity extends Model implements HasDevices,
     public function devices(): MorphMany
     {
         return $this->morphMany(Device::class, 'authenticatable')
-            ->select(['id', 'authenticatable_type', 'authenticatable_id', 'os']);
+            ->select(['id', 'authenticatable_type', 'authenticatable_id', 'client_name']);
     }
 }

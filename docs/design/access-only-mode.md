@@ -14,7 +14,7 @@ principal auth without device tracking or refresh rotation.
 - The identity model does not need to implement `HasDevices`.
 - Bearer auth still rehydrates the identity through the configured provider and resolves the principal through the
   configured resolver.
-- `Auth::device()` remains `null`, `DeviceAuthenticated` is not emitted, and last-seen persistence does not run.
+- `Auth::device()` remains `null`, `DeviceAuthenticated` is not emitted, and last-use persistence does not run.
 
 ## Success Path
 

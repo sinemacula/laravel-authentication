@@ -11,7 +11,6 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -37,6 +36,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -64,7 +64,7 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(IdentifierCoercion::class)]
 final class RefreshTokenExchangeTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
+    use InteractsWithDevices, MockeryPHPUnitIntegration;
 
     /** @var string Shared JWT secret for the test fixtures. */
     private const string SECRET = 'test-secret-key-with-at-least-32-bytes!';
@@ -129,17 +129,7 @@ final class RefreshTokenExchangeTest extends TestCase
             self::REFRESH_TTL,
         );
 
-        Schema::create('stub_devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type')->nullable();
-            $blueprint->string('authenticatable_id')->nullable();
-            $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
-        });
+        self::createDeviceTable('stub_devices');
     }
 
     /**
@@ -233,6 +223,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -285,6 +276,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '10',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -355,6 +347,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -421,6 +414,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '31',
             'refresh_key'          => $storedDigest,
@@ -527,6 +521,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '12',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -590,6 +585,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '14',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -646,6 +642,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '15',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -698,6 +695,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '16',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),

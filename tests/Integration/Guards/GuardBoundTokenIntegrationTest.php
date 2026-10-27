@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\DomainScopedModelProvider;
 use Tests\TestCase;
@@ -46,6 +47,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(RefreshTokenExchange::class)]
 final class GuardBoundTokenIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Guard over `StubPrincipal`. */
     private const string STAFF_GUARD = 'staff';
 
@@ -330,9 +333,9 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
