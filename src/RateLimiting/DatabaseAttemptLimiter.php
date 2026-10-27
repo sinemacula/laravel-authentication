@@ -19,7 +19,9 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
  * the same form an identity is looked up by, so `Ben@x.com` and `ben@x.com`
  * share a counter; without a normaliser, or for a value it rejects, it is the
  * trimmed, lower-cased value with invalid UTF-8 replaced. An IPv6 address is
- * counted by its /64 network, and an IPv4-mapped one as its IPv4 address.
+ * counted by its /64 network, and one that carries an IPv4 client's address
+ * (IPv4-mapped, or translated through the NAT64 well-known prefix) as that IPv4
+ * address.
  *
  * An account a subject names gets a counter of its own, kept as given, under
  * the identifier's limit. A lookup can find one account by many identifiers (a
@@ -41,8 +43,8 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
     /** @var string Scope of the counter kept per account, under the identifier's limit. */
     private const string PER_ACCOUNT = 'per_account';
 
-    /** @var string The first twelve bytes of an IPv4-mapped IPv6 address (`::ffff:0:0/96`). */
-    private const string IPV4_MAPPED_PREFIX = "\0\0\0\0\0\0\0\0\0\0\xff\xff";
+    /** @var list<string> The first twelve bytes of the IPv6 prefixes whose last four carry an IPv4 client's address: IPv4-mapped (`::ffff:0:0/96`) and the NAT64 well-known prefix (`64:ff9b::/96`). */
+    private const array IPV4_CARRYING_PREFIXES = ["\0\0\0\0\0\0\0\0\0\0\xff\xff", "\0\x64\xff\x9b\0\0\0\0\0\0\0\0"];
 
     /**
      * Constructor.
@@ -212,10 +214,12 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
 
     /**
      * The canonical form of an IP address: an IPv4 address, or the IPv4 address
-     * an IPv4-mapped IPv6 address carries, in dotted decimal; an IPv6 address
-     * as the /64 network it belongs to, since a single client is usually given
-     * a whole /64 and could otherwise count each of its addresses separately.
-     * Anything that is not an IP address is counted as given.
+     * an IPv6 address carries (IPv4-mapped, or translated through the NAT64
+     * well-known prefix, as a server reached only over IPv6 sees every IPv4
+     * client), in dotted decimal; any other IPv6 address as the /64 network it
+     * belongs to, since a single client is usually given a whole /64 and could
+     * otherwise count each of its addresses separately. Anything that is not an
+     * IP address is counted as given.
      *
      * @param  string  $ip
      * @return string
@@ -228,8 +232,8 @@ final readonly class DatabaseAttemptLimiter implements AttemptLimiter
             return $ip;
         }
 
-        if (str_starts_with($packed, self::IPV4_MAPPED_PREFIX)) {
-            $packed = substr($packed, strlen(self::IPV4_MAPPED_PREFIX));
+        if (in_array(substr($packed, 0, 12), self::IPV4_CARRYING_PREFIXES, true)) {
+            $packed = substr($packed, 12);
         }
 
         return strlen($packed) === 4

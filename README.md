@@ -496,8 +496,11 @@ address, and a successful refresh costs one read. A refresh refused for its fail
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
 IP addresses are counted canonically too: an IPv6 client is counted by its /64 network, the block a single client is
-usually given, so it cannot spread its attempts over its own addresses, and an IPv4-mapped IPv6 address shares its IPv4
-address's counter.
+usually given, so it cannot spread its attempts over its own addresses. An IPv6 address that carries an IPv4 client's
+address, IPv4-mapped (`::ffff:0:0/96`) or translated through the NAT64 well-known prefix (`64:ff9b::/96`), shares that
+IPv4 address's counter. A translator on a network-specific prefix (such as `64:ff9b:1::/48`, or your own) puts every
+IPv4 client it serves into one /64 counter: resolve the client's own address before the request reaches the guard, with
+Laravel's trusted proxies, so the limits see each client apart.
 The table holds only SHA-256 digests of the guard, flow, scope and identifier or IP address, never either in clear.
 Every change to a count is one statement the database applies atomically. A database error propagates as a server error:
 a limiter that cannot count lets nothing through.

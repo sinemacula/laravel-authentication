@@ -368,14 +368,21 @@ final class DatabaseAttemptLimiterTest extends TestCase
     /**
      * IP addresses are counted in their canonical form: every address of an
      * IPv6 /64 network, however it is written, shares one counter, an
-     * IPv4-mapped address shares its IPv4 address's counter, and anything that
-     * is not an address is counted as given.
+     * IPv4-mapped address and an IPv4 client translated through the NAT64
+     * well-known prefix share their IPv4 address's counter (so IPv4 clients
+     * seen over IPv6 are not all one /64), an address under any other
+     * translation prefix counts by its /64, and anything that is not an address
+     * is counted as given.
      *
      * @return void
      */
     public function testIpAddressesAreCountedInTheirCanonicalForm(): void
     {
-        $ips = ['2001:db8:1:2::1', '2001:DB8:1:2:ffff:ffff:ffff:fffe', '2001:0db8:0001:0002:0:0:0:9', '2001:db8:1:3::1', '::ffff:198.51.100.7', '198.51.100.7', 'Not An Address'];
+        $ips = [
+            '2001:db8:1:2::1', '2001:DB8:1:2:ffff:ffff:ffff:fffe', '2001:0db8:0001:0002:0:0:0:9', '2001:db8:1:3::1',
+            '::ffff:198.51.100.7', '198.51.100.7', '64:ff9b::c633:6407', '64:ff9b::192.0.2.1', '64:FF9B::C000:201',
+            '64:ff9b::cb00:7107', '64:ff9b:1::c000:201', 'Not An Address',
+        ];
 
         foreach ($ips as $attempt => $ip) {
             self::assertTrue($this->limiter()->acquire($this->signIn("user{$attempt}@example.com", $ip))->granted());
@@ -383,7 +390,11 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
         self::assertSame(3, $this->hitsOfIp('2001:db8:1:2::/64'));
         self::assertSame(1, $this->hitsOfIp('2001:db8:1:3::/64'));
-        self::assertSame(2, $this->hitsOfIp('198.51.100.7'));
+        self::assertSame(3, $this->hitsOfIp('198.51.100.7'));
+        self::assertSame(2, $this->hitsOfIp('192.0.2.1'));
+        self::assertSame(1, $this->hitsOfIp('203.0.113.7'));
+        self::assertSame(0, $this->hitsOfIp('64:ff9b::/64'));
+        self::assertSame(1, $this->hitsOfIp('64:ff9b:1::/64'));
         self::assertSame(1, $this->hitsOfIp('Not An Address'));
     }
 
