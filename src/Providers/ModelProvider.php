@@ -146,6 +146,11 @@ class ModelProvider implements IdentityProvider
     /**
      * Validate the supplied credentials against the resolved user.
      *
+     * The stored hash is read inside `WriteConnection::during()` for the user,
+     * so a password getter that reads another table or lazily loads a
+     * credential relation reads the writer: a hash a lagging replica still
+     * holds cannot admit a password the primary has already replaced.
+     *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
      * @return bool
@@ -159,7 +164,9 @@ class ModelProvider implements IdentityProvider
             return false;
         }
 
-        return $this->hasher->check($plain, $user->getAuthPassword());
+        $hash = WriteConnection::during($user, static fn (): string => $user->getAuthPassword());
+
+        return $this->hasher->check($plain, $hash);
     }
 
     /**

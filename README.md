@@ -254,11 +254,12 @@ in carries the same obligation:
 
 - a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
   must read from the write connection, including the relations its results eager-load;
-- `resolveDefaultPrincipal()`, `resolveHintedPrincipal()` and `devices()` already run inside `WriteConnection::during()`
-  for the identity, `getTenant()` for the principal, `isActive()` for the model it belongs to, and a device's
-  `getRevokedAt()` and `getRefreshKey()` for the device: every model read made there, on any connection, goes to that
-  connection's writer, and so does a query-builder read on the model's own connection. A query-builder or `DB` read on
-  another connection, or made by a principal or identity that is not an Eloquent model, must pin itself.
+- `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `devices()` and, when `ModelProvider` checks a password,
+  `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
+  `isActive()` for the model it belongs to, and a device's `getRevokedAt()` and `getRefreshKey()` for the device: every
+  model read made there, on any connection, goes to that connection's writer, and so does a query-builder read on the
+  model's own connection. A query-builder or `DB` read on another connection, or made by a principal or identity that
+  is not an Eloquent model, must pin itself.
 
 `WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
 queries that it does not reach, so run a lookup whose results load relations inside `during()`, which pins every
