@@ -138,6 +138,23 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
+     * Rebind the event dispatcher onto both the guard and its refresh exchange,
+     * so a dispatcher swapped in after the guard resolved (e.g.
+     * `Event::fake()`) receives `RefreshFailed` as well as the guard's events.
+     *
+     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
+     * @return static
+     */
+    #[\Override]
+    public function setDispatcher(Dispatcher $events): static
+    {
+        parent::setDispatcher($events);
+        $this->exchange->setDispatcher($events);
+
+        return $this;
+    }
+
+    /**
      * Resolve the identity from the request's bearer token. `user()` calls this
      * at most once per request.
      *

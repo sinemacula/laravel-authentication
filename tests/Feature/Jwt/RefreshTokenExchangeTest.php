@@ -160,6 +160,34 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * After `setDispatcher()`, failures go to the new dispatcher and no longer
+     * reach the one the exchange was built with.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testSetDispatcherRoutesLaterFailuresToTheNewDispatcher(): void
+    {
+        $exchange = $this->makeExchange();
+
+        $replacement = \Mockery::mock(Dispatcher::class);
+        $replacement->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->guard  === self::GUARD_NAME
+                    && $event->reason === RefreshFailureReason::TOKEN_INVALID),
+            );
+
+        $this->events->shouldNotReceive('dispatch');
+
+        self::assertSame($exchange, $exchange->setDispatcher($replacement));
+        self::assertNull($exchange->exchange('not-a-jwt'));
+    }
+
+    /**
      * An empty `authentication.device.model` config is now an explicit
      * configuration error rather than a silent `device_unknown` refresh
      * failure.

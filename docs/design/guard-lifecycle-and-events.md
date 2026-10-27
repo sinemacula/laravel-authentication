@@ -17,6 +17,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `PrincipalAssigned` is emitted only after the identity is bound.
 - `DeviceAuthenticated` is emitted only when a non-null device is bound.
 - Rebinding clears any previously cached identity, principal, and device state before the new lifecycle begins.
+- A guard follows later container rebinds of the `events` dispatcher (and, without a guard-local override, of the
+  `PrincipalResolver`), and passes each rebind on to its refresh exchange, so an `Event::fake()` made after the guard
+  resolved receives `RefreshFailed` as well as the guard's own events.
 - Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
   rejected token fires `Attempting` and `Failed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
@@ -75,8 +78,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`.
-- `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, the `auth` middleware
-  binding, and the guest response render callback.
+- `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the
+  `auth` middleware binding, and the guest response render callback.
+- `src/Guards/JwtGuard.php` and `src/Jwt/RefreshTokenExchange.php`: `setDispatcher()` and `setPrincipalResolver()`, which
+  keep the exchange on the guard's dispatcher and resolver.
 - `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
 - `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
 
@@ -118,6 +123,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testGuestOnPackageGuardGetsUnauthorized`, `testGuestOnSessionGuardKeepsLaravelsResponse`
 - `tests/Integration/Guards/PinnedContextOwnershipIntegrationTest.php`
   `testPrincipalOfAnotherClassWithTheSameIdentifierFailsTheAttempt`, `testAnotherMembersDeviceFailsTheAttempt`
+- `tests/Feature/AuthenticationServiceProviderTest.php`
+  `testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind`
 
 ## Change Triggers
 
@@ -130,5 +137,6 @@ Update this note when any of the following change:
 - the decision to route bearer auth or refresh through `login()`
 - what `setUser()` binds
 - the listener or persistence behavior attached to `DeviceAuthenticated`
+- how dispatcher and resolver rebinds reach the guard and its refresh exchange
 - the rule that prior contextual state is cleared before rebinding
 - the rule that bearer and refresh resolution read live state from the write connection with no cross-request cache

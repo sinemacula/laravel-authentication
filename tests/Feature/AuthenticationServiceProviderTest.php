@@ -22,6 +22,8 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -245,6 +247,35 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
+        Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
+    }
+
+    /**
+     * The refresh exchange follows the same `events` rebind as its guard: after
+     * an `Event::fake()` made once the guard has resolved, a failed refresh
+     * dispatches `RefreshFailed` to the fake, alongside the guard's own
+     * `Attempting` and `Failed`.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     * @throws \Random\RandomException
+     */
+    public function testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind(): void
+    {
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        Event::fake([Attempting::class, Failed::class, RefreshFailed::class]);
+
+        self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($this->readObjectProperty($guard, 'exchange'), 'events'));
+        self::assertNull($guard->refresh('not-a-jwt'));
+
+        Event::assertDispatched(
+            RefreshFailed::class,
+            static fn (RefreshFailed $event): bool => $event->guard === 'api' && $event->reason === RefreshFailureReason::TOKEN_INVALID,
+        );
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
     }
 

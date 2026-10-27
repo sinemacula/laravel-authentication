@@ -61,7 +61,7 @@ final class RefreshTokenExchange
         private readonly ConnectionResolverInterface $connections,
 
         /** Event dispatcher for RefreshFailed events. */
-        private readonly Dispatcher $events,
+        private Dispatcher $events,
 
         /** Resolver mapping identity to acting principal. */
         private PrincipalResolver $resolver,
@@ -79,6 +79,21 @@ final class RefreshTokenExchange
     public function setPrincipalResolver(PrincipalResolver $resolver): self
     {
         $this->resolver = $resolver;
+
+        return $this;
+    }
+
+    /**
+     * Rebind the event dispatcher that receives `RefreshFailed`, so a
+     * dispatcher swapped in after the guard resolved (e.g. `Event::fake()`)
+     * receives the exchange's events as well as the guard's.
+     *
+     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
+     * @return self
+     */
+    public function setDispatcher(Dispatcher $events): self
+    {
+        $this->events = $events;
 
         return $this;
     }
@@ -264,9 +279,10 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Look up a device by id through the configured device model class, reading
-     * from the write connection so a lagging replica cannot serve a stale
-     * digest or revocation state.
+     * Look up a device by id through the configured device model class, which
+     * must satisfy the explicit Eloquent-backed `EloquentDevice` boundary,
+     * reading from the write connection so a lagging replica cannot serve a
+     * stale digest or revocation state.
      *
      * An id that cannot be a key of the device model names no device and is
      * rejected without a query; database errors on a well-formed id propagate.
@@ -278,7 +294,9 @@ final class RefreshTokenExchange
      */
     private function findDeviceById(mixed $id): (EloquentDevice&Model)|null
     {
-        $class = $this->configuredDeviceModelClass();
+        $class = Config::string('authentication.device.model', '');
+
+        InvalidDeviceModelConfigurationException::validate($class);
 
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $model */
         $model = new $class;
@@ -290,28 +308,6 @@ final class RefreshTokenExchange
         $device = WriteConnection::query($model->newQuery())->find($id);
 
         return $device instanceof Model ? $device : null;
-    }
-
-    /**
-     * Resolve the configured device model class and validate that it satisfies
-     * the explicit Eloquent-backed persistence boundary.
-     *
-     * @formatter:off
-     *
-     * @return class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice>
-     *
-     * @formatter:on
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
-     */
-    private function configuredDeviceModelClass(): string
-    {
-        $class = Config::string('authentication.device.model', '');
-
-        InvalidDeviceModelConfigurationException::validate($class);
-
-        /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
-        return $class;
     }
 
     /**
