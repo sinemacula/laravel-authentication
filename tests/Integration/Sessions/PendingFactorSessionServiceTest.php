@@ -459,14 +459,16 @@ final class PendingFactorSessionServiceTest extends TestCase
     }
 
     /**
-     * Two completions racing for one pending sign-in: the one whose delete
-     * finds the row already gone fails as `pending_invalid` and starts nothing.
+     * A completion whose delete finds the pending sign-in already gone, used up
+     * by another between this one's lookup and its delete, fails as
+     * `pending_invalid` and starts nothing. `ConcurrentPendingCompletionTest`
+     * races two completions on separate connections.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testOnlyOneOfTwoRacingCompletionsWins(): void
+    public function testACompletionWhoseDeleteFindsTheRowGoneStartsNothing(): void
     {
         $this->seedIdentity();
 
