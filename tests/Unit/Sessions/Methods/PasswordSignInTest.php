@@ -211,17 +211,19 @@ final class PasswordSignInTest extends TestCase
 
     /**
      * The identifier is the input's value under the configured key, as given,
-     * and only when it is a string.
+     * when it is a string, and as a string when it is an integer; anything else
+     * names none.
      *
      * @return void
      */
-    public function testIdentifierIsTheStringUnderTheConfiguredKey(): void
+    public function testIdentifierIsTheStringOrIntegerUnderTheConfiguredKey(): void
     {
         $method = $this->method('username');
 
         self::assertSame(' Ada ', $method->identifier('api', ['username' => ' Ada ', 'email' => 'ada@example.test']));
         self::assertNull($method->identifier('api', ['email' => 'ada@example.test']));
-        self::assertNull($method->identifier('api', ['username' => 42]));
+        self::assertSame('42', $method->identifier('api', ['username' => 42]));
+        self::assertNull($method->identifier('api', ['username' => 4.2]));
         self::assertNull($method->identifier('api', ['username' => ['ada']]));
     }
 
@@ -344,26 +346,30 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * `attempt()` may look credentials up when they leave the identifier key
-     * out or give it a string, a `Stringable` or a query closure, and not when
-     * the key holds anything else; the identifier counted is the string, or the
-     * `Stringable` as one.
+     * `attempt()` looks credentials up as given when they leave the identifier
+     * key out or give it a string, a `Stringable` or a query closure, and an
+     * integer as its string form, the form it is counted in; it does not look
+     * them up when the key holds anything else. The identifier counted is the
+     * string, or the `Stringable` or integer as one.
      *
      * @return void
      */
-    public function testOnlyAStringAStringableOrAClosureIsAUsableIdentifier(): void
+    public function testOnlyAStringAStringableAnIntegerOrAClosureIsLookedUp(): void
     {
-        $method = $this->method('email');
+        $method     = $this->method('email');
+        $stringable = new Stringable('ada@example.test');
+        $closure    = static fn (): null => null;
 
-        self::assertTrue($method->hasUsableIdentifier('api', ['email' => 'ada@example.test', 'password' => 'x']));
-        self::assertTrue($method->hasUsableIdentifier('api', ['email' => new Stringable('ada@example.test')]));
-        self::assertTrue($method->hasUsableIdentifier('api', ['email' => static fn (): null => null]));
-        self::assertTrue($method->hasUsableIdentifier('api', ['id' => 7, 'password' => 'x']));
-        self::assertFalse($method->hasUsableIdentifier('api', ['email' => ['ada@example.test']]));
-        self::assertFalse($method->hasUsableIdentifier('api', ['email' => 0]));
-        self::assertFalse($method->hasUsableIdentifier('api', ['email' => null]));
-        self::assertFalse($method->hasUsableIdentifier('api', ['email' => true]));
-        self::assertSame('ada@example.test', $method->identifier('api', ['email' => new Stringable('ada@example.test')]));
+        self::assertSame(['email' => 'ada@example.test', 'password' => 'x'], $method->lookupCredentials('api', ['email' => 'ada@example.test', 'password' => 'x']));
+        self::assertSame(['email' => $stringable], $method->lookupCredentials('api', ['email' => $stringable]));
+        self::assertSame(['email' => $closure], $method->lookupCredentials('api', ['email' => $closure]));
+        self::assertSame(['id' => 7, 'password' => 'x'], $method->lookupCredentials('api', ['id' => 7, 'password' => 'x']));
+        self::assertSame(['email' => '0', 'password' => 'x'], $method->lookupCredentials('api', ['email' => 0, 'password' => 'x']));
+        self::assertNull($method->lookupCredentials('api', ['email' => ['ada@example.test']]));
+        self::assertNull($method->lookupCredentials('api', ['email' => 1.0]));
+        self::assertNull($method->lookupCredentials('api', ['email' => null]));
+        self::assertNull($method->lookupCredentials('api', ['email' => true]));
+        self::assertSame('ada@example.test', $method->identifier('api', ['email' => $stringable]));
     }
 
     /**

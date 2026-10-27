@@ -947,9 +947,12 @@ $guard->attempt(['email' => $email, 'password' => $password], $membership, $devi
 `attempt()` signs in through the password sign-in method and the guard's sign-in policies: the audience policy must
 allow the `password` method for the guard, the attempt takes a slot from the sign-in limits of the identifier (the
 guard's `sign_in.password_identifier` key of the credentials, whatever else they hold) and of the request's IP address,
-and only then are the credentials checked, inside the timebox. The identifier key may hold a string, a `Stringable` or a
-query closure, or be left out; anything else (a list of addresses, a number, `null`) fails as `invalid_credentials`
-before any lookup, so request input passed straight through cannot reach accounts the identifier's limit does not count.
+and only then are the credentials checked, inside the timebox. The identifier key may hold a string, a `Stringable`, an
+integer (a numeric column's value, as a JSON body sends it; it is counted as its string form) or a query closure, or be
+left out; anything else (a list of addresses, a float, a boolean, `null`) fails as `invalid_credentials` before any
+lookup, so request input passed straight through cannot reach accounts the identifier's limit does not count.
+`signIn('password', ...)` takes the same strings, `Stringable`s and integers, and refuses anything else as
+`invalid_credentials` without a lookup.
 The password check itself is counted against the account it is made for (see [Rate limits](#rate-limits)). After the
 password, the identity, the principal and its tenant
 must be active, the pins must hold, the audience policy must admit the identity as that principal, the password is

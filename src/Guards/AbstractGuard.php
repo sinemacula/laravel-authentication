@@ -265,14 +265,14 @@ abstract class AbstractGuard implements ContextualGuard
      * included, but the identifier the limits count and the verified-identifier
      * requirement checks is always the guard's password identifier key (its own
      * `sign_in.password_identifier`, or the package's), however the lookup was
-     * written. A value under that key that is not a string, a `Stringable` or a
-     * query closure fails as invalid credentials before any lookup, and the
-     * password check is counted against the account it is made for. Once the
-     * password is accepted, the identity, the principal and its tenant must be
-     * active, the pins must hold, the audience policy must admit the identity
-     * as the principal, and the additional-factor policy must not ask for a
-     * further factor: `attempt()` cannot hand out a pending sign-in, so a
-     * required factor fails it (use the session service's `signIn()`). No
+     * written. A value under that key that is not a string, a `Stringable`, an
+     * integer or a query closure fails as invalid credentials before any
+     * lookup, and the password check is counted against the account it is made
+     * for. Once the password is accepted, the identity, the principal and its
+     * tenant must be active, the pins must hold, the audience policy must admit
+     * the identity as the principal, and the additional-factor policy must not
+     * ask for a further factor: `attempt()` cannot hand out a pending sign-in,
+     * so a required factor fails it (use the session service's `signIn()`). No
      * device is created.
      *
      * Pins are verified, not trusted, because callers may take them from

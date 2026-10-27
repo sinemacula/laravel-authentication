@@ -104,7 +104,8 @@ final readonly class PasswordSignIn implements SignInMethod
 
     /**
      * The identifier the input names under the guard's identifier key, when it
-     * is a string or a `Stringable`.
+     * is a string, a `Stringable` or an integer (a numeric column's value sent
+     * as a JSON number), as a string.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $input
@@ -117,35 +118,51 @@ final readonly class PasswordSignIn implements SignInMethod
     {
         $identifier = $input[$this->identifierType($guard)] ?? null;
 
-        return is_string($identifier) || $identifier instanceof \Stringable ? (string) $identifier : null;
+        return is_string($identifier) || is_int($identifier) || $identifier instanceof \Stringable ? (string) $identifier : null;
     }
 
     /**
-     * Whether credentials for `attempt()` may be looked up: they either leave
-     * the guard's identifier key out (and find the account by other keys) or
-     * give it a string, a `Stringable` or a query closure. Anything else under
-     * the key (a list of values, a number, `null`) would let one attempt reach
-     * accounts the identifier's limit never counts, so it is refused before any
-     * lookup.
+     * The credentials `attempt()` looks the account up by, or `null` when they
+     * must not be looked up. They are looked up when they leave the guard's
+     * identifier key out (and find the account by other keys) or give it a
+     * string, a `Stringable`, an integer or a query closure; an integer is
+     * looked up as its string form, the form it is counted in and `signIn()`
+     * looks it up by, so a database that compares a string column with a number
+     * loosely (as MySQL does) never matches an account by it. Anything else
+     * under the key (a list of values, a float, a boolean, `null`) would let
+     * one attempt reach accounts the identifier's limit never counts, so it is
+     * refused before any lookup.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $credentials
-     * @return bool
+     * @return ?array<array-key, mixed>
      *
      * @throws \InvalidArgumentException
+     *
+     * @internal
      */
-    public function hasUsableIdentifier(string $guard, #[\SensitiveParameter] array $credentials): bool
+    public function lookupCredentials(string $guard, #[\SensitiveParameter] array $credentials): ?array
     {
         $key = $this->identifierType($guard);
 
-        return !array_key_exists($key, $credentials) || $this->identifier($guard, $credentials) !== null || $credentials[$key] instanceof \Closure;
+        if (!array_key_exists($key, $credentials) || $credentials[$key] instanceof \Closure) {
+            return $credentials;
+        }
+
+        $identifier = $this->identifier($guard, $credentials);
+
+        if ($identifier === null) {
+            return null;
+        }
+
+        return is_int($credentials[$key]) ? [...$credentials, $key => $identifier] : $credentials;
     }
 
     /**
      * Verify the identifier and password the input carries, counting the
      * password check against the account the identifier finds. Anything else in
-     * the input is ignored, and an identifier that is not a string is refused
-     * without a lookup.
+     * the input is ignored, and an identifier that is neither a string, a
+     * `Stringable` nor an integer is refused without a lookup.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason

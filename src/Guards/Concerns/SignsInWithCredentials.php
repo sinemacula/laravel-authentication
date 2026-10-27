@@ -120,9 +120,10 @@ trait SignsInWithCredentials
     /**
      * Return the identity the credentials of an `attempt()` find and whose
      * password they match, or `null`. Credentials whose identifier key holds
-     * anything a lookup could not count are never looked up; otherwise the
-     * account found is remembered for Laravel's `Failed` event, and its
-     * password check is counted against it in the attempt's account slots.
+     * anything a lookup could not count are never looked up, and an integer
+     * there is looked up as the string it is counted as; otherwise the account
+     * found is remembered for Laravel's `Failed` event, and its password check
+     * is counted against it in the attempt's account slots.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn  $password
      * @param  array<string, mixed>  $credentials
@@ -133,15 +134,17 @@ trait SignsInWithCredentials
      */
     private function verifyAttemptedCredentials(PasswordSignIn $password, #[\SensitiveParameter] array $credentials, AccountAttempts $accounts): ?Identity
     {
-        if (!$password->hasUsableIdentifier($this->name, $credentials)) {
+        $lookup = $password->lookupCredentials($this->name, $credentials);
+
+        if ($lookup === null) {
             return null;
         }
 
-        $user = $password->retrieve($this->provider, $credentials);
+        $user = $password->retrieve($this->provider, $lookup);
 
         $this->lastRetrievedUser = $user;
 
-        return $user instanceof Identity && $password->verifyPassword($accounts, $this->provider, $user, $credentials) ? $user : null;
+        return $user instanceof Identity && $password->verifyPassword($accounts, $this->provider, $user, $lookup) ? $user : null;
     }
 
     /**

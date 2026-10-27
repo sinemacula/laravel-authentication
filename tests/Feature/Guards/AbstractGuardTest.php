@@ -305,11 +305,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      *
      * @return iterable<string, array{0: mixed}>
      */
-    public static function provideIdentifiersThatAreNotStrings(): iterable
+    public static function provideIdentifiersThatCannotBeCounted(): iterable
     {
         yield from [
             'list'    => [['ada@example.test', 'bob@example.test']],
-            'integer' => [0],
             'float'   => [0.0],
             'boolean' => [true],
             'null'    => [null],
@@ -318,18 +317,18 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * Credentials whose identifier key holds anything but a string, a
-     * `Stringable` or a query closure are refused before any lookup, as invalid
-     * credentials, and count against the IP address only: a list of addresses,
-     * or a number a database compares loosely, would otherwise check a password
-     * against accounts the identifier's limit never counts.
+     * `Stringable`, an integer or a query closure are refused before any
+     * lookup, as invalid credentials, and count against the IP address only: a
+     * list of addresses would otherwise check a password against accounts the
+     * identifier's limit never counts.
      *
      * @param  mixed  $identifier
      * @return void
      *
      * @throws \Throwable
      */
-    #[DataProvider('provideIdentifiersThatAreNotStrings')]
-    public function testAnIdentifierThatIsNotAStringIsRefusedBeforeAnyLookup(mixed $identifier): void
+    #[DataProvider('provideIdentifiersThatCannotBeCounted')]
+    public function testAnIdentifierThatCannotBeCountedIsRefusedBeforeAnyLookup(mixed $identifier): void
     {
         $this->provider->shouldNotReceive('retrieveByCredentials');
         $this->provider->shouldNotReceive('validateCredentials');
@@ -358,14 +357,16 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
     /**
      * A `Stringable` identifier is counted as its string and looked up as
-     * given, and a query closure under the identifier key still finds the
-     * account, which its password check is then counted against.
+     * given, an integer is counted and looked up as its string form (so a
+     * database never compares a string column with a number), and a query
+     * closure under the identifier key still finds the account; each password
+     * check is then counted against the account.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAStringableOrAClosureIdentifierIsLookedUp(): void
+    public function testAStringableAnIntegerOrAClosureIdentifierIsLookedUp(): void
     {
         $identity    = $this->mockIdentity();
         $stringable  = new Stringable('ada@example.test');
@@ -373,26 +374,28 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $subjects    = [];
         $lookedUpFor = [];
 
-        $this->provider->shouldReceive('retrieveByCredentials')->twice()->andReturnUsing(static function (array $credentials) use ($identity, &$lookedUpFor): MockInterface {
+        $this->provider->shouldReceive('retrieveByCredentials')->times(3)->andReturnUsing(static function (array $credentials) use ($identity, &$lookedUpFor): MockInterface {
             $lookedUpFor[] = $credentials['email'];
 
             return $identity;
         });
-        $this->provider->shouldReceive('validateCredentials')->twice()->andReturnFalse();
+        $this->provider->shouldReceive('validateCredentials')->times(3)->andReturnFalse();
 
-        $this->limiter->shouldReceive('acquire')->times(4)->andReturnUsing(static function (AttemptSubject $subject) use (&$subjects): AttemptReservation {
+        $this->limiter->shouldReceive('acquire')->times(6)->andReturnUsing(static function (AttemptSubject $subject) use (&$subjects): AttemptReservation {
             $subjects[] = $subject;
 
             return new AttemptReservation($subject, null);
         });
 
         self::assertFalse($this->makeGuard()->attempt(['email' => $stringable, 'password' => 'wrong']));
+        self::assertFalse($this->makeGuard()->attempt(['email' => 42, 'password' => 'wrong']));
         self::assertFalse($this->makeGuard()->attempt(['email' => $scope, 'password' => 'wrong']));
-        self::assertSame([$stringable, $scope], $lookedUpFor);
-        self::assertSame(['ada@example.test', null, null, null], array_map(static fn (AttemptSubject $subject): ?string => $subject->identifier, $subjects));
+        self::assertSame([$stringable, '42', $scope], $lookedUpFor);
+        self::assertSame(['ada@example.test', null, '42', null, null, null], array_map(static fn (AttemptSubject $subject): ?string => $subject->identifier, $subjects));
+
         $account = $identity::class . "\x001";
 
-        self::assertSame([null, $account, null, $account], array_map(static fn (AttemptSubject $subject): ?string => $subject->account, $subjects));
+        self::assertSame([null, $account, null, $account, null, $account], array_map(static fn (AttemptSubject $subject): ?string => $subject->account, $subjects));
     }
 
     /**
