@@ -265,7 +265,7 @@ hold them, and can give each principal type its own token and session lifetimes.
         'driver'   => 'jwt',
         'provider' => 'users',
         'audience' => [
-            'methods'         => ['phone_code'],
+            'methods'         => ['sso'],
             'principal_types' => ['client_staff'],
         ],
         'jwt' => [
@@ -297,7 +297,9 @@ lists types; a guard `audience` entry of `null` means no overrides. Nothing fall
 both blocks, a value of the wrong shape, an empty list, or a key the policy does not know fails closed with an
 `InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
 `Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide
-differently.
+differently. A policy of your own decides the session's deadlines through `lifetimes()`, while an access token's
+lifetime still comes from the guard's `jwt.by_principal_type` configuration (capped at the session's end). See
+`docs/design/audience-policy.md` for every point where the policy is enforced.
 
 Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
 `access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the
