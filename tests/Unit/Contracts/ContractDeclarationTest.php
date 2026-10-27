@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
@@ -221,6 +222,18 @@ final class ContractDeclarationTest extends TestCase
     public function testAudiencePolicyDeclaresExactlyItsChecks(): void
     {
         self::assertSame(['admit', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
+    }
+
+    /**
+     * `AttemptLimiter` declares the reserve-and-release pair for flows that
+     * guess a secret and the read-and-count pair for flows that count only
+     * failures.
+     *
+     * @return void
+     */
+    public function testAttemptLimiterDeclaresExactlyItsTwoCountingModes(): void
+    {
+        self::assertSame(['acquire', 'blocked', 'recordFailure', 'release'], self::declaredMethods(AttemptLimiter::class));
     }
 
     /**

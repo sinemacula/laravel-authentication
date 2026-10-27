@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -33,6 +34,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 
 /**
@@ -41,8 +43,9 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  * Registers configuration, the package `AuthManager` singleton, the `model`
  * user provider driver, the `jwt` guard driver, the default principal resolver
  * and audience policy bindings, the identifier normaliser registry, the
- * package-aware `auth` middleware and `401` guest response, the
- * `DeviceAuthenticated` listener, and the config + migration publishing tags.
+ * database attempt limiter, the package-aware `auth` middleware and `401` guest
+ * response, the `DeviceAuthenticated` listener, and the config + migration
+ * publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,6 +68,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
         $this->app->singleton(AudiencePolicy::class, GuardAudiencePolicy::class);
         $this->app->singleton(IdentifierNormalisers::class);
+        $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,
@@ -240,7 +244,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
         ], 'authentication-config');
 
         $this->publishes([
-            __DIR__ . '/../database/migrations/2026_04_06_000000_create_devices_table.php' => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
+            __DIR__ . '/../database/migrations/2026_04_06_000000_create_devices_table.php'     => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
+            __DIR__ . '/../database/migrations/2026_04_06_000002_create_rate_limits_table.php' => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
         ], 'authentication-migrations');
     }
 

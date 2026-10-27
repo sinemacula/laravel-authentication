@@ -44,9 +44,8 @@ device record live in the `devices` table so replay and stale credentials can be
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
   issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, required claims per token type (`exp`, `iat`,
   `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), the principal's
-  type in `pty` on access tokens when it has one, and fail-closed
-  behaviour on empty or short keys, unsupported algorithms, type confusion, tokens from another guard, missing claims,
-  and `pid` / `did` mismatches.
+  type in `pty` on access tokens when it has one, and fail-closed behaviour on empty or short keys, unsupported
+  algorithms, type confusion, tokens from another guard, missing claims, and `pid` / `did` mismatches.
 - **Refresh-token rotation with replay detection**: constant-time digest verification, atomic per-device rotation, a
   short grace window for lost responses and parallel refreshes, revocation of the device when a rotated refresh token
   is replayed, and machine-readable `RefreshFailed` and `DeviceRevoked` events for SIEM attribution.
@@ -58,7 +57,14 @@ device record live in the `devices` table so replay and stale credentials can be
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
   alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed` /
   `DeviceRevoked`.
-- **Pluggable everywhere**: identity model, device model, principal resolver, table names.
+- **Audiences per guard**: the sign-in methods and principal types each guard admits, and token and session lifetimes
+  per principal type.
+- **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email by
+  default), and a password rehash that never overwrites a concurrent change.
+- **Rate limits in the database**: sign-in and refresh limited per identifier and per IP address, counted atomically on
+  the write connection without a cache.
+- **Pluggable everywhere**: identity model, device model, principal resolver, audience policy, attempt limiter,
+  identifier normalisers, table names.
 
 ## Design Notes
 
@@ -77,7 +83,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and device migration, then migrate:
+Publish the config and the migrations (the `devices` and `rate_limits` tables), then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -375,6 +381,68 @@ Before a token's `did` is looked up, it is checked against the device model's pr
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
 treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`
 to describe it. Database errors are never read as an unknown device: they propagate as server errors.
+
+### Rate limits
+
+Sign-in and refresh are limited per identifier and per IP address, counted in the database on the write connection, so
+the limits hold across servers and do not depend on a cache. Publish the migration with the others
+(`authentication-migrations` creates `rate_limits`), then set limits in the package `rate_limits` block or a guard's
+own `rate_limits` block:
+
+```php
+'guards' => [
+    'console' => [
+        'driver'      => 'jwt',
+        'provider'    => 'users',
+        'rate_limits' => [
+            'sign_in' => [
+                'per_identifier' => ['max' => 3, 'decay_seconds' => 900],
+                'per_ip'         => null,
+            ],
+        ],
+    ],
+],
+```
+
+| Flow      | Scope            | Default            | Counts                                                     |
+|-----------|------------------|--------------------|------------------------------------------------------------|
+| `sign_in` | `per_identifier` | 5 per 300 seconds  | Every attempt for the identifier; a success is given back  |
+| `sign_in` | `per_ip`         | 50 per 300 seconds | Every attempt from the IP address; a success is given back |
+| `refresh` | `per_identifier` | 10 per 60 seconds  | Failed refreshes of the device                             |
+| `refresh` | `per_ip`         | 100 per 60 seconds | Failed refreshes from the IP address                       |
+
+Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
+`decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
+12:00:00 to 12:05:00), so, as with any fixed window, up to twice `max` attempts can fall within `decay_seconds` across a
+boundary. A guard scope that is present wins, `null` included; a flow set to `null` turns both of its limits off; a
+scope the guard leaves out is the package's. A malformed limit, a missing one, or an unknown key fails closed with an
+`InvalidArgumentException` naming the guard and the key.
+
+A sign-in guesses a secret, so it reserves its slots before the method runs: a refused sign-in fails with
+`rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.
+Earlier failures are not forgiven: they count until their window ends, so concurrent attempts can never exceed `max`.
+When the IP address's limit is full, the slot just taken for the identifier is given back. A refresh cannot guess a
+secret (its tokens are signed and its rotation ids random), so it counts only its failures, per device and per IP
+address, and a successful refresh costs one read. A refresh refused for its failures answers `429` with a
+`Retry-After` header.
+
+Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
+[Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
+The table holds only SHA-256 digests of the guard, flow, scope and identifier or IP address, never either in clear. Every
+change to a count is one statement the database applies atomically. A database error propagates as a server error: a
+limiter that cannot count lets nothing through. The counters live on `rate_limits.connection` (the default connection
+when `null`): counts written on the same connection as a transaction you open around a sign-in are rolled back with
+it, so point it at a connection of its own if you wrap sign-ins in transactions you may roll back.
+
+Ended windows stay in the table until they are pruned. The model lives outside your application's `app/Models`, so
+schedule its pruning explicitly, together with the package's other prunable models:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+use SineMacula\Laravel\Authentication\Models\RateLimit;
+
+Schedule::command('model:prune', ['--model' => [RateLimit::class]])->hourly();
+```
 
 ### Credential validation timing
 
@@ -947,6 +1015,8 @@ inheritance:
 | Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                    |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
 | Audience decisions                | Implement `AudiencePolicy` and bind it in the container                |
+| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                |
+| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config    |
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 

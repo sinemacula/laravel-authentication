@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
@@ -34,6 +35,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -174,6 +176,18 @@ final class AuthenticationServiceProviderTest extends TestCase
     {
         self::assertInstanceOf(GuardAudiencePolicy::class, app(AudiencePolicy::class));
         self::assertSame(app(AudiencePolicy::class), app(AudiencePolicy::class));
+    }
+
+    /**
+     * The `AttemptLimiter` contract resolves to the database limiter, one
+     * instance for the application.
+     *
+     * @return void
+     */
+    public function testAttemptLimiterIsBoundToTheDatabaseLimiterAsASingleton(): void
+    {
+        self::assertInstanceOf(DatabaseAttemptLimiter::class, app(AttemptLimiter::class));
+        self::assertSame(app(AttemptLimiter::class), app(AttemptLimiter::class));
     }
 
     /**
@@ -386,6 +400,28 @@ final class AuthenticationServiceProviderTest extends TestCase
             'authentication-migrations',
             ServiceProvider::publishableGroups(),
         );
+    }
+
+    /**
+     * The migrations tag publishes the shipped devices and rate limits
+     * migrations, from the package to the application's migrations, under their
+     * own file names.
+     *
+     * @return void
+     */
+    public function testMigrationPublishingTagPublishesEveryShippedMigration(): void
+    {
+        $source = dirname(__DIR__, 2) . '/database/migrations/';
+        $paths  = [];
+
+        foreach (ServiceProvider::pathsToPublish(AuthenticationServiceProvider::class, 'authentication-migrations') as $from => $to) {
+            $paths[(string) realpath($from)] = $to;
+        }
+
+        self::assertSame([
+            realpath($source . '2026_04_06_000000_create_devices_table.php')     => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
+            realpath($source . '2026_04_06_000002_create_rate_limits_table.php') => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
+        ], $paths);
     }
 
     /**

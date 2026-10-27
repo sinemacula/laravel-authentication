@@ -169,15 +169,51 @@ return [
     | stored and looked up in, keyed by identifier type (a lower-case name).
     | Designate an identity attribute with the `NormalisedIdentifier` cast
     | (`'email' => NormalisedIdentifier::using('email')`) and the attribute is
-    | normalised when it is set and the `model` provider normalises it before
-    | it looks an identity up. Each value is a container abstract resolving to
-    | an `IdentifierNormaliser`; the email normaliser trims and lower-cases.
+    | normalised when it is set, the `model` provider normalises it before it
+    | looks an identity up, and attempts are counted against its normal form.
+    | Each value is a container abstract resolving to an
+    | `IdentifierNormaliser`; the email normaliser trims and lower-cases.
     |
     */
 
     'identifiers' => [
         'normalisers' => [
             'email' => EmailNormaliser::class,
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Rate limits
+    |---------------------------------------------------------------------------
+    |
+    | Limits on each flow, per identifier and per IP address, counted in the
+    | `table` on the write PDO of `connection` (`null` for the default), so
+    | they hold across servers without a cache. Each limit allows `max`
+    | attempts (at least 1) in each window of `decay_seconds` (1 to 86400),
+    | windows aligned to the clock; `null` turns it off. Sign-in counts every
+    | attempt and gives a successful one back; refresh, which cannot guess a
+    | secret, counts only failures, per device and per IP address. A guard
+    | overrides any limit in a `rate_limits` block on its `config/auth.php`
+    | entry, where a scope that is present wins, `null` included, and a flow
+    | set to `null` turns both of its limits off. A malformed limit or an
+    | unknown key fails closed with an `InvalidArgumentException` naming the
+    | guard and the key. Prune ended windows with `model:prune`.
+    |
+    */
+
+    'rate_limits' => [
+        'table'      => env('AUTHENTICATION_RATE_LIMITS_TABLE', 'rate_limits'),
+        'connection' => env('AUTHENTICATION_RATE_LIMITS_CONNECTION'),
+
+        'sign_in' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 300],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 300],
+        ],
+
+        'refresh' => [
+            'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
+            'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
         ],
     ],
 ];
