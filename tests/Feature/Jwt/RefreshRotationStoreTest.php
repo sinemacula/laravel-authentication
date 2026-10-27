@@ -9,6 +9,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Foundation\Testing\DatabaseTransactionsManager as TestingTransactionsManager;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -346,6 +347,73 @@ final class RefreshRotationStoreTest extends TestCase
         DB::rollBack();
 
         self::assertCount(1, $calls);
+    }
+
+    /**
+     * Work deferred inside a nested transaction on the device's connection is
+     * dropped when that nested transaction is rolled back, even though the
+     * outer transaction it was nested in later commits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAfterCommitDropsWorkRolledBackWithANestedTransaction(): void
+    {
+        $device = $this->device();
+        $calls  = new \ArrayObject;
+
+        DB::beginTransaction();
+        DB::beginTransaction();
+
+        $this->store()->afterCommit($device, self::counter($calls));
+
+        DB::rollBack();
+        DB::commit();
+
+        self::assertCount(0, $calls);
+    }
+
+    /**
+     * Under the transactions manager of Laravel's testing traits, the
+     * transaction that wraps each test never commits, so it does not delay
+     * deferred work; a transaction opened inside it still does, until it
+     * commits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAfterCommitIgnoresTheTransactionWrappingATest(): void
+    {
+        $device     = $this->device();
+        $calls      = new \ArrayObject;
+        $count      = self::counter($calls);
+        $manager    = new TestingTransactionsManager([null]);
+        $store      = $this->store(static fn (): TestingTransactionsManager => $manager);
+        $connection = DB::connection();
+
+        $connection->setTransactionManager($manager);
+        $connection->beginTransaction();
+
+        try {
+            $store->afterCommit($device, $count);
+
+            self::assertCount(1, $calls);
+
+            DB::beginTransaction();
+
+            $store->afterCommit($device, $count);
+
+            self::assertCount(1, $calls);
+
+            DB::commit();
+
+            self::assertCount(2, $calls);
+        } finally {
+            $connection->rollBack();
+            $connection->setTransactionManager(app('db.transactions'));
+        }
     }
 
     /**

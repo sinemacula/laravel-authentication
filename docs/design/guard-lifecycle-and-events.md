@@ -84,8 +84,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   When that connection has no open transaction the revocation is committed at once, and the order is `DeviceRevoked`,
   `RefreshFailed`, `Failed`, even if a transaction is open on another connection, whose rollback does not withdraw it.
   Inside a transaction on the device's connection, `RefreshFailed` and `Failed` come first and `DeviceRevoked` follows
-  when that transaction commits. `DeviceRevoked` reports only the revocations the package makes, which today is replay
-  detection: a device an application revokes by writing `revoked_at` itself fires no event.
+  when that transaction commits. The transaction Laravel's testing traits wrap around each test is not counted, as it
+  never commits. `DeviceRevoked` reports only the revocations the package makes, which today is replay detection: a
+  device an application revokes by writing `revoked_at` itself fires no event.
 - A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events
   as one that rotates, `Refreshed` included.
 - `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and
@@ -179,7 +180,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testReplayRevokesTheDeviceAndEndsItsAccessTokens`, `testRevocationIsReportedOnlyAfterCommit`
 - `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
   `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,
-  `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`
+  `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`,
+  `testReplayRolledBackWithANestedTransactionIsNeverReported`
+- `tests/Integration/Guards/ReplayUnderDatabaseTransactionsIntegrationTest.php`
+  `testReplayOutsideTheApplicationsTransactionsIsReportedAtOnce`
 - `tests/Integration/Guards/DeviceUsageIntegrationTest.php`
   `testEachRequestRecordsItsOwnClientOutsideTheThrottleWindow`, `testRefreshRecordsTheClientItCameFrom`,
   `testCraftedUserAgentIsStoredCleaned`

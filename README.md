@@ -686,12 +686,14 @@ is presented, revokes the new session. Create a new device for each sign-in, as 
 [Usage](#usage) does.
 
 Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
-clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back
-after a failed refresh: a rollback also undoes a replay revocation. `DeviceRevoked` is dispatched once the revocation
-is committed on the device's own connection: at once outside a transaction, so before `RefreshFailed` and `Failed`, and
+clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back after
+a failed refresh: a rollback also undoes a replay revocation. `DeviceRevoked` is dispatched once the revocation is
+committed on the device's own connection: at once outside a transaction, so before `RefreshFailed` and `Failed`, and
 after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
-connection neither delays nor withdraws it. Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits
-first makes this one fail with a serialization error, which surfaces as a server error for you to retry.
+connection neither delays nor withdraws it. The transaction that Laravel's `DatabaseTransactions` and `RefreshDatabase`
+testing traits wrap around each test does not count either, so a test sees `DeviceRevoked` when the application would.
+Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
+error, which surfaces as a server error for you to retry.
 
 ## Key Rotation
 

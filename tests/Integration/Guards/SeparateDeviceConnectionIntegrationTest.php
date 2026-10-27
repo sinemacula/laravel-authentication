@@ -200,6 +200,33 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * A revocation made inside a nested transaction on the device's own
+     * connection that is rolled back is never reported, even though the outer
+     * transaction then commits, and the device stays live.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     * @throws \Throwable
+     */
+    public function testReplayRolledBackWithANestedTransactionIsNeverReported(): void
+    {
+        $replay     = $this->replayableToken();
+        $connection = DB::connection(SeparateConnectionDevice::CONNECTION);
+
+        $connection->beginTransaction();
+        $connection->beginTransaction();
+
+        self::assertNull($this->guard()->refresh($replay));
+
+        $connection->rollBack();
+        $connection->commit();
+
+        self::assertSame(['RefreshFailed', 'Failed'], $this->dispatched->getArrayCopy());
+        self::assertNull($this->row($this->device())['revoked_at']);
+    }
+
+    /**
      * Keep the devices on their own connection, a separate database, and
      * configure the `api` guard.
      *

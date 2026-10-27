@@ -103,8 +103,9 @@ other rotated token as a replay that revokes the device.
   digest is not its successor, or any id the device never held) revokes the device with reason `rotation_reuse` and
   dispatches `DeviceRevoked`, `RefreshFailed` (`rotation_reuse`), and the guard's `Failed`. With no transaction open on
   the device's connection they come in that order; inside one, `RefreshFailed` and `Failed` come first and
-  `DeviceRevoked` follows the commit. Nothing is hydrated. Every token of the device then fails: access tokens on the
-  bearer path, refresh tokens with `device_revoked`.
+  `DeviceRevoked` follows the commit (the transaction Laravel's testing traits wrap around each test is not counted, as
+  it never commits). Nothing is hydrated. Every token of the device then fails: access tokens on the bearer path,
+  refresh tokens with `device_revoked`.
 - "Any id the device never held" includes a validly signed token from an earlier credential of the same row. A device
   is given a refresh credential outside a rotation only when it is created, so this is always a replay today. Code that
   gives an existing device a new credential (signing a client in again on the same row) must also clear
@@ -212,6 +213,7 @@ other rotated token as a replay that revokes the device.
   `testRotateRecordsTheRotationAndMirrorsIt`, `testRotateMissesAfterAChangeSinceTheDeviceWasLoaded`,
   `testRevokeKeepsAnEarlierRevocation`, `testReloadReadsTheRowAsItNowIs`, `testWritesTouchOnlyTheDevicesOwnRow`,
   `testWritesAndReadsUseTheDevicesOwnConnection`, `testAfterCommitWaitsForTheDeviceConnectionsTransaction`,
+  `testAfterCommitDropsWorkRolledBackWithANestedTransaction`, `testAfterCommitIgnoresTheTransactionWrappingATest`,
   `testAfterCommitIgnoresTransactionsOnOtherConnections`
 - `tests/Feature/Guards/JwtGuardRefreshTest.php`
   `testRefreshRevokesTheDeviceForARotationIdItDoesNotHold`
@@ -240,7 +242,11 @@ other rotated token as a replay that revokes the device.
 - `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
   `testRefreshAndBearerUseTheDevicesOwnConnection`,
   `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,
-  `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`
+  `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`,
+  `testReplayRolledBackWithANestedTransactionIsNeverReported`
+- `tests/Integration/Guards/ReplayUnderDatabaseTransactionsIntegrationTest.php`
+  `testReplayOutsideTheApplicationsTransactionsIsReportedAtOnce`,
+  `testReplayInsideTheApplicationsTransactionIsReportedWhenItCommits`
 - `tests/Integration/Guards/SessionLifetimeIntegrationTest.php`
   `testRefreshMovesTheIdleDeadlineAndKeepsTheAbsoluteDeadline`
 - `tests/Integration/Guards/SessionLifetimeIntegrationTest.php`
