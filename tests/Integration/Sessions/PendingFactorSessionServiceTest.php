@@ -11,6 +11,7 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -51,6 +52,7 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\TwoSecretSignIn;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
 
 /**
@@ -493,7 +495,7 @@ final class PendingFactorSessionServiceTest extends TestCase
      */
     public function testAFactorIsReconsideredWithoutADeviceThatChanged(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $first = $this->signedInWithoutAFactor();
 
@@ -518,6 +520,67 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertTrue($result->requiresFactor());
         self::assertNull($result->pending?->provenDevice);
         self::assertNull(PendingSignIn::query()->firstOrFail()->device_id);
+        self::assertSame([1, 1], [$this->identifierHits(), $this->accountHits($identity)]);
+
+        self::assertTrue($this->sessions()->complete((string) $result->pending?->token)->isSignedIn());
+        self::assertSame([0, 0], [$this->identifierHits(), $this->accountHits($identity)]);
+    }
+
+    /**
+     * A sign-in held for a further factor has proven the password, so an
+     * outdated hash is rehashed then, before the factor is verified, as for a
+     * sign-in that starts its session at once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasswordIsRehashedWhenItsSignInWaitsForAFactor(): void
+    {
+        $identity = $this->seedIdentity();
+        $outdated = password_hash(self::PASSWORD, PASSWORD_BCRYPT, ['cost' => 5]);
+
+        IntegrationIdentity::query()->whereKey($identity->getKey())->update(['password' => $outdated]);
+
+        $pending = $this->pendingFor();
+        $stored  = IntegrationIdentity::query()->whereKey($identity->getKey())->value('password');
+
+        self::assertIsString($stored);
+        self::assertNotSame($outdated, $stored);
+        self::assertFalse(app(Hasher::class)->needsRehash($stored));
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, $stored));
+        self::assertSame(1, PendingSignIn::query()->count());
+        self::assertSame(0, Device::query()->count());
+        self::assertTrue($this->sessions()->complete($pending->token)->isSignedIn());
+    }
+
+    /**
+     * Completion refuses a recorded membership that has since passed to another
+     * member, even through a guard whose resolver looks the hint up by its key
+     * alone: it fails as `pending_invalid` and starts nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMembershipThatPassedToAnotherMemberCannotBeCompleted(): void
+    {
+        config()->set('auth.guards.members.principal_resolver', UnscopedMembershipResolver::class);
+
+        [, $membership, $tenant] = $this->seedMember();
+        [$other]                 = $this->seedMember('other@example.test', $tenant);
+
+        $pending = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->pending;
+
+        self::assertNotNull($pending);
+
+        $membership->forceFill(['identity_id' => $other->getKey()])->save();
+
+        $this->recordEvents([SignInFailed::class, SignedIn::class]);
+
+        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions('members')->complete($pending->token)->reason);
+        self::assertSame([SignInFailed::class], $this->recordedClasses());
+        self::assertSame(0, Device::query()->count());
     }
 
     /**

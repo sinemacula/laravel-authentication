@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
 
 /**
@@ -426,6 +427,31 @@ final class PendingSignInsTest extends TestCase
 
         self::assertNotNull($inactive);
         self::assertNull($inactive->factor->tenant);
+    }
+
+    /**
+     * A recorded membership that has since passed to another member is not
+     * found, even through a resolver that looks the hint up by its key alone
+     * and so returns that membership as recorded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMembershipThatPassedToAnotherMemberIsNotFoundWhateverTheResolverReturns(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+        [$other]                        = $this->seedMember('other@example.test', $tenant);
+
+        $resolver = new UnscopedMembershipResolver;
+        $pending  = $this->pendings()->issue('members', new AdmittedSignIn($member, $membership, $tenant), 'password', 'email', $this->context(), $this->now);
+
+        self::assertNotNull($this->pendings()->find('members', $pending->token, $this->provider('members'), $resolver, $this->now));
+
+        $membership->forceFill(['identity_id' => $other->getKey()])->save();
+
+        self::assertTrue($membership->is($resolver->resolve($member, $membership->getKey())));
+        self::assertNull($this->pendings()->find('members', $pending->token, $this->provider('members'), $resolver, $this->now));
     }
 
     /**
