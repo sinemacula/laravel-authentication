@@ -384,17 +384,34 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * Both tokens are issued before the rotation commits, so a failure while
-     * issuing leaves the stored digest untouched and the presented refresh
-     * token still rotates on the next attempt. The failure is injected through
-     * the principal identifier the access token embeds.
+     * Rows of `[failingRead]`: which read of the principal identifier fails,
+     * the one the access token embeds or, after the access token is issued, the
+     * one the refresh token embeds.
      *
+     * @return iterable<string, array{0: int}>
+     */
+    public static function provideIssuingFailures(): iterable
+    {
+        yield from [
+            'issuing the access token'  => [1],
+            'issuing the refresh token' => [2],
+        ];
+    }
+
+    /**
+     * Both tokens are issued before the rotation commits, so a failure while
+     * issuing either of them leaves the stored digest untouched and the
+     * presented refresh token still rotates on the next attempt. The failure is
+     * injected through the principal identifier each token embeds.
+     *
+     * @param  int  $failingRead
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangeLeavesTheRefreshTokenValidWhenIssuingFails(): void
+    #[DataProvider('provideIssuingFailures')]
+    public function testExchangeLeavesTheRefreshTokenValidWhenIssuingFails(int $failingRead): void
     {
         $plainRotationId = 'stored-rotation-id';
         $storedDigest    = RefreshTokenHasher::hash($plainRotationId);
@@ -416,9 +433,19 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
+        $reads = 0;
+
         $failing = \Mockery::mock(Principal::class);
         $failing->shouldReceive('getTenant')->andReturnNull();
-        $failing->shouldReceive('getPrincipalIdentifier')->andThrow(new RandomException('random source unavailable'));
+        $failing->shouldReceive('getPrincipalIdentifier')
+            ->times($failingRead)
+            ->andReturnUsing(static function () use (&$reads, $failingRead): string {
+                if (++$reads === $failingRead) {
+                    throw new RandomException('random source unavailable');
+                }
+
+                return 'p-31';
+            });
 
         $working = \Mockery::mock(Principal::class);
         $working->shouldReceive('getTenant')->andReturnNull();

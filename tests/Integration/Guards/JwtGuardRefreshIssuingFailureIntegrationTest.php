@@ -15,13 +15,14 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Integration\Fixtures\SingleIdentifierReadPrincipal;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubMutablePrincipalResolver;
 use Tests\Unit\Stubs\StubPrincipal;
 
 /**
- * A refresh that fails while issuing the new token pair leaves the presented
- * refresh token valid, on the suite's configured database.
+ * A refresh that fails while issuing either token of the new pair leaves the
+ * presented refresh token valid, on the suite's configured database.
  *
  * Both tokens are issued before the rotation commits, so a failure while
  * issuing cannot consume the stored digest and sign the device out.
@@ -79,20 +80,9 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
      *
      * @throws \Random\RandomException
      */
-    public function testRefreshTokenStaysValidWhenIssuingTheNewPairFails(): void
+    public function testRefreshTokenStaysValidWhenIssuingTheAccessTokenFails(): void
     {
-        $identity = new StubPrincipal;
-        $identity->forceFill(['email' => 'issuing@example.test', 'password' => 'irrelevant'])->save();
-
-        $device = new Device;
-        $device->forceFill([
-            'authenticatable_type' => StubPrincipal::class,
-            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
-            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
-        ])->save();
-
-        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID);
+        [$identity, $device, $refreshToken] = $this->seedRefreshableDevice();
 
         $resolver = new StubMutablePrincipalResolver;
         $resolver->setDefaultPrincipal(new StubPrincipal);
@@ -105,15 +95,42 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
             self::assertStringContainsString('without its `pid` claim', $exception->getMessage());
         }
 
-        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($device));
+        $this->assertRefreshTokenStillRotates($identity, $device, $refreshToken, $resolver);
+    }
 
-        $resolver->setDefaultPrincipal($identity);
+    /**
+     * The resolver hands back a principal whose identifier can be read once, so
+     * the access token is issued and the refresh token is not: the refresh
+     * throws after the first token exists, the stored digest is unchanged in
+     * the database, and the same refresh token rotates once the resolver
+     * returns a principal that can be read again.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRefreshTokenStaysValidWhenIssuingTheRefreshTokenFails(): void
+    {
+        [$identity, $device, $refreshToken] = $this->seedRefreshableDevice();
 
-        $guard = $this->guard($resolver);
+        $principal = SingleIdentifierReadPrincipal::query()->findOrFail($identity->getKey());
 
-        self::assertInstanceOf(RefreshResult::class, $guard->refresh($refreshToken));
-        self::assertTrue($identity->is($guard->user()));
-        self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($device));
+        assert($principal instanceof SingleIdentifierReadPrincipal);
+
+        $resolver = new StubMutablePrincipalResolver;
+        $resolver->setDefaultPrincipal($principal);
+
+        try {
+            $this->guard($resolver)->refresh($refreshToken);
+
+            self::fail('The issuing failure should have propagated.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('The principal identifier can be read only once.', $exception->getMessage());
+        }
+
+        self::assertSame(2, $principal->identifierReads);
+
+        $this->assertRefreshTokenStillRotates($identity, $device, $refreshToken, $resolver);
     }
 
     /**
@@ -139,6 +156,57 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
             'driver' => 'model',
             'model'  => StubPrincipal::class,
         ]);
+    }
+
+    /**
+     * Persist an identity with a device holding the stored rotation, and issue
+     * the refresh token that presents it.
+     *
+     * @return array{0: \Tests\Unit\Stubs\StubPrincipal, 1: \SineMacula\Laravel\Authentication\Models\Device, 2: string}
+     */
+    private function seedRefreshableDevice(): array
+    {
+        $identity = new StubPrincipal;
+        $identity->forceFill(['email' => 'issuing@example.test', 'password' => 'irrelevant'])->save();
+
+        $device = new Device;
+        $device->forceFill([
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'os'                   => 'ios',
+            'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+        ])->save();
+
+        return [$identity, $device, $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID)];
+    }
+
+    /**
+     * Assert the failed refresh left the stored digest alone, then that the
+     * same refresh token rotates once the resolver returns the saved identity.
+     *
+     * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @param  \SineMacula\Laravel\Authentication\Models\Device  $device
+     * @param  string  $refreshToken
+     * @param  \Tests\Unit\Stubs\StubMutablePrincipalResolver  $resolver
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    private function assertRefreshTokenStillRotates(
+        StubPrincipal $identity,
+        Device $device,
+        #[\SensitiveParameter] string $refreshToken,
+        StubMutablePrincipalResolver $resolver,
+    ): void {
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($device));
+
+        $resolver->setDefaultPrincipal($identity);
+
+        $guard = $this->guard($resolver);
+
+        self::assertInstanceOf(RefreshResult::class, $guard->refresh($refreshToken));
+        self::assertTrue($identity->is($guard->user()));
+        self::assertNotSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->storedDigest($device));
     }
 
     /**
