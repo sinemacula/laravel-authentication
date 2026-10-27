@@ -7,12 +7,16 @@ namespace Tests\Integration\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Events\DeviceCreated;
 use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
@@ -29,7 +33,8 @@ use Tests\TestCase;
  * advises for callers who may roll back: a completion gives its slots back only
  * once its use of the pending sign-in commits, so rolling it back, which
  * restores the pending sign-in, gives nothing back, and completing it again
- * gives the slots back once.
+ * gives the slots back once. A release that fails after the commit leaves the
+ * session standing and reported.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -153,6 +158,42 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         self::assertSame([1, 1, 1], $this->hits($identity));
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A completion whose slots cannot be given back once its transaction
+     * commits fails with the counters' error, but its session stands and is
+     * reported, and the slots stay counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACompletionWhoseSlotsCannotBeGivenBackStillReportsItsSession(): void
+    {
+        $identity = $this->seedHeldSignIn();
+        $token    = $this->pendingToken($identity);
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+
+        Schema::connection(self::COUNTERS)->rename('rate_limits', 'unreachable_rate_limits');
+
+        try {
+            DB::transaction(function () use ($token): void {
+                self::assertTrue($this->sessions()->complete($token)->isSignedIn());
+            });
+
+            self::fail('Giving the slots back should have failed after the commit.');
+        } catch (QueryException $exception) {
+            self::assertStringContainsString('rate_limits', $exception->getMessage());
+        }
+
+        Schema::connection(self::COUNTERS)->rename('unreachable_rate_limits', 'rate_limits');
+
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame([2, 2, 2], $this->hits($identity));
+        self::assertSame(1, Device::query()->count());
+        self::assertSame(0, PendingSignIn::query()->count());
     }
 
     /**

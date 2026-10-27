@@ -255,16 +255,20 @@ final readonly class SessionService
 
         [$admitted, $session] = $outcome;
 
+        $result = $this->signedIn($session, $admitted, $context);
+
         // A rolled-back completion restores the pending sign-in, whose token
         // can then be completed again: giving its slots back before the commit,
-        // on a counter connection of its own, would give them back twice.
+        // on a counter connection of its own, would give them back twice. They
+        // are given back after the session's events are queued, so a release
+        // that fails cannot keep a committed session from being reported.
         $this->afterCommit->run($found->pending, function () use ($found): void {
             foreach (PendingSignIns::reservations($found->pending) as $reservation) {
                 $this->collaborator(AttemptLimiter::class)->release($reservation);
             }
         });
 
-        return $this->signedIn($session, $admitted, $context);
+        return $result;
     }
 
     /**
