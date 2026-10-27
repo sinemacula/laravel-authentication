@@ -49,7 +49,7 @@ return new class extends Migration {
             $blueprint->string('created_ip', 45)->nullable();
             $blueprint->string('created_user_agent', 512)->nullable();
 
-            $blueprint->timestamp('last_used_at', 0)->nullable();
+            $blueprint->dateTime('last_used_at', 0)->nullable();
             $blueprint->string('last_used_ip', 45)->nullable();
             $blueprint->string('last_used_user_agent', 512)->nullable();
 
@@ -59,17 +59,19 @@ return new class extends Migration {
             $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->string('previous_refresh_key', 64)->nullable();
 
-            // Whole-second precision on every timestamp: the refresh rotation
-            // compares the stored deadlines by equality, which a fractional
-            // part the application never wrote would break.
-            $blueprint->timestamp('refresh_rotated_at', 0)->nullable();
-            $blueprint->timestamp('idle_expires_at', 0);
-            $blueprint->timestamp('absolute_expires_at', 0);
+            // Every time is a whole-second `dateTime`. Whole seconds because
+            // the refresh rotation compares the stored deadlines by equality,
+            // which a fractional part the application never wrote would
+            // break; `dateTime` because MySQL's `timestamp` ends in January
+            // 2038, before the longest session lifetime the package accepts.
+            $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+            $blueprint->dateTime('idle_expires_at', 0);
+            $blueprint->dateTime('absolute_expires_at', 0);
 
-            $blueprint->timestamp('revoked_at', 0)->nullable();
+            $blueprint->dateTime('revoked_at', 0)->nullable();
             $blueprint->string('revoked_reason', 64)->nullable();
 
-            $blueprint->timestamps(0);
+            $blueprint->datetimes(0);
 
             $blueprint->index(['authenticatable_type', 'authenticatable_id']);
             $blueprint->index(['principal_type', 'principal_id']);

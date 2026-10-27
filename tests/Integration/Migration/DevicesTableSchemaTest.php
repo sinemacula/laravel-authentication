@@ -4,13 +4,21 @@ declare(strict_types = 1);
 
 namespace Tests\Integration\Migration;
 
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use Tests\TestCase;
 
 /**
  * Integration tests for the shape of the table the shipped devices migration
  * creates, on whichever engine the suite runs against.
+ *
+ * The migration runs for a configured table name other than the default and
+ * with the schema builder's default time precision raised, so the index names
+ * and the whole-second precision are what the migration itself declares.
  *
  * Marked `#[CoversNothing]` because a migration is an anonymous class PHPUnit
  * cannot attribute coverage to.
@@ -23,6 +31,12 @@ use Tests\TestCase;
 #[CoversNothing]
 final class DevicesTableSchemaTest extends TestCase
 {
+    /** Absolute path to the shipped devices migration file. */
+    private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_devices_table.php';
+
+    /** @var string Configured table name the migration runs for. */
+    private const string TABLE = 'signed_in_sessions';
+
     /** @var array<string, bool> Every column of the table and whether it is nullable. */
     private const array COLUMNS = [
         'id'                   => false,
@@ -62,6 +76,45 @@ final class DevicesTableSchemaTest extends TestCase
     ];
 
     /**
+     * Run the shipped migration for `TABLE`, with the schema builder's default
+     * time precision raised to microseconds while it runs.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::dropIfExists('devices');
+
+        config()->set('authentication.device.table', self::TABLE);
+
+        $precision = Builder::$defaultTimePrecision;
+
+        Builder::defaultTimePrecision(6);
+
+        try {
+            \call_user_func([$this->loadMigration(), 'up']);
+        } finally {
+            Builder::defaultTimePrecision($precision);
+        }
+    }
+
+    /**
+     * Drop the table the test migrated.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists(self::TABLE);
+
+        parent::tearDown();
+    }
+
+    /**
      * The table has exactly the version 2 columns, each with its nullability:
      * the owner and both deadlines are required, everything a later feature or
      * the client supplies is optional, and the operating system and MFA columns
@@ -73,7 +126,7 @@ final class DevicesTableSchemaTest extends TestCase
     {
         $columns = [];
 
-        foreach (Schema::getColumns('devices') as $column) {
+        foreach (Schema::getColumns(self::TABLE) as $column) {
             $columns[$column['name']] = $column['nullable'];
         }
 
@@ -87,15 +140,16 @@ final class DevicesTableSchemaTest extends TestCase
     }
 
     /**
-     * Every timestamp is stored to the whole second, so the deadlines the
-     * refresh rotation compares by equality come back exactly as written.
+     * Every timestamp is stored to the whole second, whatever the application's
+     * default time precision, so the deadlines the refresh rotation compares by
+     * equality come back exactly as written.
      *
      * @return void
      */
     public function testStoresEveryTimestampToTheWholeSecond(): void
     {
         $timestamps = array_filter(
-            Schema::getColumns('devices'),
+            Schema::getColumns(self::TABLE),
             static fn (array $column): bool => in_array($column['name'], self::TIMESTAMP_COLUMNS, true),
         );
 
@@ -129,7 +183,7 @@ final class DevicesTableSchemaTest extends TestCase
             self::markTestSkipped('SQLite does not record a length for string columns.');
         }
 
-        $types = array_column(Schema::getColumns('devices'), 'type', 'name');
+        $types = array_column(Schema::getColumns(self::TABLE), 'type', 'name');
 
         foreach ($lengths as $name => $length) {
             self::assertStringContainsString("({$length})", $types[$name], $name);
@@ -170,21 +224,74 @@ final class DevicesTableSchemaTest extends TestCase
      */
     public function testNamesIndexesAfterTheConfiguredTable(): void
     {
-        foreach (self::secondaryIndexes() as $index) {
-            self::assertStringStartsWith('devices_', $index['name']);
+        $indexes = self::secondaryIndexes();
+
+        self::assertNotEmpty($indexes);
+
+        foreach ($indexes as $index) {
+            self::assertStringStartsWith(self::TABLE . '_', $index['name']);
         }
     }
 
     /**
-     * The indexes of the devices table other than its primary key.
+     * The session deadlines hold dates past January 2038, the end of MySQL's
+     * `timestamp` type, so the longest accepted session lifetime can be stored
+     * on every engine.
+     *
+     * @return void
+     */
+    public function testStoresDeadlinesPastJanuary2038(): void
+    {
+        $id = (string) Str::uuid7();
+
+        DB::table(self::TABLE)->insert([
+            'id'                   => $id,
+            'authenticatable_type' => 'App\Models\User',
+            'authenticatable_id'   => '1',
+            'idle_expires_at'      => '2040-02-29 23:59:59',
+            'absolute_expires_at'  => '2046-04-06 12:00:00',
+            'revoked_at'           => '2039-01-01 00:00:00',
+        ]);
+
+        $row = DB::table(self::TABLE)->where('id', $id)->first(['idle_expires_at', 'absolute_expires_at', 'revoked_at']);
+
+        self::assertNotNull($row);
+        self::assertSame(
+            ['idle_expires_at' => '2040-02-29 23:59:59', 'absolute_expires_at' => '2046-04-06 12:00:00', 'revoked_at' => '2039-01-01 00:00:00'],
+            (array) $row,
+        );
+    }
+
+    /**
+     * The indexes of the migrated table other than its primary key.
      *
      * @return list<array{name: string, columns: list<string>, type: string, unique: bool, primary: bool}>
      */
     private static function secondaryIndexes(): array
     {
         return array_values(array_filter(
-            Schema::getIndexes('devices'),
+            Schema::getIndexes(self::TABLE),
             static fn (array $index): bool => !$index['primary'],
         ));
+    }
+
+    /**
+     * Require the shipped anonymous-class migration file and return the
+     * resulting `Migration` instance.
+     *
+     * @return \Illuminate\Database\Migrations\Migration
+     *
+     * @SuppressWarnings("php:S4833")
+     * @SuppressWarnings("php:S2003")
+     */
+    private function loadMigration(): Migration
+    {
+        $migration = include self::MIGRATION_PATH;
+
+        if (!$migration instanceof Migration) {
+            self::fail('Devices migration file did not return a Migration instance.');
+        }
+
+        return $migration;
     }
 }

@@ -75,15 +75,15 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             $blueprint->string('authenticatable_id');
             $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->string('previous_refresh_key', 64)->nullable();
-            $blueprint->timestamp('refresh_rotated_at', 0)->nullable();
-            $blueprint->timestamp('idle_expires_at', 0);
-            $blueprint->timestamp('absolute_expires_at', 0);
-            $blueprint->timestamp('revoked_at', 0)->nullable();
+            $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+            $blueprint->dateTime('idle_expires_at', 0);
+            $blueprint->dateTime('absolute_expires_at', 0);
+            $blueprint->dateTime('revoked_at', 0)->nullable();
             $blueprint->string('revoked_reason', 64)->nullable();
-            $blueprint->timestamp('last_used_at', 0)->nullable();
+            $blueprint->dateTime('last_used_at', 0)->nullable();
             $blueprint->string('last_used_ip', 45)->nullable();
             $blueprint->string('last_used_user_agent', 512)->nullable();
-            $blueprint->timestamps(0);
+            $blueprint->datetimes(0);
         });
     }
 

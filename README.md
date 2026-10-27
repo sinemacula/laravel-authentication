@@ -265,7 +265,8 @@ A device is one signed-in session. The shipped migration creates these columns:
 | `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
 | `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
 
-Every timestamp is stored to the whole second, and the table is indexed on the owner, the principal, the guard, both
+Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
+`timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both
 deadlines, and the revocation time. Every authentication that binds a persisted device (a bearer request or a refresh)
 records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
 agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
