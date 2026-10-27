@@ -133,7 +133,9 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
 
     /**
      * A bearer request for a member of a tenant that opts in reads the
-     * identity, the principal and the tenant once each, and writes nothing.
+     * identity, the principal and the tenant once each while authenticating,
+     * and writes nothing. The tenant accessor then reuses the tenant the check
+     * loaded, so the check cannot leave that read to the accessor.
      *
      * @param  string  $guard
      * @return void
@@ -144,18 +146,37 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     #[DataProvider('provideOptedInTenantGuards')]
     public function testBearerForAMemberOfAnOptedInTenantUsesThreeReadsAndNoWrites(string $guard): void
     {
-        [$member, $membership] = $this->seedMembership($guard);
+        [$member, $membership, $tenant] = $this->seedMembership($guard);
 
         $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null));
 
         $resolved = $this->freshJwtGuard($guard);
 
-        self::assertTrue($this->assertQueryBudget(3, 0, static function () use ($resolved): bool {
-            $authenticated = $resolved->check();
-            $resolved->tenant(); // @phpstan-ignore method.resultUnused
+        self::assertTrue($this->assertQueryBudget(3, 0, static fn (): bool => $resolved->check()));
+        self::assertSame($tenant->getKey(), $this->assertQueryBudget(0, 0, static fn (): mixed => $resolved->tenant()?->getTenantIdentifier()));
+    }
 
-            return $authenticated;
-        }));
+    /**
+     * A bearer request for a member of an inactive tenant spends the same three
+     * reads to reach the tenant check, is rejected, and writes nothing.
+     *
+     * @param  string  $guard
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideOptedInTenantGuards')]
+    public function testBearerForAMemberOfAnInactiveTenantIsRejectedInThreeReadsAndNoWrites(string $guard): void
+    {
+        [$member, $membership] = $this->seedMembership($guard, false);
+
+        $this->bindRequestWithBearer('/perf/tenant', $this->tokensFor($guard)->issueAccessToken($member, $membership, null));
+
+        $resolved = $this->freshJwtGuard($guard);
+
+        self::assertFalse($this->assertQueryBudget(3, 0, static fn (): bool => $resolved->check()));
+        self::assertNull($resolved->tenant());
     }
 
     /**
@@ -181,6 +202,30 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         $resolved = $this->freshJwtGuard($guard);
 
         self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(4, 1, static fn (): ?RefreshResult => $resolved->refresh($token)));
+    }
+
+    /**
+     * A refresh for a member of an inactive tenant spends the same four reads
+     * to reach the tenant check, is rejected, and leaves the rotation alone.
+     *
+     * @param  string  $guard
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    #[DataProvider('provideOptedInTenantGuards')]
+    public function testRefreshForAMemberOfAnInactiveTenantIsRejectedInFourReadsAndNoWrites(string $guard): void
+    {
+        [$member, $membership] = $this->seedMembership($guard, false);
+
+        $device = $this->seedDevice($member);
+        $token  = $this->tokensFor($guard)->issueRefreshToken($device, self::ROTATION_ID, $membership);
+
+        app()->instance('request', Request::create('/refresh', 'POST'));
+
+        $resolved = $this->freshJwtGuard($guard);
+
+        self::assertNull($this->assertQueryBudget(4, 0, static fn (): ?RefreshResult => $resolved->refresh($token)));
     }
 
     /**
@@ -239,24 +284,25 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a member with one membership in an active tenant that opts in,
-     * through the models the guard uses.
+     * Persist a member with one membership in a tenant that opts in, through
+     * the models the guard uses.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $guard
-     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Principal}
+     * @param  bool  $tenantActive
+     * @return array{0: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity, 1: \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Principal, 2: \Tests\Integration\Fixtures\ActivatableTenant}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
      */
-    private function seedMembership(string $guard): array
+    private function seedMembership(string $guard, bool $tenantActive = true): array
     {
         $tenant = new ActivatableTenant;
-        $tenant->forceFill(['name' => 'Tenant', 'is_active' => true])->save();
+        $tenant->forceFill(['name' => 'Tenant', 'is_active' => $tenantActive])->save();
 
         [$memberClass, $membershipClass] = $guard === 'eager_members'
             ? [EagerTenantMember::class, EagerTenantMembership::class]
@@ -268,7 +314,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
         $membership = new $membershipClass;
         $membership->forceFill(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()])->save();
 
-        return [$member, $membership];
+        return [$member, $membership, $tenant];
     }
 
     /**
