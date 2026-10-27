@@ -26,7 +26,10 @@ interface HasPrincipals
     public function principals(): Builder;
 
     /**
-     * Application-defined default principal lookup.
+     * Application-defined default principal lookup. The default resolver runs
+     * it with reads on this identity's connection pinned to the write
+     * connection; a lookup on any other connection must pin itself (see
+     * `Database\WriteConnection`).
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */

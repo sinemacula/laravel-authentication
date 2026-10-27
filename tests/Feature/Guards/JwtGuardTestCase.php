@@ -288,6 +288,9 @@ abstract class JwtGuardTestCase extends TestCase
     protected function swapDeviceModelToInMemoryInstance(StubDevice $device): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->atLeast()->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->with($device->id)
             ->andReturn($device);

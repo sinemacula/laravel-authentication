@@ -15,6 +15,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - Failure attribution should still point at the already resolved identity when `pid` or `did` rejection happens late in
   the bearer flow.
 - `pid`, `did`, and active-state checks run live on every request; nothing is cached across requests.
+- The identity, principal, and device reads behind those checks go to the write connection, so a lagging read replica
+  cannot satisfy a `pid` or `did` the primary no longer recognises.
 
 ## Success Path
 
@@ -48,6 +50,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`,
   `matchesPidHint()`.
 - `src/Jwt/IdentifierCoercion.php`: `stringify()`.
+- `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, and device reads to
+  the write connection.
 - `src/Resolvers/DefaultPrincipalResolver.php`: default resolver behavior that the guard hardens with explicit pid
   matching, including the optional `ResolvesHintedPrincipal` shortcut ahead of the generic `HasPrincipals` lookup.
 - `src/Contracts/ResolvesHintedPrincipal.php`: optional 3D optimization seam for hinted principal hydration.
@@ -83,6 +87,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testBearerRejectsPreviouslyIssuedTokenWhenResolvedPrincipalBecomesInactiveBetweenRequests`
 - `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
   `testBearerRejectsPreviouslyIssuedTokenWhenHintedDeviceIsDeletedBetweenRequests`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testBearerReadsIdentityAndDeviceFromTheWriteConnection`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testDefaultResolverReadsPrincipalsFromTheWriteConnection`
 
 ## Change Triggers
 
@@ -93,4 +101,5 @@ Update this note when any of the following change:
 - whether bearer `did` remains identity-scoped through `HasDevices`
 - whether refresh `did` remains backed by the configured device model
 - how late-path bearer failures are attributed on the `Failed` event
+- whether the identity, principal, and device reads still go to the write connection
 - how guard-local or rebound principal resolvers are propagated into refresh

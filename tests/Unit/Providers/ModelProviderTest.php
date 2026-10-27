@@ -65,6 +65,9 @@ final class ModelProviderTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('id', 7)
@@ -86,6 +89,9 @@ final class ModelProviderTest extends TestCase
     public function testRetrieveByIdReturnsNullWhenNotFound(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('id', 99)
@@ -182,6 +188,9 @@ final class ModelProviderTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', 'a@b.com')

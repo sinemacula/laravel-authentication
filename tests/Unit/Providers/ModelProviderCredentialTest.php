@@ -64,6 +64,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)
@@ -91,6 +94,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)
@@ -118,6 +124,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)
@@ -144,6 +153,9 @@ final class ModelProviderCredentialTest extends TestCase
         $roles = ['admin', 'staff'];
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('whereIn')
             ->once()
             ->with('role', $roles)
@@ -165,6 +177,9 @@ final class ModelProviderCredentialTest extends TestCase
     public function testRetrieveByCredentialsInvokesClosureCredentialsAgainstQuery(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('flag', true)
@@ -200,6 +215,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)

@@ -9,6 +9,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
 /**
  * Default principal resolver.
@@ -16,6 +17,12 @@ use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
  * Handles both 2D (identity-is-principal) and 3D (HasPrincipals delegate)
  * modes. Consumers may bind a custom resolver in the container for per-guard or
  * tenant-aware logic.
+ *
+ * Principal lookups decide authentication, so every read goes to the write
+ * connection: the `principals()->find()` query directly, and the identity's own
+ * `resolveHintedPrincipal()` / `resolveDefaultPrincipal()` hooks with reads on
+ * the identity's connection pinned to the writer for the call. A custom
+ * resolver carries the same obligation (see `WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,7 +63,7 @@ final class DefaultPrincipalResolver implements PrincipalResolver
         }
 
         if ($identity instanceof HasPrincipals) {
-            return $identity->resolveDefaultPrincipal();
+            return WriteConnection::during($identity, static fn (): ?Principal => $identity->resolveDefaultPrincipal());
         }
 
         throw new UnresolvableIdentityException(sprintf('Cannot resolve a principal for identity %s: it implements neither Principal nor HasPrincipals.', $identity::class));
@@ -73,7 +80,7 @@ final class DefaultPrincipalResolver implements PrincipalResolver
     {
         if ($identity instanceof ResolvesHintedPrincipal) {
 
-            $hinted = $identity->resolveHintedPrincipal($hint);
+            $hinted = WriteConnection::during($identity, static fn (): ?Principal => $identity->resolveHintedPrincipal($hint));
 
             if ($hinted instanceof Principal) {
                 return $hinted;
@@ -82,7 +89,7 @@ final class DefaultPrincipalResolver implements PrincipalResolver
 
         if ($identity instanceof HasPrincipals) {
 
-            $hinted = $identity->principals()->find($hint);
+            $hinted = WriteConnection::query($identity->principals())->find($hint);
 
             if ($hinted instanceof Principal) {
                 return $hinted;

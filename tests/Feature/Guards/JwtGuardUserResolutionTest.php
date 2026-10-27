@@ -627,6 +627,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with('d-missing')
@@ -680,6 +683,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with('d-missing')
@@ -744,6 +750,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $device = new StubDevice(['id' => 'd-1']);
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with('d-1')

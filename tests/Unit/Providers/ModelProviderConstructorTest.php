@@ -233,6 +233,9 @@ final class ModelProviderConstructorTest extends TestCase
     public function testRetrieveByCredentialsDoesNotDropPassSubstringOnlyKeys(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('pass', 'something')
@@ -312,6 +315,9 @@ final class ModelProviderConstructorTest extends TestCase
     public function testRetrieveByCredentialsAppliesBoolCredentialAsWhereClause(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('is_active', true)
@@ -348,6 +354,9 @@ final class ModelProviderConstructorTest extends TestCase
         };
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('token', $stringable)
@@ -378,6 +387,9 @@ final class ModelProviderConstructorTest extends TestCase
         // query, so the caller bails out with null and the query is never
         // executed.
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldNotReceive('where');
         $builder->shouldNotReceive('whereIn');
         $builder->shouldNotReceive('first');

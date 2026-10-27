@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -161,8 +162,9 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * Resolve a device for the identity from a hint (typically the `did`
-     * claim). Returns null when the identity does not implement `HasDevices` or
-     * the device is not found.
+     * claim), reading from the write connection so a lagging replica cannot
+     * resolve a deleted device. Returns null when the identity does not
+     * implement `HasDevices` or the device is not found.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -174,7 +176,7 @@ final class JwtGuard extends AbstractGuard
             return null;
         }
 
-        $device = $identity->devices()->find($hint);
+        $device = WriteConnection::query($identity->devices())->find($hint);
 
         return $device instanceof Device ? $device : null;
     }

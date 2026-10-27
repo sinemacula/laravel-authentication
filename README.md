@@ -221,6 +221,32 @@ the default names, so a model that renames a column needs its own migration.
 
 Must exceed the worst-case hasher cost.
 
+### Read replicas
+
+Every read that decides authentication - the identity, the principal, and the device with its refresh digest and
+revocation state - goes to the write connection, even when the database connection has `read` and `write` hosts. A
+replica can lag behind a revocation, a deactivation, or a refresh rotation, and a lookup it served could admit a
+credential the primary has already rejected.
+
+The package pins the queries it builds. Code you plug in carries the same obligation:
+
+- a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
+  must read from the write connection;
+- `resolveDefaultPrincipal()` and `resolveHintedPrincipal()` already run with reads on the identity's connection pinned
+  to the write connection; a lookup they make on another connection must pin itself.
+
+`WriteConnection` does both:
+
+```php
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
+
+// A query you build: route it to the write PDO.
+$membership = WriteConnection::query(Membership::query())->find($hint);
+
+// Code that reads through a model's connection: pin it for the callback.
+$principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
+```
+
 ## Identity Models
 
 ### 2D adoption (identity is the principal)

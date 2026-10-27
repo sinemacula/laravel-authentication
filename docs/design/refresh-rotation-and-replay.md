@@ -15,7 +15,8 @@ stateful per-device credentials with server-side replay detection.
   by clearing the digest and setting `revoked_at`.
 - Refresh can preserve principal continuity by carrying `pid` forward into both the rotated refresh token and the new
   access token.
-- Refresh reads device state, revocation, and replay detection live on every exchange.
+- Refresh reads device state, revocation, and replay detection live on every exchange, from the write connection, so
+  a lagging read replica cannot serve a stale digest or miss a revocation.
 
 ## Success Path
 
@@ -43,6 +44,7 @@ stateful per-device credentials with server-side replay detection.
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()`, `extractRefreshClaims()`, `loadDeviceForRefresh()`,
   `hydrateRefreshContext()`, `completeExchange()`, `atomicallyRotateRefreshKey()`, `revokeDevice()`.
 - `src/Jwt/RefreshTokenHasher.php`: digest generation and constant-time verification.
+- `src/Database/WriteConnection.php`: pins the device and owner reads to the write connection.
 - `src/Jwt/JwtTokenService.php`: `issueRefreshToken()` and `issueAccessToken()`.
 - `src/Events/Enums/RefreshFailureReason.php`: failure taxonomy.
 - `src/Guards/JwtGuard.php`: `refresh()` delegates straight to the live refresh exchange.
@@ -69,6 +71,8 @@ stateful per-device credentials with server-side replay detection.
   `testRefreshRejectsTokenWhenIdentityBecomesInactiveAfterIssuance`
 - `tests/Integration/Guards/JwtGuardResolutionFreshnessIntegrationTest.php`
   `testRefreshRejectsTokenWhenDeviceIsDeletedAfterIssuance`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testRefreshReadsDeviceAndIdentityFromTheWriteConnection`
 
 ## Change Triggers
 
@@ -80,3 +84,4 @@ Update this note when any of the following change:
 - whether replay revokes one device row or a broader credential family
 - whether refresh still preserves `pid` across the rotated pair
 - whether refresh ever starts consulting shared cross-request caches
+- whether refresh still reads the device and its owner from the write connection

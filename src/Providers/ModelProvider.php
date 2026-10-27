@@ -9,6 +9,7 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
 /**
  * Eloquent-backed identity provider.
@@ -17,6 +18,10 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
  * token methods, which are inert for this stateless package. Consumers may
  * subclass `createModel()` or `retrieveByCredentials()` for tenant scoping,
  * soft-delete exclusion, or other domain-specific lookups.
+ *
+ * Identity lookups decide authentication, so they read from the write
+ * connection; a subclass that builds its own query must do the same (see
+ * `WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -195,9 +200,11 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Build a fresh Eloquent query rooted at the supplied model. Single
-     * localised site for the dynamic-class `newQuery()` call so any phpstan
-     * suppressions live in one place.
+     * Build a fresh Eloquent query rooted at the supplied model and pinned to
+     * the write connection, so a lagging read replica cannot resolve a
+     * deactivated or deleted identity. Single localised site for the
+     * dynamic-class `newQuery()` call so any phpstan suppressions live in one
+     * place.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
      * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>
@@ -205,7 +212,7 @@ class ModelProvider implements IdentityProvider
     private function freshQuery(Authenticatable&Model $model): Builder
     {
         // @phpstan-ignore staticMethod.dynamicCall
-        return $model->newQuery();
+        return WriteConnection::query($model->newQuery());
     }
 
     /**

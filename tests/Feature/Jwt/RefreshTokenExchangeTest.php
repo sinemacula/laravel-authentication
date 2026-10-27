@@ -441,6 +441,9 @@ final class RefreshTokenExchangeTest extends TestCase
     public function testExchangeHandlesQueryExceptionDuringDeviceLookup(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->andThrow(new QueryException('testing', 'select', [], new \Exception('invalid UUID')));
@@ -573,6 +576,9 @@ final class RefreshTokenExchangeTest extends TestCase
     private function swapDeviceModelToInMemoryInstance(StubDevice $device): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->atLeast()->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->with($device->id)
             ->andReturn($device);

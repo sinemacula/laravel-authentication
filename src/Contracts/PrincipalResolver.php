@@ -11,6 +11,10 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  * principal id from a JWT payload). The default implementation covers both 2D
  * and 3D modes; consumers may bind a custom resolver in the container.
  *
+ * The resolved principal decides authentication, so an implementation must read
+ * it from the write connection, never a read replica that can lag behind a
+ * deactivation or deletion (see `Database\WriteConnection`).
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */

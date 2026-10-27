@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
@@ -257,7 +258,9 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Look up a device by id through the configured device model class.
+     * Look up a device by id through the configured device model class, reading
+     * from the write connection so a lagging replica cannot serve a stale
+     * digest or revocation state.
      *
      * @param  mixed  $id
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
@@ -272,7 +275,7 @@ final class RefreshTokenExchange
         $model = new $class;
 
         try {
-            $device = $model->newQuery()->find($id);
+            $device = WriteConnection::query($model->newQuery())->find($id);
         } catch (QueryException) { // @phpstan-ignore catch.neverThrown
             return null;
         }
@@ -335,8 +338,8 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Validate the device's `authenticatable` relation and confirm the resolved
-     * identity is currently active.
+     * Validate the device's `authenticatable` relation, loaded from the write
+     * connection, and confirm the resolved identity is currently active.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  ?string  $deviceId
@@ -345,7 +348,7 @@ final class RefreshTokenExchange
     private function resolveRefreshIdentity(EloquentDevice&Model $device, ?string $deviceId): ?Identity
     {
         /** @var ?\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
-        $identity = $device->getRelationValue('authenticatable');
+        $identity = WriteConnection::during($device, static fn (): mixed => $device->getRelationValue('authenticatable'));
 
         if (!$identity instanceof Identity) {
 

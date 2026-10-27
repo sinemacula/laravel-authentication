@@ -13,6 +13,10 @@ use Illuminate\Contracts\Auth\UserProvider;
  * against an `IdentityProvider` while remaining a drop-in replacement for any
  * framework user provider.
  *
+ * Identity lookups decide authentication, so an implementation must read from
+ * the write connection, never a read replica that can lag behind a deactivation
+ * or deletion (see `Database\WriteConnection`).
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
