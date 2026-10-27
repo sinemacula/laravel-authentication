@@ -24,7 +24,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
 
 ## Success Path
 
-- If no `pid` is present, the guard may use the resolver's default principal policy.
+- An access token must carry `pid`: one without it fails to parse, so the bearer path never falls back to the resolver's
+  default principal. A refresh token may omit `pid`, in which case refresh uses the default principal policy.
 - If no bearer `did` is present, auth can still succeed with `device = null`.
 - If `pid` is present and the resolver returns the exact matching principal, auth continues normally.
 - If refresh carries `pid`, the same exact-match rule is applied before the rotated pair is issued.
@@ -54,6 +55,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`,
   `matchesPidHint()`.
 - `src/Jwt/IdentifierCoercion.php`: `stringify()`.
+- `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, and device reads to
   the write connection.
@@ -68,6 +70,10 @@ specific principal or device and the runtime cannot prove that claim, authentica
 
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserAttributesFailedEventToResolvedIdentityWhenPidHintRejectsToken`
+- `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
+  `testUserRejectsTokenWithoutPrincipalClaimInsteadOfUsingTheDefault`
+- `tests/Unit/Jwt/JwtTokenServiceTest.php`
+  `testParseRejectsATokenMissingARequiredClaim`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsTokenWhenPidHintResolvesToNullPrincipal`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
@@ -112,6 +118,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 Update this note when any of the following change:
 
 - how `pid` and `did` are matched or coerced
+- which claims each token type requires (`TokenType::requiredClaims()`)
 - how a `did` is checked against the device model's key format before the lookup
 - whether hinted principal resolution can short-circuit through `ResolvesHintedPrincipal`
 - whether bearer `did` remains identity-scoped through `HasDevices`

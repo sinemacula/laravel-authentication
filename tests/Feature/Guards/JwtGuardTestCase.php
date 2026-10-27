@@ -230,8 +230,9 @@ abstract class JwtGuardTestCase extends TestCase
 
     /**
      * Encode an access-token-style JWT with `iat`, `exp`, `typ = access`, and
-     * the guard's `grd` claims baked in so the real
-     * `JwtTokenService::parse(..., TYPE_ACCESS)` path accepts it.
+     * the guard's `grd` claims baked in (plus a default `jti` the claims may
+     * override) so the real `JwtTokenService::parse(..., TYPE_ACCESS)` path
+     * accepts it.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -240,7 +241,7 @@ abstract class JwtGuardTestCase extends TestCase
     {
         $now = $this->now->getTimestamp();
 
-        return $this->encodeToken(array_merge($claims, [
+        return $this->encodeToken(array_merge(['jti' => 'access-token-id'], $claims, [
             'iat' => $now,
             'exp' => $now + (self::ACCESS_TTL * 60),
             'typ' => TokenType::ACCESS->value,

@@ -354,7 +354,7 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * A malformed refresh payload with an empty `jti` is rejected as
+     * A refresh payload whose `jti` is not a string is rejected as
      * `token_invalid` and preserves the parseable device id on the emitted
      * failure event.
      *
@@ -368,8 +368,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $exchange = $this->makeExchange();
 
         $token = $this->encodeRefreshToken([
-            'did' => 'device-empty-jti',
-            'jti' => '',
+            'did' => 'device-non-string-jti',
+            'jti' => 12345,
         ]);
 
         $this->events->shouldReceive('dispatch')
@@ -377,7 +377,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
                     && $event->reason   === RefreshFailureReason::TOKEN_INVALID
-                    && $event->deviceId === 'device-empty-jti'),
+                    && $event->deviceId === 'device-non-string-jti'),
             );
 
         self::assertNull($exchange->exchange($token));

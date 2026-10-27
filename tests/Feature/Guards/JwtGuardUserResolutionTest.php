@@ -117,7 +117,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserAttemptsARejectedTokenOncePerRequest(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-missing']);
+        $token = $this->encodeAccessToken(['sub' => 'i-missing', 'pid' => 'p-1']);
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $dispatched = [];
@@ -167,6 +167,34 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * An access token without `pid` is rejected before any lookup, instead of
+     * falling back to the resolver's default principal.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserRejectsTokenWithoutPrincipalClaimInsteadOfUsingTheDefault(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->resolver->shouldNotReceive('resolve');
+
+        self::assertNull($guard->user());
+        self::assertSame([Attempting::class, Failed::class], $dispatched);
+    }
+
+    /**
      * When `retrieveById()` returns null, `user()` returns null.
      *
      * @return void
@@ -175,7 +203,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenIdentityNotFound(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -204,7 +232,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenResolvedUserIsNotIdentity(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -234,7 +262,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenResolverProducesNoPrincipal(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -247,7 +275,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->resolver->shouldReceive('resolve')
             ->once()
-            ->with($identity)
+            ->with($identity, 'p-1')
             ->andReturnNull();
 
         $this->events->shouldReceive('dispatch')
@@ -310,7 +338,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserPropagatesUnresolvableIdentityException(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -324,7 +352,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->resolver->shouldReceive('resolve')
             ->once()
-            ->with($identity)
+            ->with($identity, 'p-1')
             ->andThrow($exception);
 
         $this->events->shouldReceive('dispatch')
@@ -433,7 +461,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenIdentityIsInactive(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 

@@ -171,8 +171,10 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Extract and shape-check the refresh-token claims. Dispatches
-     * `token_invalid` and returns `null` for any malformed payload.
+     * Extract and shape-check the refresh-token claims. `parse()` has already
+     * rejected a token missing `did` or `jti`, so what remains is a `jti` that
+     * is not a string. Dispatches `token_invalid` and returns `null` for any
+     * malformed payload.
      *
      * @param  ?array<string, mixed>  $claims
      * @return array{0: mixed, 1: string, 2: mixed}|null
@@ -186,12 +188,11 @@ final class RefreshTokenExchange
             return null;
         }
 
-        $rawDeviceId   = $claims[Claims::DEVICE_ID->value]    ?? null;
-        $rotationId    = $claims[Claims::JWT_ID->value]       ?? null;
+        $rawDeviceId   = $claims[Claims::DEVICE_ID->value];
+        $rotationId    = $claims[Claims::JWT_ID->value];
         $principalHint = $claims[Claims::PRINCIPAL_ID->value] ?? null;
-        $shapeOk       = $rawDeviceId !== null && is_string($rotationId) && $rotationId !== '';
 
-        if (!$shapeOk) {
+        if (!is_string($rotationId)) {
 
             $this->dispatchRefreshFailure(
                 RefreshFailureReason::TOKEN_INVALID,

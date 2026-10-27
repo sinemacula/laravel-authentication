@@ -16,7 +16,7 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
  */
 enum RefreshFailureReason: string
 {
-    // Token decode/expiry/typ/guard/iss/aud failure
+    // Token decode/expiry/missing claim/typ/guard/iss/aud failure
     case TOKEN_INVALID = 'token_invalid';
 
     // Device id is not a key of the device model or names no device

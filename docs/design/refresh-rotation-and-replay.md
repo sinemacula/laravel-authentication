@@ -30,7 +30,8 @@ stateful per-device credentials with server-side replay detection.
 
 ## Failure / Edge Cases
 
-- Missing or malformed claims produce `token_invalid`.
+- Missing or malformed claims produce `token_invalid`: a refresh token must carry `exp`, `iat`, `jti`, `typ`, `grd`, and
+  `did` (`pid` is optional).
 - Unknown device ids produce `device_unknown`, and so does a `did` that cannot be a key of the device model, which is
   rejected before any query.
 - Database errors are not a failure reason: they propagate to the caller as server errors, so an outage is never

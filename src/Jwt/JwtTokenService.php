@@ -22,7 +22,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  *
  * - signing material and algorithm live in a `JwtKeyring` that fails closed
  * - kid-based rotation via the active kid header and `kid -> Key` map
- * - `typ` claim distinguishes access from refresh
+ * - `typ` claim distinguishes access from refresh, and each type's required
+ *   claims (`TokenType::requiredClaims()`) must be present on every parse
  * - `grd` claim binds every token to the guard whose service issued it; a token
  *   from another guard is rejected even when the guards share a key
  * - configurable clock skew via `leewaySeconds` on every verification
@@ -142,7 +143,8 @@ final class JwtTokenService
      * function. A token whose `grd` claim does not name this service's guard is
      * always rejected. When `$expectedType` is supplied, tokens whose `typ`
      * claim does not match are rejected to prevent a refresh token being
-     * presented as an access token (and vice versa).
+     * presented as an access token (and vice versa). A token missing any claim
+     * its type requires, or whose `typ` is not a known type, is rejected.
      *
      * @param  string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -254,7 +256,8 @@ final class JwtTokenService
     }
 
     /**
-     * Verify guard, issuer, audience, and `typ` against expected values.
+     * Verify guard, issuer, audience, and `typ` against expected values, then
+     * that every claim the token's type requires is present.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -262,18 +265,50 @@ final class JwtTokenService
      */
     private function matchesExpectedClaims(array $claims, ?TokenType $expectedType): bool
     {
-        $mismatch = $this->firstClaimMismatch($claims, $expectedType);
+        $failure = $this->firstClaimMismatch($claims, $expectedType) ?? $this->firstMissingClaim($claims);
 
-        if ($mismatch === null) {
+        if ($failure === null) {
             return true;
         }
 
-        $this->logger->debug($mismatch['message'], [
-            'expected' => $mismatch['expected'],
-            'received' => $mismatch['received'],
-        ]);
+        $this->logger->debug($failure['message'], $failure['context']);
 
         return false;
+    }
+
+    /**
+     * Locate the first claim the token's type requires that is absent, `null`,
+     * or empty, or return `null` when all are present. A token whose `typ` is
+     * not a known type fails here too, since its required claims are unknown.
+     *
+     * @param  array<string, mixed>  $claims
+     * @return array{message: string, context: array<string, mixed>}|null
+     */
+    private function firstMissingClaim(array $claims): ?array
+    {
+        $typ  = $claims[Claims::TYPE->value] ?? null;
+        $type = is_string($typ) ? TokenType::tryFrom($typ) : null;
+
+        if ($type === null) {
+            return [
+                'message' => 'JWT typ unknown',
+                'context' => ['received' => $typ],
+            ];
+        }
+
+        foreach ($type->requiredClaims() as $claim) {
+
+            $value = $claims[$claim->value] ?? null;
+
+            if ($value === null || $value === '') {
+                return [
+                    'message' => 'JWT required claim missing',
+                    'context' => ['claim' => $claim->value, 'typ' => $type->value],
+                ];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -283,7 +318,7 @@ final class JwtTokenService
      *
      * @param  array<string, mixed>  $claims
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
-     * @return array{message: string, expected: mixed, received: mixed}|null
+     * @return array{message: string, context: array{expected: mixed, received: mixed}}|null
      */
     private function firstClaimMismatch(array $claims, ?TokenType $expectedType): ?array
     {
@@ -297,9 +332,8 @@ final class JwtTokenService
         foreach ($checks as [$claimKey, $expected, $message]) {
             if ($expected !== null && ($claims[$claimKey] ?? null) !== $expected) {
                 return [
-                    'message'  => $message,
-                    'expected' => $expected,
-                    'received' => $claims[$claimKey] ?? null,
+                    'message' => $message,
+                    'context' => ['expected' => $expected, 'received' => $claims[$claimKey] ?? null],
                 ];
             }
         }

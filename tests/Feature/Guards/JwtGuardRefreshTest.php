@@ -153,8 +153,9 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * A refresh token whose `jti` is present but empty is malformed and yields
-     * `token_invalid` while preserving the parseable device id for attribution.
+     * A refresh token whose `jti` is present but empty lacks a required claim,
+     * so it fails to parse and yields `token_invalid`; a token that does not
+     * parse carries no device id for attribution.
      *
      * @return void
      *
@@ -176,7 +177,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
                     && $event->reason   === RefreshFailureReason::TOKEN_INVALID
-                    && $event->deviceId === 'device-empty-jti'),
+                    && $event->deviceId === null),
             );
 
         self::assertNull($guard->refresh($token));

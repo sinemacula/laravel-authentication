@@ -42,9 +42,10 @@ device record live in the `devices` table so replay and stale credentials can be
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
-  issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, per-token `jti`, and fail-closed behaviour on
-  empty or short keys, unsupported algorithms, type confusion, tokens from another guard, and `pid` / `did`
-  mismatches.
+  issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, required claims per token type (`exp`, `iat`,
+  `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), and fail-closed
+  behaviour on empty or short keys, unsupported algorithms, type confusion, tokens from another guard, missing claims,
+  and `pid` / `did` mismatches.
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
   machine-readable `RefreshFailed` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
@@ -539,7 +540,7 @@ the published config:
 
 | Reason                    | Meaning                                              |
 |---------------------------|------------------------------------------------------|
-| `token_invalid`           | Decode, expiry, typ, guard, iss, or aud failure      |
+| `token_invalid`           | Decode, expiry, missing claim, typ, guard, iss, aud  |
 | `device_unknown`          | Device id is not a device key or names no device     |
 | `rotation_mismatch`       | Digest did not match the stored refresh key          |
 | `rotation_reuse`          | Replay or concurrent rotation; device revoked        |

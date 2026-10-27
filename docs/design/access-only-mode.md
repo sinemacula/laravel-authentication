@@ -8,7 +8,9 @@ principal auth without device tracking or refresh rotation.
 ## Invariants
 
 - The package can boot and authenticate bearer requests without a `devices` table.
-- Access tokens for this mode must be issued with `device = null`, which means the JWT carries `did = null`.
+- Access tokens for this mode must be issued with `device = null`, which means the JWT carries `did = null`. `did` is
+  the one access-token claim that may be absent or null; `sub`, `pid`, `exp`, `iat`, `jti`, `typ`, and `grd` are
+  required as on every access token.
 - The identity model does not need to implement `HasDevices`.
 - Bearer auth still rehydrates the identity through the configured provider and resolves the principal through the
   configured resolver.
