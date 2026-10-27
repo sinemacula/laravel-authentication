@@ -292,6 +292,62 @@ final class DatabaseAttemptLimiterTest extends TestCase
     }
 
     /**
+     * A stored window that other attempts fill between the read and the
+     * attempt's own increment refuses the attempt: the increment counts only
+     * while the window has room, so concurrent attempts never exceed `max`.
+     *
+     * @return void
+     */
+    public function testAStoredWindowFilledBeforeTheIncrementRefusesTheAttempt(): void
+    {
+        $this->setIdentifierDecay(600);
+        $this->limiter()->acquire($this->signIn('ben@example.com'));
+        $this->setIdentifierDecay(300);
+
+        $key = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
+
+        $this->beforeTheStoredWindowIncrement(static function () use ($key): void {
+            DB::table('rate_limits')->where('key', $key)->update(['hits' => 3]);
+        });
+
+        $refused = $this->limiter()->acquire($this->signIn('ben@example.com'));
+
+        self::assertFalse($refused->granted());
+        self::assertSame(450, $refused->retryAfter);
+        self::assertSame(3, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+        self::assertSame(1, $this->hitsOf($this->signIn('ben@example.com'), 'per_ip'));
+    }
+
+    /**
+     * A stored window replaced by a later one between the read and the
+     * attempt's own increment is left alone: the increment counts only in the
+     * window it read, which is the one a reservation records, so a slot is
+     * never taken from a window it could not be given back to.
+     *
+     * @return void
+     */
+    public function testAStoredWindowReplacedBeforeTheIncrementIsLeftAlone(): void
+    {
+        $this->setIdentifierDecay(600);
+        $this->limiter()->acquire($this->signIn('ben@example.com'));
+        $this->setIdentifierDecay(300);
+
+        $key  = $this->keyOf($this->signIn('ben@example.com'), 'per_identifier');
+        $next = $this->windowAt(1800000900);
+
+        $this->beforeTheStoredWindowIncrement(static function () use ($key, $next): void {
+            DB::table('rate_limits')->where('key', $key)->update(['hits' => 1, 'window_ends_at' => $next]);
+        });
+
+        $refused = $this->limiter()->acquire($this->signIn('ben@example.com'));
+
+        self::assertFalse($refused->granted());
+        self::assertSame(450, $refused->retryAfter);
+        self::assertSame(1, $this->hitsOf($this->signIn('ben@example.com'), 'per_identifier'));
+        self::assertSame($next, $this->storedWindowOf($key));
+    }
+
+    /**
      * Rows of `[change]`: what happens to a full counter between the attempt's
      * statements and its read.
      *
@@ -858,6 +914,33 @@ final class DatabaseAttemptLimiterTest extends TestCase
 
         DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $word, $callback): void {
             if ($ran || !str_contains(strtolower($query), $word)) {
+                return;
+            }
+
+            $ran = true;
+
+            $callback();
+        });
+    }
+
+    /**
+     * Run a callback once, just before the first conditional increment of a
+     * counter's stored window on the default connection (an update that adds
+     * one without the window-moving `case`), as another request would between
+     * this one's read and its increment.
+     *
+     * @param  \Closure(): mixed  $callback
+     * @return void
+     */
+    private function beforeTheStoredWindowIncrement(\Closure $callback): void
+    {
+        $ran = false;
+
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $callback): void {
+
+            $sql = strtolower($query);
+
+            if ($ran || !str_starts_with($sql, 'update') || !str_contains($sql, '+ 1') || str_contains($sql, 'case')) {
                 return;
             }
 
