@@ -20,7 +20,6 @@ use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfiguration
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
  * Refresh-token exchange service.
@@ -88,6 +87,7 @@ final class RefreshTokenExchange
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function exchange(#[\SensitiveParameter] string $refreshToken): ?ExchangedRefresh
     {
@@ -316,6 +316,8 @@ final class RefreshTokenExchange
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
      *
      * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function hydrateRefreshContext(EloquentDevice&Model $device, mixed $principalHint): ?array
     {
@@ -370,11 +372,13 @@ final class RefreshTokenExchange
      * @param  ?string  $deviceId
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolveRefreshPrincipal(Identity $identity, ?string $deviceId, mixed $hint = null): ?Principal
     {
         $hintProvided = $hint !== null;
-        $principal    = $this->safeResolvePrincipal($identity, $hint);
+        $principal    = $this->resolvePrincipal($identity, $hint);
 
         if ($hintProvided && !$this->matchesPidHint($principal, $hint)) {
 
@@ -408,23 +412,22 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve a principal for the identity, catching
-     * `UnresolvableIdentityException` and returning `null` so the caller
-     * surfaces `RefreshFailed` rather than a 500.
+     * Resolve a principal for the identity through the bound resolver, passing
+     * the hint only when one is supplied. An `UnresolvableIdentityException` is
+     * a misconfiguration and propagates as a server error rather than being
+     * reported as a refresh failure.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
+    private function resolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
     {
-        try {
-            return $hint === null
-                ? $this->resolver->resolve($identity)
-                : $this->resolver->resolve($identity, $hint);
-        } catch (UnresolvableIdentityException) {
-            return null;
-        }
+        return $hint === null
+            ? $this->resolver->resolve($identity)
+            : $this->resolver->resolve($identity, $hint);
     }
 
     /**

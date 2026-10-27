@@ -451,18 +451,19 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     /**
      * When the principal resolver throws `UnresolvableIdentityException` (i.e.
      * the identity model implements neither `Principal` nor `HasPrincipals`),
-     * the guard catches it and converts to a `Failed` event so the request
-     * returns 401, not 500.
+     * the misconfiguration propagates as a server error: no `Failed` event is
+     * dispatched and nothing is bound.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptConvertsUnresolvableIdentityExceptionToFailedEvent(): void
+    public function testAttemptPropagatesUnresolvableIdentityException(): void
     {
         $guard = $this->makeGuard();
 
-        $identity = $this->mockIdentity();
+        $identity  = $this->mockIdentity();
+        $exception = new UnresolvableIdentityException('Cannot resolve a principal');
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -474,7 +475,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')
             ->once()
             ->with($identity)
-            ->andThrow(new UnresolvableIdentityException('Cannot resolve a principal'));
+            ->andThrow($exception);
 
         $this->events->shouldReceive('dispatch')
             ->with(\Mockery::type(Attempting::class));
@@ -482,11 +483,17 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(\Mockery::type(Validated::class));
         $this->events->shouldNotReceive('dispatch')
             ->with(\Mockery::type(Login::class));
-        $this->events->shouldReceive('dispatch')
-            ->once()
+        $this->events->shouldNotReceive('dispatch')
             ->with(\Mockery::type(Failed::class));
 
-        self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
+        try {
+            $guard->attempt(['email' => 'x', 'password' => 'y']);
+            self::fail('Expected the UnresolvableIdentityException to propagate.');
+        } catch (UnresolvableIdentityException $caught) {
+            self::assertSame($exception, $caught);
+        }
+
+        self::assertFalse($guard->hasUser());
     }
 
     /**

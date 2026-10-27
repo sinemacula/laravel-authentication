@@ -31,9 +31,12 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
 - A failed `attempt()` emits `Attempting` and `Failed`, but not `Login` or `Authenticated`.
-- A successful credential check can still end in `Failed` if principal resolution later returns `null`, throws, or
-  resolves a principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same
-  thing as "fully bound".
+- A successful credential check can still end in `Failed` if principal resolution later returns `null` or resolves a
+  principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same thing as
+  "fully bound".
+- An `UnresolvableIdentityException` (an identity model that is neither a `Principal` nor `HasPrincipals`) is a
+  misconfiguration, not a failed authentication. It propagates as a server error from `attempt()`, bearer resolution,
+  and `refresh()`, with no `Failed` or `RefreshFailed` event.
 - Activation is opt-in through `CanBeActive` on the identity, the principal, or the tenant, and is decided by
   `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
@@ -77,6 +80,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testUserWithoutActiveColumnSignsInWithCredentials`
 - `tests/Integration/Guards/TenantActivityIntegrationTest.php`
   `testBearerRejectsMemberOfTenantDeactivatedAfterIssue`
+- `tests/Integration/Guards/MisconfiguredIdentityIntegrationTest.php`
+  `testBearerRequestAnswersWithServerError`
 
 ## Change Triggers
 

@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -256,6 +257,48 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with(\Mockery::type(Failed::class));
 
         self::assertNull($guard->user());
+    }
+
+    /**
+     * The resolver's `UnresolvableIdentityException` is a misconfiguration: it
+     * propagates out of `user()` as a server error instead of being reported as
+     * a `Failed` bearer attempt.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserPropagatesUnresolvableIdentityException(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity  = \Mockery::mock(Identity::class);
+        $exception = new UnresolvableIdentityException('cannot resolve');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andThrow($exception);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldNotReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
+
+        try {
+            $guard->user();
+            self::fail('Expected the UnresolvableIdentityException to propagate.');
+        } catch (UnresolvableIdentityException $caught) {
+            self::assertSame($exception, $caught);
+        }
     }
 
     /**

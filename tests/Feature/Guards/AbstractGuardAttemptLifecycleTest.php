@@ -295,7 +295,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     /**
      * `attempt()` accepts an explicit `Principal` argument and uses it directly
      * instead of invoking the resolver. Pins the `$principal ??
-     * $this->safeResolvePrincipal(...)` short-circuit - a mutation that swaps
+     * $this->resolvePrincipal(...)` short-circuit - a mutation that swaps
      * `??` for `?:` would still pass when the caller-provided principal is
      * truthy, so we use a fresh mock the resolver MUST NOT touch.
      *

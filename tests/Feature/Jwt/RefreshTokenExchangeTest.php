@@ -44,8 +44,8 @@ use Tests\Unit\Stubs\StubInjectableDevice;
  *
  * - invalid `device.model` config -> refresh fails fast with an explicit
  *   configuration exception rather than falling through to `device_unknown`.
- * - resolver throws `UnresolvableIdentityException` -> the exchange catches it
- *   inside `safeResolvePrincipal` and dispatches `principal_unresolved`.
+ * - resolver throws `UnresolvableIdentityException` -> the misconfiguration
+ *   propagates out of the exchange instead of becoming a refresh failure.
  * - device model outside the explicit `EloquentDevice` boundary is rejected.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -171,17 +171,17 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * `safeResolvePrincipal` catches an `UnresolvableIdentityException` thrown
-     * by the resolver and surfaces `principal_unresolved` rather than letting
-     * the exception propagate up to the caller. Pins the catch arm in
-     * `safeResolvePrincipal()`.
+     * An `UnresolvableIdentityException` thrown by the resolver is a
+     * misconfiguration: it propagates out of the exchange as a server error
+     * instead of being reported as a refresh failure, and the stored rotation
+     * is left untouched.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testExchangeConvertsUnresolvableIdentityExceptionToFailure(): void
+    public function testExchangePropagatesUnresolvableIdentityException(): void
     {
         $plainRotationId = 'stored-rotation-id';
 
@@ -198,27 +198,29 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->swapDeviceModelToInMemoryInstance($device);
 
-        $exchange = $this->makeExchange();
+        $exchange  = $this->makeExchange();
+        $exception = new UnresolvableIdentityException('cannot resolve');
 
         $this->resolver->shouldReceive('resolve')
             ->once()
             ->with($identity)
-            ->andThrow(new UnresolvableIdentityException('cannot resolve'));
+            ->andThrow($exception);
 
         $token = $this->encodeRefreshToken([
             'did' => $device->id,
             'jti' => $plainRotationId,
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
-                    && $event->deviceId === $device->id),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
-        self::assertNull($exchange->exchange($token));
+        try {
+            $exchange->exchange($token);
+            self::fail('Expected the UnresolvableIdentityException to propagate.');
+        } catch (UnresolvableIdentityException $caught) {
+            self::assertSame($exception, $caught);
+        }
+
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
     }
 
     /**

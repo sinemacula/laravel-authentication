@@ -19,7 +19,6 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
-use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
  * Abstract base for the package's stateless contextual guards.
@@ -341,23 +340,25 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Resolve a principal for the identity, catching
-     * `UnresolvableIdentityException` and returning `null` so the calling auth
-     * path surfaces a `Failed` event + 401 rather than propagating a 500.
+     * Resolve a principal for the identity through the bound resolver, passing
+     * the hint only when one is supplied.
+     *
+     * An `UnresolvableIdentityException` (an identity model that is neither a
+     * `Principal` nor `HasPrincipals`) is a misconfiguration, not a failed
+     * authentication, so it propagates as a server error rather than being
+     * reported as a `Failed` attempt.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    protected function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
+    protected function resolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
     {
-        try {
-            return $hint === null
-                ? $this->resolver->resolve($identity)
-                : $this->resolver->resolve($identity, $hint);
-        } catch (UnresolvableIdentityException) {
-            return null;
-        }
+        return $hint === null
+            ? $this->resolver->resolve($identity)
+            : $this->resolver->resolve($identity, $hint);
     }
 
     /**
@@ -401,6 +402,8 @@ abstract class AbstractGuard implements ContextualGuard
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
      *
      * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal): ?array
     {
@@ -419,7 +422,7 @@ abstract class AbstractGuard implements ContextualGuard
         }
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        $resolved = $principal ?? $this->safeResolvePrincipal($user);
+        $resolved = $principal ?? $this->resolvePrincipal($user);
 
         return $resolved !== null && ActivationPolicy::isPrincipalActive($resolved) ? [$user, $resolved] : null;
     }

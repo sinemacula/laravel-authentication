@@ -86,6 +86,8 @@ final class JwtGuard extends AbstractGuard
      * downgraded.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     #[\Override]
     public function user(): ?Identity
@@ -114,6 +116,7 @@ final class JwtGuard extends AbstractGuard
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
      *
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function refresh(#[\SensitiveParameter] string $refreshToken): ?RefreshResult
     {
@@ -188,6 +191,8 @@ final class JwtGuard extends AbstractGuard
      *
      * @param  string  $token
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolveBearerToken(#[\SensitiveParameter] string $token): ?Identity
     {
@@ -227,6 +232,8 @@ final class JwtGuard extends AbstractGuard
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolveContextFromToken(#[\SensitiveParameter] string $token): ?array
     {
@@ -291,6 +298,8 @@ final class JwtGuard extends AbstractGuard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $user
      * @param  array<string, mixed>  $claims
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolveActivePrincipal(Identity $user, array $claims): ?Principal
     {
@@ -306,6 +315,8 @@ final class JwtGuard extends AbstractGuard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<string, mixed>  $claims
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolvePrincipalFromClaims(Identity $identity, array $claims): ?Principal
     {
@@ -313,11 +324,11 @@ final class JwtGuard extends AbstractGuard
             && $claims[Claims::PRINCIPAL_ID->value] !== null;
 
         if (!$hintProvided) {
-            return $this->safeResolvePrincipal($identity);
+            return $this->resolvePrincipal($identity);
         }
 
         $hint     = $claims[Claims::PRINCIPAL_ID->value];
-        $resolved = $this->safeResolvePrincipal($identity, $hint);
+        $resolved = $this->resolvePrincipal($identity, $hint);
 
         return $this->matchesPidHint($resolved, $hint) ? $resolved : null;
     }
