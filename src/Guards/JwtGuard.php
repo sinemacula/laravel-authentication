@@ -252,17 +252,17 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Look up the identity for the `sub` claim and confirm it is active. Stores
-     * the retrieved user on `$lastRetrievedUser` even on the
-     * inactive/non-Identity branches so `Failed` attributes to the resolved
-     * account rather than a null.
+     * Look up the identity for the `sub` claim, which `parse()` guarantees on
+     * an access token, and confirm it is active. Stores the retrieved user on
+     * `$lastRetrievedUser` even on the inactive/non-Identity branches so
+     * `Failed` attributes to the resolved account rather than a null.
      *
      * @param  ?array<string, mixed>  $claims
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      */
     private function loadIdentityFromClaims(?array $claims): ?Identity
     {
-        if ($claims === null || ($claims[Claims::SUBJECT->value] ?? null) === null) {
+        if ($claims === null) {
             return null;
         }
 
@@ -299,8 +299,9 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Resolve a principal from the claims, preserving fail-closed semantics on
-     * a present-but-unresolvable `pid` hint.
+     * Resolve the principal named by the `pid` claim, which `parse()`
+     * guarantees on an access token, failing closed when the resolver returns
+     * any other principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<string, mixed>  $claims
@@ -310,13 +311,6 @@ final class JwtGuard extends AbstractGuard
      */
     private function resolvePrincipalFromClaims(Identity $identity, array $claims): ?Principal
     {
-        $hintProvided = array_key_exists(Claims::PRINCIPAL_ID->value, $claims)
-            && $claims[Claims::PRINCIPAL_ID->value] !== null;
-
-        if (!$hintProvided) {
-            return $this->resolvePrincipal($identity);
-        }
-
         $hint     = $claims[Claims::PRINCIPAL_ID->value];
         $resolved = $this->resolvePrincipal($identity, $hint);
 
