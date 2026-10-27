@@ -197,7 +197,15 @@ final class GuardCoexistenceIntegrationTest extends TestCase
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->identity());
         self::assertNotInstanceOf(Coexist2dIdentity::class, $guard3d->principal());
 
-        // The active guard exposes its own identity key.
+        // Resolving the 2D guard against the new request does not accept the 3D
+        // guard's token: tokens are bound to the guard that issued them, even
+        // though both guards sign with the same key and the identifiers
+        // collide.
+        self::assertNull($guard2d->identity());
+        self::assertNull($guard2d->principal());
+
+        // The active guard exposes its own identity key; the 2D guard has none.
+        self::assertNull($guard2d->id());
         self::assertSame($threeDIdentity->getKey(), $guard3d->id());
     }
 
