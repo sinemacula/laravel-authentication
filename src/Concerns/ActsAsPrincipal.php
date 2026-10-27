@@ -113,6 +113,10 @@ trait ActsAsPrincipal
             return null;
         }
 
+        if (!$this->relationLoaded($name)) {
+            $this->activatableTenantRelation($name);
+        }
+
         $tenant = $this->getAttribute($name);
 
         if ($tenant instanceof Tenant && !$this->isActivatableTenantPlaceholder($tenant, $name)) {
