@@ -44,14 +44,7 @@ trait VerifiesPinnedContext
      */
     protected function matchesPidHint(?Principal $resolved, mixed $hint): bool
     {
-        if ($resolved === null) {
-            return false;
-        }
-
-        $resolvedId = IdentifierCoercion::stringify($resolved->getPrincipalIdentifier());
-        $hintId     = IdentifierCoercion::stringify($hint);
-
-        return $resolvedId !== null && $hintId !== null && hash_equals($resolvedId, $hintId);
+        return IdentifierCoercion::matches($resolved?->getPrincipalIdentifier(), $hint);
     }
 
     /**

@@ -609,8 +609,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * Fail-closed: when the resolver returns a principal whose identifier
      * stringifies to `null` (e.g. an unsaved Eloquent model returned from a
      * misbehaving custom resolver), the guard MUST reject the token rather than
-     * bind a transient actor. Pins the `$resolvedId !== null` arm of
-     * `matchesPidHint()`.
+     * bind a transient actor. Pins the fail-closed `null` arm of
+     * `IdentifierCoercion::matches()`.
      *
      * @return void
      *

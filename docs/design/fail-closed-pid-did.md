@@ -52,9 +52,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `src/Guards/JwtGuard.php`: `resolveContextFromToken()`, `resolvePrincipalFromClaims()`, `loadIdentityFromClaims()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: `matchesPidHint()` and `resolveDeviceFromHint()`, each shared by the
   bearer path and the pinned-context check in `attempt()`, plus `resolvePinnedPrincipal()` and `resolvePinnedDevice()`.
-- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`,
-  `matchesPidHint()`.
-- `src/Jwt/IdentifierCoercion.php`: `stringify()`.
+- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `loadDeviceForRefresh()`, `resolveRefreshPrincipal()`.
+- `src/Jwt/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind `matchesPidHint()` and the
+  refresh `pid` check.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
 - `src/Database/WriteConnection.php`: `query()` and `during()`, which pin the identity, principal, tenant, and device

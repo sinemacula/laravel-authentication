@@ -434,9 +434,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * Fail-closed: when the resolver returns `null` for a hinted `pid` during
-     * refresh, `matchesPidHint` must return `false` so the exchange rejects the
-     * token. Mutation guard: pins the `$resolved === null` early-return `false`
-     * in `RefreshTokenExchange::matchesPidHint()`.
+     * refresh, the hint check must fail so the exchange rejects the token.
+     * Mutation guard: pins the null-safe principal read in
+     * `RefreshTokenExchange::resolveRefreshPrincipal()`.
      *
      * @return void
      *

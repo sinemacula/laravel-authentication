@@ -601,6 +601,58 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * Fail-closed: when the resolver resolves nothing for a hinted `pid`, the
+     * exchange reports `principal_mismatch` rather than falling through to the
+     * unresolved-principal branch, and no rotation happens.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testExchangeRejectsHintedPrincipalTheResolverCannotResolve(): void
+    {
+        $plainRotationId = 'stored-rotation-id';
+
+        $identity = new StubIdentity;
+        $identity->forceFill(['id' => 15]);
+
+        $device = new StubDevice;
+        $device->forceFill([
+            'authenticatable_type' => StubIdentity::class,
+            'authenticatable_id'   => '15',
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
+        ])->save();
+        $this->expectOwnerReload($device, $identity);
+
+        $this->swapDeviceModelToInMemoryInstance($device);
+
+        $exchange = $this->makeExchange();
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-hinted')
+            ->andReturnNull();
+
+        $token = $this->encodeRefreshToken([
+            'pid' => 'p-hinted',
+            'did' => $device->id,
+            'jti' => $plainRotationId,
+        ]);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
+                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
+                    && $event->deviceId === $device->id),
+            );
+
+        self::assertNull($exchange->exchange($token));
+        self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
+    }
+
+    /**
      * A `did` that cannot be a key of the configured device model names no
      * device: the exchange reports `device_unknown` without querying.
      *

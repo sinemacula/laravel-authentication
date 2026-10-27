@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 
 /**
  * Coerce identifier values returned by package contracts into JWT claim
- * strings.
+ * strings, and compare identifiers in that form.
  *
  * RFC 7519 §4.1.2 requires `sub` (and `pid`/`did`/`jti`) to be a `StringOrURI`,
  * but the contract getters return `mixed`.
@@ -39,5 +39,23 @@ final class IdentifierCoercion
             $identifier instanceof \Stringable => (string) $identifier,
             default                            => null,
         };
+    }
+
+    /**
+     * Whether a known identifier equals a supplied one (a claim or a
+     * caller-supplied hint) once both are coerced to strings, compared in
+     * constant time. Fails closed: returns `false` when either one does not
+     * coerce, such as the `null` identifier of an unsaved model.
+     *
+     * @param  mixed  $identifier
+     * @param  mixed  $supplied
+     * @return bool
+     */
+    public static function matches(mixed $identifier, mixed $supplied): bool
+    {
+        $known     = self::stringify($identifier);
+        $candidate = self::stringify($supplied);
+
+        return $known !== null && $candidate !== null && hash_equals($known, $candidate);
     }
 }

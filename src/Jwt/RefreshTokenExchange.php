@@ -392,7 +392,7 @@ final class RefreshTokenExchange
         $hintProvided = $hint !== null;
         $principal    = $this->resolvePrincipal($identity, $hint);
 
-        if ($hintProvided && !$this->matchesPidHint($principal, $hint)) {
+        if ($hintProvided && !IdentifierCoercion::matches($principal?->getPrincipalIdentifier(), $hint)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_MISMATCH, $deviceId);
 
@@ -440,25 +440,6 @@ final class RefreshTokenExchange
         return $hint === null
             ? $this->resolver->resolve($identity)
             : $this->resolver->resolve($identity, $hint);
-    }
-
-    /**
-     * Confirm a resolver-returned principal matches the `pid` hint.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
-     * @param  mixed  $hint
-     * @return bool
-     */
-    private function matchesPidHint(?Principal $resolved, mixed $hint): bool
-    {
-        if ($resolved === null) {
-            return false;
-        }
-
-        $resolvedId = IdentifierCoercion::stringify($resolved->getPrincipalIdentifier());
-        $hintId     = IdentifierCoercion::stringify($hint);
-
-        return $resolvedId !== null && $hintId !== null && hash_equals($resolvedId, $hintId);
     }
 
     /**
