@@ -540,6 +540,32 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * A guard `active_kid` override of `null` is treated as absent and falls
+     * back to the package-wide active kid instead of failing closed.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAuthFacadeJwtFallsBackToPackageActiveKidForNullGuardOverride(): void
+    {
+        config()->set('auth.guards.null_active_kid', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+            'jwt'      => [
+                'active_kid' => null,
+            ],
+        ]);
+
+        $token = $this->issueAccessToken(PackageAuth::jwt('null_active_kid'));
+
+        $verifier = $this->makeVerifier([self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
+
+        self::assertSame(self::PACKAGE_KID, $this->jwtHeader($token)['kid'] ?? null);
+        self::assertNotNull($verifier->parse($token, TokenType::ACCESS));
+    }
+
+    /**
      * A guard `active_kid` that is neither a string nor an integer fails closed
      * with the typed configuration exception instead of silently falling back
      * to the package-wide active kid.
@@ -558,8 +584,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $this->expectException(InvalidJwtConfigurationException::class);
         $this->expectExceptionMessage(
-            'JWT active kid is missing or not a string. Set `authentication.jwt.active_kid` (or the guard\'s'
-            . ' `jwt.active_kid` override) to a kid in the key map.',
+            'JWT active kid is missing or not a string or integer. Set `authentication.jwt.active_kid` (or the'
+            . ' guard\'s `jwt.active_kid` override) to a kid in the key map.',
         );
 
         PackageAuth::jwt('boolean_active_kid');
@@ -576,7 +602,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         config()->set('authentication.jwt.active_kid', null);
 
         $this->expectException(InvalidJwtConfigurationException::class);
-        $this->expectExceptionMessage('JWT active kid is missing or not a string.');
+        $this->expectExceptionMessage('JWT active kid is missing or not a string or integer.');
 
         PackageAuth::jwt('package_default');
     }

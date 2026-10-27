@@ -158,10 +158,11 @@ final class JwtTokenServiceFactory
      * Resolve the active kid, preferring the per-guard override and falling
      * back to the package-wide default.
      *
-     * A purely numeric kid written as an integer (e.g. `'active_kid' => 2026`)
-     * resolves to its string form, matching how `JwtKeyring` looks up numeric
-     * kids. Any other non-string value fails closed here rather than falling
-     * back to the package-wide kid.
+     * A guard override that is absent or `null` falls back to the package-wide
+     * kid. A purely numeric kid written as an integer (e.g.
+     * `'active_kid' => 2026`) resolves to its string form, matching how
+     * `JwtKeyring` looks up numeric kids. Any other non-string value, at either
+     * level, fails closed instead of falling back.
      *
      * @param  array<string, mixed>  $guardJwtConfig
      * @return string
@@ -178,8 +179,8 @@ final class JwtTokenServiceFactory
 
         if (!is_string($activeKid)) {
 
-            $message = 'JWT active kid is missing or not a string. Set'
-                . ' `authentication.jwt.active_kid` (or the guard\'s'
+            $message = 'JWT active kid is missing or not a string or integer.'
+                . ' Set `authentication.jwt.active_kid` (or the guard\'s'
                 . ' `jwt.active_kid` override) to a kid in the key map.';
 
             throw new InvalidJwtConfigurationException($message);
