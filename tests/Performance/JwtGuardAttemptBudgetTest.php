@@ -44,6 +44,9 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     /** @var int Timebox for the timing contracts, in microseconds. */
     private const int TIMEBOX_MICROSECONDS = 200000;
 
+    /** @var int Successful sign-ins timed against the timebox. */
+    private const int SUCCESSFUL_TIMING_SAMPLES = 3;
+
     /**
      * Provision the fixture tables.
      *
@@ -265,7 +268,9 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
     /**
      * A successful sign-in returns as soon as it is done instead of waiting out
-     * the timebox.
+     * the timebox. The fastest of a few sign-ins is compared, so one scheduler
+     * pause or slow query cannot fail the contract; the early return itself is
+     * pinned without timing in AbstractGuardAttemptLifecycleTest.
      *
      * @return void
      *
@@ -277,12 +282,18 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 
         $this->useTimebox();
 
-        $guard = $this->freshGuard(self::TWO_D_GUARD);
+        $fastest = PHP_INT_MAX;
 
-        $started = hrtime(true);
+        for ($attempt = 0; $attempt < self::SUCCESSFUL_TIMING_SAMPLES; $attempt++) {
+            $guard   = $this->freshGuard(self::TWO_D_GUARD);
+            $started = hrtime(true);
 
-        self::assertTrue($guard->attempt($this->credentials($identity->email)));
-        self::assertLessThan(self::TIMEBOX_MICROSECONDS * 1000, hrtime(true) - $started);
+            self::assertTrue($guard->attempt($this->credentials($identity->email)));
+
+            $fastest = min($fastest, hrtime(true) - $started);
+        }
+
+        self::assertLessThan(self::TIMEBOX_MICROSECONDS * 1000, $fastest);
     }
 
     /**
