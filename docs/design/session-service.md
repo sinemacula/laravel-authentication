@@ -33,7 +33,8 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   the token is completed a second time. A release that fails then is reported to the exception handler, not thrown,
   the one limiter error that does not propagate: the session already stands, and Laravel runs a commit's callbacks in
   order without catching, so a throw would stop the later ones (another completion's events, the caller's own). The
-  release stops at the failure, and the slots not given back stay counted.
+  release stops at the failure, and the slots not given back stay counted. A handler that throws while reporting is
+  not caught, as with Laravel's `rescue()`: an error that cannot be reported surfaces rather than vanishing.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
