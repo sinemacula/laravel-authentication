@@ -239,9 +239,10 @@ final class RefreshTokenExchange
 
     /**
      * Run the exchange on the device the token names. A device of another guard
-     * (or of none) fails as `device_guard_mismatch` before anything else is
-     * judged, so a token of one guard can never revoke another guard's device.
-     * A failure that proves a replay revokes the device; no other one does.
+     * (or of none), read on the write connection, fails as
+     * `device_guard_mismatch` before anything else is judged, so a token of one
+     * guard can never revoke another guard's device. A failure that proves a
+     * replay revokes the device; no other one does.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $rotationId
@@ -257,7 +258,8 @@ final class RefreshTokenExchange
      */
     private function exchangeOn(EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, mixed $principalHint, CarbonImmutable $now): ExchangedRefresh|RefreshFailed
     {
-        $verdict = $device->getGuard() === $this->guardName
+        $guard   = WriteConnection::during($device, static fn (): ?string => $device->getGuard());
+        $verdict = $guard === $this->guardName
             ? $this->classify($device, $rotationId, $now)
             : RefreshFailureReason::DEVICE_GUARD_MISMATCH;
 
@@ -453,7 +455,8 @@ final class RefreshTokenExchange
      * still be allowed to (a device that records none fails closed, as
      * `method_not_allowed`), and the policy must still admit the identity as
      * the principal (`principal_ineligible`). A refresh names no identifier, so
-     * the verified-identifier requirement does not apply to it.
+     * the verified-identifier requirement does not apply to it. The method is
+     * read inside `WriteConnection::during()`, as the device's state is.
      *
      * @formatter:off
      *
@@ -487,7 +490,7 @@ final class RefreshTokenExchange
         }
 
         $policy  = Container::getInstance()->make(AudiencePolicy::class);
-        $method  = $device->getSignInMethod();
+        $method  = WriteConnection::during($device, static fn (): ?string => $device->getSignInMethod());
         $allowed = $method !== null && $policy->allowsMethod($this->guardName, $method);
 
         return match (true) {

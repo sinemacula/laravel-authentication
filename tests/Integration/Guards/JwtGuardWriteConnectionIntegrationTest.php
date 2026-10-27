@@ -40,6 +40,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\EagerRevocationLogDevice;
+use Tests\Integration\Fixtures\OriginLogDevice;
 use Tests\Integration\Fixtures\RevocationLogDevice;
 use Tests\Integration\Fixtures\RevocationLogIdentity;
 use Tests\Integration\Fixtures\SuspendableUser;
@@ -590,6 +591,64 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * Rows of `[origin the primary records, refusal]`: a device that derives
+     * its guard and sign-in method from another table, whose origin the replica
+     * still shows as an `api` password session.
+     *
+     * @return iterable<string, array{0: array{guard: string, sign_in_method: string}, 1: \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason}>
+     */
+    public static function provideOriginsRecordedOnThePrimary(): iterable
+    {
+        yield from [
+            'another guard'       => [['guard' => 'admin', 'sign_in_method' => 'password'], RefreshFailureReason::DEVICE_GUARD_MISMATCH],
+            'a disallowed method' => [['guard' => 'api', 'sign_in_method' => 'disabled'], RefreshFailureReason::METHOD_NOT_ALLOWED],
+        ];
+    }
+
+    /**
+     * A refresh for a device that derives its guard and sign-in method from
+     * another table, whose origin the primary records as one the guard refuses
+     * while the replica still shows an `api` password session, is refused for
+     * the primary's origin and leaves the refresh digest as it was.
+     *
+     * @param  array{guard: string, sign_in_method: string}  $origin
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideOriginsRecordedOnThePrimary')]
+    public function testRefreshJudgesTheOriginRecordedOnThePrimaryWhileTheReplicaLags(array $origin, RefreshFailureReason $reason): void
+    {
+        app(ConfigRepository::class)->set('authentication.device.model', OriginLogDevice::class);
+
+        $this->createOnPrimaryAndReplica('device_origins', static function (Blueprint $blueprint): void {
+            $blueprint->uuid('device_id');
+            $blueprint->string('guard');
+            $blueprint->string('sign_in_method');
+        });
+
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity, OriginLogDevice::class);
+
+        DB::connection(self::REPLICA_CONNECTION)->table('device_origins')->insert(['device_id' => $device->getKey(), 'guard' => 'api', 'sign_in_method' => 'password']);
+        DB::connection(self::PRIMARY_CONNECTION)->table('device_origins')->insert(['device_id' => $device->getKey(), ...$origin]);
+
+        $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $reasons      = [];
+
+        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+            $reasons[] = $event->reason;
+        });
+
+        self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken));
+        self::assertSame([$reason], $reasons);
+        $stored = DB::connection(self::PRIMARY_CONNECTION)->table('devices')->where('id', $device->getKey())->value('refresh_key');
+
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $stored);
+    }
+
+    /**
      * A refresh for a device whose digest exists only on the primary rotates
      * successfully, so the device and owner lookups read the writer.
      *
@@ -994,11 +1053,12 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
      * connection, so it exists on the primary only.
      *
      * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @param  class-string<\SineMacula\Laravel\Authentication\Models\Device>  $model
      * @return \SineMacula\Laravel\Authentication\Models\Device
      */
-    private function seedDevice(StubPrincipal $identity): Device
+    private function seedDevice(StubPrincipal $identity, string $model = Device::class): Device
     {
-        $device = new Device;
+        $device = new $model;
         $device->forceFill([
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
