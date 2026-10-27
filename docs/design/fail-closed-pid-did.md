@@ -25,7 +25,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - The identity, principal, tenant, and device reads behind those checks go to the write connection, so a lagging read
   replica cannot satisfy a `pid` or `did`, or an activity check, the primary no longer recognises. The identity and
   principal lookups run with their model's connection pinned, so relations they eager-load (a `$with` tenant, say) come
-  from the writer too, not only the lookup's own query.
+  from the writer too, not only the lookup's own query, and so does each `CanBeActive::isActive()` check.
 
 ## Success Path
 
@@ -126,6 +126,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `testBearerRejectsMemberWhoseEagerLoadedTenantIsDeactivatedOnThePrimary`
 - `tests/Integration/Guards/JwtGuardEagerLoadWriteConnectionIntegrationTest.php`
   `testBearerRejectsUserWhoseEagerLoadedTenantIsDeactivatedOnThePrimary`
+- `tests/Integration/Guards/JwtGuardWriteConnectionIntegrationTest.php`
+  `testBearerRejectsIdentitySuspendedOnThePrimaryWhileTheReplicaLags`
 
 ## Change Triggers
 

@@ -10,6 +10,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -28,6 +29,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
+use Tests\Integration\Fixtures\SuspendableUser;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Integration\Fixtures\TenantAware3dTenant;
@@ -287,6 +289,44 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
+     * An identity suspended on the primary while the replica lags is rejected:
+     * its own `isActive()` check, which reads the database, runs against the
+     * writer.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testBearerRejectsIdentitySuspendedOnThePrimaryWhileTheReplicaLags(): void
+    {
+        $this->createOnPrimaryAndReplica('suspendable_users', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email')->unique();
+            $blueprint->string('password');
+            $blueprint->timestamps();
+        });
+
+        $this->createOnPrimaryAndReplica('user_suspensions', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('user_id');
+        });
+
+        $user = new SuspendableUser;
+        $user->forceFill(['email' => 'suspended@example.test', 'password' => 'hashed'])->save();
+
+        $this->copyRowToReplica('suspendable_users', $user->getKey());
+
+        $token   = $this->authManager()->jwt('suspendable')->issueAccessToken($user, $user, null);
+        $request = Request::create('/me', 'GET', server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $token]);
+
+        self::assertTrue($user->is($this->guardForRequest($request, 'suspendable')->user()));
+
+        DB::connection(self::SPLIT_CONNECTION)->table('user_suspensions')->insert(['user_id' => $user->getKey()]);
+
+        self::assertNull($this->guardForRequest($request, 'suspendable')->user());
+    }
+
+    /**
      * The model provider finds an identity by credentials when the row exists
      * only on the primary.
      *
@@ -398,6 +438,16 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $config->set('auth.providers.members', [
             'driver' => 'model',
             'model'  => ActivatableTenantMember::class,
+        ]);
+
+        $config->set('auth.guards.suspendable', [
+            'driver'   => 'jwt',
+            'provider' => 'suspendable',
+        ]);
+
+        $config->set('auth.providers.suspendable', [
+            'driver' => 'model',
+            'model'  => SuspendableUser::class,
         ]);
 
         // Failed attempts wait out the timebox; keep it short.

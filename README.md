@@ -249,8 +249,8 @@ Code you plug in carries the same obligation:
 - a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
   must read from the write connection, including the relations its results eager-load;
 - `resolveDefaultPrincipal()` and `resolveHintedPrincipal()` already run with reads on the identity's connection pinned
-  to the write connection, and `getTenant()` with reads on the principal's connection pinned; a lookup they make on
-  another connection must pin itself.
+  to the write connection, `getTenant()` with reads on the principal's connection pinned, and `isActive()` with reads on
+  the connection of the model it belongs to pinned; a lookup they make on another connection must pin itself.
 
 `WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
 queries that it does not reach, so run a lookup whose results load relations inside `during()`:

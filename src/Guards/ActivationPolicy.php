@@ -32,12 +32,16 @@ final class ActivationPolicy
      * Whether the subject (an identity, principal, or tenant) may authenticate.
      * Returns `true` for subjects that do not implement `CanBeActive`.
      *
+     * `isActive()` runs with reads on the subject's connection pinned to the
+     * write connection, so a check that reads the database (a suspension row, a
+     * lazily loaded relation) cannot be answered by a lagging replica.
+     *
      * @param  object  $subject
      * @return bool
      */
     public static function isActive(object $subject): bool
     {
-        return !$subject instanceof CanBeActive || $subject->isActive();
+        return !$subject instanceof CanBeActive || WriteConnection::during($subject, static fn (): bool => $subject->isActive());
     }
 
     /**
