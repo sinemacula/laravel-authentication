@@ -555,27 +555,32 @@ final class PendingSignInsTest extends TestCase
     }
 
     /**
-     * The context of the sign-in is rebuilt from what the pending one recorded.
+     * A completion runs in the completing client's context with the description
+     * the sign-in gave, and the client the sign-in came from is kept as its
+     * origin.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testTheContextIsTheRecordedOne(): void
+    public function testTheContextIsTheCompletingClientsAndTheOriginTheRecordedOne(): void
     {
-        $identity = $this->seedIdentity();
-        $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
-        $pending  = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', null, $context, $this->now);
-        $row      = PendingSignIn::query()->whereKey(explode('.', $pending->token, 2)[0])->firstOrFail();
-        $rebuilt  = PendingSignIns::context($row);
+        $identity   = $this->seedIdentity();
+        $context    = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
+        $pending    = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', null, $context, $this->now);
+        $row        = PendingSignIn::query()->whereKey(explode('.', $pending->token, 2)[0])->firstOrFail();
+        $completing = new ClientContext('198.51.100.9', 'Factor/1.0');
+        $rebuilt    = PendingSignIns::context($row, $completing);
+        $origin     = PendingSignIns::origin($row);
 
         self::assertNull($row->identifier_type);
-        self::assertSame('192.0.2.1', $rebuilt->client->ip);
-        self::assertSame('Pending/1.0', $rebuilt->client->userAgent);
+        self::assertSame($completing, $rebuilt->client);
         self::assertSame('Phone', $rebuilt->clientName);
         self::assertSame('iOS', $rebuilt->platform);
         self::assertNull($rebuilt->principal);
         self::assertNull($rebuilt->refreshToken);
+        self::assertSame('192.0.2.1', $origin->ip);
+        self::assertSame('Pending/1.0', $origin->userAgent);
     }
 
     /**

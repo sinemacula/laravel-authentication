@@ -67,7 +67,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   principal through the hinted path as the recorded one, still owned) without using it up. `complete()` uses it up by a
   `DELETE` on its id, digest and unexpired `expires_at` that only one completion can win, checks it again (method,
   activity, tenant, `admit()` with the stored identifier type; not the factor policy), and writes the session in the
-  same transaction; a failed check still uses it up. Every lookup failure is `pending_invalid`.
+  same transaction; a failed check still uses it up. Every lookup failure is `pending_invalid`. A completion runs in the
+  completing request's client: its events and the device's last use carry that client, while a device it creates
+  records the client the sign-in came from as its creation.
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
   events wait for the caller's commit, and a rollback withdraws them with the device while the guard stays bound. Do not
   roll back around a sign-in.

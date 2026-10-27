@@ -230,15 +230,28 @@ final readonly class PendingSignIns
     }
 
     /**
-     * The context of the sign-in the pending one recorded: the client it came
-     * from and the description it gave.
+     * The context a completion of the pending sign-in runs in: the client that
+     * completes it, with the description the sign-in gave.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInContext
      */
-    public static function context(PendingSignIn $pending): SignInContext
+    public static function context(PendingSignIn $pending, ClientContext $client): SignInContext
     {
-        return new SignInContext(new ClientContext($pending->created_ip, $pending->created_user_agent), $pending->client_name, $pending->platform);
+        return new SignInContext($client, $pending->client_name, $pending->platform);
+    }
+
+    /**
+     * The client the pending sign-in's sign-in came from, which a device it
+     * creates records as the client it was created from.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
+     */
+    public static function origin(PendingSignIn $pending): ClientContext
+    {
+        return new ClientContext($pending->created_ip, $pending->created_user_agent);
     }
 
     /**

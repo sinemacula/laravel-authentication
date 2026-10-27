@@ -84,8 +84,9 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A new device records the sign-in and is issued a pair at `$now` whose
-     * refresh token carries the rotation id the device stores the digest of.
+     * A new device records the sign-in, as created from the origin's client and
+     * last used by the context's, and is issued a pair at `$now` whose refresh
+     * token carries the rotation id the device stores the digest of.
      *
      * @return void
      *
@@ -94,7 +95,8 @@ final class SessionWriterTest extends TestCase
     public function testCreateWritesTheDeviceAndIssuesItsPair(): void
     {
         $identity = $this->seedIdentity();
-        $session  = $this->writer()->create('api', $this->admitted($identity), 'password', $this->context('Laptop', 'macOS'), $this->lifetimes(), $this->now);
+        $origin   = new ClientContext('198.51.100.4', 'Origin/2.0');
+        $session  = $this->writer()->create('api', $this->admitted($identity), 'password', $this->context('Laptop', 'macOS'), $this->lifetimes(), $this->now, $origin);
         $device   = Device::query()->whereKey($session->device->getKey())->firstOrFail();
         $claims   = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
 
@@ -105,8 +107,10 @@ final class SessionWriterTest extends TestCase
         self::assertTrue(RefreshTokenHasher::verify((string) $claims['jti'], (string) $device->getRefreshKey())); // @phpstan-ignore cast.string
         self::assertSame('Laptop', $device->client_name);
         self::assertSame('macOS', $device->platform);
-        self::assertSame('192.0.2.1', $device->created_ip);
-        self::assertSame('Writer/1.0', $device->created_user_agent);
+        self::assertSame('198.51.100.4', $device->created_ip);
+        self::assertSame('Origin/2.0', $device->created_user_agent);
+        self::assertSame('192.0.2.1', $device->last_used_ip);
+        self::assertSame('Writer/1.0', $device->last_used_user_agent);
         self::assertSame($this->now->addMinutes(60)->getTimestamp(), $device->getIdleExpiresAt()?->getTimestamp());
         self::assertSame($this->now->addMinutes(120)->getTimestamp(), $device->getAbsoluteExpiresAt()?->getTimestamp());
     }
@@ -125,7 +129,7 @@ final class SessionWriterTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         try {
-            $this->writer()->create('api', new AdmittedSignIn($identity, $principal, null), 'password', $this->context(), $this->lifetimes(), $this->now);
+            $this->writer()->create('api', new AdmittedSignIn($identity, $principal, null), 'password', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
             self::fail('Expected an identity that is not a model to be refused.');
         } catch (\LogicException $exception) {
             self::assertSame(sprintf('The session service can only create a device for an Eloquent identity; %s is not a model.', $identity::class), $exception->getMessage());
@@ -146,7 +150,8 @@ final class SessionWriterTest extends TestCase
     public function testContinueOnSwapsInANewSessionAndMirrorsIt(): void
     {
         $identity = $this->seedIdentity();
-        $first    = $this->writer()->create('api', $this->admitted($identity), 'password', $this->context('Laptop', 'macOS'), $this->lifetimes(), $this->now);
+        $context  = $this->context('Laptop', 'macOS');
+        $first    = $this->writer()->create('api', $this->admitted($identity), 'password', $context, $this->lifetimes(), $this->now, $context->client);
         $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
 
         $later = $this->now->addHour();
@@ -198,7 +203,7 @@ final class SessionWriterTest extends TestCase
     public function testContinueOnMissesARowThatChangedSinceItWasProven(array $change): void
     {
         $identity = $this->seedIdentity();
-        $first    = $this->writer()->create('api', $this->admitted($identity), 'password', $this->context(), $this->lifetimes(), $this->now);
+        $first    = $this->writer()->create('api', $this->admitted($identity), 'password', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
         $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
 
         Device::query()->whereKey($proven->getKey())->update($change);

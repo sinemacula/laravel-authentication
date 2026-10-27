@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
@@ -235,7 +236,7 @@ final readonly class SessionService
             return $this->fail(new RefusedSignIn(SignInFailureReason::PENDING_INVALID), null, SignInContext::fromRequest($this->guard->getRequest()), null, []);
         }
 
-        $context = PendingSignIns::context($found->pending);
+        $context = PendingSignIns::context($found->pending, ClientContext::fromRequest($this->guard->getRequest()));
         $outcome = $found->pending->getConnection()->transaction(fn (): array|RefusedSignIn => $this->completeWith($found, $context, $now));
 
         if ($outcome instanceof RefusedSignIn) {
@@ -423,8 +424,9 @@ final readonly class SessionService
             return $admitted;
         }
 
-        $session = $this->write($admitted->on($found->device), $found->device, $factor->method, $context, $now)
-            ?? $this->write($admitted, null, $factor->method, $context, $now);
+        $origin  = PendingSignIns::origin($found->pending);
+        $session = $this->write($admitted->on($found->device), $found->device, $factor->method, $context, $now, $origin)
+            ?? $this->write($admitted, null, $factor->method, $context, $now, $origin);
 
         return [$admitted->on($session->device), $session];
     }
@@ -521,25 +523,34 @@ final readonly class SessionService
 
     /**
      * Write the session of an admitted sign-in, with the guard's lifetimes for
-     * its principal: continue the proven device, or create one. `null` when the
-     * proven device changed before it could be continued.
+     * its principal: continue the proven device, or create one, recorded as
+     * created from the origin's client when that differs from the context's (a
+     * completion records where its sign-in began). `null` when the proven
+     * device changed before it could be continued.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
      * @param  string  $method
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $origin
      * @return ($proven is null ? \SineMacula\Laravel\Authentication\Sessions\SignedInSession : ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession)
      *
      * @throws \Throwable
      */
-    private function write(AdmittedSignIn $admitted, (EloquentDevice&Model)|null $proven, string $method, SignInContext $context, CarbonImmutable $now): ?SignedInSession
-    {
+    private function write(
+        AdmittedSignIn $admitted,
+        (EloquentDevice&Model)|null $proven,
+        string $method,
+        SignInContext $context,
+        CarbonImmutable $now,
+        ?ClientContext $origin = null,
+    ): ?SignedInSession {
         $name      = $this->guard->getName();
         $lifetimes = $this->collaborator(AudiencePolicy::class)->lifetimes($name, $admitted->principal);
 
         return $proven === null
-            ? $this->writer->create($name, $admitted, $method, $context, $lifetimes, $now)
+            ? $this->writer->create($name, $admitted, $method, $context, $lifetimes, $now, $origin ?? $context->client)
             : $this->writer->continueOn($proven, $admitted, $method, $context, $lifetimes, $now);
     }
 

@@ -116,10 +116,11 @@ final class PendingFactorSessionServiceTest extends TestCase
 
     /**
      * A sign-in that needs a factor starts no session and hands out a pending
-     * sign-in; looking it up does not use it up; completing it starts the
-     * session on a device that records the original sign-in's client, binds the
-     * guard, and dispatches the bind events, `DeviceCreated` and `SignedIn`,
-     * but no `Attempting`.
+     * sign-in; looking it up does not use it up; completing it from another
+     * client starts the session on a device created from the original sign-in's
+     * client and last used by the completing one, binds the guard, and
+     * dispatches the bind events, `DeviceCreated` and `SignedIn` (both with the
+     * completing client), but no `Attempting`.
      *
      * @return void
      *
@@ -152,7 +153,8 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertTrue($result->isSignedIn());
         self::assertSame([Validated::class, Login::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
         self::assertSame('password', $this->recordedEvent(SignedIn::class)->method);
-        self::assertSame(self::CLIENT_IP, $this->recordedEvent(SignedIn::class)->client->ip);
+        self::assertSame(self::COMPLETION_IP, $this->recordedEvent(SignedIn::class)->client->ip);
+        self::assertSame(self::COMPLETION_IP, $this->recordedEvent(DeviceCreated::class)->client->ip);
         self::assertSame(0, PendingSignIn::query()->count());
 
         $session = $result->session;
@@ -168,6 +170,8 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertSame('iOS', $device->platform);
         self::assertSame(self::CLIENT_IP, $device->created_ip);
         self::assertSame(self::CLIENT_AGENT, $device->created_user_agent);
+        self::assertSame(self::COMPLETION_IP, $device->last_used_ip);
+        self::assertNotSame(self::CLIENT_AGENT, $device->last_used_user_agent);
 
         $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk()->assertJson(['device' => $device->getKey()]);
     }
@@ -204,6 +208,27 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertNull($failed->method);
         self::assertSame(self::COMPLETION_IP, $failed->client->ip);
         self::assertSame(1, Device::query()->count());
+    }
+
+    /**
+     * A completion that fails its checks reports the client that tried to
+     * complete it, not the one the sign-in came from.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedCompletionReportsTheCompletingClient(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = $this->pendingFor();
+
+        $identity->forceFill(['is_active' => false])->save();
+
+        $this->recordEvents([SignInFailed::class]);
+
+        self::assertSame(SignInFailureReason::IDENTITY_INACTIVE, $this->completionGuard()->sessions()->complete($pending->token)->reason);
+        self::assertSame(self::COMPLETION_IP, $this->recordedEvent(SignInFailed::class)->client->ip);
     }
 
     /**

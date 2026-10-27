@@ -1080,7 +1080,9 @@ guard whose identity and principal still resolve as it recorded them. `complete(
 with a delete only one completion can make, checks it again in the same transaction (the method still allowed, the
 identity, principal and tenant active, and the audience policy admitting them with the identifier type the sign-in
 used; the factor policy is not asked again), and starts the session on the device the client proved it holds when that
-is unchanged, otherwise on a new one, recording the client the sign-in came from. A token that completes nothing fails
+is unchanged, otherwise on a new one, which records the client the sign-in came from as its creation and the completing
+request's client as its last use. The events of a completion, `SignInFailed` included, carry the completing request's
+client. A token that completes nothing fails
 as `pending_invalid`, without saying why.
 
 Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see

@@ -9,6 +9,7 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -56,10 +57,12 @@ final readonly class SessionWriter
      * issue its first pair.
      *
      * The device records its owner (the identity, which must be an Eloquent
-     * model), the principal, the guard and sign-in method, the client's name,
-     * platform, IP address and user agent at creation, the sign-in as its last
-     * use (so recording the use when the guard binds it writes nothing more),
-     * the digest of a new rotation id, and both deadlines.
+     * model), the principal, the guard and sign-in method, the client's name
+     * and platform, the IP address and user agent of the client the sign-in
+     * came from (`$origin`) as its creation, the context's client and the
+     * sign-in as its last use (so recording the use when the guard binds it
+     * writes nothing more), the digest of a new rotation id, and both
+     * deadlines.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
@@ -67,13 +70,21 @@ final readonly class SessionWriter
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $origin
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function create(string $guard, AdmittedSignIn $admitted, string $method, SignInContext $context, TokenLifetimes $lifetimes, CarbonImmutable $now): SignedInSession
-    {
+    public function create(
+        string $guard,
+        AdmittedSignIn $admitted,
+        string $method,
+        SignInContext $context,
+        TokenLifetimes $lifetimes,
+        CarbonImmutable $now,
+        ClientContext $origin,
+    ): SignedInSession {
         $device     = DeviceLookup::model();
         $identity   = self::eloquentIdentity($admitted);
         $rotationId = RefreshTokenHasher::generate();
@@ -90,8 +101,8 @@ final readonly class SessionWriter
             $device->getSignInMethodName()     => $method,
             $device->getClientNameName()       => $context->clientName,
             $device->getPlatformName()         => $context->platform,
-            $device->getCreatedIpName()        => $context->client->ip,
-            $device->getCreatedUserAgentName() => $context->client->userAgent,
+            $device->getCreatedIpName()        => $origin->ip,
+            $device->getCreatedUserAgentName() => $origin->userAgent,
             ...self::sessionState($device, $rotationId, $context, $lifetimes, $now),
         ]);
 
