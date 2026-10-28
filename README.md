@@ -1354,7 +1354,10 @@ waits for the identity to choose one when it may sign in as any: the result `req
 `principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
 by the guard's audience policy; `Auth::sessions('api')->principals($identity)` lists them the same way for a switch
 screen (for an identity that is its own principal, the resolver's default). An identity with none fails as
-`principal_unresolved`, as before. `attempt()` never waits for a choice.
+`principal_unresolved`, as before. The choice itself is admitted with the identifier type the sign-in used, as a sign-in
+naming a principal would be, so a guard with `require_verified_identifier` offers no choice, and lists no principal, to
+an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing stored or
+reported. `attempt()` never waits for a choice.
 
 The choice is stored like a pending factor, in `pending_sign_ins` with `purpose = principal_choice` and no principal,
 with the device the client proved it holds (whatever principal that device records) and the sign-in's attempt slots,

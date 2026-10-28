@@ -9,11 +9,13 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
@@ -42,6 +44,7 @@ use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
 use Tests\Integration\Fixtures\ChoosingMembership;
+use Tests\Integration\Fixtures\VerifiableChoosingMember;
 use Tests\TestCase;
 
 /**
@@ -312,6 +315,43 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertTrue($result->isFailed());
         self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $result->reason);
         self::assertSame(0, DB::table('pending_sign_ins')->count());
+    }
+
+    /**
+     * A guard that requires a verified identifier offers no choice to an
+     * identity whose identifier is unverified: the sign-in fails as
+     * `identifier_unverified`, with no choice stored or reported and no
+     * principal listed, as it would with a default principal. Once the
+     * identifier is verified the choice is offered.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUnverifiedIdentifierIsOfferedNoChoice(): void
+    {
+        Schema::table('activatable_tenant_members', static function (Blueprint $blueprint): void {
+            $blueprint->boolean('email_verified')->default(false);
+        });
+
+        $member = VerifiableChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+        $tenant = ActivatableTenant::query()->create(['name' => 'Invited', 'is_active' => true]);
+
+        ChoosingMembership::query()->create(['identity_id' => $member->id, 'tenant_id' => $tenant->getKey()]);
+
+        $this->recordEvents([PrincipalChoiceRequired::class, AuthenticationFailed::class]);
+
+        $result = $this->sessions('verified')->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertTrue($result->isFailed());
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $result->reason);
+        self::assertNull($result->choice);
+        self::assertSame(0, DB::table('pending_sign_ins')->count());
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+
+        $member->markIdentifierAsVerified('email', $member->email);
+
+        self::assertTrue($this->sessions('verified')->signIn('password', self::credentials('chooser@example.test'))->requiresPrincipal());
     }
 
     /**
@@ -628,6 +668,12 @@ final class ChoosesPrincipalsTest extends TestCase
 
         $config->set('auth.providers.choosers', ['driver' => 'model', 'model' => ChoosingMember::class]);
         $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'choosers', 'audience' => ['methods' => ['password', 'sso']]]);
+        $config->set('auth.providers.verifiable_choosers', ['driver' => 'model', 'model' => VerifiableChoosingMember::class]);
+        $config->set('auth.guards.verified', [
+            'driver'   => 'jwt',
+            'provider' => 'verifiable_choosers',
+            'audience' => ['methods' => ['password'], 'require_verified_identifier' => true],
+        ]);
     }
 
     /**

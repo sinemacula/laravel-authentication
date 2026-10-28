@@ -241,6 +241,13 @@ trait ChoosesPrincipals
      * it took, and report `PrincipalChoiceRequired` once committed. An identity
      * with no eligible principal fails as `principal_unresolved`.
      *
+     * The audience policy admits each principal with the identifier type the
+     * sign-in used, as it would a sign-in that named one, so a guard that
+     * requires a verified identifier lists no principal (not even which there
+     * are) to an identity whose identifier is unverified: when it refuses every
+     * principal, the sign-in fails with its reason (`identifier_unverified`),
+     * with no choice stored or reported.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $method
      * @param  ?string  $identifierType
@@ -252,13 +259,26 @@ trait ChoosesPrincipals
      */
     private function offerChoice(Identity $identity, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows): RefusedSignIn|SignInResult
     {
-        $principals = $this->principals($identity);
+        $guard      = $this->guard->getName();
+        $audience   = $this->collaborator(AudiencePolicy::class);
+        $principals = [];
+        $refusal    = null;
 
-        if ($principals === []) {
-            return new RefusedSignIn(FailureReason::PRINCIPAL_UNRESOLVED, $identity);
+        foreach ($this->principals($identity) as $principal) {
+
+            $reason = $identifierType === null ? null : $audience->admit($guard, $identity, $principal, $identifierType);
+
+            if ($reason === null) {
+                $principals[] = $principal;
+            }
+
+            $refusal ??= $reason;
         }
 
-        $guard  = $this->guard->getName();
+        if ($principals === []) {
+            return new RefusedSignIn($refusal ?? FailureReason::PRINCIPAL_UNRESOLVED, $identity);
+        }
+
         $now    = CarbonImmutable::now()->startOfSecond();
         $proven = $context->refreshToken === null ? null : $this->proof->provenDeviceOf($guard, $identity, null, $context->refreshToken);
 

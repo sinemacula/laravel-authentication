@@ -16,7 +16,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - Eligible principals (`SessionService::principals()`) are the identity's `principals()` read on the write connection
   (the resolver's default for an identity that is its own principal or has no `principals()`), active, in an active
   tenant or none, and admitted by the audience policy with no identifier type. The list is recomputed on every
-  `choice()` lookup.
+  `choice()` lookup. Offering a choice also admits each of them with the sign-in's identifier type: a principal the
+  policy then refuses is not offered, and when it refuses every one (`identifier_unverified` for a guard requiring a
+  verified identifier) the sign-in fails with that reason, storing and reporting nothing, so an unverified identity
+  never sees the principals it could act as.
 - A choice is a pending sign-in with `purpose = principal_choice` and no principal (the pending table's principal
   columns are nullable for this). It keeps the client, the identifier type, the attempt windows, and a device the
   client proved for the identity whatever principal it records. Only the digest of its secret is stored.
