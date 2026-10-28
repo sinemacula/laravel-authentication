@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use Tests\Unit\Stubs\StubCredentialGuard;
 use Tests\Unit\Stubs\StubDevice;
+use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
 /**
  * Feature tests for the sign-in policy `attempt()` applies on top of the
@@ -924,6 +925,36 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(PrincipalAssigned::class, $events[1]);
         self::assertNull($events[1]->context->method);
         self::assertNull($events[1]->context->device);
+    }
+
+    /**
+     * `forgetUser()` forgets the bound identity, principal and device with no
+     * event, returns the guard itself, and keeps it signed out for the rest of
+     * the request: the request's credential is not resolved again.
+     *
+     * @return void
+     */
+    public function testForgetUserSignsTheGuardOutQuietlyForTheRestOfTheRequest(): void
+    {
+        $identity = $this->mockIdentity();
+        $guard    = new StubRequestResolvingGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $guard->resolvable = $identity;
+
+        $this->events->shouldReceive('dispatch')->byDefault();
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame(1, $guard->resolutions);
+
+        $this->events->shouldNotReceive('dispatch');
+
+        self::assertSame($guard, $guard->forgetUser());
+
+        self::assertNull($guard->user());
+        self::assertNull($guard->principal());
+        self::assertNull($guard->device());
+        self::assertTrue($guard->guest());
+        self::assertSame(1, $guard->resolutions);
     }
 
     /**

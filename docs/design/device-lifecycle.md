@@ -117,10 +117,14 @@ deleted. Starting a session is in
 - `tests/Feature/Sessions/ManagesDevicesTest.php`: logout, sign out everywhere and a device list's revoke over HTTP
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`: logout from outside the refresh cookie's path revokes
   the device and clears the cookie
-- `tests/Feature/Sessions/DeviceRevocationsTest.php`, `tests/Integration/Sessions/DeviceRevocationsTest.php`
+- `tests/Feature/Sessions/DeviceRevocationsTest.php`, `tests/Integration/Sessions/DeviceRevocationsTest.php`,
+  `tests/Integration/Sessions/SeparateConnectionDeviceRevocationsTest.php`,
+  `tests/Integration/Sessions/RevocationScopeTest.php`, `tests/Integration/Sessions/ManagesDevicesTest.php`
 - `tests/Performance/DeviceRevocationQueryBudgetTest.php`
-- `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`, `tests/Feature/Listeners/RevokeDevicesOn*Test.php`,
-  `tests/Unit/Sessions/Methods/RehashingTest.php`, `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`
+- `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`,
+  `tests/Integration/Sessions/ReplicaRevokesOnSecurityChangesTest.php`,
+  `tests/Feature/Listeners/RevokeDevicesOn*Test.php`, `tests/Unit/Sessions/Methods/RehashingTest.php`,
+  `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`
 - `tests/Feature/Models/PrunesDevicesTest.php`, `tests/Feature/Database/DeviceRetentionTest.php`,
   `tests/Integration/Models/DevicePruningIntegrationTest.php`
 - `tests/Performance/DeviceListingQueryBudgetTest.php`, `tests/Performance/DevicePruneQueryBudgetTest.php`

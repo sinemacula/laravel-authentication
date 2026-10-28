@@ -107,6 +107,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   switch read from the request and the transport's refusals)
 - `tests/Integration/Sessions/PrincipalSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch,
   a different switch, a deadline change, a deletion and an owner change)
+- `tests/Integration/Sessions/ReplicaChoosesPrincipalsTest.php` (the eligible principals read on the write connection)
 - `tests/Feature/Sessions/PendingSignInsTest.php` `testIssueChoiceStoresTheSignInWithoutAPrincipal`,
   `testALivePendingSignInIsFoundOnlyForItsPurpose`, `testAChoicesProvenDeviceCountsOnlyForThePrincipalItRecords`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchPrincipalRecordsTheTargetAndMirrorsIt`,
