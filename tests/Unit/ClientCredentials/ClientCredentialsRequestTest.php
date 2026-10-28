@@ -146,6 +146,7 @@ final class ClientCredentialsRequestTest extends TestCase
             'a spaced repeat'       => ["client+id=a&{$body}", [], $form, 'POST', 'invalid_request'],
             'a padded repeat'       => ["+client_id=a&{$body}", [], $form, 'POST', 'invalid_request'],
             'a list then a value'   => ["client_id[]=a&{$body}", [], $form, 'POST', 'invalid_request'],
+            'an unclosed bracket'   => ["client[id=a&{$body}", [], $form, 'POST', 'invalid_request'],
             'a list'                => ["{$body}&scope[]=a", [], $form, 'POST', 'invalid_request'],
             'no grant'              => ['client_id=id&client_secret=secret', [], $form, 'POST', 'invalid_request'],
             'another grant'         => ['grant_type=password&client_id=id&client_secret=secret', [], $form, 'POST', 'unsupported_grant_type'],
@@ -190,6 +191,23 @@ final class ClientCredentialsRequestTest extends TestCase
 
             self::assertSame('invalid_request', ClientCredentialsRequest::read($request), $name);
         }
+    }
+
+    /**
+     * Each parameter given again under a name PHP cuts at a NUL byte is a
+     * repeat, refused like any other, even with the same value.
+     *
+     * @return void
+     */
+    public function testRefusesARepeatUnderANameCutAtANulByte(): void
+    {
+        $body = 'grant_type=client_credentials&client_id=id&client_secret=secret&scope=a';
+
+        foreach (['grant_type' => 'client_credentials', 'scope' => 'a', 'client_id' => 'id', 'client_secret' => 'secret'] as $name => $value) {
+            self::assertSame('invalid_request', ClientCredentialsRequest::read(self::request("{$body}&{$name}%00x={$value}")), $name);
+        }
+
+        self::assertInstanceOf(PresentedClient::class, ClientCredentialsRequest::read(self::request("{$body}&extra%00x=1")));
     }
 
     /**

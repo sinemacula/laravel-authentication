@@ -161,9 +161,9 @@ final class ClientCredentialsRequest
 
     /**
      * Whether the raw body names a parameter more than once, which PHP would
-     * otherwise read as its last value. Names are compared as PHP reads them:
-     * leading spaces dropped, a `[...]` suffix cut and `.` or a space read as
-     * `_`, so `client.id` or `client_id[]` repeats `client_id`.
+     * otherwise read as its last value. Each pair is read by PHP's own parser,
+     * so its name is compared as PHP reads it: `client.id`, `client[id`,
+     * `client_id[]` and `client_id%00x` all repeat `client_id`.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool
@@ -173,8 +173,8 @@ final class ClientCredentialsRequest
         $names = [];
 
         foreach (explode('&', $request->getContent()) as $pair) {
-            $name    = ltrim(urldecode(explode('=', $pair)[0]), ' ');
-            $names[] = strtr(explode('[', $name)[0], '. ', '__');
+            parse_str($pair, $parameter);
+            array_push($names, ...array_keys($parameter));
         }
 
         $named = array_intersect($names, self::PARAMETERS);
