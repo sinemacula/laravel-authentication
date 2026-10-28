@@ -170,18 +170,23 @@ final class PendingSignInsTableSchemaTest extends TestCase
     }
 
     /**
-     * The only other index is on the expiry, for pruning, named after the
-     * configured table.
+     * The other indexes are on the expiry, for pruning, and on the owner and
+     * the principal, for ending their pending sign-ins when their sessions are
+     * revoked, each named after the configured table.
      *
      * @return void
      */
-    public function testIndexesTheExpiryForPruningOnly(): void
+    public function testIndexesTheExpiryTheOwnerAndThePrincipal(): void
     {
         $secondary = array_values(array_filter(Schema::getIndexes(self::TABLE), static fn (array $index): bool => !$index['primary']));
+        $columns   = array_map(static fn (array $index): array => $index['columns'], $secondary);
 
-        self::assertCount(1, $secondary);
-        self::assertSame(['expires_at'], $secondary[0]['columns']);
-        self::assertStringStartsWith(self::TABLE . '_', $secondary[0]['name']);
+        self::assertEqualsCanonicalizing([['expires_at'], ['authenticatable_type', 'authenticatable_id'], ['principal_type', 'principal_id']], $columns);
+
+        self::assertEqualsCanonicalizing(
+            [self::TABLE . '_expires_at_index', self::TABLE . '_owner_index', self::TABLE . '_principal_index'],
+            array_column($secondary, 'name'),
+        );
     }
 
     /**

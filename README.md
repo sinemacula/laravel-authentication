@@ -407,22 +407,23 @@ that renames a column needs its own migration.
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
 than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
-both refresh digests; it never deletes the row. Today the package revokes a device only when the refresh exchange
-detects a replay; revoking is idempotent, so a device that is already revoked keeps its first revocation, and
-`DeviceRevoked` reports each revocation the package makes. The package has no revocation call for applications yet: to
-revoke a device yourself, set its `revoked_at` (and `revoked_reason`), which takes effect at once but fires no event. A
-device whose session has ended, past its idle or absolute deadline, is rejected the same way on the bearer path and as a
-sign-in pin, and fails refresh with `session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)).
-An access token that names a device is accepted only for the principal the device's session records (`principal_type`,
-`principal_id`), and only when it was issued no earlier than the second of the session's last principal switch
-(`principal_switched_at`); otherwise it fails with `device_principal_mismatch`. A switch therefore ends the access
-tokens of the principal it switched from at once, and switching back does not revive the ones issued before it. A device
-that records no principal accepts no token, and a device pinned on `attempt()` must record the principal being bound.
-Both checks read the row already loaded, with no extra query. `ActsAsDevice` reads any stored timestamp as a value, with
-or without a `datetime` cast on the column, and throws a `LogicException` when the device was loaded without one of its
-refresh or revocation state columns (both digests, the rotation time, the session's start, the principal switch time,
-both deadlines, and the revocation time), for example through a `devices()` relation or a global scope that selects
-other columns, so a partial select is reported instead of being read as a device that is not revoked or has no deadline.
+both refresh digests; it never deletes the row (pruning does, later). The package revokes a device when its session
+signs out, when the application revokes it or signs an identity or principal out everywhere (see [Signing out and
+revoking sessions](#signing-out-and-revoking-sessions)), and when the refresh exchange detects a replay. Revoking is
+idempotent, so a device that is already revoked keeps its first revocation, and `DeviceRevoked` reports each revocation
+the package makes. A device whose session has ended, past its idle or absolute deadline, is rejected the same way on the
+bearer path and as a sign-in pin, and fails refresh with `session_expired` (see [Token and session
+lifetimes](#token-and-session-lifetimes)). An access token that names a device is accepted only for the principal the
+device's session records (`principal_type`, `principal_id`), and only when it was issued no earlier than the second of
+the session's last principal switch (`principal_switched_at`); otherwise it fails with `device_principal_mismatch`. A
+switch therefore ends the access tokens of the principal it switched from at once, and switching back does not revive
+the ones issued before it. A device that records no principal accepts no token, and a device pinned on `attempt()` must
+record the principal being bound. Both checks read the row already loaded, with no extra query. `ActsAsDevice` reads any
+stored timestamp as a value, with or without a `datetime` cast on the column, and throws a `LogicException` when the
+device was loaded without one of its refresh or revocation state columns (both digests, the rotation time, the session's
+start, the principal switch time, both deadlines, and the revocation time), for example through a `devices()` relation
+or a global scope that selects other columns, so a partial select is reported instead of being read as a device that is
+not revoked or has no deadline.
 
 #### Pruning devices
 
@@ -1541,6 +1542,89 @@ The same rule is a query scope on any model that uses `ActsAsDevice`, for your o
 Device::query()->active()->where('guard', 'api')->count();
 ```
 
+### Signing out and revoking sessions
+
+`Auth::logout()` (or `Auth::guard('api')->logout()`) signs the request's session out through the session service: the
+device the guard is bound to is revoked with reason `signed_out`, `DeviceRevoked` reports it once committed, Laravel's
+`Logout` follows, and the guard stays signed out for the rest of the request. The session's access and refresh tokens
+stop at once. A session without a persisted device (an access-only token) has nothing to revoke and is only forgotten;
+a guest request does nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a device.
+`logout()` cannot reach the response, so clear a browser's refresh cookie on it with
+`Auth::refreshTransport('api')->forgetCookie()` (see [Refresh token cookie](#refresh-token-cookie)).
+
+The session service also revokes sessions for the application's own screens and flows:
+
+```php
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$sessions = Auth::sessions('api');
+
+// "Sign out of all other devices": every session of the identity, of every guard, but this one.
+$sessions->signOutEverywhere(keepCurrentDevice: true);
+
+// A device list's "sign out" button: only the identity's own device is found.
+$sessions->revokeDevice(Auth::identity(), $deviceId, RevocationReason::REVOKED);
+
+// An administrator ends every session of an identity, or every session acting as a principal.
+$sessions->revokeDevices($identity, RevocationReason::REVOKED, except: null);
+$sessions->revokePrincipalDevices($membership, RevocationReason::REVOKED);
+```
+
+Each device is revoked by one conditional update that only applies while it is not revoked yet, so every call is
+idempotent: the first revocation's time and reason are kept, and of two calls racing for a device only the one that
+revoked it reports `DeviceRevoked`. `revokeDevice()` finds the device through the owner's `devices()` relation on the
+write connection, so another identity's device is simply not found and the call returns `false`, as it does for an
+unknown or already revoked one. `revokeDevices()` covers every device the identity's relation returns, of every guard;
+`revokePrincipalDevices()` every device of the configured model that records the principal. Both keep the `except`
+device when one is given, return how many devices they revoked, and also end the scope's pending sign-ins (a further
+factor or a principal choice waiting to be completed), so a credential issued before the revocation cannot start a
+session after it. `signOutEverywhere()` is `revokeDevices()` for the request's identity with reason
+`signed_out_everywhere`; it returns `0` on a guest request, and it leaves the guard bound for the rest of the request
+(call `signOut()` as well to end the current session too).
+
+A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
+(`HasTokensValidAfter`), then, in one transaction on the device model's connection, revokes each unrevoked device, read
+on the write connection in key order 500 at a time, and deletes the pending sign-ins. Once that transaction commits,
+`DeviceRevoked` reports each device it revoked (with the device's own guard) and then `SignedOutEverywhere` reports the
+scope, with the acting guard, the reason, the count (also `0`, so the action itself is recorded), the cutoff it set (or
+`null`), and the device it kept. If the device transaction fails, the cutoff it already moved stands: more is cut off,
+never less, and calling again finishes the job. One window stays open: a sign-in that has already passed its credential
+check when a bulk revocation reads the devices can still create its device afterwards. Closing it would take a lock that
+every sign-in and every revocation take on the identity, which the package does not add.
+
+#### Access tokens without a device
+
+An access token issued without a device (access-only mode, see
+[Access-only mode](#access-only-mode-no-devices-no-refresh)) has no device to revoke. To end those too, an identity or
+principal implements `HasTokensValidAfter`, with the `ProvidesTokensValidAfter` trait over a nullable whole-second
+column you add:
+
+```php
+Schema::table('users', function (Blueprint $table) {
+    $table->dateTime('tokens_valid_after', 0)->nullable();
+});
+```
+
+```php
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
+use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
+
+class User extends Model implements HasTokensValidAfter, Identity, Principal
+{
+    use ProvidesTokensValidAfter;
+}
+```
+
+Every bulk revocation of its sessions then moves its cutoff to the revocation's second first, and the bearer path
+rejects a device-less access token whose `iat` is at or before the identity's or the principal's cutoff
+(`issued_before_cutoff`). The whole second is cut off, because a token's whole-second `iat` cannot tell an earlier token
+from one issued after the call in the same second, so a device-less token issued in that second is rejected too. Tokens
+that name a device are not checked against the cutoff (revoking the device ends them, and the device a sign-out
+everywhere keeps must keep working). The cutoff only ever moves forward, with one conditional update on the model's own
+connection (`invalidateTokensIssuedBefore()`); the column must be loaded, or reading it throws a `LogicException`, and
+the column name comes from `getTokensValidAfterName()`.
+
 ### Long-running processes
 
 One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
@@ -1596,7 +1680,8 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                              |
 | `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata |
 | `SineMacula\...\Events\Refreshed`                | Refresh exchange completed, once committed                |
-| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device (a replay); carries reason   |
+| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device, once committed; with reason |
+| `SineMacula\...\Events\SignedOutEverywhere`      | A bulk revocation ended a scope's sessions, once committed|
 | `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed      |
 | `SineMacula\...\Events\SignedIn`                 | A session started or was refreshed, once committed        |
 | `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed      |

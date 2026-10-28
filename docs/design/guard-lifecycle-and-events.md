@@ -74,7 +74,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   package resets each resolved package guard to the current request when a job starts (`JobProcessing`,
   `AuthManager::forgetGuardState()`), without creating guards or registering rebinding callbacks.
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
-  then clears contextual state.
+  then clears contextual state. On a JWT guard it signs the session out through the session service (`signOut()`): the
+  bound persisted device is revoked first (`signed_out`, `DeviceRevoked` once committed), then `Logout`, then
+  `forgetUser()` clears the state with no event and keeps the guard signed out for the rest of the request.
 
 ## Failure / Edge Cases
 
@@ -137,8 +139,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `AuthenticationFailed`, even if a transaction is open on another connection, whose rollback does not withdraw it.
   Inside a transaction on the device's connection, `Failed` and `AuthenticationFailed` come first and `DeviceRevoked`
   follows when that transaction commits. The transaction Laravel's testing traits wrap around each test is not counted,
-  as it never commits. `DeviceRevoked` reports only the revocations the package makes, which today is replay detection:
-  a device an application revokes by writing `revoked_at` itself fires no event.
+  as it never commits. `DeviceRevoked` reports only the revocations the package makes (replay detection, sign-out, and
+  the session service's revocations, see `device-lifecycle.md`): a device an application revokes by writing
+  `revoked_at` itself fires no event.
 - A rate-limited refresh emits `Attempting`, `Failed` and `AuthenticationFailed` (`rate_limited`, with `retryAfter`),
   and then throws `ThrottleRequestsException` (a 429 with `Retry-After`) instead of returning `null`.
 - Verifying an identifier (`IdentifierVerifier::verify()`, behind `VerificationLinks::consume()`) never binds a guard

@@ -88,8 +88,7 @@ final class ActiveDevices
         /** @var \Illuminate\Pagination\LengthAwarePaginator<int, \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $devices */
         $devices = WriteConnection::during($identity, static function () use ($identity, $now, $perPage, $page): LengthAwarePaginator {
 
-            $query  = WriteConnection::query($identity->devices());
-            $device = self::deviceModel($query, $identity);
+            [$query, $device] = IdentityDevices::query($identity);
 
             self::constrain($query, $device, $now);
 
@@ -103,27 +102,6 @@ final class ActiveDevices
         });
 
         return $devices->through(static fn (EloquentDevice&Model $device): DeviceSummary => DeviceSummary::of($device, self::isCurrent($device, $current)));
-    }
-
-    /**
-     * The device model the identity's relation queries, which must be an
-     * Eloquent `EloquentDevice` so its columns are known.
-     *
-     * @param  \Illuminate\Contracts\Database\Eloquent\Builder  $query
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice
-     *
-     * @throws \LogicException
-     */
-    private static function deviceModel(Builder $query, Identity $identity): EloquentDevice&Model
-    {
-        $model = $query->getModel();
-
-        if (!$model instanceof EloquentDevice) {
-            throw new \LogicException(sprintf('The devices() relation of %s must query a model that implements %s.', $identity::class, EloquentDevice::class));
-        }
-
-        return $model;
     }
 
     /**

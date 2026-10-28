@@ -55,7 +55,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * session of this guard for the same identity and principal continues on that
  * device; otherwise a device is created.
  *
- * It also lists an identity's devices (`ManagesDevices`).
+ * It also lists, signs out and revokes devices (`ManagesDevices`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -120,6 +120,7 @@ final readonly class SessionService
         $this->proof       = new DeviceProof($tokens);
         $this->afterCommit = new AfterCommit($transactions);
         $this->pendings    = new PendingSignIns($container->make(Repository::class));
+        $this->revocations = new DeviceRevocations($connections, $transactions);
     }
 
     /**

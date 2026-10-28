@@ -409,6 +409,23 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
+     * Forget the identity, principal and device bound to the guard, with no
+     * event, and keep the guard signed out for the rest of the request instead
+     * of resolving the request's credential again, as Laravel's
+     * `GuardHelpers::forgetUser()` does for its guards.
+     *
+     * @return static
+     */
+    public function forgetUser(): static
+    {
+        $this->clearContextualState();
+
+        $this->requestResolved = true;
+
+        return $this;
+    }
+
+    /**
      * Return the registered name of this guard.
      *
      * @return string

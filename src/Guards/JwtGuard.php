@@ -121,6 +121,23 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
+     * Sign the request's session out through the session service: the device
+     * the guard is bound to is revoked (`signed_out`) and `DeviceRevoked`
+     * reported once committed, Laravel's `Logout` fires when an identity was
+     * bound, and the guard stays signed out for the rest of the request. A
+     * session without a persisted device is only forgotten.
+     *
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    #[\Override]
+    public function logout(): void
+    {
+        $this->sessions()->signOut();
+    }
+
+    /**
      * Exchange a refresh token for a new access token + rotated refresh token.
      *
      * Delegates the round trip to `RefreshTokenExchange`, binds the resolved
