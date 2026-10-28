@@ -233,8 +233,8 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     /**
      * Every failed sign-in by code answers exactly as a wrong code does
      * (`invalid_credentials`, no wait) and waits out the real timebox, a slow
-     * lookup of a known identifier included; only the server-side event may
-     * say more.
+     * lookup of a known identifier included; only the server-side event may say
+     * more.
      *
      * @param  string  $method
      * @param  string  $field
@@ -246,8 +246,13 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
      * @throws \Throwable
      */
     #[DataProvider('provideFailures')]
-    public function testAFailedSignInByCodeLooksTheSameAndWaitsOutTheTimebox(string $method, string $field, string $knownIdentifier, string $unknownIdentifier, string $failure): void
-    {
+    public function testAFailedSignInByCodeLooksTheSameAndWaitsOutTheTimebox(
+        string $method,
+        string $field,
+        string $knownIdentifier,
+        string $unknownIdentifier,
+        string $failure,
+    ): void {
         config()->set('authentication.codes.max_attempts', 1);
 
         $identity   = self::seedCodeIdentity();
@@ -383,8 +388,8 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * The fastest of a few requests for a code by the method to the
-     * identifier, in nanoseconds.
+     * The fastest of a few requests for a code by the method to the identifier,
+     * in nanoseconds.
      *
      * @param  string  $method
      * @param  array<string, string>  $identifier

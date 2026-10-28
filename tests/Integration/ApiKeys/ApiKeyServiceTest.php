@@ -450,6 +450,7 @@ final class ApiKeyServiceTest extends TestCase
      * @return void
      *
      * @throws \Random\RandomException
+     * @throws \Throwable
      */
     public function testARotationThatGivesUpChangesNothing(): void
     {
