@@ -109,6 +109,135 @@ final class RevokeDevicesOnDeactivationTest extends TestCase
      */
     public function testDeactivatingAPrincipalRevokesItsSessions(): void
     {
+        $principal = $this->seedPrincipalSession();
+
+        Coexist3dPrincipal::observe(RevokeDevicesOnDeactivation::class);
+
+        $principal->forceFill(['is_active' => false])->save();
+
+        self::assertSame('principal_deactivated', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * Deactivating an identity in a transaction revokes nothing until the
+     * transaction commits, and nothing at all when it is rolled back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testDeactivatingAnIdentityRevokesOnlyOnceItCommits(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+
+        IntegrationIdentity::observe(RevokeDevicesOnDeactivation::class);
+
+        $this->rollBack(static fn () => $identity->forceFill(['is_active' => false])->save());
+
+        $identity->refresh();
+
+        self::assertTrue($identity->is_active);
+
+        DB::transaction(static function () use ($identity): void {
+
+            $identity->forceFill(['is_active' => false])->save();
+
+            self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        });
+
+        self::assertSame('identity_deactivated', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * Deactivating a principal in a transaction revokes nothing until the
+     * transaction commits, and nothing at all when it is rolled back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testDeactivatingAPrincipalRevokesOnlyOnceItCommits(): void
+    {
+        $principal = $this->seedPrincipalSession();
+
+        Coexist3dPrincipal::observe(RevokeDevicesOnDeactivation::class);
+
+        $this->rollBack(static fn () => $principal->forceFill(['is_active' => false])->save());
+
+        $principal->refresh();
+
+        self::assertTrue($principal->is_active);
+
+        DB::transaction(static function () use ($principal): void {
+
+            $principal->forceFill(['is_active' => false])->save();
+
+            self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        });
+
+        self::assertSame('principal_deactivated', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * A model that is not activatable is left alone, as is an activatable one
+     * that stays active.
+     *
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public function testModelsTheListenerDoesNotApplyToAreLeftAlone(): void
+    {
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        app(RevokeDevicesOnDeactivation::class)->updated(new StubModel);
+        app(RevokeDevicesOnDeactivation::class)->updated($this->tenantChangingFrom(true, true));
+
+        self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * Deactivating an activatable model that is neither an identity nor a
+     * principal, such as a tenant, cannot end its sessions here: the observer
+     * was registered where it cannot act, which is reported.
+     *
+     * @return void
+     */
+    public function testATenantsDeactivationIsReported(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Model ' . ActivatableTenant::class . ' is neither an identity nor a principal, so deactivating it ends no sessions here.');
+
+        app(RevokeDevicesOnDeactivation::class)->updated($this->tenantChangingFrom(true, false));
+    }
+
+    /**
+     * Register the session guards.
+     *
+     * @param  mixed  $app
+     * @return void
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof Application);
+
+        self::configureSessionGuards($app->make(ConfigRepository::class));
+
+        $app->make(ConfigRepository::class)->set('auth.defaults.guard', 'api');
+    }
+
+    /**
+     * A 3D principal with one live session acting as it.
+     *
+     * @return \Tests\Integration\Fixtures\Coexist3dPrincipal
+     */
+    private function seedPrincipalSession(): Coexist3dPrincipal
+    {
         Schema::create('coexist_3d_principals', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->unsignedInteger('identity_id');
@@ -132,51 +261,48 @@ final class RevokeDevicesOnDeactivationTest extends TestCase
             'absolute_expires_at'  => now()->addWeek(),
         ]);
 
-        Coexist3dPrincipal::observe(RevokeDevicesOnDeactivation::class);
-
-        $principal->forceFill(['is_active' => false])->save();
-
-        self::assertSame('principal_deactivated', DB::table('devices')->value('revoked_reason'));
+        return $principal;
     }
 
     /**
-     * A model the listener does not apply to is left alone: one that is not
-     * activatable, or activatable but neither an identity nor a principal.
+     * An activatable tenant as an observer sees it after an update of its
+     * activity from one value to another.
      *
-     * @return void
+     * @param  bool  $before
+     * @param  bool  $after
+     * @return \Tests\Integration\Fixtures\ActivatableTenant
      */
-    public function testModelsTheListenersDoNotApplyToAreLeftAlone(): void
+    private function tenantChangingFrom(bool $before, bool $after): ActivatableTenant
     {
-        $this->recordEvents([SignedOutEverywhere::class]);
-
         $tenant = new ActivatableTenant;
-        $tenant->setRawAttributes(['id' => 1, 'is_active' => false]);
-        $tenant->syncOriginal();
-        $tenant->setRawAttributes(['id' => 1, 'is_active' => true], true);
-        $tenant->setRawAttributes(['id' => 1, 'is_active' => false]);
+        $tenant->setRawAttributes(['id' => 1, 'is_active' => $before], true);
+        $tenant->setRawAttributes(['id' => 1, 'is_active' => $after]);
 
-        app(RevokeDevicesOnDeactivation::class)->updated(new StubModel);
-        app(RevokeDevicesOnDeactivation::class)->updated($tenant);
-
-        self::assertSame([], $this->recorded);
+        return $tenant;
     }
 
     /**
-     * Register the session guards.
+     * Run the change in a transaction that is rolled back, and check it revoked
+     * nothing.
      *
-     * @param  mixed  $app
+     * @param  \Closure(): mixed  $change
      * @return void
+     *
+     * @throws \Throwable
      */
-    #[\Override]
-    protected function defineEnvironment(mixed $app): void
+    private function rollBack(\Closure $change): void
     {
-        parent::defineEnvironment($app);
+        try {
+            DB::transaction(static function () use ($change): never {
+                $change();
 
-        assert($app instanceof Application);
+                throw new \RuntimeException('roll back');
+            });
+        } catch (\RuntimeException $exception) {
+            self::assertSame('roll back', $exception->getMessage());
+        }
 
-        self::configureSessionGuards($app->make(ConfigRepository::class));
-
-        $app->make(ConfigRepository::class)->set('auth.defaults.guard', 'api');
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
     }
 
     /**

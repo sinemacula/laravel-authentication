@@ -10,10 +10,17 @@ use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
- * What the revoking listeners share: the default guard's session service,
- * resolved when the listener runs, and running the revocation only once the
- * change that caused it is committed on the changed model's connection, so a
- * change that is rolled back revokes nothing.
+ * What the revoking listeners share: a jwt guard's session service, resolved
+ * when the listener runs, and running the revocation only once the change that
+ * caused it is committed on the changed model's connection, so a change that is
+ * rolled back revokes nothing.
+ *
+ * Revocation covers every guard; the guard only names the acting guard and the
+ * request in the events. It is the guard given to the listener (a contextual
+ * binding of `$guard`), else the current default guard when that is a jwt
+ * guard, else the first jwt guard configured, so a route guarded by another
+ * driver (which makes that driver's guard the default through `shouldUse()`)
+ * still revokes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,11 +33,15 @@ trait RevokesOnceCommitted
      * Constructor.
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
+     * @param  ?string  $guard
      */
     public function __construct(
 
         /** Container the session service and the transactions manager are resolved from. */
         private readonly Container $container,
+
+        /** Name of the jwt guard whose session service acts, or `null` to find one when the listener runs. */
+        private readonly ?string $guard = null,
     ) {}
 
     /**
@@ -61,8 +72,9 @@ trait RevokesOnceCommitted
     }
 
     /**
-     * The default guard's session service. Revocation covers every guard; the
-     * default guard is the one that acts and whose request is reported.
+     * The acting guard's session service: the guard given to the listener, else
+     * the current default guard when it is a jwt guard, else the first jwt
+     * guard configured.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
      *
@@ -74,6 +86,47 @@ trait RevokesOnceCommitted
         /** @var \SineMacula\Laravel\Authentication\AuthManager $auth */
         $auth = $this->container->make('auth');
 
-        return $auth->sessions();
+        /** @var \Illuminate\Contracts\Config\Repository $config */
+        $config = $this->container->make('config');
+        $guards = $config->get('auth.guards');
+
+        return $auth->sessions($this->guard ?? self::jwtGuardName($auth->getDefaultDriver(), is_array($guards) ? $guards : []));
+    }
+
+    /**
+     * The default guard when it is a jwt guard, else the first jwt guard
+     * configured.
+     *
+     * @param  string  $default
+     * @param  array<array-key, mixed>  $guards
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function jwtGuardName(string $default, array $guards): string
+    {
+        if (self::isJwtGuard($guards[$default] ?? null)) {
+            return $default;
+        }
+
+        foreach ($guards as $name => $guard) {
+
+            if (self::isJwtGuard($guard)) {
+                return (string) $name;
+            }
+        }
+
+        throw new \InvalidArgumentException('No jwt guard is configured, so no session service can revoke the sessions.');
+    }
+
+    /**
+     * Whether the guard configuration is a jwt guard's.
+     *
+     * @param  mixed  $guard
+     * @return bool
+     */
+    private static function isJwtGuard(mixed $guard): bool
+    {
+        return is_array($guard) && ($guard['driver'] ?? null) === 'jwt';
     }
 }

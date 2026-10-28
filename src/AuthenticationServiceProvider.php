@@ -5,6 +5,11 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -39,6 +44,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
+use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -81,7 +87,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(IdentifierNormalisers::class);
         $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->singleton(SignInMethodManager::class);
-        $this->app->singleton(Rehashing::class);
+        $this->app->scoped(Rehashing::class);
         $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
@@ -276,8 +282,9 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `DeviceAuthenticated` listener, and the reset of the package
-     * guards before each queued job.
+     * Register the `DeviceAuthenticated` listener, the reset of the package
+     * guards before each queued job, and the tracking of credential attempts
+     * that marks an automatic rehash.
      *
      * @return void
      */
@@ -285,6 +292,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     {
         Event::listen(DeviceAuthenticated::class, RecordDeviceUsage::class);
         Event::listen(JobProcessing::class, ForgetGuardStateBeforeJob::class);
+        Event::listen([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class], TrackCredentialAttempts::class);
     }
 
     /**

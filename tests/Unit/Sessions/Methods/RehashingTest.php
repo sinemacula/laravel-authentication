@@ -4,9 +4,11 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions\Methods;
 
+use Illuminate\Auth\GenericUser;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Unit tests for the mark that tells an automatic password rehash from a change
@@ -81,5 +83,81 @@ final class RehashingTest extends TestCase
         }
 
         self::assertFalse($rehashing->isRunning());
+    }
+
+    /**
+     * The package's own rehash marks every user while it runs.
+     *
+     * @return void
+     */
+    public function testThePackagesRehashMarksEveryUser(): void
+    {
+        $rehashing = new Rehashing;
+
+        self::assertFalse($rehashing->isRunningFor(new GenericUser(['id' => 1])));
+
+        self::assertTrue($rehashing->during(static fn (): bool => $rehashing->isRunningFor(new GenericUser(['id' => 2]))));
+    }
+
+    /**
+     * A guard's attempt marks the user it validated, and no other, from the
+     * validation until the attempt ends.
+     *
+     * @return void
+     */
+    public function testAnAttemptMarksTheUserItValidatedUntilItEnds(): void
+    {
+        $rehashing = new Rehashing;
+        $user      = new GenericUser(['id' => 7]);
+
+        $rehashing->attempting('web');
+
+        self::assertFalse($rehashing->isRunningFor($user));
+
+        $rehashing->validated('web', $user);
+
+        self::assertTrue($rehashing->isRunningFor(new GenericUser(['id' => '7'])));
+        self::assertFalse($rehashing->isRunningFor(new GenericUser(['id' => 8])));
+        self::assertFalse($rehashing->isRunningFor(new PlainIdentityFixture(7)));
+        self::assertFalse($rehashing->isRunning());
+
+        $rehashing->ended('admin');
+
+        self::assertTrue($rehashing->isRunningFor($user));
+
+        $rehashing->ended('web');
+
+        self::assertFalse($rehashing->isRunningFor($user));
+
+        $rehashing->validated('web', $user);
+
+        self::assertFalse($rehashing->isRunningFor($user));
+    }
+
+    /**
+     * A validation outside an attempt, or by another guard than the one
+     * attempting, marks nothing; a new attempt of the guard forgets the user
+     * its previous one validated.
+     *
+     * @return void
+     */
+    public function testOnlyTheAttemptingGuardsValidationMarks(): void
+    {
+        $rehashing = new Rehashing;
+        $user      = new GenericUser(['id' => 7]);
+
+        $rehashing->validated('web', $user);
+
+        self::assertFalse($rehashing->isRunningFor($user));
+
+        $rehashing->attempting('web');
+        $rehashing->validated('admin', $user);
+
+        self::assertFalse($rehashing->isRunningFor($user));
+
+        $rehashing->validated('web', $user);
+        $rehashing->attempting('web');
+
+        self::assertFalse($rehashing->isRunningFor($user));
     }
 }

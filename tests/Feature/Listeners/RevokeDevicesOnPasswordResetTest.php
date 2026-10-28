@@ -8,6 +8,7 @@ use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\GenericUser;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
@@ -140,6 +141,99 @@ final class RevokeDevicesOnPasswordResetTest extends TestCase
         event(new PasswordReset(new PlainIdentityFixture(7)));
 
         self::assertSame('7', $this->recordedEvent(SignedOutEverywhere::class)->context->identityId);
+    }
+
+    /**
+     * A route guarded by another driver makes that driver's guard the default
+     * (`shouldUse()`); the listener still revokes, through the first jwt guard
+     * configured, and reports that guard as the acting one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARouteGuardedByAnotherDriverStillRevokes(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+
+        Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        Auth::shouldUse('web');
+
+        event(new PasswordReset($identity));
+
+        self::assertSame(['password_reset'], DB::table('devices')->pluck('revoked_reason')->all());
+        self::assertSame('api', $this->recordedEvent(SignedOutEverywhere::class)->context->guard);
+    }
+
+    /**
+     * A jwt guard that is the default acts, whichever it is.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheDefaultJwtGuardActs(): void
+    {
+        $identity = $this->seedIdentity();
+
+        Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        Auth::shouldUse('members');
+
+        event(new PasswordReset($identity));
+
+        self::assertSame('members', $this->recordedEvent(SignedOutEverywhere::class)->context->guard);
+    }
+
+    /**
+     * A guard given to the listener through a contextual binding acts, though
+     * the default is another jwt guard.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardGivenToTheListenerActs(): void
+    {
+        $identity = $this->seedIdentity();
+
+        app()->when(RevokeDevicesOnPasswordReset::class)->needs('$guard')->give('admin');
+
+        Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        event(new PasswordReset($identity));
+
+        self::assertSame('admin', $this->recordedEvent(SignedOutEverywhere::class)->context->guard);
+    }
+
+    /**
+     * With no jwt guard configured there is no session service to revoke
+     * through: a misconfiguration, reported rather than ignored.
+     *
+     * @return void
+     */
+    public function testNoJwtGuardConfiguredIsReported(): void
+    {
+        $identity = $this->seedIdentity();
+
+        config()->set('auth.guards', ['web' => ['driver' => 'session', 'provider' => 'identities']]);
+        config()->set('auth.defaults.guard', 'web');
+
+        Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('No jwt guard is configured, so no session service can revoke the sessions.');
+
+        event(new PasswordReset($identity));
     }
 
     /**

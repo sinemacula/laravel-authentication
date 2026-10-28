@@ -48,9 +48,18 @@ deleted. Starting a session is in
   transaction with one `SignedOutEverywhere` each.
 - The optional listeners (`RevokeDevicesOnPasswordReset`, `RevokeDevicesOnPasswordChange`,
   `RevokeDevicesOnDeactivation`) run their revocation through `AfterCommit` on the changed model's connection, so a
-  rolled-back change revokes nothing. The password-change observer ignores saves made while the container's shared
-  `Sessions\Methods\Rehashing` mark is set, which `PasswordSignIn::rehash()` sets around the provider's rehash and
-  clears in `finally`.
+  rolled-back change revokes nothing. They act through a jwt guard's session service: the guard bound to the
+  listener's `$guard`, else the current default guard when it is a jwt guard, else the first jwt guard configured, so a
+  route guarded by another driver (`shouldUse()`) still revokes; no jwt guard at all is an `InvalidArgumentException`.
+- The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks:
+  every user while `PasswordSignIn::rehash()` runs the provider's rehash (cleared in `finally`), and the user a guard
+  validated during a credential attempt, from Laravel's `Validated` until that guard's `Login`, `Authenticated` or
+  `Failed` (`Listeners\TrackCredentialAttempts`, registered by the provider), which brackets the rehash
+  `SessionGuard::attempt()`, `attemptWhen()` and `once()` run through an Eloquent user provider. A `Validated` outside
+  an attempt (`validate()`) marks nothing, and the forced rehash of `logoutOtherDevices()` is answered as a change.
+  The deactivation observer throws a `LogicException` for a deactivated model that is neither identity nor principal:
+  a tenant's deactivation is `tenantDeactivated()`. With both password listeners registered, a broker reset is
+  recorded as `password_changed` (the observer sees the save before the application fires `PasswordReset`).
 - Pruning (`PrunesDevices`, with Laravel's `model:prune`) deletes a device revoked, or past either deadline, at or
   before now less `authentication.device.prune_after_days`: counted from the end of the session, never from creation.
   Each chunk is one conditional `DELETE`; nothing is read first.
@@ -87,7 +96,8 @@ deleted. Starting a session is in
 - `src/Concerns/ScopesActiveDevices.php` (`scopeActive()`, composed by `ActsAsDevice`), `src/Concerns/PrunesDevices.php`,
   `src/Models/Device.php`
 - `src/Sessions/Concerns/RevokesOnSecurityChanges.php`, `src/Listeners/RevokeDevicesOn*.php`,
-  `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`
+  `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
+  `src/Listeners/TrackCredentialAttempts.php`
 - `src/Sessions/Concerns/ManagesDevices.php`, `src/Sessions/DeviceRevocations.php`, `src/Sessions/RevocationScope.php`,
   `src/Sessions/IdentityDevices.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
   (`logout()`), `src/Guards/AbstractGuard.php` (`forgetUser()`)
@@ -103,7 +113,7 @@ deleted. Starting a session is in
 - `tests/Feature/Sessions/DeviceRevocationsTest.php`, `tests/Integration/Sessions/DeviceRevocationsTest.php`
 - `tests/Performance/DeviceRevocationQueryBudgetTest.php`
 - `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`, `tests/Feature/Listeners/RevokeDevicesOn*Test.php`,
-  `tests/Unit/Sessions/Methods/RehashingTest.php`
+  `tests/Unit/Sessions/Methods/RehashingTest.php`, `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`
 - `tests/Feature/Models/DevicePruningTest.php`, `tests/Integration/Models/DevicePruningIntegrationTest.php`
 - `tests/Performance/DeviceListingQueryBudgetTest.php`, `tests/Performance/DevicePruneQueryBudgetTest.php`
 

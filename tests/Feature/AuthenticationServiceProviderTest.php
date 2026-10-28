@@ -7,7 +7,10 @@ namespace Tests\Feature;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Application as ConsoleApplication;
@@ -42,6 +45,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
+use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -152,6 +156,21 @@ final class AuthenticationServiceProviderTest extends TestCase
     public function testTheGuardsAreResetBeforeEachQueuedJob(): void
     {
         self::assertContains(ForgetGuardStateBeforeJob::class, Event::getRawListeners()[JobProcessing::class] ?? []);
+    }
+
+    /**
+     * Every guard's credential attempt is followed through Laravel's auth
+     * events, so the rehash a guard runs during one is marked.
+     *
+     * @return void
+     */
+    public function testCredentialAttemptsAreTracked(): void
+    {
+        $listeners = Event::getRawListeners();
+
+        foreach ([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class] as $event) {
+            self::assertContains(TrackCredentialAttempts::class, $listeners[$event] ?? [], $event);
+        }
     }
 
     /**
@@ -379,10 +398,11 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The sign-in method registry is a container singleton, as is the mark of
-     * an automatic password rehash it and the password-change listener share,
-     * and the default additional-factor policy, which never asks for a factor,
-     * is bound as one so an application or an MFA package can rebind it.
+     * The sign-in method registry is a container singleton, the mark of an
+     * automatic password rehash it and the password-change listener share is
+     * scoped (one per request or job), and the default additional-factor
+     * policy, which never asks for a factor, is bound as one so an application
+     * or an MFA package can rebind it.
      *
      * @return void
      */
@@ -395,6 +415,14 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertTrue($app->isShared(SignInMethodManager::class));
         self::assertSame(app(SignInMethodManager::class), app(SignInMethodManager::class));
         self::assertTrue($app->isShared(Rehashing::class));
+
+        $rehashing = app(Rehashing::class);
+
+        self::assertSame($rehashing, app(Rehashing::class));
+
+        $app->forgetScopedInstances();
+
+        self::assertNotSame($rehashing, app(Rehashing::class));
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));

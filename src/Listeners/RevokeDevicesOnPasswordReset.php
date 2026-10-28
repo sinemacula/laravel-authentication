@@ -16,8 +16,9 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * `Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);`
  *
- * The default guard's session service acts; revocation covers every guard. A
- * user that is not an `Identity` is left alone.
+ * Revocation covers every guard; the acting guard is the one given to the
+ * listener, else the default guard when it is a jwt guard, else the first jwt
+ * guard configured. A user that is not an `Identity` is left alone.
  *
  * @api
  *

@@ -1780,16 +1780,38 @@ Membership::observe(RevokeDevicesOnDeactivation::class);
 - `RevokeDevicesOnPasswordReset` answers Laravel's `PasswordReset` (the password broker's) with `passwordReset()`.
 - `RevokeDevicesOnPasswordChange` observes an identity model and answers a saved change of its password column with
   `passwordChanged()`, revoking every device, the one the change was made from included; to keep that one, call
-  `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change: the
-  package runs it marked, and the observer ignores it. Only changes saved through Eloquent fire model events.
+  `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change, and
+  the observer ignores it: the package's own sign-ins run it marked, and so do Laravel's guards (`attempt()`,
+  `attemptWhen()`, `once()`, as a web login over the same user model does), whose attempt the package follows through
+  Laravel's auth events, marking the user an attempt validated until that attempt ends. Confirming the current
+  password with `validate()` before changing it is not an attempt, so the change that follows revokes; so does
+  Laravel's `logoutOtherDevices()`, whose forced rehash exists to sign the other sessions out. Only changes saved
+  through Eloquent fire model events.
 - `RevokeDevicesOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
   it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
   identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
   activity held in the model's own attributes (`ProvidesActiveState`); for activity derived from anything else, call
-  the method yourself.
+  the method yourself. A tenant has no listener: devices record principals, not tenants, so call
+  `tenantDeactivated()` with the tenant's principals. Registering the observer on a model that is neither an identity
+  nor a principal throws a `LogicException` when that model is deactivated.
 
-The listeners act through the default guard's session service, which must be a `jwt` guard; revocation covers every
-guard either way.
+A password reset through Laravel's broker saves the new password through Eloquent before your code fires
+`PasswordReset`, so with both password listeners registered the observer revokes every device first, as
+`password_changed`, and the reset listener then finds none left to revoke (its `SignedOutEverywhere` reports
+`password_reset` with a count of `0`). Register one of them for each flow: the observer alone ends sessions on every
+change of password, resets included, as `password_changed`; to record resets as `password_reset`, register the reset
+listener and call `passwordChanged()` from your password-change flow instead of registering the observer.
+
+Revocation covers every guard whichever session service acts; the acting guard only names the guard and request the
+events report. It is the current default guard when that is a `jwt` guard, else the first `jwt` guard in
+`auth.guards`, so a change made on a route guarded by another driver (whose middleware makes that guard the default)
+still revokes. To name it, bind the listener's `$guard`:
+
+```php
+$this->app->when(RevokeDevicesOnPasswordChange::class)->needs('$guard')->give('api');
+```
+
+With no `jwt` guard configured at all, a listener throws an `InvalidArgumentException`.
 
 #### Access tokens without a device
 
@@ -1827,18 +1849,18 @@ or reading it throws a `LogicException`, and the column name comes from `getToke
 
 One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
 may reach the next. Each request rebinds Laravel's `request`, which resets every package guard already resolved: the
-identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates
-from its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its
-guards when each job a worker runs starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a
-job signs in with `login()` or `setUser()` is signed out again for the next job. Only jobs a worker runs are reset: a
-job on the `sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the
-request that dispatched it and leaves its guards as they are, so a session the request just started stays bound and a
-request that signed out stays signed out. A dispatcher or principal resolver swapped in after
-a guard resolved (`Event::fake()`, a rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its
-session service (and, through it, a switch of principal and the revocations), which read the guard's collaborators
-each time they run. The package's singletons hold configuration only: the token service factory memoises each guard's
-signing configuration, not any identity's data, and the mark the password-change listener reads during an automatic
-rehash is set only while the rehash runs. No package class keeps a request, an identity or a token in a static
+identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates from
+its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its guards
+when each job a worker runs starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a job signs
+in with `login()` or `setUser()` is signed out again for the next job. Only jobs a worker runs are reset: a job on the
+`sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the request that
+dispatched it and leaves its guards as they are, so a session the request just started stays bound and a request that
+signed out stays signed out. A dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a
+rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a
+switch of principal and the revocations), which read the guard's collaborators each time they run. The package's
+singletons hold configuration only: the token service factory memoises each guard's signing configuration, not any
+identity's data, and the mark the password-change listener reads during an automatic rehash is scoped, so it starts
+empty for each request and each job a worker runs. No package class keeps a request, an identity or a token in a static
 property. The sign-in methods you register are kept for the life of the process as well, so they must hold no state
 between calls (see [Writing a sign-in method](#writing-a-sign-in-method)), and so must a factor or audience policy you
 bind as a singleton.

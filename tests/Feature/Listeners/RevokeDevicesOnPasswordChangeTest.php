@@ -4,9 +4,11 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Listeners;
 
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -36,6 +38,9 @@ use Tests\Unit\Stubs\StubModel;
 final class RevokeDevicesOnPasswordChangeTest extends TestCase
 {
     use InteractsWithSessions;
+
+    /** @var string A bcrypt hash of the password at a cost above the configured one, so it needs a rehash. */
+    private const string OUTDATED_HASH = '$2y$05$FUGa4CVUj5UzYQ3xqFzx.OPRl9hwbG1FvcqaKKSd9dC1YsmE4WhWO';
 
     /**
      * Create the tables.
@@ -115,6 +120,92 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
+     * Laravel's own guard rehashes an outdated hash on `attempt()` through its
+     * Eloquent user provider, which saves the model: not a change of password,
+     * so nothing is revoked, though the stored hash was upgraded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLaravelsRehashOnAttemptRevokesNothing(): void
+    {
+        $identity = $this->seedOutdatedHash();
+
+        self::assertTrue($this->webGuard()->attempt(self::credentials()));
+
+        self::assertNotSame(self::OUTDATED_HASH, $identity->fresh()?->getAuthPassword());
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertFalse(app(Rehashing::class)->isRunningFor($identity));
+    }
+
+    /**
+     * The same holds for `once()`, which rehashes and then binds the user with
+     * `Authenticated` alone, and `attemptWhen()`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLaravelsRehashOnOnceAndAttemptWhenRevokesNothing(): void
+    {
+        $identity = $this->seedOutdatedHash();
+
+        self::assertTrue($this->webGuard()->once(self::credentials()));
+
+        DB::table('integration_identities')->update(['password' => self::OUTDATED_HASH]);
+
+        self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), static fn (): bool => true));
+
+        self::assertNotSame(self::OUTDATED_HASH, $identity->fresh()?->getAuthPassword());
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * Confirming the current password with `validate()` before changing it is
+     * not an attempt, so the change that follows revokes, as it does after an
+     * attempt that failed or that its callbacks refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeAfterAValidationOrAFailedAttemptRevokes(): void
+    {
+        $identity = $this->seedOutdatedHash();
+        $guard    = $this->webGuard();
+
+        self::assertFalse($guard->attempt(['email' => 'ada@example.test', 'password' => 'wrong']));
+        self::assertFalse($guard->attemptWhen(self::credentials(), static fn (): bool => false));
+        self::assertTrue($guard->validate(self::credentials()));
+
+        $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * `logoutOtherDevices()` forces a rehash to sign the user's other sessions
+     * out, so it ends the package sessions too.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLogoutOtherDevicesRevokes(): void
+    {
+        $this->seedOutdatedHash();
+
+        $guard = $this->webGuard();
+
+        self::assertTrue($guard->attempt(self::credentials()));
+
+        $guard->logoutOtherDevices(self::PASSWORD);
+
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
      * A change of password made in a transaction revokes nothing until the
      * transaction commits, and nothing at all when it is rolled back.
      *
@@ -186,7 +277,49 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
 
-        $app->make(ConfigRepository::class)->set('auth.defaults.guard', 'api');
+        $config = $app->make(ConfigRepository::class);
+
+        $config->set('auth.defaults.guard', 'api');
+        $config->set('auth.providers.users', ['driver' => 'eloquent', 'model' => IntegrationIdentity::class]);
+        $config->set('auth.guards.web', ['driver' => 'session', 'provider' => 'users']);
+        $config->set('auth.timebox_duration', 1);
+        $config->set('session.driver', 'array');
+    }
+
+    /**
+     * Seed an identity with a session and an outdated hash of its password, and
+     * observe its model.
+     *
+     * @return \Tests\Integration\Fixtures\IntegrationIdentity
+     *
+     * @throws \Throwable
+     */
+    private function seedOutdatedHash(): IntegrationIdentity
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+
+        DB::table('integration_identities')->update(['password' => self::OUTDATED_HASH]);
+
+        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+
+        return $identity;
+    }
+
+    /**
+     * Laravel's session guard over an Eloquent user provider of the identity
+     * model.
+     *
+     * @return \Illuminate\Auth\SessionGuard
+     */
+    private function webGuard(): SessionGuard
+    {
+        $guard = Auth::guard('web');
+
+        self::assertInstanceOf(SessionGuard::class, $guard);
+
+        return $guard;
     }
 
     /**

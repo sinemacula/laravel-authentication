@@ -25,8 +25,12 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * model's own attributes (`ProvidesActiveState`); activity derived from
  * anything else calls `identityDeactivated()` or `principalDeactivated()`
  * itself. A model that is both identity and principal (2D) is treated as the
- * identity. Deactivation already stops every token at once through the live
- * activity checks; revoking makes it outlast a reactivation and records why.
+ * identity. A tenant has no observer: devices record principals, not tenants,
+ * so the application calls `tenantDeactivated()` with the tenant's principals;
+ * registering this observer on any other model throws a `LogicException` when
+ * it is deactivated. Deactivation already stops every token at once through the
+ * live activity checks; revoking makes it outlast a reactivation and records
+ * why.
  *
  * @api
  *
@@ -42,6 +46,8 @@ final readonly class RevokeDevicesOnDeactivation
      *
      * @param  \Illuminate\Database\Eloquent\Model  $model
      * @return void
+     *
+     * @throws \LogicException
      */
     public function updated(Model $model): void
     {
@@ -53,6 +59,11 @@ final readonly class RevokeDevicesOnDeactivation
             $this->revokeOnceCommitted($model, static fn (SessionService $sessions): int => $sessions->identityDeactivated($model));
         } elseif ($model instanceof Principal) {
             $this->revokeOnceCommitted($model, static fn (SessionService $sessions): int => $sessions->principalDeactivated($model));
+        } else {
+            $message = 'Model %s is neither an identity nor a principal, so deactivating it ends no sessions here.'
+                . ' A tenant\'s deactivation calls tenantDeactivated() with its principals.';
+
+            throw new \LogicException(sprintf($message, $model::class));
         }
     }
 
