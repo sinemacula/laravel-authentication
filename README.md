@@ -1502,14 +1502,19 @@ transport whenever the API hands out a pair:
 use Illuminate\Http\Request;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
 Route::post('/auth/sign-in', function (Request $request) {
     $transport = Auth::refreshTransport('browser');
 
     abort_unless($transport->isSameSiteRequest($request), 403);
 
-    $session = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'))->session;
+    // A browser that still holds a refresh cookie proves its device, which the sign-in then continues.
+    $presented = $transport->read($request);
+    $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
+    $session   = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context)->session;
 
     abort_if($session === null, 401);
 
@@ -1948,6 +1953,7 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard, bearer requests included     |
 | `Illuminate\Auth\Events\Login`                   | A sign-in or refresh bound the guard                      |
 | `Illuminate\Auth\Events\Failed`                  | A sign-in or refresh was rejected (never a bearer token)  |
+| `Illuminate\Auth\Events\Logout`                  | `logout()` or `signOut()` ended a signed-in request       |
 | `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                              |
 | `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata |
 | `SineMacula\...\Events\Refreshed`                | Refresh exchange completed, once committed                |

@@ -62,7 +62,8 @@ principal auth without device tracking or refresh rotation.
 - `src/Sessions/RevocationScope.php`: `identity()`, `principal()`, which leave the package's tables alone for an
   identity without `HasDevices`.
 - `src/Guards/AbstractGuard.php`: `bindAuthenticationLifecycle()`.
-- `src/AuthenticationServiceProvider.php`: `createJwtGuard()` and `assertValidDeviceModelConfiguration()`.
+- `src/AuthenticationServiceProvider.php`: `createJwtGuard()`; `src/Exceptions/InvalidDeviceModelConfigurationException.php`:
+  `validate()`.
 
 ## Authoritative Tests
 

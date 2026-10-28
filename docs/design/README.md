@@ -29,8 +29,9 @@ The current note set is:
   reload on refresh.
 - `session-service.md`: how a guard's session service signs in, creates or continues a device, issues the first pair,
   and reports it.
-- `device-lifecycle.md`: which devices are active, how an identity's devices are listed, and when ended devices are
-  pruned.
+- `device-lifecycle.md`: which devices are active, how an identity's devices are listed, how a session signs out and
+  devices are revoked (one, every device of an identity or a principal, and on security changes, by method or optional
+  listener), and when ended devices are pruned.
 - `principal-choice-and-switch.md`: how a sign-in that names no principal waits for the identity to choose one, and how
   a session switches to another principal on its device, proven by its refresh token.
 - `audience-policy.md`: what each guard decides about its sessions (methods, principal types, verified identifiers,

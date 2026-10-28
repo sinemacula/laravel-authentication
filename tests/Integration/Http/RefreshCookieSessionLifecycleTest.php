@@ -22,10 +22,12 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Symfony\Component\HttpFoundation\Cookie;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
@@ -196,6 +198,29 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
+     * A browser that signs in again while it holds the refresh cookie proves
+     * its device through it, so the sign-in continues that device rather than
+     * starting another, and the new cookie refreshes it.
+     *
+     * @return void
+     */
+    public function testASignInFromABrowserHoldingTheCookieContinuesItsDevice(): void
+    {
+        $this->seedMemberships();
+
+        $first  = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
+        $device = DB::table('devices')->value('id');
+        $second = self::refreshCookie($this->browser('POST', '/auth/sign-in', $first)->assertOk());
+
+        self::assertSame(1, DB::table('devices')->count());
+        self::assertSame($device, DB::table('devices')->value('id'));
+
+        self::assertNotSame($first->getValue(), $second->getValue());
+
+        $this->browser('POST', '/auth/refresh', $second)->assertOk();
+    }
+
+    /**
      * A sign-in posted from another site, or without the custom header, is
      * refused before any session starts and sets no cookie, so a cross-site
      * form cannot sign the browser into another account.
@@ -270,6 +295,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      * Sign the member in as its default membership and answer with the access
      * token in the body and the refresh token in the cookie, for a request from
      * the API's own site only: a cross-site form must not sign the browser in.
+     * A browser that holds the cookie proves its device with it.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -284,7 +310,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
             return new JsonResponse(['reason' => 'cross_site_request'], 403);
         }
 
-        $session = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'))->session;
+        $presented = $transport->read($request);
+        $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
+        $session   = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'), $context)->session;
 
         assert($session !== null);
 
