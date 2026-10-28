@@ -99,8 +99,8 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - Malformed settings (`length` 6 to 10, `ttl_seconds` 60 to 3600, `max_attempts` 1 to 20, `resend_cooldown_seconds` 0
   to `ttl_seconds`, a queue connection that is not configured, a key shorter than 32 bytes, no key and no `app.key`)
   fail closed with an `InvalidArgumentException` naming the key before anything is counted or issued, and
-  `authentication:check` reports each under `[codes]`, with a guard that allows a code method while no
-  `OneTimeCodeSender` is bound.
+  `authentication:check` reports each under `[codes]`, with a guard that allows a code method (any registered method
+  that builds as a `CodeSignIn`, the application's own included) while no `OneTimeCodeSender` is bound.
 - Expired rows are deleted by `model:prune` with `Models\OneTimeCode` (`expires_at <= now`); the cooldown, never longer
   than the lifetime, has ended with them.
 

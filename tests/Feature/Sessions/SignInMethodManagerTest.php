@@ -229,6 +229,25 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
+     * The registered names are the package's own methods, then those registered
+     * with `extend()`, in the order they were registered, and no credential
+     * kind.
+     *
+     * @return void
+     */
+    public function testNamesTheRegisteredMethods(): void
+    {
+        $manager = $this->manager();
+
+        self::assertSame(['password', 'phone_code', 'email_code', 'passkey'], $manager->names());
+
+        $manager->extend('whatsapp_code', fn (): SignInMethod => \Mockery::mock(SignInMethod::class));
+        $manager->extend('sso', fn (): SignInMethod => \Mockery::mock(SignInMethod::class));
+
+        self::assertSame(['password', 'phone_code', 'email_code', 'passkey', 'whatsapp_code', 'sso'], $manager->names());
+    }
+
+    /**
      * An unknown method name fails as a misconfiguration.
      *
      * @return void

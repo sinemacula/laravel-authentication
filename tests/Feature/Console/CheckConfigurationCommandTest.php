@@ -12,10 +12,13 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
@@ -305,6 +308,39 @@ final class CheckConfigurationCommandTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertContains('[codes] Guards [api, admin, 2024] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
+    }
+
+    /**
+     * A code sign-in method the application registered for another identifier
+     * type counts as a code method: a guard that allows only it is named when
+     * no sender is bound, and warned about on a `sync` connection. A method of
+     * another kind, or one that does not build as a sign-in method, is not a
+     * code method.
+     *
+     * @return void
+     */
+    public function testAnApplicationsCodeMethodIsACodeMethod(): void
+    {
+        $manager = $this->app?->make(SignInMethodManager::class);
+
+        assert($manager instanceof SignInMethodManager);
+
+        $manager->extend('whatsapp_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+        $manager->extend('sso', fn (): SignInMethod => \Mockery::mock(SignInMethod::class));
+        $manager->extend('broken', fn (): \stdClass => new \stdClass);
+
+        config()->set([
+            'auth.guards.api.audience'   => ['methods' => ['whatsapp_code']],
+            'auth.guards.admin.audience' => ['methods' => ['sso', 'broken']],
+            'queue.connections.sync'     => ['driver' => 'sync'],
+        ]);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertContains('[codes] Guards [api] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
+        self::assertContains('[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
+            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.', $output);
     }
 
     /**

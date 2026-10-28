@@ -59,6 +59,20 @@ final class SignInMethodManager extends Manager
     }
 
     /**
+     * The names sign-in methods are registered under: the package's own, then
+     * those registered with `extend()`, in the order they were registered.
+     *
+     * @return list<string>
+     */
+    public function names(): array
+    {
+        /** @var list<string> $registered */
+        $registered = array_keys($this->customCreators);
+
+        return [...self::PACKAGE_METHODS, ...$registered];
+    }
+
+    /**
      * Whether the name is one a sign-in method can be registered under: a
      * lower-case letter, then lower-case letters, digits or underscores.
      *

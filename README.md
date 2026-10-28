@@ -877,7 +877,7 @@ limits; and, for the whole package, the configured device model and pruning rete
 (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
 (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
 choice of principal), the one-time code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when
-any guard allows a code sign-in method, the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`)
+any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`)
 and the API key settings (`authentication.api_keys`). Every check runs, so one run lists every problem, each as
 `[<guard>] <message>` (`[device]` for the device model and retention, `[sign_in]` for the pending lifetime, `[codes]`
 for the code settings and sender, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a

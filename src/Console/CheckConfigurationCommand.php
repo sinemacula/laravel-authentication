@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
@@ -46,12 +47,13 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * they allow `api_key`, and every flow's rate limits. The package-wide settings
  * are reported as `[device]` (the device model and the pruning retention),
  * `[sign_in]` (the pending sign-in lifetime), `[codes]` (the one-time code
- * settings and key, and a sender bound when a guard allows one of the package's
- * code sign-in methods, with a warning, not a problem, when their delivery runs
- * on a `sync` queue connection), `[passkeys]` (the passkey challenge lifetime)
- * and `[api_keys]` (the key prefix, the rotation overlaps, the last-use
- * throttle and the pruning retention). The command reads configuration only: it
- * opens no database connection and prints no secret.
+ * settings and key, and a sender bound when a guard allows a code sign-in
+ * method, the package's or an application's own `CodeSignIn`, with a warning,
+ * not a problem, when their delivery runs on a `sync` queue connection),
+ * `[passkeys]` (the passkey challenge lifetime) and `[api_keys]` (the key
+ * prefix, the rotation overlaps, the last-use throttle and the pruning
+ * retention). The command reads configuration only: it opens no database
+ * connection and prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -198,23 +200,23 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * The `jwt` guards whose audience allows one of the package's code sign-in
-     * methods.
+     * The `jwt` guards whose audience allows a code sign-in method.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return list<string>
      */
     private function codeGuards(ConfigRepository $config): array
     {
-        $policy = $this->laravel->make(AudiencePolicy::class);
-        $guards = $config->get('auth.guards');
-        $found  = [];
+        $policy  = $this->laravel->make(AudiencePolicy::class);
+        $methods = $this->codeMethods();
+        $guards  = $config->get('auth.guards');
+        $found   = [];
 
         foreach (is_array($guards) ? $guards : [] as $name => $guard) {
 
             $name = (string) $name;
 
-            if (!is_array($guard) || ($guard['driver'] ?? null) !== 'jwt' || !self::allowsCodes($policy, $name)) {
+            if (!is_array($guard) || ($guard['driver'] ?? null) !== 'jwt' || !self::allowsAnyOf($policy, $name, $methods)) {
                 continue;
             }
 
@@ -225,18 +227,45 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * Whether the guard's audience allows one of the package's code sign-in
-     * methods; a malformed audience allows none here, since the guard's own
-     * checks report it.
+     * The names of the registered sign-in methods that sign in with one-time
+     * codes: the package's `phone_code` and `email_code`, and any the
+     * application registered as a `CodeSignIn` of its own. A method that cannot
+     * be built is left to the sign-ins that use it.
+     *
+     * @return array<int, string>
+     */
+    private function codeMethods(): array
+    {
+        $manager = $this->laravel->make(SignInMethodManager::class);
+
+        return array_filter($manager->names(), static function (string $name) use ($manager): bool {
+            try {
+                return $manager->method($name) instanceof CodeSignIn;
+            } catch (\Exception) {
+                return false;
+            }
+        });
+    }
+
+    /**
+     * Whether the guard's audience allows any of the methods; a malformed
+     * audience allows none here, since the guard's own checks report it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $policy
      * @param  string  $guard
+     * @param  array<int, string>  $methods
      * @return bool
      */
-    private static function allowsCodes(AudiencePolicy $policy, string $guard): bool
+    private static function allowsAnyOf(AudiencePolicy $policy, string $guard, array $methods): bool
     {
         try {
-            return $policy->allowsMethod($guard, CodeSignIn::PHONE) || $policy->allowsMethod($guard, CodeSignIn::EMAIL);
+            foreach ($methods as $method) {
+                if ($policy->allowsMethod($guard, $method)) {
+                    return true;
+                }
+            }
+
+            return false;
         } catch (\InvalidArgumentException) {
             return false;
         }
