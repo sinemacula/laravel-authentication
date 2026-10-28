@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\OtherDeviceLogout;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
@@ -160,7 +161,8 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * Every guard's credential attempt is followed through Laravel's auth
-     * events, so the rehash a guard runs during one is marked.
+     * events, so the rehash a guard runs during one is marked, and the forced
+     * rehash of `logoutOtherDevices()` is told apart from it.
      *
      * @return void
      */
@@ -168,7 +170,7 @@ final class AuthenticationServiceProviderTest extends TestCase
     {
         $listeners = Event::getRawListeners();
 
-        foreach ([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class] as $event) {
+        foreach ([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class] as $event) {
             self::assertContains(TrackCredentialAttempts::class, $listeners[$event] ?? [], $event);
         }
     }

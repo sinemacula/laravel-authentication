@@ -514,10 +514,14 @@ final class PasswordSignInTest extends TestCase
 
         Container::setInstance($container);
 
-        $marked = null;
+        $changes = [];
 
-        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, $identity, &$marked): void {
-            $marked = $rehashing->isRunningFor($identity);
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, $identity, &$changes): void {
+            $rehashing->unlessRehash($identity, static function () use (&$changes): void {
+                $changes[] = 'during';
+            });
+
+            $rehashing->forced($identity);
         });
 
         try {
@@ -526,8 +530,11 @@ final class PasswordSignInTest extends TestCase
             Container::setInstance($previous);
         }
 
-        self::assertTrue($marked);
-        self::assertFalse($rehashing->isRunningFor($identity));
+        $rehashing->unlessRehash($identity, static function () use (&$changes): void {
+            $changes[] = 'after';
+        });
+
+        self::assertSame(['after'], $changes);
     }
 
     /**

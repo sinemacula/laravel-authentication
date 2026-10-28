@@ -27,6 +27,11 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
  * as a "confirm your password" step does before a change) marks nothing, and no
  * other user is ever marked.
  *
+ * The forced rehash of `logoutOtherDevices()` saves the same password too, and
+ * an attempt that threw after `Validated` never ends, so a change taken for an
+ * attempt's rehash is held rather than dropped: `OtherDeviceLogout`, which
+ * follows the forced save, runs it, and the end of the attempt drops it.
+ *
  * One instance is shared through the container, scoped, so whatever an attempt
  * that never ended left behind is gone for the next request or job.
  *
@@ -45,6 +50,9 @@ final class Rehashing
 
     /** @var array<string, array{0: class-string, 1: ?string}> Per guard, the user whose credentials its running attempt validated. */
     private array $validated = [];
+
+    /** @var list<array{0: array{0: class-string, 1: ?string}, 1: \Closure(): void}> The latest change of each user's password taken for an open attempt's rehash. */
+    private array $held = [];
 
     /**
      * Run the callback marked as the automatic rehash of the user's password.
@@ -100,35 +108,86 @@ final class Rehashing
     }
 
     /**
-     * Record that the guard's attempt ended, which clears its mark.
+     * Record that the guard's attempt ended, which clears its mark and drops
+     * the change it held for the user it validated: that was its rehash.
      *
      * @param  string  $guard
      * @return void
      */
     public function ended(string $guard): void
     {
+        if (isset($this->validated[$guard])) {
+            $this->release($this->validated[$guard]);
+        }
+
         unset($this->attempts[$guard], $this->validated[$guard]);
     }
 
     /**
-     * Whether a change to the user's password is an automatic rehash: the
-     * package's own is running for the user, or a guard's attempt validated
-     * this user, has not ended, and was made with the password the user's
-     * stored hash verifies.
+     * Run the change of the user's password unless it is an automatic rehash.
+     * The package's own rehash drops it. A change a guard's open attempt may
+     * have made as its rehash (the attempt validated this user and was made
+     * with the password the user's stored hash verifies) is held until
+     * `forced()` runs it or the attempt's end drops it. Anything else runs at
+     * once.
      *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  \Closure(): void  $change
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function unlessRehash(Authenticatable $user, \Closure $change): void
+    {
+        $key = self::key($user);
+
+        if (in_array($key, $this->rehashing, true)) {
+            return;
+        }
+
+        if ($this->isAttemptRehash($key, $user)) {
+
+            $this->release($key);
+
+            $this->held[] = [$key, $change];
+
+            return;
+        }
+
+        $change();
+    }
+
+    /**
+     * Record that a guard forced a rehash of the user's password to sign its
+     * other devices out (`OtherDeviceLogout`), which runs the change held for
+     * that user: the forced save, not an attempt's rehash.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @return void
+     */
+    public function forced(Authenticatable $user): void
+    {
+        $change = $this->release(self::key($user));
+
+        if ($change === null) {
+            return;
+        }
+
+        $change();
+    }
+
+    /**
+     * Whether a guard's attempt validated the user, has not ended, and was made
+     * with the password the user's stored hash verifies.
+     *
+     * @param  array{0: class-string, 1: ?string}  $key
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @return bool
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function isRunningFor(Authenticatable $user): bool
+    private function isAttemptRehash(array $key, Authenticatable $user): bool
     {
-        $key = self::key($user);
-
-        if (in_array($key, $this->rehashing, true)) {
-            return true;
-        }
-
         foreach (array_keys($this->validated, $key, true) as $guard) {
             if (self::verifies($this->attempts[$guard]->getValue(), $user)) {
                 return true;
@@ -136,6 +195,28 @@ final class Rehashing
         }
 
         return false;
+    }
+
+    /**
+     * Stop holding the change of the user's password, returning it, if any.
+     *
+     * @param  array{0: class-string, 1: ?string}  $key
+     * @return ?\Closure(): void
+     */
+    private function release(array $key): ?\Closure
+    {
+        foreach ($this->held as $index => [$user, $change]) {
+
+            if ($user !== $key) {
+                continue;
+            }
+
+            array_splice($this->held, $index, 1);
+
+            return $change;
+        }
+
+        return null;
     }
 
     /**

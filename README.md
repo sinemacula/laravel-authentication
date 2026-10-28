@@ -1859,7 +1859,8 @@ Membership::observe(RevokeDevicesOnDeactivation::class);
   hash still verifies the password the attempt was made with, so a new password saved before the attempt ends (by an
   `attemptWhen()` callback, say) revokes. Confirming the current password with `validate()` before changing it is not
   an attempt, so the change that follows revokes; so does Laravel's `logoutOtherDevices()`, whose forced rehash exists
-  to sign the other sessions out. Only changes saved through Eloquent fire model events.
+  to sign the other sessions out, even while an attempt for the user is open (the package tells it apart by the
+  `OtherDeviceLogout` event that follows it). Only changes saved through Eloquent fire model events.
 - `RevokeDevicesOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
   it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
   identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits

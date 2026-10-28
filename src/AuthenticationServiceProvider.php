@@ -9,6 +9,7 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\OtherDeviceLogout;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
@@ -295,7 +296,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
     {
         Event::listen(DeviceAuthenticated::class, RecordDeviceUsage::class);
         Event::listen(JobProcessing::class, ForgetGuardStateBeforeJob::class);
-        Event::listen([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class], TrackCredentialAttempts::class);
+        Event::listen([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class], TrackCredentialAttempts::class);
     }
 
     /**

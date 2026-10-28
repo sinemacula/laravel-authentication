@@ -6,6 +6,7 @@ namespace Tests\Unit\Sessions\Methods;
 
 use Illuminate\Auth\GenericUser;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Hashing\BcryptHasher;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -28,6 +29,15 @@ final class RehashingTest extends TestCase
 {
     /** @var string The password the attempts are made with. */
     private const string PASSWORD = 'secret';
+
+    /** @var string A change of password that ran at once. */
+    private const string CHANGE = 'change';
+
+    /** @var string A change held as an open attempt's rehash, which a forced rehash then ran. */
+    private const string HELD = 'held';
+
+    /** @var string A change dropped as the package's own rehash. */
+    private const string REHASH = 'rehash';
 
     /** @var \Illuminate\Container\Container|null The container before the test. */
     private ?Container $previous = null;
@@ -81,17 +91,17 @@ final class RehashingTest extends TestCase
         $rehashing = new Rehashing;
         $user      = new GenericUser(['id' => 1, 'password' => $this->hash]);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
 
         self::assertSame('rehashed', $rehashing->during($user, static function () use ($rehashing): string {
-            self::assertTrue($rehashing->isRunningFor(new GenericUser(['id' => '1', 'password' => 'another hash'])));
-            self::assertFalse($rehashing->isRunningFor(new GenericUser(['id' => 2, 'password' => 'another hash'])));
-            self::assertFalse($rehashing->isRunningFor(new PlainIdentityFixture(1)));
+            self::assertSame(self::REHASH, self::answer($rehashing, new GenericUser(['id' => '1', 'password' => 'another hash'])));
+            self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 2, 'password' => 'another hash'])));
+            self::assertSame(self::CHANGE, self::answer($rehashing, new PlainIdentityFixture(1)));
 
             return 'rehashed';
         }));
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
     }
 
     /**
@@ -107,13 +117,13 @@ final class RehashingTest extends TestCase
 
         $rehashing->during($outer, static function () use ($rehashing, $outer, $inner): void {
 
-            self::assertTrue($rehashing->during($inner, static fn (): bool => $rehashing->isRunningFor($outer) && $rehashing->isRunningFor($inner)));
+            self::assertSame([self::REHASH, self::REHASH], $rehashing->during($inner, static fn (): array => [self::answer($rehashing, $outer), self::answer($rehashing, $inner)]));
 
-            self::assertTrue($rehashing->isRunningFor($outer));
-            self::assertFalse($rehashing->isRunningFor($inner));
+            self::assertSame(self::REHASH, self::answer($rehashing, $outer));
+            self::assertSame(self::CHANGE, self::answer($rehashing, $inner));
         });
 
-        self::assertFalse($rehashing->isRunningFor($outer));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $outer));
     }
 
     /**
@@ -137,7 +147,7 @@ final class RehashingTest extends TestCase
             self::assertSame('rehash failed', $exception->getMessage());
         }
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
     }
 
     /**
@@ -153,25 +163,25 @@ final class RehashingTest extends TestCase
 
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
 
         $rehashing->validated('web', $user);
 
-        self::assertTrue($rehashing->isRunningFor(new GenericUser(['id' => '7', 'password' => $this->hash])));
-        self::assertFalse($rehashing->isRunningFor(new GenericUser(['id' => 8, 'password' => $this->hash])));
-        self::assertFalse($rehashing->isRunningFor(new PlainIdentityFixture(7, $this->hash)));
+        self::assertSame(self::HELD, self::answer($rehashing, new GenericUser(['id' => '7', 'password' => $this->hash])));
+        self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 8, 'password' => $this->hash])));
+        self::assertSame(self::CHANGE, self::answer($rehashing, new PlainIdentityFixture(7, $this->hash)));
 
         $rehashing->ended('admin');
 
-        self::assertTrue($rehashing->isRunningFor($user));
+        self::assertSame(self::HELD, self::answer($rehashing, $user));
 
         $rehashing->ended('web');
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
 
         $rehashing->validated('web', $user);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
     }
 
     /**
@@ -188,17 +198,17 @@ final class RehashingTest extends TestCase
 
         $rehashing->validated('web', $user);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
 
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
         $rehashing->validated('admin', $user);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
 
         $rehashing->validated('web', $user);
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
     }
 
     /**
@@ -215,9 +225,9 @@ final class RehashingTest extends TestCase
         $rehashing->attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD]);
         $rehashing->validated('web', new GenericUser(['id' => 7, 'password' => $this->hash]));
 
-        self::assertFalse($rehashing->isRunningFor(new GenericUser(['id' => 7, 'password' => (new BcryptHasher(['rounds' => 4]))->make('a new password')])));
-        self::assertFalse($rehashing->isRunningFor(new GenericUser(['id' => 7, 'password' => null])));
-        self::assertTrue($rehashing->isRunningFor(new GenericUser(['id' => 7, 'password' => $this->hash])));
+        self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 7, 'password' => (new BcryptHasher(['rounds' => 4]))->make('a new password')])));
+        self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 7, 'password' => null])));
+        self::assertSame(self::HELD, self::answer($rehashing, new GenericUser(['id' => 7, 'password' => $this->hash])));
     }
 
     /**
@@ -236,11 +246,87 @@ final class RehashingTest extends TestCase
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
         $rehashing->validated('web', $user);
 
-        self::assertTrue($rehashing->isRunningFor($user));
+        self::assertSame(self::HELD, self::answer($rehashing, $user));
 
         $rehashing->ended('web');
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+    }
+
+    /**
+     * A change held as an open attempt's rehash runs only when the user's
+     * password is then forced (`logoutOtherDevices()`), and only once; the
+     * attempt's end drops it, as a rehash; a forced rehash of another user, or
+     * with nothing held, runs nothing.
+     *
+     * @return void
+     */
+    public function testAHeldChangeRunsOnlyWhenTheUsersPasswordIsForced(): void
+    {
+        $rehashing = new Rehashing;
+        $user      = new GenericUser(['id' => 7, 'password' => $this->hash]);
+
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        $rehashing->forced($user);
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $user);
+
+        $rehashing->unlessRehash($user, static function () use ($runs): void {
+            $runs[] = 'first';
+        });
+
+        $rehashing->forced(new GenericUser(['id' => 8, 'password' => $this->hash]));
+
+        self::assertSame([], $runs->getArrayCopy());
+
+        $rehashing->forced(new GenericUser(['id' => '7', 'password' => $this->hash]));
+        $rehashing->forced($user);
+
+        self::assertSame(['first'], $runs->getArrayCopy());
+
+        $rehashing->unlessRehash($user, static function () use ($runs): void {
+            $runs[] = 'dropped';
+        });
+
+        $rehashing->ended('web');
+        $rehashing->forced($user);
+
+        self::assertSame(['first'], $runs->getArrayCopy());
+    }
+
+    /**
+     * Only the latest change held for a user runs, and a held change of one
+     * user neither replaces nor runs another's.
+     *
+     * @return void
+     */
+    public function testOnlyTheLatestChangeHeldForAUserRuns(): void
+    {
+        $rehashing = new Rehashing;
+        $first     = new GenericUser(['id' => 7, 'password' => $this->hash]);
+        $second    = new GenericUser(['id' => 8, 'password' => $this->hash]);
+
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $first);
+        $rehashing->attempting('admin', ['password' => self::PASSWORD]);
+        $rehashing->validated('admin', $second);
+
+        foreach (['first, earlier' => $first, 'second' => $second, 'first, latest' => $first] as $name => $user) {
+            $rehashing->unlessRehash($user, static function () use ($runs, $name): void {
+                $runs[] = $name;
+            });
+        }
+
+        $rehashing->forced($first);
+        $rehashing->forced($second);
+
+        self::assertSame(['first, latest', 'second'], $runs->getArrayCopy());
     }
 
     /**
@@ -271,7 +357,7 @@ final class RehashingTest extends TestCase
         $rehashing->attempting('web', $credentials);
         $rehashing->validated('web', $user);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
     }
 
     /**
@@ -291,6 +377,35 @@ final class RehashingTest extends TestCase
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
         $rehashing->validated('web', $user);
 
-        self::assertFalse($rehashing->isRunningFor($user));
+        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+    }
+
+    /**
+     * How the mark answers a change of the user's password: run at once
+     * (`change`), held as an open attempt's rehash and run by a forced rehash
+     * of the user (`held`), or dropped as the package's own rehash (`rehash`).
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing  $rehashing
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @return string
+     */
+    private static function answer(Rehashing $rehashing, Authenticatable $user): string
+    {
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        $rehashing->unlessRehash($user, static function () use ($runs): void {
+            $runs->append('run');
+        });
+
+        $atOnce = $runs->getArrayCopy();
+
+        $rehashing->forced($user);
+
+        return match (true) {
+            $atOnce               !== [] => self::CHANGE,
+            $runs->getArrayCopy() !== [] => self::HELD,
+            default                      => self::REHASH,
+        };
     }
 }

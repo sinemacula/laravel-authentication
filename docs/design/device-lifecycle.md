@@ -69,8 +69,10 @@ deleted. Starting a session is in
   rehash `SessionGuard::attempt()`, `attemptWhen()` and `once()` run through an Eloquent user provider. No event
   separates `attemptWhen()`'s callbacks from that rehash, so a save inside the bracket counts as the rehash only when
   the stored hash verifies the attempt's `password` credential (the hasher's `check()`; a hash it refuses to check is a
-  change): a callback that saves another password revokes. A `Validated` outside an attempt (`validate()`) marks
-  nothing, and the forced rehash of `logoutOtherDevices()` is answered as a change.
+  change): a callback that saves another password revokes. Such a save is held, not dropped: `OtherDeviceLogout`,
+  which `SessionGuard::logoutOtherDevices()` dispatches after its forced rehash, runs it, and the attempt's end drops
+  it, so the forced rehash is answered as a change even inside an attempt's callback or after an attempt that threw
+  after `Validated` and never ended. A `Validated` outside an attempt (`validate()`) marks nothing.
   The deactivation observer throws a `LogicException` for a deactivated model that is neither identity nor principal:
   a tenant's deactivation is `tenantDeactivated()`. With both password listeners registered, a broker reset is
   recorded as `password_changed` (the observer sees the save before the application fires `PasswordReset`).
