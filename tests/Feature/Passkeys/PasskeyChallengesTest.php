@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasskeyAdded;
 use SineMacula\Laravel\Authentication\Events\PasskeyUsed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose;
 use SineMacula\Laravel\Authentication\Passkeys\Enums\PasskeyRegistrationFailure;
@@ -418,6 +419,148 @@ final class PasskeyChallengesTest extends TestCase
     }
 
     /**
+     * Rows of `[column, recorded]`: a challenge's column and a value recorded
+     * in it that differs from what an answer names only in case.
+     *
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function provideLookAlikeRecords(): iterable
+    {
+        yield from [
+            'the ceremony'       => ['purpose', 'REGISTER'],
+            'the guard'          => ['guard', 'API'],
+            'the relying party'  => ['rp_id', 'EXAMPLE.TEST'],
+            'the owner\'s class' => ['authenticatable_type', strtolower(IntegrationIdentity::class)],
+        ];
+    }
+
+    /**
+     * With the column under a collation that counts the recorded value as equal
+     * to the answer's, a challenge whose ceremony, guard, relying party or
+     * owner's class differs from the answer's only in case gets nothing, and is
+     * left unused.
+     *
+     * @param  string  $column
+     * @param  string  $recorded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideLookAlikeRecords')]
+    public function testAChallengeRecordingALookAlikeGetsNothing(string $column, string $recorded): void
+    {
+        self::foldColumns('passkey_challenges', [$column], $column === 'authenticatable_type');
+
+        $identity = $this->seedIdentity();
+        $issued   = self::challenges()->issue(ChallengePurpose::REGISTER, self::rp('api'), $identity, ['challenge' => 'abc'], $this->now);
+        $answered = PasskeyChallenge::query()->sole()->getAttribute($column);
+
+        DB::table('passkey_challenges')->update([$column => $recorded]);
+
+        self::assertIsString($answered);
+        self::assertColumnFolds('passkey_challenges', $column, $answered);
+        self::assertNull(self::challenges()->consume($issued->challengeId, ChallengePurpose::REGISTER, self::rp('api'), $identity, $this->now));
+        self::assertSame(1, PasskeyChallenge::query()->count());
+    }
+
+    /**
+     * With the guard column under a collation that counts distinct guards as
+     * equal, a guard whose name differs from the issuing guard's only in case
+     * cannot answer its registration challenge, which it leaves unused, so the
+     * issuing guard still registers with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALookAlikeGuardCannotAnswerARegistrationChallenge(): void
+    {
+        self::addLookAlikeGuard();
+
+        $identity = $this->seedIdentity();
+        $options  = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
+        $answer   = $this->authenticator()->create($options->options);
+
+        self::assertColumnFolds('passkey_challenges', 'guard', 'API');
+
+        Event::fake([PasskeyAdded::class]);
+
+        self::assertSame(PasskeyRegistrationFailure::CHALLENGE_INVALID, Auth::passkeys('API')->register($identity, $options->challengeId, $answer));
+        self::assertSame(1, DB::table('passkey_challenges')->count());
+        self::assertSame(0, DB::table('passkeys')->count());
+
+        Event::assertNotDispatched(PasskeyAdded::class);
+
+        self::assertInstanceOf(PasskeySummary::class, Auth::passkeys('api')->register($identity, $options->challengeId, $answer));
+    }
+
+    /**
+     * With the guard column under a collation that counts distinct guards as
+     * equal, a sign-in through a guard whose name differs from the issuing
+     * guard's only in case cannot answer its sign-in challenge: it fails as
+     * `passkey_challenge_invalid`, the passkey is not touched and the challenge
+     * is left unused, so a sign-in through the issuing guard still answers it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALookAlikeGuardCannotAnswerASignInChallenge(): void
+    {
+        self::addLookAlikeGuard();
+
+        $this->registerPasskey($this->seedIdentity());
+
+        $options = $this->signInOptions();
+        $input   = ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get($options->options)];
+
+        self::assertColumnFolds('passkey_challenges', 'guard', 'API');
+
+        Event::fake([PasskeyUsed::class]);
+
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, $this->sessions('API')->signIn('passkey', $input)->reason);
+        self::assertSame(1, DB::table('passkey_challenges')->count());
+        self::assertSame(0, Passkey::query()->sole()->sign_count);
+
+        Event::assertNotDispatched(PasskeyUsed::class);
+
+        self::assertTrue($this->sessions()->signIn('passkey', $input)->isSignedIn());
+    }
+
+    /**
+     * With the guard column under a collation that counts distinct guards as
+     * equal, a guard whose name differs from the issuing guard's only in case
+     * cannot answer its factor challenge, which it leaves unused, so the
+     * issuing guard still verifies the factor with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALookAlikeGuardCannotAnswerAFactorChallenge(): void
+    {
+        self::addLookAlikeGuard();
+
+        $identity = $this->seedIdentity();
+
+        $this->registerPasskey($identity);
+
+        $options = Auth::passkeys('api')->factorOptions($identity);
+        $answer  = $this->authenticator()->get($options->options);
+
+        self::assertColumnFolds('passkey_challenges', 'guard', 'API');
+
+        Event::fake([PasskeyUsed::class]);
+
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, Auth::passkeys('API')->verifyFactor($identity, $options->challengeId, $answer));
+        self::assertSame(1, DB::table('passkey_challenges')->count());
+
+        Event::assertNotDispatched(PasskeyUsed::class);
+
+        self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $options->challengeId, $answer));
+    }
+
+    /**
      * Configure the guards and their relying party.
      *
      * @param  mixed  $app
@@ -436,6 +579,19 @@ final class PasskeyChallengesTest extends TestCase
 
         self::configureSessionGuards($config);
         self::configurePasskeys($config);
+    }
+
+    /**
+     * Put the challenges' guard column under the folding collation of the
+     * engine and configure `API` as `api` is.
+     *
+     * @return void
+     */
+    private static function addLookAlikeGuard(): void
+    {
+        self::foldColumns('passkey_challenges', ['guard']);
+
+        config()->set('auth.guards.API', config('auth.guards.api'));
     }
 
     /**

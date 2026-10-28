@@ -1929,9 +1929,9 @@ failure: the factor's outcome is the further-factor package's to limit and repor
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
 key, user handle or count. `remove($identity, $passkeyId)` removes the identity's passkey of the relying party and
 reports `PasskeyRemoved` once committed; it answers whether this call removed it. Listing, removal and every ceremony's
-challenge hold to the identity's exact type and key, whatever the column's collation counts as equal (`alice` and
-`Alice` under MySQL's default `_ci` collations). Removing a passkey removes a way to sign in, but ends no session unless
-you register the optional listener:
+challenge hold to the identity's exact type and key, and a challenge to its exact ceremony, guard and relying party too,
+whatever the column's collation counts as equal (`alice` and `Alice` under MySQL's default `_ci` collations). Removing a
+passkey removes a way to sign in, but ends no session unless you register the optional listener:
 
 ```php
 use Illuminate\Support\Facades\Event;

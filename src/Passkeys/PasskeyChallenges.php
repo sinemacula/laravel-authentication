@@ -97,9 +97,9 @@ final readonly class PasskeyChallenges
      * Use up the live challenge of the ceremony, guard, relying party and owner
      * (none for a sign-in) the id names, and return the options it was issued
      * with; `null` for an id that names no such challenge, which a malformed
-     * one cannot (no query is made for it), or for a challenge whose recorded
-     * owner is not exactly the owner, whatever the columns' collation counts as
-     * equal. Only one call can use a challenge up.
+     * one cannot (no query is made for it), or for a challenge that does not
+     * record exactly the ceremony, guard, relying party and owner, whatever the
+     * columns' collation counts as equal. Only one call can use a challenge up.
      *
      * @param  string  $id
      * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
@@ -128,7 +128,7 @@ final readonly class PasskeyChallenges
 
         [$type, $key] = $owner === null ? [null, null] : PasskeyOwner::columns($owner);
 
-        if ($challenge->authenticatable_type !== $type || $challenge->authenticatable_id !== $key) {
+        if (!self::isFor($challenge, $purpose, $rp, $type, $key)) {
             return null;
         }
 
@@ -167,5 +167,24 @@ final readonly class PasskeyChallenges
         }
 
         return $ttl;
+    }
+
+    /**
+     * Whether the challenge records exactly the ceremony, guard, relying party
+     * and owner. The statement that loaded it reads by id alone, and the
+     * conditional delete compares under the columns' collation, which may count
+     * distinct values, such as guards `api` and `API`, as equal.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PasskeyChallenge  $challenge
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
+     * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
+     * @param  ?string  $type
+     * @param  ?string  $key
+     * @return bool
+     */
+    private static function isFor(PasskeyChallenge $challenge, ChallengePurpose $purpose, RelyingParty $rp, ?string $type, ?string $key): bool
+    {
+        return [$challenge->purpose, $challenge->guard, $challenge->rp_id, $challenge->authenticatable_type, $challenge->authenticatable_id]
+            === [$purpose->value, $rp->guard, $rp->id, $type, $key];
     }
 }

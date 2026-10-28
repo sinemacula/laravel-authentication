@@ -55,8 +55,9 @@ package's.
   connection; every write is one conditional statement (registration an `insertOrIgnore` on the digest, so a duplicate
   is `already_registered` without a caught violation).
 - The owner columns are matched in the statement and then compared exactly (`PasskeyOwner::owns()` for a passkey listed
-  or removed, the recorded type and key for a challenge used up), since a column's collation, such as MySQL's default
-  `_ci`, can count distinct keys like `alice` and `Alice` as equal.
+  or removed; for a challenge used up, its recorded ceremony, guard and relying party as well as the type and key),
+  since a column's collation, such as MySQL's default `_ci`, can count distinct values like `alice` and `Alice`, or
+  guards `api` and `API`, as equal.
 - Events report writes once committed on the passkey's connection (`AfterCommit`): `PasskeyAdded`, `PasskeyUsed`,
   `PasskeyRemoved`, each a `ContextEvent` with the guard, the client, the owner, the method `passkey` and the passkey's
   id in `credentialId`. No event, summary or exception carries a credential id, public key, user handle or count.
