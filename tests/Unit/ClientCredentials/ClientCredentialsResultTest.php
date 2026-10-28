@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\ClientCredentials;
 
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -84,6 +85,29 @@ final class ClientCredentialsResultTest extends TestCase
         self::assertNull($result->accessToken);
         self::assertNull($result->expiresIn);
         self::assertNull($result->scopes);
+    }
+
+    /**
+     * Encoded as JSON, a result is its response body alone: a grant its token
+     * response, and every failure of a client the same `invalid_client` body,
+     * so the reason only the server-side event carries never reaches the
+     * client, alone or nested in another body.
+     *
+     * @return void
+     */
+    public function testAsJsonAResultIsItsBodyAlone(): void
+    {
+        $granted = ClientCredentialsResult::granted('token-value', 300, ['read']);
+
+        self::assertInstanceOf(Arrayable::class, $granted);
+        self::assertSame('{"access_token":"token-value","token_type":"Bearer","expires_in":300,"scope":"read"}', json_encode($granted));
+
+        $bodies = array_map(
+            static fn (FailureReason $reason): false|string => json_encode(['result' => ClientCredentialsResult::failed($reason, ClientCredentialsResult::INVALID_CLIENT)]),
+            [FailureReason::CREDENTIAL_INVALID, FailureReason::CREDENTIAL_REVOKED, FailureReason::CREDENTIAL_EXPIRED, FailureReason::IDENTITY_INACTIVE],
+        );
+
+        self::assertSame(['{"result":{"error":"invalid_client"}}'], array_values(array_unique($bodies)));
     }
 
     /**

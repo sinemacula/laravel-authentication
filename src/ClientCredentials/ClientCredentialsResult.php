@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\ClientCredentials;
 
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Responsable;
 use Illuminate\Http\JsonResponse;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -21,14 +22,18 @@ use SineMacula\Laravel\Authentication\Scopes\Scopes;
  * past its limit with, since RFC 6749 defines no rate-limit error.
  *
  * Routes are the application's: return the result from a controller, or read
- * its parts.
+ * its parts. `toArray()` and JSON give the response body alone, so the reason
+ * the server-side event carries never reaches the client however the result is
+ * encoded.
  *
  * @api
+ *
+ * @implements \Illuminate\Contracts\Support\Arrayable<string, mixed>
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class ClientCredentialsResult implements Responsable
+final readonly class ClientCredentialsResult implements \JsonSerializable, Arrayable, Responsable
 {
     /** @var string Error for a malformed request. */
     public const string INVALID_REQUEST = 'invalid_request';
@@ -130,6 +135,7 @@ final readonly class ClientCredentialsResult implements Responsable
      *
      * @return array{access_token: string, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
      */
+    #[\Override]
     public function toArray(): array
     {
         if ($this->accessToken === null) {
@@ -144,6 +150,18 @@ final readonly class ClientCredentialsResult implements Responsable
         ];
 
         return $scopes === [] ? $body : [...$body, 'scope' => Scopes::format($scopes)];
+    }
+
+    /**
+     * The result as JSON serialises it: the response body, as `toArray()` gives
+     * it.
+     *
+     * @return array{access_token: string, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
+     */
+    #[\Override]
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
     }
 
     /**

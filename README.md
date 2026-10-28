@@ -2678,7 +2678,9 @@ the client authenticated with HTTP Basic (`client_id:client_secret`, each form-u
 `client_secret` in the body, never both. A parameter in the query string, given twice or not a string is refused
 rather than ignored, so a credential in a URL never works. `exchange($clientId, $clientSecret, $scope)` does the same
 for a client id and secret your code read itself. The result is `Responsable`, answered with `Cache-Control: no-store`
-and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, `scopes`, `error` and `reason`:
+and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, `scopes`, `error` and `reason`. Its
+`toArray()` and JSON form are the response body alone, so `reason`, which only your code and the event should see, never
+reaches a client however you encode the result:
 
 | Outcome                                                                                  | Response                       |
 |------------------------------------------------------------------------------------------|--------------------------------|
