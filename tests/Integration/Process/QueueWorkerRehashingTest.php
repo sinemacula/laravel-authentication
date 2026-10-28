@@ -147,7 +147,9 @@ final class QueueWorkerRehashingTest extends TestCase
      * Sign an observed identity in, then queue a job that abandons a `web`
      * attempt for it and one that signs its other devices out, and run both
      * through one worker's loop, which forgets scoped instances before each
-     * job.
+     * job. The worker has no memory limit: the suite's own process may already
+     * use more than a worker's default, which would stop the loop before the
+     * first job.
      *
      * @return void
      *
@@ -168,7 +170,7 @@ final class QueueWorkerRehashingTest extends TestCase
 
         self::assertInstanceOf(Worker::class, $worker);
 
-        $options = new WorkerOptions(sleep: 0, maxTries: 1, stopWhenEmpty: true);
+        $options = new WorkerOptions(memory: PHP_INT_MAX, sleep: 0, maxTries: 1, stopWhenEmpty: true);
 
         self::assertSame(Worker::EXIT_SUCCESS, self::keepingSignalHandlers(static fn (): mixed => $worker->daemon('database', 'default', $options)));
         self::assertTrue($this->app?->make('abandoned.attempt'));
