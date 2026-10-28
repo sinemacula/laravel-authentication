@@ -1564,6 +1564,17 @@ script refreshes with:
 await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});
 ```
 
+Another host of the same site, such as a marketing site, a subdomain serving user content or one taken over, can plant
+a cookie of the same name: a `__Secure-` cookie may name the parent `Domain`, and a browser sends one with a longer
+`Path` before the API's own. PHP keeps only the first cookie of a name, so a request that carries the refresh cookie
+twice (counted under the name PHP files each one under) is refused as `refresh_token_conflict`, and the server never
+refreshes with the planted one. The planted cookie still fails every refresh until it expires, though, and the API
+cannot clear it, since `forgetCookie()` names the guard's own domain and path, not the planter's; and a browser that
+holds no refresh cookie of its own would send the planted one alone. If you do not trust every host of the site, name
+the cookie `__Host-refresh_token` with the path `/`: a browser keeps a `__Host-` cookie only from the API's own host,
+with no `Domain`, so no other host can plant one. The cost is that the cookie then rides on every request to the API's
+host, not only the routes that read it.
+
 `SameSite=Strict` keeps the cookie from being sent from another site at all, so `allowed_origins` serves origins of
 the same site, such as an application on `app.example.com` calling an API on `api.example.com`. For such an origin,
 let Laravel's CORS middleware allow credentials only for the origins you list (`supports_credentials` set to `true`

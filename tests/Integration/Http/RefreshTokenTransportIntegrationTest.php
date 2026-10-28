@@ -221,6 +221,51 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
+     * Rows of `[the cookie another host of the site planted]`, under the
+     * refresh cookie's name or one PHP files under it.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function providePlantedCookies(): iterable
+    {
+        yield 'the same name' => ['__Secure-refresh_token'];
+        yield 'a name with a dot' => ['__Secure-refresh.token'];
+    }
+
+    /**
+     * A browser that sends a cookie another host of the site planted before its
+     * own, as it does for a planted cookie with a longer path, is refused as a
+     * conflict rather than refreshed with the cookie PHP kept, and its own
+     * token still refreshes once the planted cookie is gone.
+     *
+     * @param  string  $planted
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('providePlantedCookies')]
+    public function testACookiePlantedBesideTheBrowsersOwnIsAConflict(string $planted): void
+    {
+        $token  = $this->signIn('admin');
+        $before = Device::query()->sole()->getAttributes();
+
+        $this->recordEvents([AuthenticationFailed::class, Refreshed::class]);
+
+        $headers = ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest', 'Cookie' => $planted . '=planted; ' . self::COOKIE . '=' . $token];
+
+        $this->refresh('admin', '', [], $headers, 'planted')
+            ->assertUnauthorized()
+            ->assertJson(['reason' => FailureReason::REFRESH_TOKEN_CONFLICT->value]);
+
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame($before, Device::query()->sole()->getAttributes());
+
+        $this->refresh('admin', '', [], ['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest', 'Cookie' => self::COOKIE . '=' . $token], $token)
+            ->assertOk()
+            ->assertJson(['source' => 'cookie']);
+    }
+
+    /**
      * A package-wide `__Host-` cookie name binds only the guard that reads the
      * cookie: that guard refreshes from it on the root path, and a guard that
      * reads the body or a header refreshes as before.

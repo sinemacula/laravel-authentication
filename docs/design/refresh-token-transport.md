@@ -16,6 +16,12 @@ request may carry the token in only one place; and the cookie that carries a bro
 - A request that carries a token in more than one listed source is refused as `refresh_token_conflict`, whether or not
   the tokens are equal. The server never chooses between two tokens, so a token cannot reach the exchange through a
   source whose checks it skipped while the request also carries it in the cookie.
+- A request whose `Cookie` headers carry the refresh cookie more than once is refused as `refresh_token_conflict` too.
+  PHP keeps only the first cookie it files under a name, and a browser sends a cookie another host of the site planted
+  (a `__Secure-` cookie with the parent `Domain` and a longer `Path`) before the API's own, so the raw headers are
+  counted, each name taken as PHP files it (a `.` or a space as `_`, nothing from a `[` on). The planted cookie keeps
+  failing refreshes until it expires and the API cannot clear it; a `__Host-` name with the path `/` stops other hosts
+  from planting one, at the cost of the cookie riding on every request to the API's host.
 - A token read from the cookie must come with an `Origin` that is the request's own (`getSchemeAndHttpHost()`, so
   behind a proxy it needs `TrustProxies`) or one of `allowed_origins`, compared exactly, and with a non-empty
   `csrf_header` header, which a cross-site form cannot send; otherwise `cross_site_request`. The checks come before the
@@ -85,7 +91,7 @@ request may carry the token in only one place; and the cookie that carries a bro
   `testRefreshFromARequestWithoutATokenAttemptsNothing`, `testATokenTheTransportRefusesIsAFailedRefresh`,
   `testARefreshFromTheRequestSaysWhereTheTokenWasRead`
 - `tests/Integration/Http/RefreshTokenTransportIntegrationTest.php`
-  `testAHostCookieNameLeavesTheGuardsThatDoNotReadTheCookieAlone`
+  `testACookiePlantedBesideTheBrowsersOwnIsAConflict`, `testAHostCookieNameLeavesTheGuardsThatDoNotReadTheCookieAlone`
 - `tests/Integration/Http/RefreshTokenCookieIntegrationTest.php`
   `testABrowserKeepsItsSessionInTheCookie`, `testTheCookieExpiresWithTheRefreshToken`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`
@@ -100,7 +106,7 @@ request may carry the token in only one place; and the cookie that carries a bro
 Update this note when any of the following change:
 
 - the sources a guard may read, or where the body is read from
-- how a token carried more than once is treated
+- how a token carried more than once is treated, the cookie sent twice included
 - the names the settings accept
 - the cookie's origin and custom header checks
 - the events and return value of a refusal by the transport

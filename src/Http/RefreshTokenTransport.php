@@ -20,12 +20,13 @@ use Symfony\Component\HttpFoundation\Cookie;
  *
  * A guard's `refresh_token` settings list the sources it reads: the cookie, a
  * body field (the JSON or form body, never the query string) and a header. Only
- * those are read, and a request that carries a token in more than one of them
- * is refused, equal or not, so a request cannot pass the cookie's cross-site
- * checks by also sending the token another way, nor leave the server to choose
- * which one counts. A token read from the cookie, which a browser attaches by
- * itself, must come with an `Origin` that is the request's own or an allowed
- * one, and with the custom header, which a cross-site form cannot send.
+ * those are read, and a request that carries a token in more than one of them,
+ * or two cookies of the refresh cookie's name, is refused, equal or not, so a
+ * request cannot pass the cookie's cross-site checks by also sending the token
+ * another way, nor leave the server to choose which one counts. A token read
+ * from the cookie, which a browser attaches by itself, must come with an
+ * `Origin` that is the request's own or an allowed one, and with the custom
+ * header, which a cross-site form cannot send.
  *
  * It also makes the cookie that carries a browser's refresh token, and the one
  * that clears it, for the application to attach to its own responses: the token
@@ -69,10 +70,11 @@ final readonly class RefreshTokenTransport
 
     /**
      * Read the refresh token the request carries: `null` when no allowed source
-     * carries one, `refresh_token_conflict` when more than one does,
-     * `cross_site_request` when it is in the cookie without an allowed origin
-     * and the custom header, and `token_invalid` when the value is not a
-     * non-empty string. Reading has no side effects.
+     * carries one, `refresh_token_conflict` when more than one does or the
+     * request carries the cookie twice, `cross_site_request` when it is in the
+     * cookie without an allowed origin and the custom header, and
+     * `token_invalid` when the value is not a non-empty string. Reading has no
+     * side effects.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Http\PresentedRefreshToken|null
@@ -80,6 +82,10 @@ final readonly class RefreshTokenTransport
     public function read(Request $request): FailureReason|PresentedRefreshToken|null
     {
         $present = array_values(array_filter($this->settings->sources, fn (RefreshTokenSource $source): bool => $this->carries($request, $source)));
+
+        if (in_array(RefreshTokenSource::COOKIE, $present, true) && $this->cookiesNamed($request) > 1) {
+            return FailureReason::REFRESH_TOKEN_CONFLICT;
+        }
 
         if (count($present) !== 1) {
             return $present === [] ? null : FailureReason::REFRESH_TOKEN_CONFLICT;
@@ -199,6 +205,31 @@ final readonly class RefreshTokenTransport
             RefreshTokenSource::HEADER => $request->headers->has($this->settings->header),
             RefreshTokenSource::BODY   => array_key_exists($this->settings->bodyField, self::body($request)),
         };
+    }
+
+    /**
+     * How many cookies the request's `Cookie` headers carry under the refresh
+     * cookie's name, each name read as PHP files it (a `.` or a space as `_`,
+     * nothing from a `[` on). PHP keeps only the first of the cookies it files
+     * under one name, and a browser sends a cookie that another host of the
+     * site planted (with the parent `Domain` and a longer `Path`) before the
+     * API's own, so the headers are counted rather than the one cookie PHP
+     * kept.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return int
+     */
+    private function cookiesNamed(Request $request): int
+    {
+        $names = [];
+
+        foreach ($request->headers->all('cookie') as $header) {
+            foreach (explode(';', strtr((string) $header, ',', ';')) as $pair) {
+                $names[] = strtr(explode('[', explode('=', ltrim($pair))[0])[0], '. ', '__');
+            }
+        }
+
+        return count(array_keys($names, $this->settings->cookieName, true));
     }
 
     /**

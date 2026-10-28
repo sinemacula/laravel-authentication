@@ -140,6 +140,93 @@ final class RefreshTokenTransportTest extends TestCase
     }
 
     /**
+     * Rows of `[the request's Cookie headers]` that carry the refresh cookie
+     * twice, under its own name or one PHP files under it.
+     *
+     * @return iterable<string, array{0: list<string>}>
+     */
+    public static function provideCookiesSentTwice(): iterable
+    {
+        $own = self::COOKIE . '=' . self::TOKEN;
+
+        yield 'the name twice' => [['__Secure-refresh_token=planted; ' . $own]];
+        yield 'the name twice without a space' => [['__Secure-refresh_token=planted;' . $own]];
+        yield 'the name twice among others' => [['theme=dark; __Secure-refresh_token=planted; locale=en; ' . $own]];
+        yield 'the name in two headers' => [['__Secure-refresh_token=planted', $own]];
+        yield 'the name in two headers joined by a comma' => [['__Secure-refresh_token=planted, ' . $own]];
+        yield 'a name with a dot' => [['__Secure-refresh.token=planted; ' . $own]];
+        yield 'a name with a space' => [['__Secure-refresh token=planted; ' . $own]];
+        yield 'a name with an index' => [['__Secure-refresh_token[x]=planted; ' . $own]];
+        yield 'the name without a value' => [['__Secure-refresh_token; ' . $own]];
+    }
+
+    /**
+     * A request that carries the refresh cookie twice is a conflict, as PHP
+     * keeps only the first of them and a browser sends a cookie another host of
+     * the site planted before the API's own: the server never picks one.
+     *
+     * @param  list<string>  $headers
+     * @return void
+     */
+    #[DataProvider('provideCookiesSentTwice')]
+    public function testACookieSentTwiceIsAConflict(array $headers): void
+    {
+        $request = self::cookie('planted', 'http://localhost', 'XMLHttpRequest');
+        $request->headers->set('Cookie', $headers);
+
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(['cookie'])->read($request));
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, self::transport(['cookie'])->read(self::crossSite($request)));
+    }
+
+    /**
+     * Rows of `[the request's Cookie header]` that carry the refresh cookie
+     * once, beside others whose names only look like it.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideCookiesSentOnce(): iterable
+    {
+        $own = self::COOKIE . '=' . self::TOKEN;
+
+        yield 'the name alone' => [$own];
+        yield 'the name with others' => ['theme=dark; ' . $own . '; locale=en'];
+        yield 'a name in another case' => ['__secure-refresh_token=planted; ' . $own];
+        yield 'a name with a prefix' => ['x__Secure-refresh_token=planted; ' . $own];
+        yield 'a name with a suffix' => ['__Secure-refresh_token2=planted; ' . $own];
+        yield 'the name as a value' => ['theme=__Secure-refresh_token; ' . $own];
+    }
+
+    /**
+     * A request that carries the refresh cookie once, whatever other cookies it
+     * carries, presents it.
+     *
+     * @param  string  $header
+     * @return void
+     */
+    #[DataProvider('provideCookiesSentOnce')]
+    public function testACookieSentOnceIsPresented(string $header): void
+    {
+        $request = self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest');
+        $request->headers->set('Cookie', $header);
+
+        self::assertSame(self::TOKEN, self::presented(self::transport(['cookie'])->read($request))->token);
+    }
+
+    /**
+     * A guard that does not read the cookie reads its own source whatever
+     * cookies of the refresh cookie's name the request carries.
+     *
+     * @return void
+     */
+    public function testACookieSentTwiceIsNoConcernOfAGuardThatDoesNotReadIt(): void
+    {
+        $request = self::cookie('planted', 'http://localhost', 'XMLHttpRequest', ['refresh_token' => self::TOKEN]);
+        $request->headers->set('Cookie', '__Secure-refresh_token=planted; __Secure-refresh_token=own');
+
+        self::assertSame(RefreshTokenSource::BODY, self::presented(self::transport(['body'])->read($request))->source);
+    }
+
+    /**
      * Rows of `[the request]` that carry something other than one non-empty
      * string where the token goes.
      *
@@ -478,6 +565,22 @@ final class RefreshTokenTransportTest extends TestCase
         $server = array_filter(['HTTP_ORIGIN' => $origin, 'HTTP_X_REQUESTED_WITH' => $csrf], static fn (?string $header): bool => $header !== null);
 
         return Request::create('/auth/refresh', 'POST', $body, [self::COOKIE => $value], [], $server);
+    }
+
+    /**
+     * The request with its `Origin` and custom header removed, as a cross-site
+     * page sends it.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Request
+     */
+    private static function crossSite(Request $request): Request
+    {
+        $request = clone $request;
+        $request->headers->remove('Origin');
+        $request->headers->remove('X-Requested-With');
+
+        return $request;
     }
 
     /**
