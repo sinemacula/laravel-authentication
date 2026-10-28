@@ -12,11 +12,10 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
@@ -38,8 +37,8 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 {
     /**
-     * attempt() dispatches Attempting first, then Failed and SignInFailed on
-     * failure.
+     * attempt() dispatches Attempting first, then Failed and
+     * AuthenticationFailed on failure.
      *
      * @return void
      *
@@ -61,7 +60,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             });
 
         self::assertFalse($guard->attempt(['email' => 'x']));
-        self::assertSame([Attempting::class, Failed::class, SignInFailed::class], $dispatched);
+        self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], $dispatched);
     }
 
     /**
@@ -185,11 +184,11 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
-                    && $event->reason     === SignInFailureReason::INVALID_CREDENTIALS
-                    && $event->identity   === null
-                    && $event->identifier === 'x'
-                    && $event->method     === 'password'),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason            === FailureReason::INVALID_CREDENTIALS
+                    && $event->context->identity === null
+                    && $event->identifier        === 'x'
+                    && $event->context->method   === 'password'),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -224,8 +223,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
-                    && $event->reason === SignInFailureReason::INVALID_CREDENTIALS),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason === FailureReason::INVALID_CREDENTIALS),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x']));
@@ -260,7 +259,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->with(\Mockery::type(Failed::class));
         $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(SignInFailed::class));
+            ->with(\Mockery::type(AuthenticationFailed::class));
 
         self::assertFalse($guard->attempt(['email' => 'nonexistent@example.test']));
     }
@@ -303,10 +302,10 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
-                    && $event->reason    === SignInFailureReason::PRINCIPAL_UNRESOLVED
-                    && $event->identity  === $identity
-                    && $event->principal === null),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason             === FailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->context->identity  === $identity
+                    && $event->context->principal === null),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -348,9 +347,9 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
-                    && $event->reason   === SignInFailureReason::IDENTITY_INACTIVE
-                    && $event->identity === $identity),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason            === FailureReason::IDENTITY_INACTIVE
+                    && $event->context->identity === $identity),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -371,7 +370,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 
         $identity = $this->mockIdentity();
 
-        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal = $this->mockPrincipal(CanBeActive::class);
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnFalse();
@@ -401,10 +400,10 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
-                    && $event->reason    === SignInFailureReason::PRINCIPAL_INACTIVE
-                    && $event->principal === $principal
-                    && $event->tenant    === null),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason             === FailureReason::PRINCIPAL_INACTIVE
+                    && $event->context->principal === $principal
+                    && $event->context->tenant    === null),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -425,9 +424,10 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $identity = $this->mockIdentity();
 
         $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
         $tenant->shouldReceive('isActive')->once()->andReturnFalse();
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
         $principal->shouldReceive('getTenant')->once()->andReturn($tenant);
 
         $this->provider->shouldReceive('retrieveByCredentials')
@@ -455,10 +455,10 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
-                    && $event->reason    === SignInFailureReason::TENANT_INACTIVE
-                    && $event->principal === $principal
-                    && $event->tenant    === null),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason             === FailureReason::TENANT_INACTIVE
+                    && $event->context->principal === $principal
+                    && $event->context->tenant    === null),
             );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
@@ -478,7 +478,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
         $principal->shouldReceive('getTenant')->andReturnNull();
 
         $this->provider->shouldReceive('retrieveByCredentials')

@@ -26,10 +26,9 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
@@ -307,20 +306,20 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        Event::fake([Attempting::class, Failed::class, SignInFailed::class]);
+        Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
         self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
-        Event::assertDispatched(SignInFailed::class, static fn (SignInFailed $event): bool => $event->guard === 'api');
+        Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->context->guard === 'api');
     }
 
     /**
      * The refresh exchange follows the same `events` rebind as its guard: after
      * an `Event::fake()` made once the guard has resolved, a failed refresh
-     * dispatches `RefreshFailed` to the fake, alongside the guard's own
+     * dispatches `AuthenticationFailed` to the fake, alongside the guard's own
      * `Attempting` and `Failed`.
      *
      * @return void
@@ -336,14 +335,14 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        Event::fake([Attempting::class, Failed::class, RefreshFailed::class]);
+        Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($this->readObjectProperty($guard, 'exchange'), 'events'));
         self::assertNull($guard->refresh('not-a-jwt'));
 
         Event::assertDispatched(
-            RefreshFailed::class,
-            static fn (RefreshFailed $event): bool => $event->guard === 'api' && $event->reason === RefreshFailureReason::TOKEN_INVALID,
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->context->guard === 'api' && $event->reason === FailureReason::TOKEN_INVALID,
         );
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
     }

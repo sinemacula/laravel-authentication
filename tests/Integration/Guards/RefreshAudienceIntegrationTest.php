@@ -16,10 +16,9 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -122,11 +121,11 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         Device::query()->whereKey($session->device->getKey())->update(['guard' => 'admin']);
 
-        $this->recordEvents([RefreshFailed::class, DeviceRevoked::class]);
+        $this->recordEvents([AuthenticationFailed::class, DeviceRevoked::class]);
 
         self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
-        self::assertSame([RefreshFailed::class], $this->recordedClasses());
-        self::assertSame(RefreshFailureReason::DEVICE_GUARD_MISMATCH, $this->recordedEvent(RefreshFailed::class)->reason);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(FailureReason::DEVICE_GUARD_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->stored($session)->getRevokedAt());
 
         $this->bearer($replay->accessToken)->assertUnauthorized();
@@ -155,10 +154,10 @@ final class RefreshAudienceIntegrationTest extends TestCase
         $allowed = app(AudiencePolicy::class);
 
         $this->bindAudience(allowsMethod: false);
-        $this->recordEvents([RefreshFailed::class]);
+        $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
-        self::assertSame(RefreshFailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(RefreshFailed::class)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
 
         app()->instance(AudiencePolicy::class, $allowed);
 
@@ -180,10 +179,10 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         Device::query()->whereKey($session->device->getKey())->update(['sign_in_method' => null]);
 
-        $this->recordEvents([RefreshFailed::class]);
+        $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
-        self::assertSame(RefreshFailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(RefreshFailed::class)->reason);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $this->recordedEvent(AuthenticationFailed::class)->reason);
     }
 
     /**
@@ -200,11 +199,11 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         $session = $this->signIn();
 
-        $this->bindAudience(admit: SignInFailureReason::PRINCIPAL_INELIGIBLE);
-        $this->recordEvents([RefreshFailed::class]);
+        $this->bindAudience(admit: FailureReason::PRINCIPAL_INELIGIBLE);
+        $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
-        self::assertSame(RefreshFailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(RefreshFailed::class)->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertNull($this->stored($session)->getRevokedAt());
     }
 
@@ -268,8 +267,8 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
     /**
      * Past the limit, the refresh route answers 429 with `Retry-After`, after
-     * `RefreshFailed` (`rate_limited`) and `Failed`, and the session is left as
-     * it was.
+     * `AuthenticationFailed` (`rate_limited`) and `Failed`, and the session is
+     * left as it was.
      *
      * @return void
      *
@@ -293,15 +292,15 @@ final class RefreshAudienceIntegrationTest extends TestCase
 
         app()->instance(AttemptLimiter::class, $limiter);
 
-        $this->recordEvents([RefreshFailed::class, Failed::class]);
+        $this->recordEvents([AuthenticationFailed::class, Failed::class]);
 
         $this->refresh($session)
             ->assertStatus(429)
             ->assertHeader('Retry-After', '17');
 
-        self::assertSame([RefreshFailed::class, Failed::class], $this->recordedClasses());
-        self::assertSame(RefreshFailureReason::RATE_LIMITED, $this->recordedEvent(RefreshFailed::class)->reason);
-        self::assertSame(17, $this->recordedEvent(RefreshFailed::class)->retryAfter);
+        self::assertSame([Failed::class, AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(FailureReason::RATE_LIMITED, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(17, $this->recordedEvent(AuthenticationFailed::class)->retryAfter);
         self::assertSame($before, $this->stored($session)->getRefreshKey());
     }
 
@@ -355,11 +354,11 @@ final class RefreshAudienceIntegrationTest extends TestCase
      * lifetimes unless others are given.
      *
      * @param  bool  $allowsMethod
-     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $admit
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $admit
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @return void
      */
-    private function bindAudience(bool $allowsMethod = true, ?SignInFailureReason $admit = null, ?TokenLifetimes $lifetimes = null): void
+    private function bindAudience(bool $allowsMethod = true, ?FailureReason $admit = null, ?TokenLifetimes $lifetimes = null): void
     {
         $policy = \Mockery::mock(AudiencePolicy::class);
 

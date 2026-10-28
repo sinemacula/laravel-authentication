@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -201,12 +201,12 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 
         self::assertNull($this->freshGuard()->refresh($refreshToken));
-        self::assertSame([RefreshFailureReason::TENANT_INACTIVE], $reasons);
+        self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
         $fresh = Device::query()->findOrFail($device->getKey());
 
@@ -449,14 +449,14 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 
         $guard = $this->freshGuard()->setPrincipalResolver(new StubFixedPrincipalResolver(MorphTenantMembership::query()->findOrFail($membership->getKey())));
 
         self::assertNull($guard->refresh($refreshToken));
-        self::assertSame([RefreshFailureReason::TENANT_INACTIVE], $reasons);
+        self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
 
         $fresh = Device::query()->findOrFail($device->getKey());
 
@@ -513,12 +513,12 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 
         self::assertNull($this->freshGuard()->refresh($refreshToken));
-        self::assertSame([RefreshFailureReason::TENANT_INACTIVE], $reasons);
+        self::assertSame([FailureReason::TENANT_INACTIVE], $reasons);
     }
 
     /**

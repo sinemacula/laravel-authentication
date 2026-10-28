@@ -8,9 +8,13 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Queue\SerializesModels;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * IdentifierVerified event unit tests.
@@ -24,43 +28,56 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 final class IdentifierVerifiedTest extends TestCase
 {
     /**
-     * The event carries the guard, the identity, the identifier's type and the
-     * client, never the identifier itself; the client is optional.
+     * The event keeps its context and the type of the identifier verified.
      *
      * @return void
      */
-    public function testCarriesTheContextButNotTheIdentifier(): void
+    public function testKeepsItsContextAndType(): void
     {
-        $identity = new PlainIdentityFixture(7);
-        $client   = new ClientContext('203.0.113.7', 'Mail/1.0');
-        $event    = new IdentifierVerified('api', $identity, 'email', $client);
+        $context = self::context();
+        $event   = new IdentifierVerified($context, 'email');
 
-        self::assertSame('api', $event->guard);
-        self::assertSame($identity, $event->identity);
+        self::assertInstanceOf(AuthenticationEvent::class, $event);
+        self::assertSame($context, $event->context);
+        self::assertSame($context, $event->context());
         self::assertSame('email', $event->type);
-        self::assertSame($client, $event->client);
-        self::assertSame(['guard', 'identity', 'type', 'client'], array_keys(get_object_vars($event)));
-        self::assertNull((new IdentifierVerified('api', $identity, 'phone'))->client);
     }
 
     /**
-     * The event serialises its models for queued listeners and leaves waiting
-     * for the commit to the verifier, which waits for the identity's own
-     * connection only.
+     * The event serialises its models for queued listeners and survives a round
+     * trip. It does not ask the dispatcher to wait for a transaction: that
+     * would wait for whichever transaction is open last on any connection, so
+     * the package dispatches it once the written row's own connection commits.
      *
      * @return void
      */
-    public function testSerialisesModelsAndLeavesTheCommitToTheVerifier(): void
+    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        $event = new IdentifierVerified('api', new PlainIdentityFixture(7), 'email', new ClientContext('203.0.113.7', null));
+        $context = self::context();
+        $event   = new IdentifierVerified($context, 'email');
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses($event));
+        self::assertContains(SerializesModels::class, class_uses_recursive($event));
 
-        $roundTripped = unserialize(serialize($event));
+        $copy = unserialize(serialize($event));
 
-        self::assertInstanceOf(IdentifierVerified::class, $roundTripped);
-        self::assertSame(7, $roundTripped->identity->getAuthIdentifier());
-        self::assertSame('203.0.113.7', $roundTripped->client?->ip);
+        self::assertInstanceOf(IdentifierVerified::class, $copy);
+        self::assertSame('api', $copy->context->guard);
+        self::assertSame('7', $copy->context->identityId);
+        self::assertSame('device-1', $copy->context->deviceId);
+        self::assertSame('email', $copy->type);
+    }
+
+    /**
+     * A context with an identity, principal and device, signed in with a
+     * password from a known client.
+     *
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
+     */
+    private static function context(): EventContext
+    {
+        $client = new ClientContext('203.0.113.7', 'agent');
+
+        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainDeviceFixture('device-1'), 'password');
     }
 }

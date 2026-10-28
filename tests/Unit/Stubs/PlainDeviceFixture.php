@@ -94,6 +94,28 @@ final readonly class PlainDeviceFixture implements Device
     }
 
     /**
+     * Return when the session started; the fixture records none.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getSignedInAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Return when the session last switched its principal; it never did.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getPrincipalSwitchedAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
      * Return the idle deadline.
      *
      * @return ?\Carbon\CarbonInterface

@@ -12,8 +12,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -142,8 +143,9 @@ final class JwtGuardTest extends JwtGuardTestCase
 
     /**
      * A refresh the limits refuse is counted against the request's IP address,
-     * dispatches `Attempting`, `RefreshFailed` (`rate_limited`) and `Failed` in
-     * that order, and then lets the 429 through instead of returning `null`.
+     * dispatches `Attempting`, `AuthenticationFailed` (`rate_limited`) and
+     * `Failed` in that order, and then lets the 429 through instead of
+     * returning `null`.
      *
      * @return void
      *
@@ -176,12 +178,13 @@ final class JwtGuardTest extends JwtGuardTestCase
             self::assertSame(['Retry-After' => 30], $exception->getHeaders());
         }
 
-        self::assertSame([Attempting::class, RefreshFailed::class, Failed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
-        self::assertInstanceOf(RefreshFailed::class, $dispatched[1]);
-        self::assertSame(RefreshFailureReason::RATE_LIMITED, $dispatched[1]->reason);
-        self::assertSame(30, $dispatched[1]->retryAfter);
-        self::assertInstanceOf(Failed::class, $dispatched[2]);
-        self::assertSame(self::GUARD_NAME, $dispatched[2]->guard);
+        self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
+        self::assertInstanceOf(Failed::class, $dispatched[1]);
+        self::assertSame(self::GUARD_NAME, $dispatched[1]->guard);
+        self::assertInstanceOf(AuthenticationFailed::class, $dispatched[2]);
+        self::assertSame(AuthenticationFlow::REFRESH, $dispatched[2]->flow);
+        self::assertSame(FailureReason::RATE_LIMITED, $dispatched[2]->reason);
+        self::assertSame(30, $dispatched[2]->retryAfter);
         self::assertFalse($guard->hasUser());
     }
 }

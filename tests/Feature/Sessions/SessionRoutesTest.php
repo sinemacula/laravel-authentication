@@ -20,7 +20,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -294,7 +294,7 @@ final class SessionRoutesTest extends TestCase
 
         if ($result->isFailed()) {
 
-            if ($result->reason === SignInFailureReason::RATE_LIMITED) {
+            if ($result->reason === FailureReason::RATE_LIMITED) {
                 throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
             }
 

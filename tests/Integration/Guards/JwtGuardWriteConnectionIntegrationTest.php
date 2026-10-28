@@ -21,8 +21,8 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -403,12 +403,12 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 
         self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
-        self::assertSame([RefreshFailureReason::SESSION_EXPIRED], $reasons);
+        self::assertSame([FailureReason::SESSION_EXPIRED], $reasons);
     }
 
     /**
@@ -538,12 +538,12 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 
         self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
-        self::assertSame([RefreshFailureReason::DEVICE_REVOKED], $reasons);
+        self::assertSame([FailureReason::DEVICE_REVOKED], $reasons);
     }
 
     /**
@@ -581,13 +581,13 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
 
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 
         self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'), 'revocation_log')->refresh($refreshToken));
         self::assertTrue($raced);
-        self::assertSame([RefreshFailureReason::DEVICE_REVOKED], $reasons);
+        self::assertSame([FailureReason::DEVICE_REVOKED], $reasons);
     }
 
     /**
@@ -595,13 +595,13 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
      * its guard and sign-in method from another table, whose origin the replica
      * still shows as an `api` password session.
      *
-     * @return iterable<string, array{0: array{guard: string, sign_in_method: string}, 1: \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason}>
+     * @return iterable<string, array{0: array{guard: string, sign_in_method: string}, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
     public static function provideOriginsRecordedOnThePrimary(): iterable
     {
         yield from [
-            'another guard'       => [['guard' => 'admin', 'sign_in_method' => 'password'], RefreshFailureReason::DEVICE_GUARD_MISMATCH],
-            'a disallowed method' => [['guard' => 'api', 'sign_in_method' => 'disabled'], RefreshFailureReason::METHOD_NOT_ALLOWED],
+            'another guard'       => [['guard' => 'admin', 'sign_in_method' => 'password'], FailureReason::DEVICE_GUARD_MISMATCH],
+            'a disallowed method' => [['guard' => 'api', 'sign_in_method' => 'disabled'], FailureReason::METHOD_NOT_ALLOWED],
         ];
     }
 
@@ -612,13 +612,13 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
      * the primary's origin and leaves the refresh digest as it was.
      *
      * @param  array{guard: string, sign_in_method: string}  $origin
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      *
      * @throws \Random\RandomException
      */
     #[DataProvider('provideOriginsRecordedOnThePrimary')]
-    public function testRefreshJudgesTheOriginRecordedOnThePrimaryWhileTheReplicaLags(array $origin, RefreshFailureReason $reason): void
+    public function testRefreshJudgesTheOriginRecordedOnThePrimaryWhileTheReplicaLags(array $origin, FailureReason $reason): void
     {
         app(ConfigRepository::class)->set('authentication.device.model', OriginLogDevice::class);
 
@@ -637,7 +637,7 @@ final class JwtGuardWriteConnectionIntegrationTest extends TestCase
         $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID, $identity);
         $reasons      = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 

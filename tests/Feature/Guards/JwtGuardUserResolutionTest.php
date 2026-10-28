@@ -274,6 +274,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $this->provider->shouldReceive('retrieveById')
             ->once()
@@ -308,8 +309,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -349,7 +353,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $identity  = \Mockery::mock(Identity::class);
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
         $exception = new UnresolvableIdentityException('cannot resolve');
 
         $this->provider->shouldReceive('retrieveById')
@@ -391,11 +396,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
         $tenant->shouldReceive('isActive')->once()->andReturnFalse();
 
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('getTenant')
@@ -436,8 +445,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -473,6 +485,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class, CanBeActive::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
         $identity->shouldReceive('isActive')->once()->andReturnFalse();
 
         $this->provider->shouldReceive('retrieveById')
@@ -506,8 +519,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-default');
 
@@ -553,6 +569,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $this->provider->shouldReceive('retrieveById')
             ->once()
@@ -589,8 +606,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-default');
 
@@ -630,8 +650,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn(null);
 
@@ -687,6 +710,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -792,6 +817,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('devices')->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
         $principal->shouldReceive('isActive')->andReturnTrue();
@@ -846,6 +873,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             });
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
         $principal->shouldReceive('isActive')->andReturnTrue();
@@ -892,6 +921,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -960,6 +991,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1021,6 +1054,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1091,6 +1126,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1149,8 +1186,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1216,6 +1256,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');

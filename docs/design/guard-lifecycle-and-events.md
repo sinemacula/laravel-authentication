@@ -14,12 +14,13 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `Validated` means the identity has already been accepted by credentials or by an upstream mechanism such as bearer
   token verification or refresh. It does not guarantee that principal or device resolution will succeed afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
-- `PrincipalAssigned` is emitted only after the identity is bound.
+- A bind sets the identity, principal and device before it dispatches anything after `Login`: `Authenticated`,
+  `PrincipalAssigned` and `DeviceAuthenticated` all describe the whole bound context (see `event-model.md`).
 - `DeviceAuthenticated` is emitted only when a non-null device is bound.
 - Rebinding clears any previously cached identity, principal, and device state before the new lifecycle begins.
 - A guard follows later container rebinds of the `events` dispatcher (and, without a guard-local override, of the
   `PrincipalResolver`), and passes each rebind on to its refresh exchange, so an `Event::fake()` made after the guard
-  resolved receives `RefreshFailed` as well as the guard's own events.
+  resolved receives the exchange's `DeviceRevoked` as well as the guard's own events.
 - Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
   rejected token fires `Attempting` and `Failed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
@@ -44,16 +45,21 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `DeviceCreated` (new devices only) and `SignedIn` when the device's connection commits; `start()` does the same
   without `Attempting` (see `session-service.md`). A sign-in held for a further factor binds nothing: it emits
   `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits. `complete()`
-  binds and emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then `SignInFailed`
-  (`additional_factor_failed`).
+  binds and emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then
+  `AuthenticationFailed` (`additional_factor_failed`).
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`
   for the identity and its default principal, without `Validated` or `Login`. An identity with no default principal is
   rejected with an `InvalidArgumentException` and the previous context is kept.
+- `authenticateAs()` is the trusted bind of an authentication that is not a sign-in: it clears the previous context,
+  settles the request, and emits `Authenticated -> PrincipalAssigned -> DeviceAuthenticated?` without `Validated` or
+  `Login`.
 - Bearer `user()` resolution emits `Attempting` and routes through `login()`, so a successful bearer request follows
   the direct `login()` sequence.
-- Successful `refresh()` emits `Attempting`, then routes through `login()`, then emits the package `Refreshed` event.
+- Successful `refresh()` emits `Attempting`, then `Validated` and the full bind (`Login -> Authenticated ->
+  PrincipalAssigned -> DeviceAuthenticated`), then the package `Refreshed` event once the rotation is committed on the
+  device's connection (at once with no transaction open there).
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
   then clears contextual state.
 
@@ -63,12 +69,12 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
   `Http\UnauthenticatedResponse` renders it. Any other guard on the route keeps Laravel's response.
-- A failed `attempt()` emits `Attempting`, `Failed` and then the package `SignInFailed` with a
-  `SignInFailureReason`, but not `Login` or `Authenticated`. `Failed` carries the account the credentials found (as
-  Laravel's guards do), `SignInFailed` only an identity whose password was accepted, plus the principal and tenant once
-  resolved and the identifier as given; never a credential. An account whose own limit refused the password check is
-  `account_rate_limited` on `SignInFailed`, with the wait, while the caller sees only a failure (the session service's
-  result says `invalid_credentials`).
+- A failed `attempt()` emits `Attempting`, `Failed` and then the package `AuthenticationFailed` (flow `sign_in`) with a
+  `FailureReason`, but not `Login` or `Authenticated`. `Failed` carries the account the credentials found (as Laravel's
+  guards do), `AuthenticationFailed` only an identity whose password was accepted, plus the principal and tenant once
+  resolved, the `password` method and the identifier as given; never a credential. An account whose own limit refused
+  the password check is `account_rate_limited` on `AuthenticationFailed`, with the wait, while the caller sees only a
+  failure (the session service's result says `invalid_credentials`).
 - `attempt()` runs on the password sign-in method and the sign-in policies, resolved from the container when it runs:
   after `Attempting`, the audience policy must allow the `password` method (`method_not_allowed`, nothing counted, no
   timebox) and the attempt limiter must grant a slot for the configured identifier and the request's IP address
@@ -91,7 +97,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   "fully bound".
 - An `UnresolvableIdentityException` (an identity model that is neither a `Principal` nor `HasPrincipals`) is a
   misconfiguration, not a failed authentication. It propagates as a server error from `attempt()`, bearer resolution,
-  and `refresh()`, with no `Failed` or `RefreshFailed` event.
+  and `refresh()`, with no `Failed` or `AuthenticationFailed` event.
 - Activation is opt-in through `CanBeActive` on the identity, the principal, or the tenant, and is decided by
   `ActivationPolicy` on the credential, bearer, and refresh paths alike. A model without the capability is active. The
   tenant is read from the write connection, also when it lives on another connection than the principal. A principal
@@ -101,18 +107,19 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   without the type column of a polymorphic tenant relation, throws a `LogicException`; a polymorphic tenant whose key is
   set but whose type is empty cannot be loaded either. A tenant that does not opt in is never checked, and a relation to
   a model that is not a `Tenant` reports no tenant.
-- Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
-  machine-readable reason. A refresh that revokes the device because its token was replayed (`rotation_reuse`) also
-  emits `DeviceRevoked`. It is dispatched only by the call that revoked the device, never for one already revoked, and
-  only once the revocation is committed on the device's own connection, so a rolled-back revocation is never reported.
-  When that connection has no open transaction the revocation is committed at once, and the order is `DeviceRevoked`,
-  `RefreshFailed`, `Failed`, even if a transaction is open on another connection, whose rollback does not withdraw it.
-  Inside a transaction on the device's connection, `RefreshFailed` and `Failed` come first and `DeviceRevoked` follows
-  when that transaction commits. The transaction Laravel's testing traits wrap around each test is not counted, as it
-  never commits. `DeviceRevoked` reports only the revocations the package makes, which today is replay detection: a
-  device an application revokes by writing `revoked_at` itself fires no event.
-- A rate-limited refresh emits `Attempting`, `RefreshFailed` (`rate_limited`, with `retryAfter`), and `Failed`, and
-  then throws `ThrottleRequestsException` (a 429 with `Retry-After`) instead of returning `null`.
+- Failed refresh emits Laravel's standard `Attempting` and `Failed` events and then the package `AuthenticationFailed`
+  (flow `refresh`) with a machine-readable reason; the exchange returns that event and the guard dispatches it. A
+  refresh that revokes the device because its token was replayed (`rotation_reuse`) also emits `DeviceRevoked`. It is
+  dispatched only by the call that revoked the device, never for one already revoked, and only once the revocation is
+  committed on the device's own connection, so a rolled-back revocation is never reported. When that connection has no
+  open transaction the revocation is committed at once, and the order is `DeviceRevoked`, `Failed`,
+  `AuthenticationFailed`, even if a transaction is open on another connection, whose rollback does not withdraw it.
+  Inside a transaction on the device's connection, `Failed` and `AuthenticationFailed` come first and `DeviceRevoked`
+  follows when that transaction commits. The transaction Laravel's testing traits wrap around each test is not counted,
+  as it never commits. `DeviceRevoked` reports only the revocations the package makes, which today is replay detection:
+  a device an application revokes by writing `revoked_at` itself fires no event.
+- A rate-limited refresh emits `Attempting`, `Failed` and `AuthenticationFailed` (`rate_limited`, with `retryAfter`),
+  and then throws `ThrottleRequestsException` (a 429 with `Retry-After`) instead of returning `null`.
 - Verifying an identifier (`IdentifierVerifier::verify()`, behind `VerificationLinks::consume()`) never binds a guard
   or starts a session. Only the call whose locked update marked the identifier verified dispatches
   `IdentifierVerified`, once that update is committed on the identity's connection (at once for an identity that is
@@ -121,21 +128,22 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   as one that rotates, `Refreshed` included.
 - `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and
   user agent of the use, at most once per `authentication.device.last_used_throttle_seconds`. Only persisted
-  `EloquentDevice` instances participate in that write path. The listener is resolved from the container on every
-  dispatch with the current request, so a long-running worker records the request it is serving, and the client values
-  are cleaned by `ClientContext` before they are stored.
+  `EloquentDevice` instances participate in that write path. It records the client the event carries, the request
+  being served when the device was bound, so a long-running worker records the request it is serving, and the client
+  values are cleaned by `ClientContext` before they are stored.
 
 ## Implementation Anchors
 
 - `src/Guards/Concerns/ValidatesGuardCredentials.php`: `fireAttemptingEvent()`, `fireValidatedEvent()`,
   `fireFailedEvent()`, `redactCredentials()`.
 - `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `validate()`, `login()`,
-  `logout()`, `setRequest()`, `bindAuthenticationLifecycle()`, `signInWithCredentials()`, `admitVerifiedIdentity()`.
+  `authenticateAs()`, `logout()`, `setRequest()`, `bindAuthenticationLifecycle()`, `bindVerifiedContext()`,
+  `signInWithCredentials()`, `admitVerifiedIdentity()`.
 - `src/Sessions/Methods/PasswordSignIn.php` and `src/Sessions/Admission/SignInAdmission.php`: the credential check and
   the activity, principal, tenant and audience checks every sign-in shares.
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activation checks.
 - `src/Guards/Concerns/BindsContextualState.php`: the resolving accessors, `setPrincipal()`, `setDevice()`,
-  `clearContextualState()`.
+  `bindContext()`, `clearContextualState()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`.
@@ -230,13 +238,15 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Verification/IdentifierVerifierTest.php`
   `testProvingTheCurrentIdentifierVerifiesIt`, `testVerifyingAgainReportsAlreadyVerified`,
   `testEventWaitsForTheCommitAndNeverReportsARollback`
+- `tests/Feature/Guards/AbstractGuardEventContextTest.php`
+  `testAuthenticateAsReportsTheBindButNoSignIn`, `testAListenerOnAuthenticatedSeesTheWholeContext`
 
 ## Change Triggers
 
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `DeviceAuthenticated`, `Refreshed`, `RefreshFailed`, `SignInFailed`, `AdditionalFactorRequired`, `DeviceRevoked`, or
+  `DeviceAuthenticated`, `Refreshed`, `AuthenticationFailed`, `AdditionalFactorRequired`, `DeviceRevoked`, or
   `IdentifierVerified`
 - the order of the sign-in policy checks in `attempt()`
 - which credential keys are redacted from `Attempting` and `Failed`

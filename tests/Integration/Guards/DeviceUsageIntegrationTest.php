@@ -448,6 +448,7 @@ final class DeviceUsageIntegrationTest extends TestCase
                 'created_ip'           => $client->ip,
                 'created_user_agent'   => $client->userAgent,
                 'refresh_key'          => RefreshTokenHasher::hash($rotation),
+                'signed_in_at'         => Carbon::now(),
                 'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
                 'absolute_expires_at'  => $absolute,
             ])->save();

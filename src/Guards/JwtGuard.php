@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
@@ -12,11 +13,14 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
+use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -112,11 +116,13 @@ final class JwtGuard extends AbstractGuard
      * Exchange a refresh token for a new access token + rotated refresh token.
      *
      * Delegates the round trip to `RefreshTokenExchange`, binds the resolved
-     * contextual triple, and dispatches `Refreshed`. Returns `null` on failure;
-     * the exchange has already dispatched `RefreshFailed` with a reason code.
-     * Once too many refreshes have failed for the token's device or from the
-     * request's IP address, `Failed` is dispatched and a
-     * `ThrottleRequestsException` (429 with `Retry-After`) is thrown instead.
+     * contextual triple, and dispatches `Refreshed` once the rotation is
+     * committed on the device's connection. Returns `null` on failure, after
+     * Laravel's `Failed` and then `AuthenticationFailed` with the reason. Once
+     * too many refreshes have failed for the token's device or from the
+     * request's IP address, the failure is `rate_limited` and a
+     * `ThrottleRequestsException` (429 with `Retry-After`) is thrown after the
+     * events instead.
      *
      * The presented token is rotated before the context is bound, so an
      * exception from a listener on the binding events or on `Refreshed`
@@ -136,30 +142,28 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireAttemptingEvent([]);
 
-        $result = $this->exchange->exchange($refreshToken, ClientContext::fromRequest($this->request));
+        $client = ClientContext::fromRequest($this->request);
+        $result = $this->exchange->exchange($refreshToken, $client);
 
-        if ($result instanceof RefreshFailed) {
+        if ($result instanceof AuthenticationFailed) {
 
             $this->fireFailedEvent(null, []);
+
+            $this->events->dispatch($result);
 
             self::refuseIfRateLimited($result);
 
             return null;
         }
 
-        // Route through login() so refresh fires the same event sequence as
-        // attempt(). Refreshed fires afterwards so consumers can distinguish a
-        // rotation.
-        $this->login($result->identity, $result->principal, $result->device);
+        // Validated then the full bind, so a refresh fires the same event
+        // sequence as attempt(); Refreshed follows once the rotation commits so
+        // consumers can tell a rotation from a sign-in.
+        $this->fireValidatedEvent($result->identity);
 
-        $this->events->dispatch(
-            new Refreshed(
-                $this->name,
-                $result->identity,
-                $result->principal,
-                $result->device,
-            ),
-        );
+        $this->bindVerifiedContext($result->identity, $result->principal, $result->device, $result->tenant, $result->method, true);
+
+        $this->reportRefresh($result, $client);
 
         return $result->tokens;
     }
@@ -183,7 +187,7 @@ final class JwtGuard extends AbstractGuard
     /**
      * Rebind the event dispatcher onto both the guard and its refresh exchange,
      * so a dispatcher swapped in after the guard resolved (e.g.
-     * `Event::fake()`) receives `RefreshFailed` as well as the guard's events.
+     * `Event::fake()`) receives `DeviceRevoked` as well as the guard's events.
      *
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @return static
@@ -226,16 +230,36 @@ final class JwtGuard extends AbstractGuard
      * since `refresh()` cannot say so through its return value and a 401 would
      * be wrong.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\RefreshFailed  $failure
+     * @param  \SineMacula\Laravel\Authentication\Events\AuthenticationFailed  $failure
      * @return void
      *
      * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      */
-    private static function refuseIfRateLimited(RefreshFailed $failure): void
+    private static function refuseIfRateLimited(AuthenticationFailed $failure): void
     {
         if ($failure->retryAfter !== null) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $failure->retryAfter]);
         }
+    }
+
+    /**
+     * Dispatch `Refreshed` once the rotation is committed on the device's own
+     * connection: at once when it has no open transaction, on its commit
+     * otherwise, and never when it rolls back.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $result
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return void
+     */
+    private function reportRefresh(ExchangedRefresh $result, ClientContext $client): void
+    {
+        $context   = new EventContext($this->name, $client, $result->identity, $result->principal, $result->tenant, $result->device, $result->method);
+        $container = Container::getInstance();
+
+        (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
+            ->run($result->device, function () use ($context): void {
+                $this->events->dispatch(new Refreshed($context));
+            });
     }
 
     /**
@@ -264,21 +288,23 @@ final class JwtGuard extends AbstractGuard
             return null;
         }
 
-        $this->login($context['identity'], $context['principal'], $context['device']);
+        $this->fireValidatedEvent($context['identity']);
+
+        $this->bindVerifiedContext($context['identity'], $context['principal'], $context['device'], $context['tenant'], $context['device']?->getSignInMethod(), true);
 
         return $context['identity'];
     }
 
     /**
-     * Resolve identity, principal, and device from a parsed bearer token. The
-     * caller fires `Failed` and binds state.
+     * Resolve identity, principal, the principal's tenant, and device from a
+     * parsed bearer token. The caller fires `Failed` and binds state.
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $token
-     * @return array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, device: ?\SineMacula\Laravel\Authentication\Contracts\Device}|null
+     * @return array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, tenant: ?\SineMacula\Laravel\Authentication\Contracts\Tenant, device: ?\SineMacula\Laravel\Authentication\Contracts\Device}|null
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -288,11 +314,11 @@ final class JwtGuard extends AbstractGuard
      */
     private function resolveContextFromToken(#[\SensitiveParameter] string $token): ?array
     {
-        $claims    = $this->tokens->parse($token, TokenType::ACCESS);
-        $user      = $this->loadIdentityFromClaims($claims);
-        $principal = $user === null ? null : $this->resolveActivePrincipal($user, $claims);
+        $claims = $this->tokens->parse($token, TokenType::ACCESS);
+        $user   = $this->loadIdentityFromClaims($claims);
+        $acting = $user === null ? null : $this->resolveActivePrincipal($user, $claims);
 
-        if ($claims === null || $user === null || $principal === null) {
+        if ($claims === null || $user === null || $acting === null) {
             return null;
         }
 
@@ -307,7 +333,8 @@ final class JwtGuard extends AbstractGuard
             ? null
             : [
                 'identity'  => $user,
-                'principal' => $principal,
+                'principal' => $acting[0],
+                'tenant'    => $acting[1],
                 'device'    => $device,
             ];
     }
@@ -342,19 +369,26 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * Resolve a principal from the claims and confirm it and its tenant are
-     * active.
+     * active, returning the principal with the tenant its activity check
+     * loaded.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $user
      * @param  array<string, mixed>  $claims
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Principal, 1: ?\SineMacula\Laravel\Authentication\Contracts\Tenant}|null
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function resolveActivePrincipal(Identity $user, array $claims): ?Principal
+    private function resolveActivePrincipal(Identity $user, array $claims): ?array
     {
         $principal = $this->resolvePrincipalFromClaims($user, $claims);
 
-        return $principal instanceof Principal && ActivationPolicy::isPrincipalActive($principal) ? $principal : null;
+        if (!$principal instanceof Principal || !ActivationPolicy::isActive($principal)) {
+            return null;
+        }
+
+        $tenant = ActivationPolicy::activeTenant($principal);
+
+        return $tenant === false ? null : [$principal, $tenant];
     }
 
     /**

@@ -792,6 +792,7 @@ final class PendingSignInsTest extends TestCase
             'principal_id'         => (string) $identity->id,
             'guard'                => 'api',
             'refresh_key'          => RefreshTokenHasher::hash('current'),
+            'signed_in_at'         => $this->now,
             'idle_expires_at'      => $this->now->addDays(30),
             'absolute_expires_at'  => $this->now->addDays(180),
         ])->save();

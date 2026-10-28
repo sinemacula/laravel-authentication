@@ -29,11 +29,11 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -132,6 +132,9 @@ final class RefreshTokenExchangeTest extends TestCase
     /** @var list<object> Events the exchange dispatched, when recorded. */
     private array $dispatched = [];
 
+    /** @var list<\SineMacula\Laravel\Authentication\Events\AuthenticationFailed> Failures the exchanges returned. */
+    private array $failures = [];
+
     /**
      * Build collaborator mocks, freeze the clock, and create the in-memory
      * `stub_devices` schema.
@@ -192,31 +195,58 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * After `setDispatcher()`, failures go to the new dispatcher and no longer
-     * reach the one the exchange was built with.
+     * After `setDispatcher()`, the revocation of a replayed device goes to the
+     * new dispatcher and no longer reaches the one the exchange was built with.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testSetDispatcherRoutesLaterFailuresToTheNewDispatcher(): void
+    public function testSetDispatcherRoutesLaterRevocationsToTheNewDispatcher(): void
     {
+        $device   = $this->seedRotatedDevice(42, rotatedSecondsAgo: 5);
         $exchange = $this->makeExchange();
 
         $replacement = \Mockery::mock(Dispatcher::class);
         $replacement->shouldReceive('dispatch')
             ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->guard  === self::GUARD_NAME
-                    && $event->reason === RefreshFailureReason::TOKEN_INVALID),
-            );
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof DeviceRevoked
+                && $event->context->guard === self::GUARD_NAME
+                && $event->reason         === RevocationReason::ROTATION_REUSE));
 
         $this->events->shouldNotReceive('dispatch');
 
         self::assertSame($exchange, $exchange->setDispatcher($replacement));
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange('not-a-jwt', self::client()));
+
+        $failure = $this->refused($exchange->exchange($this->tokenFor($device, 'a-replayed-rotation-id'), self::client()));
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $failure->reason);
+    }
+
+    /**
+     * A failure is returned for the caller to report, never dispatched by the
+     * exchange itself, and carries the guard and the client.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testAFailureIsReturnedNotDispatched(): void
+    {
+        $this->events->shouldNotReceive('dispatch');
+
+        $failure = $this->refused($this->makeExchange()->exchange('not-a-jwt', self::client()));
+
+        self::assertSame(AuthenticationFlow::REFRESH, $failure->flow);
+        self::assertSame(FailureReason::TOKEN_INVALID, $failure->reason);
+        self::assertSame(self::GUARD_NAME, $failure->context->guard);
+        self::assertSame(self::CLIENT_IP, $failure->context->client->ip);
+        self::assertNull($failure->context->identity);
+        self::assertNull($failure->context->deviceId);
+        self::assertNull($failure->identifier);
+        self::assertNull($failure->retryAfter);
     }
 
     /**
@@ -334,6 +364,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $principal = \Mockery::mock(Principal::class);
         $principal->shouldReceive('getTenant')->once()->andReturn($tenant);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn(77);
 
         $this->resolver->shouldReceive('resolve')
             ->once()
@@ -345,15 +376,16 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => $plainRotationId,
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::TENANT_INACTIVE
-                    && $event->deviceId === $device->id),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange($token, self::client()));
+        $failure = $this->refused($exchange->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::TENANT_INACTIVE, $failure->reason);
+        self::assertSame($device->id, $failure->context->deviceId);
+        self::assertSame($identity, $failure->context->identity);
+        self::assertSame($principal, $failure->context->principal);
+        self::assertNull($failure->context->tenant);
+        self::assertSame('password', $failure->context->method);
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
     }
 
@@ -374,7 +406,7 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * The device owner is reloaded through the provider and must be that exact
      * owner: no identity, or an identity of another model that shares the owner
-     * key, fails as `authenticatable_missing` before any principal is resolved.
+     * key, fails as `identity_unknown` before any principal is resolved.
      *
      * @param  \Closure(): mixed  $answer
      * @return void
@@ -402,20 +434,17 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->resolver->shouldNotReceive('resolve');
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::AUTHENTICATABLE_MISSING
-                    && $event->deviceId === $device->id),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
         $token = $this->encodeRefreshToken([
             'did' => $device->id,
             'jti' => $plainRotationId,
         ]);
 
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange($token, self::client()));
+        $failure = $this->refused($exchange->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::IDENTITY_UNKNOWN, $failure->reason);
+        self::assertSame($device->id, $failure->context->deviceId);
     }
 
     /**
@@ -534,15 +563,12 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => 12345,
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::TOKEN_INVALID
-                    && $event->deviceId === 'device-non-string-jti'),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange($token, self::client()));
+        $failure = $this->refused($exchange->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::TOKEN_INVALID, $failure->reason);
+        self::assertSame('device-non-string-jti', $failure->context->deviceId);
     }
 
     /**
@@ -654,15 +680,12 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => $plainRotationId,
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
-                    && $event->deviceId === $device->id),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange($token, self::client()));
+        $failure = $this->refused($exchange->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $failure->reason);
+        self::assertSame($device->id, $failure->context->deviceId);
     }
 
     /**
@@ -706,15 +729,12 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => $plainRotationId,
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
-                    && $event->deviceId === $device->id),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange($token, self::client()));
+        $failure = $this->refused($exchange->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $failure->reason);
+        self::assertSame($device->id, $failure->context->deviceId);
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
     }
 
@@ -758,15 +778,12 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => $plainRotationId,
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_UNRESOLVED
-                    && $event->deviceId === $device->id),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange($token, self::client()));
+        $failure = $this->refused($exchange->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $failure->reason);
+        self::assertSame($device->id, $failure->context->deviceId);
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
     }
 
@@ -820,20 +837,17 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->provider->shouldNotReceive('retrieveById');
         $this->resolver->shouldNotReceive('resolve');
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::SESSION_EXPIRED
-                    && $event->deviceId === $device->id),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
         $token = $this->encodeRefreshToken([
             'did' => $device->id,
             'jti' => $plainRotationId,
         ]);
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($token, self::client()));
+        $failure = $this->refused($this->makeExchange()->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::SESSION_EXPIRED, $failure->reason);
+        self::assertSame($device->id, $failure->context->deviceId);
         self::assertSame($before, (array) DB::table('stub_devices')->where('id', $device->id)->first());
     }
 
@@ -941,7 +955,7 @@ final class RefreshTokenExchangeTest extends TestCase
      * current one nor the previous one inside the grace window proves the token
      * was replayed: the device is revoked with reason `rotation_reuse` (its
      * time and reason recorded, both digests cleared), `DeviceRevoked` and
-     * `RefreshFailed` are dispatched, and nothing is issued.
+     * `AuthenticationFailed` are dispatched, and nothing is issued.
      *
      * @param  string  $presented
      * @param  int  $rotatedSecondsAgo
@@ -974,7 +988,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange($grace)->exchange($this->tokenFor($device, $rotationId), self::client()));
+        $this->refused($this->makeExchange($grace)->exchange($this->tokenFor($device, $rotationId), self::client()));
 
         $this->assertRevokedForReuse($device);
     }
@@ -1004,7 +1018,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $third = $this->makeExchange()->exchange($second->tokens->refreshToken, self::client());
 
         self::assertInstanceOf(ExchangedRefresh::class, $third);
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($device, $first), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, $first), self::client()));
 
         $this->assertRevokedForReuse($device);
     }
@@ -1027,9 +1041,9 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
         self::assertSame($before, $this->row($device));
-        self::assertSame([RefreshFailureReason::REFRESH_KEY_MISSING], $this->failureReasons());
+        self::assertSame([FailureReason::REFRESH_KEY_MISSING], $this->failureReasons());
     }
 
     /**
@@ -1050,9 +1064,9 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
         self::assertSame($before, $this->row($device));
-        self::assertSame([RefreshFailureReason::SESSION_EXPIRED], $this->failureReasons());
+        self::assertSame([FailureReason::SESSION_EXPIRED], $this->failureReasons());
     }
 
     /**
@@ -1099,7 +1113,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $this->recordEvents();
 
-        self::assertTrue($this->makeExchange()->revokeDevice($device, RevocationReason::ROTATION_REUSE));
+        self::assertTrue($this->makeExchange()->revokeDevice($device, RevocationReason::ROTATION_REUSE, self::client()));
         self::assertSame($this->now->getTimestamp(), $device->revoked_at?->getTimestamp());
         self::assertSame('rotation_reuse', $device->getRevokedReason());
         self::assertNull($device->getRefreshKey());
@@ -1109,12 +1123,14 @@ final class RefreshTokenExchangeTest extends TestCase
 
         Carbon::setTestNow($this->now->copy()->addMinute());
 
-        self::assertFalse($this->makeExchange()->revokeDevice(StubDevice::query()->findOrFail($device->id), RevocationReason::ROTATION_REUSE));
+        self::assertFalse($this->makeExchange()->revokeDevice(StubDevice::query()->findOrFail($device->id), RevocationReason::ROTATION_REUSE, self::client()));
         self::assertSame($first, $this->row($device));
         self::assertCount(1, $this->dispatched);
         self::assertInstanceOf(DeviceRevoked::class, $this->dispatched[0]);
-        self::assertSame($device, $this->dispatched[0]->device);
-        self::assertSame(self::GUARD_NAME, $this->dispatched[0]->guard);
+        self::assertSame($device, $this->dispatched[0]->context->device);
+        self::assertSame(self::GUARD_NAME, $this->dispatched[0]->context->guard);
+        self::assertSame(self::CLIENT_IP, $this->dispatched[0]->context->client->ip);
+        self::assertSame('password', $this->dispatched[0]->context->method);
     }
 
     /**
@@ -1190,7 +1206,7 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->recordEvents();
         $this->beforeTheSwap(fn () => $this->rotateOnTheRow($device, self::ROTATION_ID));
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange(0)->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange(0)->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
 
         $this->assertRevokedForReuse($device);
     }
@@ -1199,18 +1215,18 @@ final class RefreshTokenExchangeTest extends TestCase
      * Rows of `[competing change committed between the read and the swap,
      * failure the row judged again gives]`.
      *
-     * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason}>
+     * @return iterable<string, array{0: string, 1: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
      */
     public static function provideCompetingChanges(): iterable
     {
         yield from [
-            'revoked'                  => ['revoked', RefreshFailureReason::DEVICE_REVOKED],
-            'deleted'                  => ['deleted', RefreshFailureReason::DEVICE_UNKNOWN],
-            'ended'                    => ['ended', RefreshFailureReason::SESSION_EXPIRED],
-            'credential cleared'       => ['cleared', RefreshFailureReason::REFRESH_KEY_MISSING],
-            'absolute deadline moved'  => ['shortened', RefreshFailureReason::ROTATION_CONFLICT],
-            'idle deadline moved'      => ['extended', RefreshFailureReason::ROTATION_CONFLICT],
-            'rotated to another owner' => ['reowned', RefreshFailureReason::AUTHENTICATABLE_MISSING],
+            'revoked'                  => ['revoked', FailureReason::DEVICE_REVOKED],
+            'deleted'                  => ['deleted', FailureReason::DEVICE_UNKNOWN],
+            'ended'                    => ['ended', FailureReason::SESSION_EXPIRED],
+            'credential cleared'       => ['cleared', FailureReason::REFRESH_KEY_MISSING],
+            'absolute deadline moved'  => ['shortened', FailureReason::ROTATION_CONFLICT],
+            'idle deadline moved'      => ['extended', FailureReason::ROTATION_CONFLICT],
+            'rotated to another owner' => ['reowned', FailureReason::IDENTITY_UNKNOWN],
         ];
     }
 
@@ -1220,18 +1236,18 @@ final class RefreshTokenExchangeTest extends TestCase
      * credential in between fails for that reason; a token that is still
      * current, because only a deadline moved, fails as `rotation_conflict`;
      * and a grace retry whose row now has another owner fails as
-     * `authenticatable_missing`. None of them revokes the device, and the swap
-     * is never tried twice.
+     * `identity_unknown`. None of them revokes the device, and the swap is
+     * never tried twice.
      *
      * @param  string  $change
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
     #[DataProvider('provideCompetingChanges')]
-    public function testLostRotationFailsWithWhatTheRowNowSays(string $change, RefreshFailureReason $reason): void
+    public function testLostRotationFailsWithWhatTheRowNowSays(string $change, FailureReason $reason): void
     {
         $device = $this->seedDevice(42, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)]);
 
@@ -1254,7 +1270,7 @@ final class RefreshTokenExchangeTest extends TestCase
             default     => $this->rotateOnTheRow($device, self::ROTATION_ID, '43'),
         });
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
         self::assertSame([$reason], $this->failureReasons());
         self::assertSame(1, $swaps);
         self::assertNotContains(DeviceRevoked::class, array_map(static fn (object $event): string => $event::class, $this->dispatched));
@@ -1286,15 +1302,12 @@ final class RefreshTokenExchangeTest extends TestCase
             'jti' => 'rotation-id',
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::DEVICE_UNKNOWN
-                    && $event->deviceId === 'not-a-valid-uuid'),
-            );
+        $this->events->shouldNotReceive('dispatch');
 
-        self::assertInstanceOf(RefreshFailed::class, $exchange->exchange($token, self::client()));
+        $failure = $this->refused($exchange->exchange($token, self::client()));
+
+        self::assertSame(FailureReason::DEVICE_UNKNOWN, $failure->reason);
+        self::assertSame('not-a-valid-uuid', $failure->context->deviceId);
     }
 
     /**
@@ -1395,11 +1408,11 @@ final class RefreshTokenExchangeTest extends TestCase
         $failure = $this->makeExchange()->exchange($this->encodeRefreshToken(['did' => self::DEVICE_ID, 'jti' => self::ROTATION_ID]), self::client());
 
         self::assertSame([], DB::connection()->getQueryLog());
-        self::assertSame([$failure], $this->dispatched);
-        self::assertInstanceOf(RefreshFailed::class, $failure);
-        self::assertSame(self::GUARD_NAME, $failure->guard);
-        self::assertSame(RefreshFailureReason::RATE_LIMITED, $failure->reason);
-        self::assertSame(self::DEVICE_ID, $failure->deviceId);
+        self::assertSame([], $this->dispatched);
+        self::assertInstanceOf(AuthenticationFailed::class, $failure);
+        self::assertSame(self::GUARD_NAME, $failure->context->guard);
+        self::assertSame(FailureReason::RATE_LIMITED, $failure->reason);
+        self::assertSame(self::DEVICE_ID, $failure->context->deviceId);
         self::assertSame(42, $failure->retryAfter);
     }
 
@@ -1431,13 +1444,13 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $unknown = $this->encodeRefreshToken(['did' => self::DEVICE_ID, 'jti' => self::ROTATION_ID]);
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($unknown, self::client()));
+        $this->refused($this->makeExchange()->exchange($unknown, self::client()));
 
-        $this->dispatched = [];
+        $this->failures = [];
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange('not-a-jwt', self::client()));
+        $this->refused($this->makeExchange()->exchange('not-a-jwt', self::client()));
         self::assertSame([self::DEVICE_ID, null], $counted);
-        self::assertSame([RefreshFailureReason::TOKEN_INVALID], $this->failureReasons());
+        self::assertSame([FailureReason::TOKEN_INVALID], $this->failureReasons());
     }
 
     /**
@@ -1491,10 +1504,13 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->provider->shouldNotReceive('retrieveById');
         $this->recordEvents();
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($device, 'a-replayed-rotation-id'), self::client()));
-        self::assertSame([RefreshFailureReason::DEVICE_GUARD_MISMATCH], $this->failureReasons());
-        self::assertInstanceOf(RefreshFailed::class, $this->dispatched[0]);
-        self::assertSame($device->id, $this->dispatched[0]->deviceId);
+        $failure = $this->refused($this->makeExchange()->exchange($this->tokenFor($device, 'a-replayed-rotation-id'), self::client()));
+
+        self::assertSame([FailureReason::DEVICE_GUARD_MISMATCH], $this->failureReasons());
+        self::assertSame([], $this->dispatched);
+        self::assertSame(self::GUARD_NAME, $failure->context->guard);
+        self::assertSame($device->id, $failure->context->device?->getDeviceIdentifier());
+        self::assertSame($device->id, $failure->context->deviceId);
         self::assertSame($before, $this->row($device));
     }
 
@@ -1519,9 +1535,9 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->expectRefreshContext(43, 2);
         $this->recordEvents();
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($removed, self::ROTATION_ID), self::client()));
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($unstated, self::ROTATION_ID), self::client()));
-        self::assertSame([RefreshFailureReason::METHOD_NOT_ALLOWED, RefreshFailureReason::METHOD_NOT_ALLOWED], $this->failureReasons());
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($removed, self::ROTATION_ID), self::client()));
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($unstated, self::ROTATION_ID), self::client()));
+        self::assertSame([FailureReason::METHOD_NOT_ALLOWED, FailureReason::METHOD_NOT_ALLOWED], $this->failureReasons());
         self::assertSame($before, [$this->row($removed), $this->row($unstated)]);
     }
 
@@ -1545,11 +1561,11 @@ final class RefreshTokenExchangeTest extends TestCase
         $this->audience->shouldReceive('admit')
             ->once()
             ->with(self::GUARD_NAME, $identity, \Mockery::type(Principal::class), null)
-            ->andReturn(SignInFailureReason::IDENTIFIER_UNVERIFIED);
+            ->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
         $this->recordEvents();
 
-        self::assertInstanceOf(RefreshFailed::class, $this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
-        self::assertSame([RefreshFailureReason::PRINCIPAL_INELIGIBLE], $this->failureReasons());
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        self::assertSame([FailureReason::PRINCIPAL_INELIGIBLE], $this->failureReasons());
         self::assertSame($before, $this->row($device));
     }
 
@@ -1855,16 +1871,28 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
-     * The reasons of the recorded `RefreshFailed` events.
+     * Assert an exchange failed, remember its failure, and return it.
      *
-     * @return list<\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason>
+     * @param  \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $result
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
+     */
+    private function refused(AuthenticationFailed|ExchangedRefresh $result): AuthenticationFailed
+    {
+        self::assertInstanceOf(AuthenticationFailed::class, $result);
+
+        $this->failures[] = $result;
+
+        return $result;
+    }
+
+    /**
+     * The reasons of the failures the exchanges returned.
+     *
+     * @return list<\SineMacula\Laravel\Authentication\Events\Enums\FailureReason>
      */
     private function failureReasons(): array
     {
-        return array_values(array_map(
-            static fn (RefreshFailed $event): RefreshFailureReason => $event->reason,
-            array_filter($this->dispatched, static fn (object $event): bool => $event instanceof RefreshFailed),
-        ));
+        return array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures);
     }
 
     /**
@@ -1881,13 +1909,15 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame('rotation_reuse', $row['revoked_reason']);
         self::assertNull($row['refresh_key']);
         self::assertNull($row['previous_refresh_key']);
-        self::assertSame([RefreshFailureReason::ROTATION_REUSE], $this->failureReasons());
+        self::assertSame([FailureReason::ROTATION_REUSE], $this->failureReasons());
 
         $revocations = array_values(array_filter($this->dispatched, static fn (object $event): bool => $event instanceof DeviceRevoked));
 
         self::assertCount(1, $revocations);
         self::assertSame(RevocationReason::ROTATION_REUSE, $revocations[0]->reason);
-        self::assertSame($device->id, $revocations[0]->device->getDeviceIdentifier());
+        self::assertSame($device->id, $revocations[0]->context->device?->getDeviceIdentifier());
+        self::assertSame($device->id, $revocations[0]->context->deviceId);
+        self::assertNull($revocations[0]->context->identity);
     }
 
     /**

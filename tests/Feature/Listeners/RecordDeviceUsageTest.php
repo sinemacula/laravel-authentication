@@ -7,7 +7,6 @@ namespace Tests\Feature\Listeners;
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -16,6 +15,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\UncastDevice;
@@ -100,7 +101,7 @@ final class RecordDeviceUsageTest extends TestCase
     {
         $device = $this->persistedDevice(null);
 
-        $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device));
+        (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT));
 
         $row = $this->storedRow($device->id);
 
@@ -142,7 +143,7 @@ final class RecordDeviceUsageTest extends TestCase
 
         $before = array_map(fn (StubDevice $other): array => $this->storedRow($other->id), $others);
 
-        $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device));
+        (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT));
 
         self::assertSame(self::IP, $this->storedRow($device->id)['last_used_ip']);
         self::assertSame($before, array_map(fn (StubDevice $other): array => $this->storedRow($other->id), $others));
@@ -160,7 +161,7 @@ final class RecordDeviceUsageTest extends TestCase
 
         Carbon::setTestNow($this->now->copy()->addSeconds(59));
 
-        $this->listener($this->request('198.51.100.1', 'Other/1.0'))(new DeviceAuthenticated('api', $device));
+        (new RecordDeviceUsage)(self::bound($device, '198.51.100.1', 'Other/1.0'));
 
         $row = $this->storedRow($device->id);
 
@@ -201,7 +202,7 @@ final class RecordDeviceUsageTest extends TestCase
 
         Carbon::setTestNow($later);
 
-        $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device));
+        (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT));
 
         self::assertSame(
             ($written ? $later : $this->now)->format(self::DATETIME_FORMAT),
@@ -225,7 +226,7 @@ final class RecordDeviceUsageTest extends TestCase
 
         Carbon::setTestNow($this->now->copy()->addSeconds(30));
 
-        $queries = $this->countQueries(fn () => $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device)));
+        $queries = $this->countQueries(fn () => (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT)));
 
         self::assertSame(0, $queries);
     }
@@ -241,7 +242,7 @@ final class RecordDeviceUsageTest extends TestCase
     {
         $device = $this->persistedDevice($this->now->copy()->addMinutes(2));
 
-        $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device));
+        (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT));
 
         self::assertSame($this->now->format(self::DATETIME_FORMAT), $this->storedRow($device->id)['last_used_at']);
     }
@@ -258,7 +259,7 @@ final class RecordDeviceUsageTest extends TestCase
 
         $device = $this->persistedDevice($this->now);
 
-        $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device));
+        (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT));
 
         self::assertSame(self::IP, $this->storedRow($device->id)['last_used_ip']);
     }
@@ -274,7 +275,7 @@ final class RecordDeviceUsageTest extends TestCase
     {
         $device = $this->persistedDevice(null);
 
-        $this->listener($this->request('not-an-ip', "Agent\0/1.0 \xC3\x28"))(new DeviceAuthenticated('api', $device));
+        (new RecordDeviceUsage)(self::bound($device, 'not-an-ip', "Agent\0/1.0 \xC3\x28"));
 
         $row = $this->storedRow($device->id);
 
@@ -291,8 +292,10 @@ final class RecordDeviceUsageTest extends TestCase
     public function testIgnoresADeviceThatIsNotAnEloquentModel(): void
     {
         $device = \Mockery::mock(Device::class);
+        $device->shouldReceive('getDeviceIdentifier')->andReturn('plain-device');
+        $device->shouldNotReceive('getLastUsedAt');
 
-        $queries = $this->countQueries(fn () => $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device)));
+        $queries = $this->countQueries(fn () => (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT)));
 
         self::assertSame(0, $queries);
     }
@@ -308,7 +311,7 @@ final class RecordDeviceUsageTest extends TestCase
         $device         = new StubBareDevice;
         $device->exists = true;
 
-        $queries = $this->countQueries(fn () => $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device)));
+        $queries = $this->countQueries(fn () => (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT)));
 
         self::assertSame(0, $queries);
     }
@@ -323,7 +326,7 @@ final class RecordDeviceUsageTest extends TestCase
     {
         $device = new StubDevice;
 
-        $queries = $this->countQueries(fn () => $this->listener($this->request(self::IP, self::USER_AGENT))(new DeviceAuthenticated('api', $device)));
+        $queries = $this->countQueries(fn () => (new RecordDeviceUsage)(self::bound($device, self::IP, self::USER_AGENT)));
 
         self::assertSame(0, $queries);
         self::assertNull($device->getAttribute('last_used_at'));
@@ -354,26 +357,17 @@ final class RecordDeviceUsageTest extends TestCase
     }
 
     /**
-     * Build the listener for a request.
+     * The event of the device bound for a client with the given IP address and
+     * user agent.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage
-     */
-    private function listener(Request $request): RecordDeviceUsage
-    {
-        return new RecordDeviceUsage($request);
-    }
-
-    /**
-     * Build a request from the given IP address with the given user agent.
-     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $ip
      * @param  string  $userAgent
-     * @return \Illuminate\Http\Request
+     * @return \SineMacula\Laravel\Authentication\Events\DeviceAuthenticated
      */
-    private function request(string $ip, string $userAgent): Request
+    private static function bound(Device $device, string $ip, string $userAgent): DeviceAuthenticated
     {
-        return Request::create('/', 'GET', [], [], [], ['REMOTE_ADDR' => $ip, 'HTTP_USER_AGENT' => $userAgent]);
+        return new DeviceAuthenticated(new EventContext('api', new ClientContext($ip, $userAgent), device: $device));
     }
 
     /**

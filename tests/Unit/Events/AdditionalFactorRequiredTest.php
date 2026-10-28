@@ -5,16 +5,17 @@ declare(strict_types = 1);
 namespace Tests\Unit\Events;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Queue\SerializesModels;
-use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use Tests\Unit\Stubs\PlainDeviceFixture;
+use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * AdditionalFactorRequired event unit tests.
@@ -27,47 +28,57 @@ use SineMacula\Laravel\Authentication\Http\ClientContext;
 #[CoversClass(AdditionalFactorRequired::class)]
 final class AdditionalFactorRequiredTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
-
     /**
-     * The event carries the context of the sign-in held for a factor, and its
-     * expiry, but nothing to complete it with.
+     * The event keeps its context and when the pending sign-in expires.
      *
      * @return void
      */
-    public function testStoresTheContextOnConstruction(): void
+    public function testKeepsItsContextAndExpiry(): void
     {
-        $identity  = \Mockery::mock(Identity::class);
-        $principal = \Mockery::mock(Principal::class);
-        $tenant    = \Mockery::mock(Tenant::class);
-        $device    = \Mockery::mock(Device::class);
-        $client    = new ClientContext('203.0.113.7', 'agent');
-        $expiresAt = CarbonImmutable::createStrict(2026, 4, 6, 12, 5, 0);
+        $context = self::context();
+        $event   = new AdditionalFactorRequired($context, CarbonImmutable::parse('2026-01-01 00:10:00'));
 
-        $event = new AdditionalFactorRequired('api', $identity, $principal, $tenant, $device, 'password', $client, $expiresAt);
-
-        self::assertSame('api', $event->guard);
-        self::assertSame($identity, $event->identity);
-        self::assertSame($principal, $event->principal);
-        self::assertSame($tenant, $event->tenant);
-        self::assertSame($device, $event->device);
-        self::assertSame('password', $event->method);
-        self::assertSame($client, $event->client);
-        self::assertSame($expiresAt, $event->expiresAt);
-        self::assertSame(
-            ['guard', 'identity', 'principal', 'tenant', 'device', 'method', 'client', 'expiresAt'],
-            array_map(static fn (\ReflectionProperty $property): string => $property->getName(), (new \ReflectionClass($event))->getProperties()),
-        );
+        self::assertInstanceOf(AuthenticationEvent::class, $event);
+        self::assertSame($context, $event->context);
+        self::assertSame($context, $event->context());
+        self::assertEquals(CarbonImmutable::parse('2026-01-01 00:10:00'), $event->expiresAt);
     }
 
     /**
-     * Queued listeners get the models re-fetched, as Laravel's
-     * `SerializesModels` does.
+     * The event serialises its models for queued listeners and survives a round
+     * trip. It does not ask the dispatcher to wait for a transaction: that
+     * would wait for whichever transaction is open last on any connection, so
+     * the package dispatches it once the written row's own connection commits.
      *
      * @return void
      */
-    public function testSerializesItsModels(): void
+    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        self::assertContains(SerializesModels::class, class_uses(AdditionalFactorRequired::class));
+        $context = self::context();
+        $event   = new AdditionalFactorRequired($context, CarbonImmutable::parse('2026-01-01 00:10:00'));
+
+        self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
+        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+
+        $copy = unserialize(serialize($event));
+
+        self::assertInstanceOf(AdditionalFactorRequired::class, $copy);
+        self::assertSame('api', $copy->context->guard);
+        self::assertSame('7', $copy->context->identityId);
+        self::assertSame('device-1', $copy->context->deviceId);
+        self::assertEquals(CarbonImmutable::parse('2026-01-01 00:10:00'), $copy->expiresAt);
+    }
+
+    /**
+     * A context with an identity, principal and device, signed in with a
+     * password from a known client.
+     *
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
+     */
+    private static function context(): EventContext
+    {
+        $client = new ClientContext('203.0.113.7', 'agent');
+
+        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainDeviceFixture('device-1'), 'password');
     }
 }

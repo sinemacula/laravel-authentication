@@ -5,8 +5,6 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
@@ -48,8 +46,8 @@ final class AbstractGuardSetUserTest extends AbstractGuardTestCase
 
         $first           = $this->mockIdentity();
         $second          = $this->mockIdentity();
-        $firstPrincipal  = \Mockery::mock(Principal::class);
-        $secondPrincipal = \Mockery::mock(Principal::class);
+        $firstPrincipal  = $this->mockPrincipal();
+        $secondPrincipal = $this->mockPrincipal();
 
         $this->resolver->shouldReceive('resolve')->once()->with($first)->andReturn($firstPrincipal);
         $this->resolver->shouldReceive('resolve')->once()->with($second)->andReturn($secondPrincipal);
@@ -75,10 +73,10 @@ final class AbstractGuardSetUserTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $guard->login($this->mockIdentity(), \Mockery::mock(Principal::class), \Mockery::mock(Device::class));
+        $guard->login($this->mockIdentity(), $this->mockPrincipal(), $this->mockDevice());
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
 
@@ -100,7 +98,7 @@ final class AbstractGuardSetUserTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $bound          = $this->mockIdentity();
-        $boundPrincipal = \Mockery::mock(Principal::class);
+        $boundPrincipal = $this->mockPrincipal();
 
         $guard->login($bound, $boundPrincipal);
 

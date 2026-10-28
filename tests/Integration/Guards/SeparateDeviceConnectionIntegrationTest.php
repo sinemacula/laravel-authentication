@@ -15,8 +15,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -87,7 +88,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         $dispatched = $this->dispatched;
 
-        Event::listen([DeviceRevoked::class, RefreshFailed::class, Failed::class], static function (object $event) use ($dispatched): void {
+        Event::listen([DeviceRevoked::class, AuthenticationFailed::class, Failed::class, Refreshed::class], static function (object $event) use ($dispatched): void {
             $dispatched->append(class_basename($event));
         });
 
@@ -136,10 +137,10 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
     /**
      * A replay revokes the device on its own connection, which commits at once,
-     * so `DeviceRevoked` is dispatched at once, before `RefreshFailed` and
-     * `Failed`, even inside a transaction on the default connection; that
-     * transaction rolling back neither undoes the revocation nor withdraws the
-     * event.
+     * so `DeviceRevoked` is dispatched at once, before `Failed` and
+     * `AuthenticationFailed`, even inside a transaction on the default
+     * connection; that transaction rolling back neither undoes the revocation
+     * nor withdraws the event.
      *
      * @return void
      *
@@ -153,19 +154,19 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
         DB::beginTransaction();
 
         self::assertNull($this->guard()->refresh($replay));
-        self::assertSame(['DeviceRevoked', 'RefreshFailed', 'Failed'], $this->dispatched->getArrayCopy());
+        self::assertSame(['DeviceRevoked', 'Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
 
         DB::rollBack();
 
-        self::assertSame(['DeviceRevoked', 'RefreshFailed', 'Failed'], $this->dispatched->getArrayCopy());
+        self::assertSame(['DeviceRevoked', 'Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
         self::assertSame('rotation_reuse', $this->row($this->device())['revoked_reason']);
     }
 
     /**
      * Inside a transaction on the device's own connection the revocation is
-     * reported only when that transaction commits, after `RefreshFailed` and
-     * `Failed`, and never when it is rolled back, which also leaves the device
-     * live.
+     * reported only when that transaction commits, after `Failed` and
+     * `AuthenticationFailed`, and never when it is rolled back, which also
+     * leaves the device live.
      *
      * @return void
      *
@@ -183,7 +184,7 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
 
         $connection->rollBack();
 
-        self::assertSame(['RefreshFailed', 'Failed'], $this->dispatched->getArrayCopy());
+        self::assertSame(['Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
         self::assertNull($this->row($this->device())['revoked_at']);
 
         $this->dispatched->exchangeArray([]);
@@ -191,11 +192,11 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
         $connection->beginTransaction();
 
         self::assertNull($this->guard()->refresh($replay));
-        self::assertSame(['RefreshFailed', 'Failed'], $this->dispatched->getArrayCopy());
+        self::assertSame(['Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
 
         $connection->commit();
 
-        self::assertSame(['RefreshFailed', 'Failed', 'DeviceRevoked'], $this->dispatched->getArrayCopy());
+        self::assertSame(['Failed', 'AuthenticationFailed', 'DeviceRevoked'], $this->dispatched->getArrayCopy());
         self::assertSame('rotation_reuse', $this->row($this->device())['revoked_reason']);
     }
 
@@ -222,8 +223,68 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
         $connection->rollBack();
         $connection->commit();
 
-        self::assertSame(['RefreshFailed', 'Failed'], $this->dispatched->getArrayCopy());
+        self::assertSame(['Failed', 'AuthenticationFailed'], $this->dispatched->getArrayCopy());
         self::assertNull($this->row($this->device())['revoked_at']);
+    }
+
+    /**
+     * A refresh is reported once its rotation is committed on the device's own
+     * connection: at once while only another connection has a transaction open,
+     * and that transaction rolling back does not withdraw it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     * @throws \Throwable
+     */
+    public function testRefreshIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        DB::beginTransaction();
+
+        self::assertNotNull($this->guard()->refresh($this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity)));
+        self::assertSame(['Refreshed'], $this->dispatched->getArrayCopy());
+
+        DB::rollBack();
+
+        self::assertSame(['Refreshed'], $this->dispatched->getArrayCopy());
+    }
+
+    /**
+     * Inside a transaction on the device's own connection a refresh is reported
+     * only when that transaction commits, and never when it rolls back, which
+     * also leaves the presented token current.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     * @throws \Throwable
+     */
+    public function testRefreshInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit(): void
+    {
+        [$identity, $device] = $this->signIn();
+
+        $token      = $this->tokens()->issueRefreshToken($device, self::ROTATION_ID, $identity);
+        $connection = DB::connection(SeparateConnectionDevice::CONNECTION);
+
+        $connection->beginTransaction();
+
+        self::assertNotNull($this->guard()->refresh($token));
+
+        $connection->rollBack();
+
+        self::assertSame([], $this->dispatched->getArrayCopy());
+        self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->row($device)['refresh_key']);
+
+        $connection->beginTransaction();
+
+        self::assertNotNull($this->guard()->refresh($token));
+        self::assertSame([], $this->dispatched->getArrayCopy());
+
+        $connection->commit();
+
+        self::assertSame(['Refreshed'], $this->dispatched->getArrayCopy());
     }
 
     /**

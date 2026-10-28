@@ -9,14 +9,16 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 
 ## Invariants
 
-- Failures are results (`SignInResult::failed()` with a `SignInFailureReason`), each reported with Laravel's `Failed` and
-  then `SignInFailed`. Exceptions are reserved for misconfiguration (an unknown method, an identity that is not an
-  Eloquent model or does not implement `HasDevices`, an invalid device model, an `UnresolvableIdentityException`) and
-  server errors. An identity without `HasDevices` is refused before it is admitted (in `signIn()`, after its slot was
-  taken; in `start()` and `complete()`, before anything is written), because a bearer token names a device the guard
-  can only find through that relation, so the session's access token would never authenticate.
+- Failures are results (`SignInResult::failed()` with a `FailureReason`), each reported with Laravel's `Failed` and then
+  `AuthenticationFailed` (flow `sign_in`). Exceptions are reserved for misconfiguration (an unknown method, a method
+  that refuses with a reason other than `invalid_credentials`, an identity that is not an Eloquent model or does not
+  implement `HasDevices`, an invalid device model, an `UnresolvableIdentityException`) and server errors. An identity
+  without `HasDevices` is refused before it is admitted (in `signIn()`, after its slot was taken; in `start()` and
+  `complete()`, before anything is written), because a bearer token names a device the guard can only find through that
+  relation, so the session's access token would never authenticate.
 - No event ever receives the sign-in input. `Attempting` and `Failed` carry only `[type => identifier]` (or
-  `['identifier' => ...]` for a method without a type, or nothing); `SignInFailed` carries the identifier as given.
+  `['identifier' => ...]` for a method without a type, or nothing); `AuthenticationFailed` carries the identifier as
+  given.
 - `signIn()` order: the method is resolved (unknown throws); `Attempting`; the audience policy must allow the method
   (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
   the guard's credential timebox, cut short only for an admitted sign-in: the method verifies the input, the identity,
@@ -67,10 +69,11 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - A continued device: the same, without `DeviceCreated`, and `SignedIn` with `deviceCreated: false`.
 - `start()`: the same without `Attempting`.
 - A sign-in held for a further factor: `Attempting` (not from `start()`), then, once the pending sign-in is committed
-  on its connection, `AdditionalFactorRequired` (guard, identity, principal, tenant, proven device, method, client,
-  expiry; never the token), and nothing bound. Its completion follows the new or continued device path without
-  `Attempting`; its discard emits `Failed` and `SignInFailed` (`additional_factor_failed`, the method, the discarding
-  client, the identity when the provider still returns it), and a token that discards nothing emits nothing.
+  on its connection, `AdditionalFactorRequired` (a context of guard, identity, principal, tenant, proven device, method
+  and client, and the expiry; never the token), and nothing bound. Its completion follows the new or continued device
+  path without `Attempting`; its discard emits `Failed` and `AuthenticationFailed` (`additional_factor_failed`, the
+  method, the discarding client, the identity when the provider still returns it), and a token that discards nothing
+  emits nothing.
 
 ## Failure / Edge Cases
 

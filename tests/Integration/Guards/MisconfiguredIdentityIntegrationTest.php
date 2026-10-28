@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -133,13 +133,13 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
 
         $refreshToken = $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID);
 
-        Event::fake([RefreshFailed::class]);
+        Event::fake([AuthenticationFailed::class]);
 
         try {
             $this->freshGuard()->refresh($refreshToken);
             self::fail('Expected the UnresolvableIdentityException to propagate.');
         } catch (UnresolvableIdentityException) {
-            Event::assertNotDispatched(RefreshFailed::class);
+            Event::assertNotDispatched(AuthenticationFailed::class);
         }
     }
 

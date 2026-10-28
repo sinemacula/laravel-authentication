@@ -186,8 +186,8 @@ final readonly class SessionWriter
 
     /**
      * The state of a session that starts at `$now`: the client as its last use,
-     * the digest of the new rotation id with no previous one, and both
-     * deadlines.
+     * the digest of the new rotation id with no previous one, the start itself,
+     * and both deadlines.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $rotationId
@@ -212,6 +212,7 @@ final readonly class SessionWriter
             $device->getRefreshKeyName()         => RefreshTokenHasher::hash($rotationId),
             $device->getPreviousRefreshKeyName() => null,
             $device->getRefreshRotatedAtName()   => null,
+            $device->getSignedInAtName()         => $device->fromDateTime($now),
             $device->getIdleExpiresAtName()      => $device->fromDateTime($lifetimes->idleDeadline($now, $absolute)),
             $device->getAbsoluteExpiresAtName()  => $device->fromDateTime($absolute),
         ];

@@ -22,10 +22,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
@@ -53,8 +55,8 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * device; otherwise a device is created.
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
- * `SignInFailed` report them. Exceptions are kept for misconfiguration and
- * server errors. The service keeps no state between calls, and reads the
+ * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
+ * and server errors. The service keeps no state between calls, and reads the
  * guard's provider, resolver, dispatcher and request, and the sign-in policies
  * bound in the container, each time it needs them.
  *
@@ -245,7 +247,7 @@ final readonly class SessionService
         $found = $this->pendings->find($this->guard->getName(), $token, $this->guard->getProvider(), $this->guard->getPrincipalResolver(), $now);
 
         if ($found === null) {
-            return $this->fail(new RefusedSignIn(SignInFailureReason::PENDING_INVALID), null, SignInContext::fromRequest($this->guard->getRequest()), null, []);
+            return $this->fail(new RefusedSignIn(FailureReason::PENDING_INVALID), null, SignInContext::fromRequest($this->guard->getRequest()), null, []);
         }
 
         $context = PendingSignIns::context($found->pending, ClientContext::fromRequest($this->guard->getRequest()));
@@ -277,9 +279,9 @@ final readonly class SessionService
      * sign-in of this guard, which this call used up.
      *
      * A discard is the failure of the sign-in that waited: Laravel's `Failed`
-     * and then `SignInFailed` report it as `additional_factor_failed`, with the
-     * method, the discarding request's client, and the identity when the
-     * guard's provider still returns it. A token that discards nothing
+     * and then `AuthenticationFailed` report it as `additional_factor_failed`,
+     * with the method, the discarding request's client, and the identity when
+     * the guard's provider still returns it. A token that discards nothing
      * dispatches nothing.
      *
      * @param  string  $token
@@ -297,7 +299,7 @@ final readonly class SessionService
             return false;
         }
 
-        $refused = new RefusedSignIn(SignInFailureReason::ADDITIONAL_FACTOR_FAILED, PendingSignIns::owner($discarded, $this->guard->getProvider()));
+        $refused = new RefusedSignIn(FailureReason::ADDITIONAL_FACTOR_FAILED, PendingSignIns::owner($discarded, $this->guard->getProvider()));
 
         $this->fail($refused, $discarded->sign_in_method, SignInContext::fromRequest($this->guard->getRequest()), null, []);
 
@@ -349,14 +351,14 @@ final readonly class SessionService
         AttemptSubject $subject,
     ): RefusedSignIn|SignInResult {
         if (!$this->collaborator(AudiencePolicy::class)->allowsMethod($subject->guard, $method)) {
-            return new RefusedSignIn(SignInFailureReason::METHOD_NOT_ALLOWED);
+            return new RefusedSignIn(FailureReason::METHOD_NOT_ALLOWED);
         }
 
         $limiter     = $this->collaborator(AttemptLimiter::class);
         $reservation = $limiter->acquire($subject);
 
         if (!$reservation->granted()) {
-            return new RefusedSignIn(SignInFailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
+            return new RefusedSignIn(FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
         $accounts = new AccountAttempts($limiter, $subject->guard);
@@ -389,7 +391,9 @@ final readonly class SessionService
      * in which an account the method checked had no attempts left is refused as
      * `account_rate_limited`, with that account's wait, for the failure events
      * (the result still says `invalid_credentials`), even when the method
-     * returned an identity regardless: it must not have checked that secret.
+     * returned an identity regardless: it must not have checked that secret. A
+     * method that answers with a reason only the session service may give is
+     * misconfigured, and a `LogicException` says so.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $driver
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
@@ -415,9 +419,9 @@ final readonly class SessionService
         $verified = $driver->authenticate($request);
 
         $outcome = match (true) {
-            $accounts->refusedFor() !== null => new RefusedSignIn(SignInFailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $accounts->refusedFor()),
+            $accounts->refusedFor() !== null => new RefusedSignIn(FailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $accounts->refusedFor()),
             $verified instanceof Identity    => $this->admit($verified, $context->principal, $identifierType),
-            default                          => new RefusedSignIn($verified),
+            default                          => new RefusedSignIn(SessionPreconditions::methodReason($driver, $verified)),
         };
 
         if ($outcome instanceof AdmittedSignIn) {
@@ -444,11 +448,11 @@ final readonly class SessionService
         $reloaded = $this->guard->getProvider()->retrieveById($identity->getAuthIdentifier());
 
         if (!$reloaded instanceof Identity || !SessionPreconditions::isSameIdentity($reloaded, $identity)) {
-            return new RefusedSignIn(SignInFailureReason::IDENTITY_UNKNOWN, $identity);
+            return new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN, $identity);
         }
 
         if (!$this->collaborator(AudiencePolicy::class)->allowsMethod($this->guard->getName(), $method)) {
-            return new RefusedSignIn(SignInFailureReason::METHOD_NOT_ALLOWED, $reloaded);
+            return new RefusedSignIn(FailureReason::METHOD_NOT_ALLOWED, $reloaded);
         }
 
         $admitted = $this->admit($reloaded, $principal, null);
@@ -483,13 +487,13 @@ final readonly class SessionService
 
         $audience = $this->collaborator(AudiencePolicy::class);
         $admitted = match (true) {
-            !$this->pendings->consume($found, $now)                            => new RefusedSignIn(SignInFailureReason::PENDING_INVALID),
-            !$audience->allowsMethod($this->guard->getName(), $factor->method) => new RefusedSignIn(SignInFailureReason::METHOD_NOT_ALLOWED, $factor->identity, $factor->principal),
+            !$this->pendings->consume($found, $now)                            => new RefusedSignIn(FailureReason::PENDING_INVALID),
+            !$audience->allowsMethod($this->guard->getName(), $factor->method) => new RefusedSignIn(FailureReason::METHOD_NOT_ALLOWED, $factor->identity, $factor->principal),
             default                                                            => (new SignInAdmission($audience))->admit(
                 $this->guard->getName(),
                 $factor->identity,
                 static fn (): Principal => $factor->principal,
-                SignInFailureReason::PRINCIPAL_UNRESOLVED,
+                FailureReason::PRINCIPAL_UNRESOLVED,
                 $found->pending->identifier_type,
             ),
         };
@@ -530,7 +534,7 @@ final readonly class SessionService
             $this->guard->getName(),
             $identity,
             static fn (): ?Principal => $pinned === null ? $resolver->resolve($identity) : PinnedPrincipal::resolve($resolver, $identity, $pinned),
-            $pinned === null ? SignInFailureReason::PRINCIPAL_UNRESOLVED : SignInFailureReason::PRINCIPAL_MISMATCH,
+            $pinned === null ? FailureReason::PRINCIPAL_UNRESOLVED : FailureReason::PRINCIPAL_MISMATCH,
             $identifierType,
         );
     }
@@ -593,13 +597,7 @@ final readonly class SessionService
 
             $pending = $this->pendings->issue($this->guard->getName(), $admitted, $method, $identifierType, $context, $now, $attemptWindows);
             $event   = new AdditionalFactorRequired(
-                $pending->guard,
-                $pending->identity,
-                $pending->principal,
-                $pending->tenant,
-                $pending->provenDevice,
-                $method,
-                $context->client,
+                new EventContext($pending->guard, $context->client, $pending->identity, $pending->principal, $pending->tenant, $pending->provenDevice, $method),
                 $pending->expiresAt,
             );
 
@@ -689,11 +687,9 @@ final readonly class SessionService
     {
         $this->guard->login($session->identity, $session->principal, $session->device);
 
-        $name    = $this->guard->getName();
-        $created = $session->deviceCreated
-            ? new DeviceCreated($name, $session->identity, $session->principal, $admitted->tenant, $session->device, $session->method, $context->client)
-            : null;
-        $signedIn = new SignedIn($name, $session->identity, $session->principal, $admitted->tenant, $session->device, $session->method, $context->client, $session->deviceCreated);
+        $event    = new EventContext($this->guard->getName(), $context->client, $session->identity, $session->principal, $admitted->tenant, $session->device, $session->method);
+        $created  = $session->deviceCreated ? new DeviceCreated($event) : null;
+        $signedIn = new SignedIn($event, $session->deviceCreated, false);
 
         $this->afterCommit->run($session->device, function () use ($created, $signedIn): void {
 
@@ -708,8 +704,8 @@ final readonly class SessionService
     }
 
     /**
-     * Report a failed sign-in, with Laravel's `Failed` and then `SignInFailed`,
-     * and answer it.
+     * Report a failed sign-in, with Laravel's `Failed` and then
+     * `AuthenticationFailed`, and answer it.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn  $refused
      * @param  ?string  $method
@@ -724,14 +720,9 @@ final readonly class SessionService
 
         $this->dispatch(new Failed($name, $refused->identity, $credentials));
 
-        $this->dispatch(new SignInFailed(
-            $name,
-            $refused->identity,
-            $refused->principal,
-            $refused->tenant,
-            $refused->device,
-            $method,
-            $context->client,
+        $this->dispatch(new AuthenticationFailed(
+            new EventContext($name, $context->client, $refused->identity, $refused->principal, $refused->tenant, $refused->device, $method),
+            AuthenticationFlow::SIGN_IN,
             $refused->reason,
             $identifier,
             $refused->retryAfter,

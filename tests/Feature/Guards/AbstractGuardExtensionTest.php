@@ -8,7 +8,6 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
@@ -42,7 +41,7 @@ final class AbstractGuardExtensionTest extends AbstractGuardTestCase
         $guard     = $this->makeCredentialGuard();
         $identity  = $this->mockIdentity();
         $principal = $this->mockActivePrincipal();
-        $device    = \Mockery::mock(Device::class);
+        $device    = $this->mockDevice();
 
         $dispatched = [];
 

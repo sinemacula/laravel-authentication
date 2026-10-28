@@ -19,8 +19,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -315,7 +315,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->moveClockTo($absolute);
 
-        self::assertSame(RefreshFailureReason::SESSION_EXPIRED, $this->refreshFailure($pair->refreshToken));
+        self::assertSame(FailureReason::SESSION_EXPIRED, $this->refreshFailure($pair->refreshToken));
     }
 
     /**
@@ -368,7 +368,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
             return;
         }
 
-        self::assertSame(RefreshFailureReason::SESSION_EXPIRED, $this->refreshFailure($token));
+        self::assertSame(FailureReason::SESSION_EXPIRED, $this->refreshFailure($token));
         self::assertSame($before, $this->storedRow($device));
         self::assertNull($this->stored($device)->getRevokedAt());
     }
@@ -464,7 +464,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
 
         $this->beforeTheRotation(fn () => $this->setDeadlines($device, $this->signedInAt->copy()->addHour(), $shortened));
 
-        self::assertSame(RefreshFailureReason::ROTATION_CONFLICT, $this->refreshFailure($token));
+        self::assertSame(FailureReason::ROTATION_CONFLICT, $this->refreshFailure($token));
         self::assertNull($this->stored($device)->getRevokedAt());
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), $this->stored($device)->getRefreshKey());
 
@@ -540,6 +540,7 @@ final class SessionLifetimeIntegrationTest extends TestCase
             'guard'                => $guard,
             'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+            'signed_in_at'         => Carbon::now(),
             'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
             'absolute_expires_at'  => $absolute,
         ])->save();
@@ -589,15 +590,15 @@ final class SessionLifetimeIntegrationTest extends TestCase
      * Refresh with a token that must fail, and return the reason.
      *
      * @param  string  $token
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \Random\RandomException
      */
-    private function refreshFailure(#[\SensitiveParameter] string $token): ?RefreshFailureReason
+    private function refreshFailure(#[\SensitiveParameter] string $token): ?FailureReason
     {
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 

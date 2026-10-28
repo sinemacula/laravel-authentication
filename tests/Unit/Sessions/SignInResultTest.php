@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
@@ -84,7 +84,7 @@ final class SignInResultTest extends TestCase
         self::assertNull($result->session);
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
-        self::assertFalse(SignInResult::failed(SignInFailureReason::INVALID_CREDENTIALS)->requiresFactor());
+        self::assertFalse(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->requiresFactor());
     }
 
     /**
@@ -94,16 +94,16 @@ final class SignInResultTest extends TestCase
      */
     public function testAFailedResultCarriesItsReason(): void
     {
-        $limited = SignInResult::failed(SignInFailureReason::RATE_LIMITED, 30);
+        $limited = SignInResult::failed(FailureReason::RATE_LIMITED, 30);
 
         self::assertSame(SignInStatus::FAILED, $limited->status);
         self::assertTrue($limited->isFailed());
         self::assertFalse($limited->isSignedIn());
         self::assertNull($limited->session);
-        self::assertSame(SignInFailureReason::RATE_LIMITED, $limited->reason);
+        self::assertSame(FailureReason::RATE_LIMITED, $limited->reason);
         self::assertSame(30, $limited->retryAfter);
 
-        self::assertNull(SignInResult::failed(SignInFailureReason::INVALID_CREDENTIALS)->retryAfter);
+        self::assertNull(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->retryAfter);
     }
 
     /**
@@ -114,10 +114,10 @@ final class SignInResultTest extends TestCase
      */
     public function testAnAccountsOwnLimitIsAnsweredAsInvalidCredentials(): void
     {
-        $refused = SignInResult::failed(SignInFailureReason::ACCOUNT_RATE_LIMITED, 30);
+        $refused = SignInResult::failed(FailureReason::ACCOUNT_RATE_LIMITED, 30);
 
         self::assertTrue($refused->isFailed());
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $refused->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
         self::assertNull($refused->retryAfter);
     }
 

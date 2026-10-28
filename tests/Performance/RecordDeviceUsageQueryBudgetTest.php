@@ -8,6 +8,8 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
@@ -71,7 +73,7 @@ final class RecordDeviceUsageQueryBudgetTest extends PerformanceContractTestCase
 
         $listener = app(RecordDeviceUsage::class);
 
-        $this->assertQueryBudget(0, 0, static fn () => $listener(new DeviceAuthenticated('api', $device)));
+        $this->assertQueryBudget(0, 0, static fn () => $listener(new DeviceAuthenticated(new EventContext('api', new ClientContext('127.0.0.1', null), device: $device))));
 
         self::assertSame($this->now->format(self::DATETIME_FORMAT), $device->last_used_at?->format(self::DATETIME_FORMAT));
     }
@@ -93,7 +95,7 @@ final class RecordDeviceUsageQueryBudgetTest extends PerformanceContractTestCase
 
         $listener = app(RecordDeviceUsage::class);
 
-        $this->assertQueryBudget(0, 1, static fn () => $listener(new DeviceAuthenticated('api', $device)));
+        $this->assertQueryBudget(0, 1, static fn () => $listener(new DeviceAuthenticated(new EventContext('api', new ClientContext('127.0.0.1', null), device: $device))));
 
         self::assertSame($advanced->format(self::DATETIME_FORMAT), $device->last_used_at?->format(self::DATETIME_FORMAT));
         self::assertSame('127.0.0.1', $device->last_used_ip);

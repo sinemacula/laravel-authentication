@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Contracts;
 
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -62,7 +62,7 @@ interface SignInMethod
      * Verify the input and return the identity it proves, or why it does not.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
-    public function authenticate(SignInRequest $request): Identity|SignInFailureReason;
+    public function authenticate(SignInRequest $request): FailureReason|Identity;
 }

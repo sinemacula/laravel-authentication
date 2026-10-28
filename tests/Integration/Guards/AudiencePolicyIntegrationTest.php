@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -103,8 +103,8 @@ final class AudiencePolicyIntegrationTest extends TestCase
 
         self::assertNull($this->admit($policy, $this->seedMembership(null, 'staff')));
         self::assertNull($this->admit($policy, $this->seedMembership('client_staff', 'staff')));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit($policy, $this->seedMembership('client_admin', 'staff')));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit($policy, $this->seedMembership(null, null)));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($policy, $this->seedMembership('client_admin', 'staff')));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($policy, $this->seedMembership(null, null)));
     }
 
     /**
@@ -161,6 +161,7 @@ final class AudiencePolicyIntegrationTest extends TestCase
             'guard'                => self::GUARD,
             'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+            'signed_in_at'         => Carbon::now(),
             'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
             'absolute_expires_at'  => $absolute,
         ])->save();
@@ -240,9 +241,9 @@ final class AudiencePolicyIntegrationTest extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $policy
      * @param  \Tests\Integration\Fixtures\TypedMembership  $membership
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
-    private function admit(AudiencePolicy $policy, TypedMembership $membership): ?SignInFailureReason
+    private function admit(AudiencePolicy $policy, TypedMembership $membership): ?FailureReason
     {
         return $policy->admit(self::GUARD, $membership->getIdentity(), $membership, null);
     }

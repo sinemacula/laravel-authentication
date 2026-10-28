@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions\Admission;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 
 /**
@@ -47,7 +47,7 @@ final readonly class SignInAdmission
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Closure(): ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $unresolved
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $unresolved
      * @param  ?string  $identifierType
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
      *
@@ -55,10 +55,10 @@ final readonly class SignInAdmission
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function admit(string $guard, Identity $identity, \Closure $principal, SignInFailureReason $unresolved, ?string $identifierType): AdmittedSignIn|RefusedSignIn
+    public function admit(string $guard, Identity $identity, \Closure $principal, FailureReason $unresolved, ?string $identifierType): AdmittedSignIn|RefusedSignIn
     {
         if (!ActivationPolicy::isActive($identity)) {
-            return new RefusedSignIn(SignInFailureReason::IDENTITY_INACTIVE, $identity);
+            return new RefusedSignIn(FailureReason::IDENTITY_INACTIVE, $identity);
         }
 
         $resolved = $principal();
@@ -84,13 +84,13 @@ final readonly class SignInAdmission
     private function admitAs(string $guard, Identity $identity, Principal $principal, ?string $identifierType): AdmittedSignIn|RefusedSignIn
     {
         if (!ActivationPolicy::isActive($principal)) {
-            return new RefusedSignIn(SignInFailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
+            return new RefusedSignIn(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
         }
 
         $tenant = ActivationPolicy::activeTenant($principal);
 
         if ($tenant === false) {
-            return new RefusedSignIn(SignInFailureReason::TENANT_INACTIVE, $identity, $principal);
+            return new RefusedSignIn(FailureReason::TENANT_INACTIVE, $identity, $principal);
         }
 
         $admitted = new AdmittedSignIn($identity, $principal, $tenant);

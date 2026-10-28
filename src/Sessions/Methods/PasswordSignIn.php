@@ -9,7 +9,7 @@ use Illuminate\Contracts\Config\Repository;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
@@ -168,18 +168,18 @@ final readonly class PasswordSignIn implements SignInMethod
      * `Stringable` nor an integer is refused without a lookup.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \InvalidArgumentException
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): Identity|SignInFailureReason
+    public function authenticate(SignInRequest $request): FailureReason|Identity
     {
         $identifier = $this->identifier($request->guard, $request->input);
         $password   = $request->input[self::PASSWORD_KEY] ?? null;
 
         if ($identifier === null) {
-            return SignInFailureReason::INVALID_CREDENTIALS;
+            return FailureReason::INVALID_CREDENTIALS;
         }
 
         $credentials = [
@@ -191,7 +191,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
         return $user instanceof Identity && $request->reserveAccountAttempt($user) && $request->provider->validateCredentials($user, $credentials)
             ? $user
-            : SignInFailureReason::INVALID_CREDENTIALS;
+            : FailureReason::INVALID_CREDENTIALS;
     }
 
     /**

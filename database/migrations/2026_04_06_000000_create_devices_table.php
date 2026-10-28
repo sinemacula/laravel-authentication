@@ -42,6 +42,11 @@ return new class extends Migration {
             $blueprint->string('principal_type')->nullable();
             $blueprint->string('principal_id')->nullable();
 
+            // When the session last switched the principal it acts as: access
+            // tokens issued before it are rejected, so a switch back to an
+            // earlier principal does not revive that principal's old tokens.
+            $blueprint->dateTime('principal_switched_at', 0)->nullable();
+
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('client_name')->nullable();
@@ -65,6 +70,7 @@ return new class extends Migration {
             // break; `dateTime` because MySQL's `timestamp` ends in January
             // 2038, before the longest session lifetime the package accepts.
             $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+            $blueprint->dateTime('signed_in_at', 0);
             $blueprint->dateTime('idle_expires_at', 0);
             $blueprint->dateTime('absolute_expires_at', 0);
 

@@ -8,6 +8,8 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
@@ -129,7 +131,7 @@ final class ShippedDeviceConfigTest extends TestCase
 
         Carbon::setTestNow($lastUsedAt->copy()->addSecond());
 
-        event(new DeviceAuthenticated('api', $device));
+        event(new DeviceAuthenticated(new EventContext('api', new ClientContext(null, null), device: $device)));
 
         $stored = DB::table('devices')->where('id', $device->getKey())->value('last_used_at');
 

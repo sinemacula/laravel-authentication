@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events;
 
 use Illuminate\Queue\SerializesModels;
-use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
 /**
@@ -20,31 +20,42 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
  * transaction commits otherwise, and never for a revocation that is rolled
  * back. A transaction on another connection neither delays nor cancels it.
  *
+ * The context's guard is the device's own and its device is never `null`; the
+ * identity, principal and tenant are carried when the revoking flow knew them
+ * (a replay is caught before the owner is loaded, so it carries none).
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class DeviceRevoked
+final readonly class DeviceRevoked implements AuthenticationEvent
 {
     use SerializesModels;
 
     /**
      * Constructor.
      *
-     * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      */
     public function __construct(
 
-        /** Name of the guard that revoked the device. */
-        public string $guard,
-
-        /** The device that was revoked. */
-        public Device $device,
+        /** The revoked device, its guard, and whose session it held as far as known. */
+        public EventContext $context,
 
         /** Why the device was revoked. */
         public RevocationReason $reason,
     ) {}
+
+    /**
+     * Return the revoked device and whose session it held.
+     *
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
+     */
+    #[\Override]
+    public function context(): EventContext
+    {
+        return $this->context;
+    }
 }

@@ -8,7 +8,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
  * A sign-in that failed: why, and the context it had established by then, which
@@ -24,7 +24,7 @@ final readonly class RefusedSignIn
     /**
      * Constructor.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -34,7 +34,7 @@ final readonly class RefusedSignIn
     public function __construct(
 
         /** Why the sign-in failed. */
-        public SignInFailureReason $reason,
+        public FailureReason $reason,
 
         /** The verified identity, if the sign-in got that far. */
         public ?Identity $identity = null,
@@ -56,11 +56,11 @@ final readonly class RefusedSignIn
      * Refuse an admitted sign-in that a later check failed, keeping its
      * context.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @return self
      */
-    public static function after(SignInFailureReason $reason, AdmittedSignIn $admitted): self
+    public static function after(FailureReason $reason, AdmittedSignIn $admitted): self
     {
         return new self($reason, $admitted->identity, $admitted->principal, $admitted->tenant, $admitted->device);
     }

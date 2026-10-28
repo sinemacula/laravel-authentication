@@ -17,9 +17,13 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
+use SineMacula\Laravel\Authentication\Guards\Concerns\RebindsCollaborators;
 use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
@@ -39,14 +43,15 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * event helpers via `ValidatesGuardCredentials`; the sign-in policy checks
  * behind `attempt()` via `SignsInWithCredentials`; ownership checks for
  * principal hints and pinned context via `VerifiesPinnedContext`; read access
- * to the guard's collaborators via `ExposesCollaborators`.
+ * to the guard's collaborators via `ExposesCollaborators`, and their rebinding
+ * via `RebindsCollaborators`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 abstract class AbstractGuard implements ContextualGuard
 {
-    use BindsContextualState, ExposesCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
+    use BindsContextualState, ExposesCollaborators, RebindsCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
 
     /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
@@ -246,10 +251,7 @@ abstract class AbstractGuard implements ContextualGuard
             throw new \InvalidArgumentException(sprintf('Guard %s could not resolve a default principal for identity %s; bind one with login().', $this->name, $user::class));
         }
 
-        $this->clearContextualState();
-
-        $this->setIdentity($user);
-        $this->setPrincipal($principal);
+        $this->bindContext($user, $principal, null, self::boundTenant($principal), null);
 
         return $this;
     }
@@ -284,7 +286,7 @@ abstract class AbstractGuard implements ContextualGuard
      * check fails the attempt.
      *
      * A failure fires Laravel's `Failed`, carrying the account the credentials
-     * named when there is one, and then `SignInFailed` with the reason.
+     * named when there is one, and then `AuthenticationFailed` with the reason.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -311,14 +313,9 @@ abstract class AbstractGuard implements ContextualGuard
 
             $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
 
-            $this->events->dispatch(new SignInFailed(
-                $this->name,
-                $outcome->identity,
-                $outcome->principal,
-                $outcome->tenant,
-                $outcome->device,
-                PasswordSignIn::NAME,
-                $client,
+            $this->events->dispatch(new AuthenticationFailed(
+                new EventContext($this->name, $client, $outcome->identity, $outcome->principal, $outcome->tenant, $outcome->device, PasswordSignIn::NAME),
+                AuthenticationFlow::SIGN_IN,
                 $outcome->reason,
                 $identifier,
                 $outcome->retryAfter,
@@ -329,7 +326,7 @@ abstract class AbstractGuard implements ContextualGuard
 
         // Validated fired when the password was accepted; bind directly and
         // skip login() to avoid double-dispatching.
-        $this->bindAuthenticationLifecycle($outcome->identity, $outcome->principal, $outcome->device);
+        $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->device, $outcome->tenant, PasswordSignIn::NAME, true);
 
         return true;
     }
@@ -346,12 +343,16 @@ abstract class AbstractGuard implements ContextualGuard
      * `bindAuthenticationLifecycle()` directly to avoid firing it twice.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
-     * device from a prior login on the same instance.
+     * device from a prior login on the same instance. The events carry the
+     * tenant the principal names (none when it cannot be loaded) and, with a
+     * device, the sign-in method its session records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return void
+     *
+     * @throws \LogicException
      */
     #[\Override]
     public function login(Identity $identity, Principal $principal, ?Device $device = null): void
@@ -359,6 +360,29 @@ abstract class AbstractGuard implements ContextualGuard
         $this->fireValidatedEvent($identity);
 
         $this->bindAuthenticationLifecycle($identity, $principal, $device);
+    }
+
+    /**
+     * Bind a fully resolved identity, principal, and optional device as the
+     * request's authentication rather than as a sign-in: only `Authenticated`,
+     * `PrincipalAssigned` and, with a device, `DeviceAuthenticated` fire, with
+     * no `Validated` and no `Login`.
+     *
+     * A trusted entry point, like `login()`: the principal and device are bound
+     * as given, without ownership, activity or revocation checks, so the caller
+     * must have proven them. Previously bound state is cleared first, and the
+     * request is settled, so its own credential is not resolved afterwards.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public function authenticateAs(Identity $identity, Principal $principal, ?Device $device = null): void
+    {
+        $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), false);
     }
 
     /**
@@ -395,56 +419,10 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Rebind the current HTTP request onto the guard and forget everything
-     * resolved for the previous one. Called by the service provider on each
-     * container-resolve cycle.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return static
-     */
-    public function setRequest(Request $request): static
-    {
-        $this->request           = $request;
-        $this->lastRetrievedUser = null;
-        $this->requestResolved   = false;
-        $this->clearContextualState();
-
-        return $this;
-    }
-
-    /**
-     * Rebind the event dispatcher onto the guard, so test suites that swap it
-     * after the guard is resolved (e.g. `Event::fake()`) get a fresh reference.
-     *
-     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
-     * @return static
-     */
-    public function setDispatcher(Dispatcher $events): static
-    {
-        $this->events = $events;
-
-        return $this;
-    }
-
-    /**
-     * Rebind the principal resolver, so consumers that swap it after guard
-     * construction (test fakes, runtime tenancy switches) propagate the new
-     * resolver into the guard.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
-     * @return static
-     */
-    public function setPrincipalResolver(PrincipalResolver $resolver): static
-    {
-        $this->resolver = $resolver;
-
-        return $this;
-    }
-
-    /**
      * Bind an identity to the guard and fire the standard Laravel
-     * `Authenticated` event. Shared entry point for `setUser()` and the
-     * contextual `login()` path.
+     * `Authenticated` event: the hook for a subclass that binds an identity on
+     * its own. The package's binds set the whole context before any event
+     * instead, so a listener reads all of it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return void
@@ -495,8 +473,10 @@ abstract class AbstractGuard implements ContextualGuard
 
     /**
      * Internal bind: clear prior state, dispatch `Login`, then set the
-     * contextual triple (which dispatches `Authenticated`, `PrincipalAssigned`,
-     * and `DeviceAuthenticated` in order).
+     * contextual triple and dispatch `Authenticated`, `PrincipalAssigned`, and
+     * `DeviceAuthenticated` in order. The events carry the tenant the principal
+     * names (none when it cannot be loaded) and, with a device, the sign-in
+     * method its session records.
      *
      * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
      *
@@ -509,22 +489,38 @@ abstract class AbstractGuard implements ContextualGuard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return void
+     *
+     * @throws \LogicException
      */
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
+    {
+        $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), true);
+    }
+
+    /**
+     * Bind a context the guard verified itself, with the tenant its activity
+     * check loaded and the sign-in method to report: clear prior state and
+     * settle the request, dispatch `Login` when it is a sign-in, then bind the
+     * triple and dispatch its events.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  ?string  $method
+     * @param  bool  $signIn
+     * @return void
+     */
+    protected function bindVerifiedContext(Identity $identity, Principal $principal, ?Device $device, ?Tenant $tenant, ?string $method, bool $signIn): void
     {
         $this->requestResolved = true;
 
         $this->clearContextualState();
 
-        $this->events->dispatch(new Login($this->name, $identity, false));
-
-        $this->setIdentity($identity);
-        $this->setPrincipal($principal);
-
-        if ($device === null) {
-            return;
+        if ($signIn) {
+            $this->events->dispatch(new Login($this->name, $identity, false));
         }
 
-        $this->setDevice($device);
+        $this->bindContext($identity, $principal, $device, $tenant, $method);
     }
 }

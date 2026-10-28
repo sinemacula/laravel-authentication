@@ -18,11 +18,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
@@ -195,7 +194,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $events = $this->recordEvents();
 
         self::assertFalse($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
-        self::assertSame([Attempting::class, Failed::class, SignInFailed::class], array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()));
+        self::assertSame([Attempting::class, Failed::class, AuthenticationFailed::class], array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()));
 
         $failed = $events[1];
         $signIn = $events[2];
@@ -204,13 +203,13 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertNull($failed->user);
         self::assertSame(['email' => 'ada@example.test'], $failed->credentials);
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::METHOD_NOT_ALLOWED, $signIn->reason);
-        self::assertSame(self::GUARD_NAME, $signIn->guard);
-        self::assertSame('password', $signIn->method);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::METHOD_NOT_ALLOWED, $signIn->reason);
+        self::assertSame(self::GUARD_NAME, $signIn->context->guard);
+        self::assertSame('password', $signIn->context->method);
         self::assertSame('ada@example.test', $signIn->identifier);
-        self::assertSame(self::IP, $signIn->client->ip);
-        self::assertNull($signIn->identity);
+        self::assertSame(self::IP, $signIn->context->client->ip);
+        self::assertNull($signIn->context->identity);
         self::assertNull($signIn->retryAfter);
     }
 
@@ -235,8 +234,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $signIn = $events[2] ?? null;
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::RATE_LIMITED, $signIn->reason);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::RATE_LIMITED, $signIn->reason);
         self::assertSame(42, $signIn->retryAfter);
         self::assertSame('ada@example.test', $signIn->identifier);
     }
@@ -352,8 +351,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $signIn = $events[count($events) - 1];
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $signIn->reason);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $signIn->reason);
         self::assertNull($signIn->identifier);
     }
 
@@ -404,8 +403,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      * An account whose own limit is used up is not checked at all: its password
      * is never compared, and the attempt fails as a wrong password would to the
      * caller (Laravel's `Failed` carries the account found, as for any wrong
-     * password), while `SignInFailed` tells server-side listeners the truth:
-     * the account's limit refused it, with the wait.
+     * password), while `AuthenticationFailed` tells server-side listeners the
+     * truth: the account's limit refused it, with the wait.
      *
      * @return void
      *
@@ -431,10 +430,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(Failed::class, $failed);
         self::assertSame($identity, $failed->user);
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $signIn->reason);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $signIn->reason);
         self::assertSame(90, $signIn->retryAfter);
-        self::assertNull($signIn->identity);
+        self::assertNull($signIn->context->identity);
     }
 
     /**
@@ -455,7 +454,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
-        $this->audience->shouldReceive('admit')->once()->andReturn(SignInFailureReason::PRINCIPAL_INELIGIBLE);
+        $this->audience->shouldReceive('admit')->once()->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
         $this->factors->shouldNotReceive('requiresAdditionalFactor');
         $this->provider->shouldNotReceive('rehashPasswordIfRequired');
         $this->expectNoSlotGivenBack();
@@ -468,16 +467,16 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $classes = array_map(static fn (object $event): string => $event::class, $events->getArrayCopy());
 
-        self::assertSame([Attempting::class, Validated::class, Failed::class, SignInFailed::class], $classes);
+        self::assertSame([Attempting::class, Validated::class, Failed::class, AuthenticationFailed::class], $classes);
 
         [, , $failed, $signIn] = $events->getArrayCopy();
 
         self::assertInstanceOf(Failed::class, $failed);
         self::assertSame($identity, $failed->user);
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $signIn->reason);
-        self::assertSame($identity, $signIn->identity);
-        self::assertSame($principal, $signIn->principal);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $signIn->reason);
+        self::assertSame($identity, $signIn->context->identity);
+        self::assertSame($principal, $signIn->context->principal);
     }
 
     /**
@@ -528,9 +527,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $signIn = $events[count($events) - 1];
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
-        self::assertSame($principal, $signIn->principal);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
+        self::assertSame($principal, $signIn->context->principal);
     }
 
     /**
@@ -543,8 +542,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
      */
     public function testTheFactorPolicyIsToldOfThePrincipalsTenant(): void
     {
-        $identity  = $this->mockIdentity();
-        $tenant    = \Mockery::mock(Tenant::class);
+        $identity = $this->mockIdentity();
+        $tenant   = \Mockery::mock(Tenant::class);
+        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
         $principal = $this->mockActivePrincipal();
         $principal->shouldReceive('getTenant')->andReturn($tenant);
 
@@ -579,7 +579,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     {
         $identity  = $this->mockIdentity();
         $principal = $this->mockActivePrincipal();
-        $device    = \Mockery::mock(Device::class);
+        $device    = $this->mockDevice();
         $device->shouldReceive('getDeviceIdentifier')->andReturn('0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70');
 
         $this->expectPasswordAccepted($identity);
@@ -594,10 +594,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $signIn = $events[count($events) - 1];
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::DEVICE_MISMATCH, $signIn->reason);
-        self::assertSame($principal, $signIn->principal);
-        self::assertNull($signIn->device);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::DEVICE_MISMATCH, $signIn->reason);
+        self::assertSame($principal, $signIn->context->principal);
+        self::assertNull($signIn->context->device);
     }
 
     /**
@@ -614,7 +614,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     {
         $deviceId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
-        $device = \Mockery::mock(Device::class);
+        $device = $this->mockDevice();
         $device->shouldReceive('getDeviceIdentifier')->andReturn($deviceId);
         $device->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
         $device->shouldReceive('getRevokedAt')->andReturnNull();
@@ -656,9 +656,9 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $signIn = $events[count($events) - 1];
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
-        self::assertSame($device, $signIn->device);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $signIn->reason);
+        self::assertSame($device, $signIn->context->device);
     }
 
     /**
@@ -793,11 +793,11 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertFalse($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret'], $pinned));
 
         $reasons = array_map(
-            static fn (SignInFailed $event): SignInFailureReason => $event->reason,
-            array_values(array_filter($events->getArrayCopy(), static fn (object $event): bool => $event instanceof SignInFailed)),
+            static fn (AuthenticationFailed $event): FailureReason => $event->reason,
+            array_values(array_filter($events->getArrayCopy(), static fn (object $event): bool => $event instanceof AuthenticationFailed)),
         );
 
-        self::assertSame([SignInFailureReason::PRINCIPAL_UNRESOLVED, SignInFailureReason::PRINCIPAL_MISMATCH], $reasons);
+        self::assertSame([FailureReason::PRINCIPAL_UNRESOLVED, FailureReason::PRINCIPAL_MISMATCH], $reasons);
     }
 
     /**
@@ -816,7 +816,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $pinned = $this->mockActivePrincipal();
         $pinned->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
 
-        $device = \Mockery::mock(Device::class);
+        $device = $this->mockDevice();
         $device->shouldNotReceive('getDeviceIdentifier');
 
         $this->expectPasswordAccepted($identity);
@@ -829,8 +829,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $signIn = $events[count($events) - 1];
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::PRINCIPAL_MISMATCH, $signIn->reason);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $signIn->reason);
     }
 
     /**

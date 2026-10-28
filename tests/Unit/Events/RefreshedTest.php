@@ -4,14 +4,15 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Events;
 
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Queue\SerializesModels;
-use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
-use PHPUnit\Framework\Attributes\CoversNothing;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
+use SineMacula\Laravel\Authentication\Events\ContextEvent;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Unit\Stubs\PlainDeviceFixture;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -24,144 +25,59 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
  *
  * @internal
  */
-#[CoversNothing]
+#[CoversClass(Refreshed::class)]
+#[CoversClass(ContextEvent::class)]
 final class RefreshedTest extends TestCase
 {
-    use MockeryPHPUnitIntegration;
-
     /**
-     * Asserts the event retains the guard name supplied at construction.
+     * The event keeps the context of the refreshed session.
      *
      * @return void
      */
-    public function testStoresGuardNameOnConstruction(): void
+    public function testKeepsItsContext(): void
     {
-        $event = $this->makeEvent('api');
+        $context = self::context();
+        $event   = new Refreshed($context);
 
-        self::assertSame('api', $event->guard);
+        self::assertInstanceOf(AuthenticationEvent::class, $event);
+        self::assertSame($context, $event->context);
+        self::assertSame($context, $event->context());
     }
 
     /**
-     * Asserts the event retains the identity instance supplied at construction.
+     * The event serialises its models for queued listeners and survives a round
+     * trip. It does not ask the dispatcher to wait for a transaction: that
+     * would wait for whichever transaction is open last on any connection, so
+     * the package dispatches it once the written row's own connection commits.
      *
      * @return void
      */
-    public function testStoresIdentityOnConstruction(): void
+    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        $identity = \Mockery::mock(Identity::class);
+        $context = self::context();
+        $event   = new Refreshed($context);
 
-        $event = new Refreshed(
-            'api',
-            $identity,
-            \Mockery::mock(Principal::class),
-            \Mockery::mock(Device::class),
-        );
+        self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
+        self::assertContains(SerializesModels::class, class_uses_recursive($event));
 
-        self::assertSame($identity, $event->identity);
+        $copy = unserialize(serialize($event));
+
+        self::assertInstanceOf(Refreshed::class, $copy);
+        self::assertSame('api', $copy->context->guard);
+        self::assertSame('7', $copy->context->identityId);
+        self::assertSame('device-1', $copy->context->deviceId);
     }
 
     /**
-     * Asserts the event retains the principal instance supplied at
-     * construction.
+     * A context with an identity, principal and device, signed in with a
+     * password from a known client.
      *
-     * @return void
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    public function testStoresPrincipalOnConstruction(): void
+    private static function context(): EventContext
     {
-        $principal = \Mockery::mock(Principal::class);
+        $client = new ClientContext('203.0.113.7', 'agent');
 
-        $event = new Refreshed(
-            'api',
-            \Mockery::mock(Identity::class),
-            $principal,
-            \Mockery::mock(Device::class),
-        );
-
-        self::assertSame($principal, $event->principal);
-    }
-
-    /**
-     * Asserts the event retains the device instance supplied at construction.
-     *
-     * @return void
-     */
-    public function testStoresDeviceOnConstruction(): void
-    {
-        $device = \Mockery::mock(Device::class);
-
-        $event = new Refreshed(
-            'api',
-            \Mockery::mock(Identity::class),
-            \Mockery::mock(Principal::class),
-            $device,
-        );
-
-        self::assertSame($device, $event->device);
-    }
-
-    /**
-     * The `Refreshed` event composes Laravel's `SerializesModels` trait so it
-     * survives a queued-listener round trip. Reflection guards against
-     * accidentally dropping the trait.
-     *
-     * @return void
-     */
-    public function testUsesSerializesModelsTrait(): void
-    {
-        self::assertContains(
-            SerializesModels::class,
-            (new \ReflectionClass(Refreshed::class))->getTraitNames(),
-        );
-    }
-
-    /**
-     * The event is `serialize`/`unserialize` round-trippable with plain-object
-     * (non-Eloquent) contract implementations as payload. Pins the runtime
-     * serialisation path - if `SerializesModels` is dropped or the event gains
-     * a non-serialisable property, the round trip fails.
-     *
-     * Uses plain-object fixtures rather than Eloquent stubs so the assertion
-     * does not require a database connection; `SerializesModels` only replaces
-     * Eloquent models with lazy identifiers, leaving arbitrary objects intact.
-     *
-     * @return void
-     */
-    public function testSurvivesSerializeUnserializeRoundTrip(): void
-    {
-        $event = new Refreshed(
-            'api',
-            new PlainIdentityFixture(42),
-            new PlainPrincipalFixture(7),
-            new PlainDeviceFixture('01HZZ-device-id'),
-        );
-
-        /** @var \SineMacula\Laravel\Authentication\Events\Refreshed $roundTripped */
-        $roundTripped = unserialize(serialize($event));
-
-        self::assertInstanceOf(Refreshed::class, $roundTripped);
-        self::assertSame('api', $roundTripped->guard);
-        self::assertInstanceOf(PlainIdentityFixture::class, $roundTripped->identity);
-        self::assertInstanceOf(PlainPrincipalFixture::class, $roundTripped->principal);
-        self::assertInstanceOf(PlainDeviceFixture::class, $roundTripped->device);
-        self::assertSame(42, $roundTripped->identity->getAuthIdentifier());
-        self::assertSame(7, $roundTripped->principal->getPrincipalIdentifier());
-        self::assertSame('01HZZ-device-id', $roundTripped->device->getDeviceIdentifier());
-    }
-
-    /**
-     * Build a Refreshed event with the supplied guard name and fresh mock
-     * collaborators.
-     *
-     * @param  string  $guard
-     * @return \SineMacula\Laravel\Authentication\Events\Refreshed
-     */
-    private function makeEvent(string $guard): Refreshed
-    {
-        return new Refreshed(
-            $guard,
-            \Mockery::mock(Identity::class),
-            \Mockery::mock(Principal::class),
-            \Mockery::mock(Device::class),
-        );
+        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainDeviceFixture('device-1'), 'password');
     }
 }

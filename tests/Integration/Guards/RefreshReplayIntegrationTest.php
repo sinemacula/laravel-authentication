@@ -16,10 +16,10 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -164,8 +164,8 @@ final class RefreshReplayIntegrationTest extends TestCase
     /**
      * A refresh token presented after the grace window of the rotation that
      * replaced it revokes the device: `DeviceRevoked` is dispatched once with
-     * `RefreshFailed`, and the device's access tokens stop working at once,
-     * through the `auth` middleware.
+     * `AuthenticationFailed`, and the device's access tokens stop working at
+     * once, through the `auth` middleware.
      *
      * @return void
      *
@@ -187,25 +187,25 @@ final class RefreshReplayIntegrationTest extends TestCase
         /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\DeviceRevoked> $revoked */
         $revoked = new \ArrayObject;
 
-        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason> $failed */
+        /** @var \ArrayObject<int, \SineMacula\Laravel\Authentication\Events\Enums\FailureReason> $failed */
         $failed = new \ArrayObject;
 
         Event::listen(DeviceRevoked::class, static function (DeviceRevoked $event) use ($revoked): void {
             $revoked->append($event);
         });
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use ($failed): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use ($failed): void {
             $failed->append($event->reason);
         });
 
         self::assertNull($this->guard()->refresh($stolen));
         self::assertCount(1, $revoked);
-        self::assertSame($device->getKey(), $revoked->getArrayCopy()[0]->device->getDeviceIdentifier());
-        self::assertSame([RefreshFailureReason::ROTATION_REUSE], $failed->getArrayCopy());
+        self::assertSame($device->getKey(), $revoked->getArrayCopy()[0]->context->device?->getDeviceIdentifier());
+        self::assertSame([FailureReason::ROTATION_REUSE], $failed->getArrayCopy());
 
         $this->bearer($pair->accessToken)->assertUnauthorized();
 
         self::assertNull($this->guard()->refresh($pair->refreshToken));
-        self::assertSame([RefreshFailureReason::ROTATION_REUSE, RefreshFailureReason::DEVICE_REVOKED], $failed->getArrayCopy());
+        self::assertSame([FailureReason::ROTATION_REUSE, FailureReason::DEVICE_REVOKED], $failed->getArrayCopy());
         self::assertCount(1, $revoked);
     }
 

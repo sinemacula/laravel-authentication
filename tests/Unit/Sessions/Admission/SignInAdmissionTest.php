@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
@@ -64,7 +64,7 @@ final class SignInAdmissionTest extends TestCase
 
         $this->audience->shouldReceive('admit')->once()->with('api', $identity, $principal, 'email')->andReturnNull();
 
-        $admitted = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, SignInFailureReason::PRINCIPAL_UNRESOLVED, 'email');
+        $admitted = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
         self::assertInstanceOf(AdmittedSignIn::class, $admitted);
         self::assertSame($identity, $admitted->identity);
@@ -89,11 +89,11 @@ final class SignInAdmissionTest extends TestCase
             $resolved = true;
 
             return null;
-        }, SignInFailureReason::PRINCIPAL_UNRESOLVED, 'email');
+        }, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
         self::assertFalse($resolved);
         self::assertInstanceOf(RefusedSignIn::class, $refused);
-        self::assertSame(SignInFailureReason::IDENTITY_INACTIVE, $refused->reason);
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertNull($refused->principal);
     }
@@ -111,7 +111,7 @@ final class SignInAdmissionTest extends TestCase
 
         $this->audience->shouldNotReceive('admit');
 
-        foreach ([SignInFailureReason::PRINCIPAL_UNRESOLVED, SignInFailureReason::PRINCIPAL_MISMATCH] as $reason) {
+        foreach ([FailureReason::PRINCIPAL_UNRESOLVED, FailureReason::PRINCIPAL_MISMATCH] as $reason) {
 
             $refused = $this->admission()->admit('api', $identity, static fn (): ?Principal => null, $reason, null);
 
@@ -136,10 +136,10 @@ final class SignInAdmissionTest extends TestCase
 
         $this->audience->shouldNotReceive('admit');
 
-        $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, SignInFailureReason::PRINCIPAL_UNRESOLVED, null);
+        $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
         self::assertInstanceOf(RefusedSignIn::class, $refused);
-        self::assertSame(SignInFailureReason::PRINCIPAL_INACTIVE, $refused->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INACTIVE, $refused->reason);
         self::assertSame($principal, $refused->principal);
         self::assertNull($refused->tenant);
     }
@@ -156,10 +156,10 @@ final class SignInAdmissionTest extends TestCase
 
         $this->audience->shouldNotReceive('admit');
 
-        $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, SignInFailureReason::PRINCIPAL_UNRESOLVED, null);
+        $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
         self::assertInstanceOf(RefusedSignIn::class, $refused);
-        self::assertSame(SignInFailureReason::TENANT_INACTIVE, $refused->reason);
+        self::assertSame(FailureReason::TENANT_INACTIVE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertSame($principal, $refused->principal);
         self::assertNull($refused->tenant);
@@ -180,12 +180,12 @@ final class SignInAdmissionTest extends TestCase
         $this->audience->shouldReceive('admit')
             ->once()
             ->with('admin', $identity, $principal, null)
-            ->andReturn(SignInFailureReason::PRINCIPAL_INELIGIBLE);
+            ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
 
-        $refused = $this->admission()->admit('admin', $identity, static fn (): Principal => $principal, SignInFailureReason::PRINCIPAL_UNRESOLVED, null);
+        $refused = $this->admission()->admit('admin', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
         self::assertInstanceOf(RefusedSignIn::class, $refused);
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $refused->reason);
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertSame($principal, $refused->principal);
         self::assertSame($tenant, $refused->tenant);

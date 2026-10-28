@@ -18,9 +18,9 @@ use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -153,7 +153,7 @@ final class RefreshTokenExchangeBenchHarness
         $this->events->setTransactionManagerResolver(static fn (): null => null);
         $this->events->listen(
             DeviceAuthenticated::class,
-            new RecordDeviceUsage(BenchRequest::client()),
+            new RecordDeviceUsage,
         );
 
         $hasher = new BcryptHasher;
@@ -520,17 +520,17 @@ final class RefreshTokenExchangeBenchHarness
 
         $reasons = [];
 
-        $this->events->listen(RefreshFailed::class, static function (RefreshFailed $failed) use (&$reasons): void {
+        $this->events->listen(AuthenticationFailed::class, static function (AuthenticationFailed $failed) use (&$reasons): void {
             $reasons[] = $failed->reason;
         });
 
         $this->makeGuard()->refresh($this->unknownDeviceToken);
         $this->makeGuard()->refresh($this->rotationMismatchCheckToken);
 
-        $this->events->forget(RefreshFailed::class);
+        $this->events->forget(AuthenticationFailed::class);
 
-        BenchOutcome::assert('unknown-device failure', ($reasons[0] ?? null) === RefreshFailureReason::DEVICE_UNKNOWN);
-        BenchOutcome::assert('rotation-mismatch failure', ($reasons[1] ?? null) === RefreshFailureReason::ROTATION_REUSE);
+        BenchOutcome::assert('unknown-device failure', ($reasons[0] ?? null) === FailureReason::DEVICE_UNKNOWN);
+        BenchOutcome::assert('rotation-mismatch failure', ($reasons[1] ?? null) === FailureReason::ROTATION_REUSE);
     }
 
     /**

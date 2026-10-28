@@ -8,7 +8,6 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
@@ -234,7 +233,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $identity1  = $this->mockIdentity();
         $principal1 = $this->mockActivePrincipal();
-        $device1    = \Mockery::mock(Device::class);
+        $device1    = $this->mockDevice();
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
@@ -348,7 +347,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $deviceId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
-        $device = \Mockery::mock(Device::class);
+        $device = $this->mockDevice();
         $device->shouldReceive('getDeviceIdentifier')->andReturn($deviceId);
         $device->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
         $device->shouldReceive('getRevokedAt')->andReturnNull();

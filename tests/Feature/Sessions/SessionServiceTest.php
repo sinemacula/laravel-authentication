@@ -29,12 +29,12 @@ use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -207,7 +207,7 @@ final class SessionServiceTest extends TestCase
             DeviceCreated::class,
             SignedIn::class,
             Failed::class,
-            SignInFailed::class,
+            AuthenticationFailed::class,
         ]);
 
         $result = $this->sessions()->signIn('password', self::credentials());
@@ -224,22 +224,23 @@ final class SessionServiceTest extends TestCase
         self::assertNotNull($session);
 
         foreach ([$created, $signedIn] as $event) {
-            self::assertSame('api', $event->guard);
-            self::assertSame($session->identity, $event->identity);
-            self::assertSame($session->principal, $event->principal);
-            self::assertNull($event->tenant);
-            self::assertSame($session->device, $event->device);
-            self::assertSame('password', $event->method);
-            self::assertSame(self::CLIENT_IP, $event->client->ip);
-            self::assertSame(self::CLIENT_AGENT, $event->client->userAgent);
+            self::assertSame('api', $event->context->guard);
+            self::assertSame($session->identity, $event->context->identity);
+            self::assertSame($session->principal, $event->context->principal);
+            self::assertNull($event->context->tenant);
+            self::assertSame($session->device, $event->context->device);
+            self::assertSame('password', $event->context->method);
+            self::assertSame(self::CLIENT_IP, $event->context->client->ip);
+            self::assertSame(self::CLIENT_AGENT, $event->context->client->userAgent);
         }
 
         self::assertTrue($signedIn->deviceCreated);
+        self::assertFalse($signedIn->refresh);
     }
 
     /**
      * The events never see the input: `Attempting` and `Failed` carry only the
-     * identifier the method names, and `SignInFailed` no secret at all.
+     * identifier the method names, and `AuthenticationFailed` no secret at all.
      *
      * @return void
      *
@@ -249,19 +250,19 @@ final class SessionServiceTest extends TestCase
     {
         $this->seedIdentity();
 
-        $this->recordEvents([Attempting::class, Failed::class, SignInFailed::class]);
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         $input = ['email' => 'ada@example.test', 'password' => 'not-the-password', 'otp' => '123456', 'remember' => 'yes'];
 
         $result = $this->sessions()->signIn('password', $input);
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $result->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $result->reason);
         self::assertSame(['email' => 'ada@example.test'], $this->recordedEvent(Attempting::class)->credentials);
         self::assertFalse($this->recordedEvent(Attempting::class)->remember);
         self::assertSame(['email' => 'ada@example.test'], $this->recordedEvent(Failed::class)->credentials);
         self::assertNull($this->recordedEvent(Failed::class)->user);
 
-        $failed = serialize($this->recordedEvent(SignInFailed::class));
+        $failed = serialize($this->recordedEvent(AuthenticationFailed::class));
 
         self::assertStringNotContainsString('not-the-password', $failed);
         self::assertStringNotContainsString('123456', $failed);
@@ -333,7 +334,7 @@ final class SessionServiceTest extends TestCase
      */
     public function testAnUnknownMethodThrows(): void
     {
-        $this->recordEvents([Attempting::class, Failed::class, SignInFailed::class]);
+        $this->recordEvents([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         try {
             $this->sessions()->signIn('carrier-pigeon', []);
@@ -363,7 +364,7 @@ final class SessionServiceTest extends TestCase
         $limiter = $this->bindMock(AttemptLimiter::class);
         $limiter->shouldNotReceive('acquire');
 
-        $this->assertSignInFails(SignInFailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials()));
+        $this->assertSignInFails(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->signIn('password', self::credentials()));
     }
 
     /**
@@ -399,12 +400,12 @@ final class SessionServiceTest extends TestCase
 
         $limited = $this->sessions()->signIn('password', ['email' => ' ADA@example.test ', 'password' => self::PASSWORD]);
 
-        self::assertSame(SignInFailureReason::RATE_LIMITED, $limited->reason);
+        self::assertSame(FailureReason::RATE_LIMITED, $limited->reason);
         self::assertSame(42, $limited->retryAfter);
 
         $wrong = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong']);
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $wrong->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $wrong->reason);
         self::assertCount(0, $released);
 
         self::assertTrue($this->sessions()->signIn('password', self::credentials())->isSignedIn());
@@ -439,9 +440,9 @@ final class SessionServiceTest extends TestCase
         $this->seedIdentity();
         $this->seedIdentity('inactive@example.test', false);
 
-        $this->assertSignInFails(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong']));
-        $this->assertSignInFails(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials('nobody@example.test')));
-        $this->assertSignInFails(SignInFailureReason::IDENTITY_INACTIVE, $this->sessions()->signIn('password', self::credentials('inactive@example.test')));
+        $this->assertSignInFails(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong']));
+        $this->assertSignInFails(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', self::credentials('nobody@example.test')));
+        $this->assertSignInFails(FailureReason::IDENTITY_INACTIVE, $this->sessions()->signIn('password', self::credentials('inactive@example.test')));
     }
 
     /**
@@ -471,17 +472,17 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($membership, $pinnedSession->principal);
         self::assertSame(IdentifierCoercion::stringify($membership->getKey()), Device::query()->whereKey($pinnedSession->device->getKey())->firstOrFail()->principal_id);
 
-        $this->recordEvents([SignInFailed::class]);
+        $this->recordEvents([AuthenticationFailed::class]);
 
         $mismatch = $this->sessions('members')->signIn('password', self::credentials('member@example.test'), new SignInContext(new ClientContext(null, null), principal: $foreign));
 
-        self::assertSame(SignInFailureReason::PRINCIPAL_MISMATCH, $mismatch->reason);
-        self::assertNull($this->recordedEvent(SignInFailed::class)->principal);
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $mismatch->reason);
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->context->principal);
 
         $membership->delete();
         $foreign->delete();
 
-        self::assertSame(SignInFailureReason::PRINCIPAL_UNRESOLVED, $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->reason);
+        self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->reason);
     }
 
     /**
@@ -498,10 +499,10 @@ final class SessionServiceTest extends TestCase
 
         [, $membership] = $this->seedMember(tenant: $tenant);
 
-        $this->recordEvents([SignInFailed::class]);
+        $this->recordEvents([AuthenticationFailed::class]);
 
-        $this->assertSignInFails(SignInFailureReason::TENANT_INACTIVE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
-        self::assertSameModel($membership, $this->recordedEvent(SignInFailed::class)->principal);
+        $this->assertSignInFails(FailureReason::TENANT_INACTIVE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
+        self::assertSameModel($membership, $this->recordedEvent(AuthenticationFailed::class)->context->principal);
     }
 
     /**
@@ -521,27 +522,27 @@ final class SessionServiceTest extends TestCase
         $audience->shouldReceive('admit')
             ->once()
             ->with('members', \Mockery::on(static fn (Identity $identity): bool => $identity->getAuthIdentifier() === $member->getKey()), \Mockery::any(), 'email')
-            ->andReturn(SignInFailureReason::PRINCIPAL_INELIGIBLE);
+            ->andReturn(FailureReason::PRINCIPAL_INELIGIBLE);
 
-        $this->recordEvents([Failed::class, SignInFailed::class]);
+        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
 
-        $this->assertSignInFails(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
+        $this->assertSignInFails(FailureReason::PRINCIPAL_INELIGIBLE, $this->sessions('members')->signIn('password', self::credentials('member@example.test')));
 
-        $failed = $this->recordedEvent(SignInFailed::class);
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSameModel($member, $failed->identity);
-        self::assertSameModel($membership, $failed->principal);
-        self::assertSameModel($tenant, $failed->tenant);
-        self::assertSame('password', $failed->method);
+        self::assertSameModel($member, $failed->context->identity);
+        self::assertSameModel($membership, $failed->context->principal);
+        self::assertSameModel($tenant, $failed->context->tenant);
+        self::assertSame('password', $failed->context->method);
         self::assertSame('member@example.test', $failed->identifier);
-        self::assertSame($failed->identity, $this->recordedEvent(Failed::class)->user);
+        self::assertSame($failed->context->identity, $this->recordedEvent(Failed::class)->user);
     }
 
     /**
      * An account with no attempts left is refused without its password being
      * checked: the client is answered `invalid_credentials` with no wait, as
-     * for a wrong password, while `SignInFailed` reports the account's own
-     * limit and its wait, with no identity, since none was verified.
+     * for a wrong password, while `AuthenticationFailed` reports the account's
+     * own limit and its wait, with no identity, since none was verified.
      *
      * @return void
      *
@@ -557,18 +558,18 @@ final class SessionServiceTest extends TestCase
         );
         $limiter->shouldReceive('release')->never();
 
-        $this->recordEvents([Failed::class, SignInFailed::class]);
+        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
 
         $result = $this->sessions()->signIn('password', self::credentials());
 
-        $this->assertSignInFails(SignInFailureReason::INVALID_CREDENTIALS, $result);
+        $this->assertSignInFails(FailureReason::INVALID_CREDENTIALS, $result);
         self::assertNull($result->retryAfter);
 
-        $failed = $this->recordedEvent(SignInFailed::class);
+        $failed = $this->recordedEvent(AuthenticationFailed::class);
 
-        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $failed->reason);
+        self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $failed->reason);
         self::assertSame(90, $failed->retryAfter);
-        self::assertNull($failed->identity);
+        self::assertNull($failed->context->identity);
         self::assertSame('ada@example.test', $failed->identifier);
         self::assertNull($this->recordedEvent(Failed::class)->user);
     }
@@ -598,14 +599,14 @@ final class SessionServiceTest extends TestCase
         $manager->forgetDrivers();
         $manager->extend('trusted', fn (): SignInMethod => new RefusalIgnoringSignIn);
 
-        $this->recordEvents([SignInFailed::class, SignedIn::class, AdditionalFactorRequired::class]);
+        $this->recordEvents([AuthenticationFailed::class, SignedIn::class, AdditionalFactorRequired::class]);
 
         $result = $this->sessions()->signIn('trusted', self::credentials());
 
-        $this->assertSignInFails(SignInFailureReason::INVALID_CREDENTIALS, $result);
-        self::assertSame([SignInFailed::class], $this->recordedClasses());
-        self::assertSame(SignInFailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(SignInFailed::class)->reason);
-        self::assertSame(90, $this->recordedEvent(SignInFailed::class)->retryAfter);
+        $this->assertSignInFails(FailureReason::INVALID_CREDENTIALS, $result);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(FailureReason::ACCOUNT_RATE_LIMITED, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(90, $this->recordedEvent(AuthenticationFailed::class)->retryAfter);
         self::assertSame(0, PendingSignIn::query()->count());
     }
 
@@ -640,7 +641,7 @@ final class SessionServiceTest extends TestCase
         });
         $limiter->shouldReceive('release')->never();
 
-        $this->recordEvents([Failed::class, SignInFailed::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, DeviceCreated::class, SignedIn::class]);
 
         $guard   = $this->freshGuard();
         $context = SignInContext::fromRequest(app('request'), 'Phone', 'iOS');
@@ -703,14 +704,14 @@ final class SessionServiceTest extends TestCase
 
         self::assertNotNull($session);
         self::assertSameModel($membership, $session->principal);
-        self::assertSameModel($tenant, $this->recordedEvent(DeviceCreated::class)->tenant);
-        self::assertSameModel($tenant, $this->recordedEvent(SignedIn::class)->tenant);
+        self::assertSameModel($tenant, $this->recordedEvent(DeviceCreated::class)->context->tenant);
+        self::assertSameModel($tenant, $this->recordedEvent(SignedIn::class)->context->tenant);
 
         $pending = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->pending;
 
         self::assertNotNull($pending);
         self::assertSameModel($tenant, $pending->tenant);
-        self::assertSameModel($tenant, $this->recordedEvent(AdditionalFactorRequired::class)->tenant);
+        self::assertSameModel($tenant, $this->recordedEvent(AdditionalFactorRequired::class)->context->tenant);
         self::assertCount(2, $asked);
         self::assertSameModel($tenant, $asked[0]);
         self::assertSameModel($tenant, $asked[1]);
@@ -776,17 +777,43 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
 
         $this->registerTrustedMethod($identity, 'ada');
-        $this->recordEvents([Attempting::class, SignInFailed::class]);
+        $this->recordEvents([Attempting::class, AuthenticationFailed::class]);
 
         self::assertTrue($this->sessions()->signIn('trusted', [])->isSignedIn());
         self::assertSame(['identifier' => 'ada'], $this->recordedEvent(Attempting::class)->credentials);
 
         $this->registerTrustedMethod(null);
-        $this->recordEvents([Attempting::class, SignInFailed::class]);
+        $this->recordEvents([Attempting::class, AuthenticationFailed::class]);
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('trusted', [])->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('trusted', [])->reason);
         self::assertSame([], $this->recordedEvent(Attempting::class)->credentials);
-        self::assertNull($this->recordedEvent(SignInFailed::class)->identifier);
+        self::assertNull($this->recordedEvent(AuthenticationFailed::class)->identifier);
+    }
+
+    /**
+     * A sign-in method may refuse only with `invalid_credentials`: any other
+     * reason is the session service's to give, so a method that answers with
+     * one is misconfigured and fails loudly instead of reporting a reason it
+     * cannot know.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration(): void
+    {
+        $this->registerTrustedMethod(FailureReason::DEVICE_REVOKED);
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        try {
+            $this->sessions()->signIn('trusted', []);
+            self::fail('Expected a LogicException.');
+        } catch (\LogicException $exception) {
+            self::assertStringContainsString('`device_revoked`', $exception->getMessage());
+            self::assertStringContainsString('`invalid_credentials`', $exception->getMessage());
+        }
+
+        self::assertSame([], $this->recorded);
     }
 
     /**
@@ -817,7 +844,7 @@ final class SessionServiceTest extends TestCase
         self::assertSameModel($identity, $session->identity);
         self::assertSame('sso', $session->device->getSignInMethod());
         self::assertSame([Validated::class, DeviceCreated::class, SignedIn::class], $this->recordedClasses());
-        self::assertSame('sso', $this->recordedEvent(SignedIn::class)->method);
+        self::assertSame('sso', $this->recordedEvent(SignedIn::class)->context->method);
     }
 
     /**
@@ -835,16 +862,16 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $unsaved  = new IntegrationIdentity;
 
-        $this->recordEvents([Failed::class, SignInFailed::class]);
+        $this->recordEvents([Failed::class, AuthenticationFailed::class]);
 
-        $this->assertSignInFails(SignInFailureReason::IDENTITY_UNKNOWN, $this->sessions()->start($unsaved, null, 'sso'));
+        $this->assertSignInFails(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->start($unsaved, null, 'sso'));
         self::assertSame($unsaved, $this->recordedEvent(Failed::class)->user);
         self::assertSame([], $this->recordedEvent(Failed::class)->credentials);
 
         $audience = $this->audience();
         $audience->shouldReceive('allowsMethod')->with('api', 'sso')->andReturnFalse();
 
-        $this->assertSignInFails(SignInFailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'sso'));
+        $this->assertSignInFails(FailureReason::METHOD_NOT_ALLOWED, $this->sessions()->start($identity, null, 'sso'));
 
         $audience->shouldReceive('allowsMethod')->with('api', 'otp')->andReturnTrue();
 
@@ -872,7 +899,7 @@ final class SessionServiceTest extends TestCase
 
         $this->seedIdentity();
 
-        self::assertSame(SignInFailureReason::IDENTITY_UNKNOWN, $this->sessions()->start($member, null, 'sso')->reason);
+        self::assertSame(FailureReason::IDENTITY_UNKNOWN, $this->sessions()->start($member, null, 'sso')->reason);
     }
 
     /**
@@ -892,7 +919,7 @@ final class SessionServiceTest extends TestCase
 
         self::assertSameModel($membership, self::sessionOf($this->sessions('members')->start($member, $membership, 'sso'))->principal);
         self::assertSameModel($membership, self::sessionOf($this->sessions('members')->start($member, null, 'sso', $context))->principal);
-        self::assertSame(SignInFailureReason::PRINCIPAL_MISMATCH, $this->sessions('members')->start($member, $foreign, 'sso')->reason);
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $this->sessions('members')->start($member, $foreign, 'sso')->reason);
 
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Name the principal to start a session as either as the argument or on the context, not both.');
@@ -1065,11 +1092,11 @@ final class SessionServiceTest extends TestCase
      * Assert a sign-in failed with the reason, started no session, and created
      * no device.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
      * @return void
      */
-    private function assertSignInFails(SignInFailureReason $reason, SignInResult $result): void
+    private function assertSignInFails(FailureReason $reason, SignInResult $result): void
     {
         self::assertTrue($result->isFailed());
         self::assertFalse($result->isSignedIn());
@@ -1142,25 +1169,26 @@ final class SessionServiceTest extends TestCase
 
     /**
      * Register a `trusted` sign-in method that vouches for the given identity
-     * (or for no one), naming the given identifier.
+     * (or for no one, or refuses with the given reason), naming the given
+     * identifier.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null  $identity
      * @param  ?string  $identifier
      * @return void
      */
-    private function registerTrustedMethod(?Identity $identity, ?string $identifier = null): void
+    private function registerTrustedMethod(FailureReason|Identity|null $identity, ?string $identifier = null): void
     {
         $method = new class ($identity, $identifier) implements SignInMethod {
             /**
              * Constructor.
              *
-             * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+             * @param  \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null  $identity
              * @param  ?string  $identifier
              */
             public function __construct(
 
-                /** Identity the method vouches for. */
-                private readonly ?Identity $identity,
+                /** Identity the method vouches for, or the reason it refuses with. */
+                private readonly FailureReason|Identity|null $identity,
 
                 /** Identifier the method names. */
                 private readonly ?string $identifier,
@@ -1196,15 +1224,15 @@ final class SessionServiceTest extends TestCase
             }
 
             /**
-             * Vouch for the configured identity.
+             * Vouch for the configured identity, or refuse as configured.
              *
              * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-             * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+             * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
              */
             #[\Override]
-            public function authenticate(SignInRequest $request): Identity|SignInFailureReason
+            public function authenticate(SignInRequest $request): FailureReason|Identity
             {
-                return $this->identity ?? SignInFailureReason::INVALID_CREDENTIALS;
+                return $this->identity ?? FailureReason::INVALID_CREDENTIALS;
             }
         };
 

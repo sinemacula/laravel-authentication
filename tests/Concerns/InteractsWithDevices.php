@@ -26,8 +26,16 @@ trait InteractsWithDevices
      * A session of the guard that starts now, signed in with a password, with
      * the package's default lifetimes (90 days idle, 180 days absolute).
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  string  $guard
-     * @return array{guard: string, sign_in_method: string, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     protected static function liveSession(string $guard = 'api'): array
     {
@@ -35,19 +43,28 @@ trait InteractsWithDevices
     }
 
     /**
-     * A session of the guard, signed in with a password, that ends at the given
-     * times.
+     * A session of the guard, signed in with a password now, that ends at the
+     * given times.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \Carbon\CarbonInterface  $idle
      * @param  \Carbon\CarbonInterface  $absolute
      * @param  string  $guard
-     * @return array{guard: string, sign_in_method: string, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     protected static function sessionEndingAt(CarbonInterface $idle, CarbonInterface $absolute, string $guard = 'api'): array
     {
         return [
             'guard'               => $guard,
             'sign_in_method'      => 'password',
+            'signed_in_at'        => Carbon::now(),
             'idle_expires_at'     => $idle,
             'absolute_expires_at' => $absolute,
         ];
@@ -72,6 +89,7 @@ trait InteractsWithDevices
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('principal_type')->nullable();
             $blueprint->string('principal_id')->nullable();
+            $blueprint->dateTime('principal_switched_at', 0)->nullable();
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('client_name')->nullable();
@@ -84,6 +102,7 @@ trait InteractsWithDevices
             $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->string('previous_refresh_key', 64)->nullable();
             $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+            $blueprint->dateTime('signed_in_at', 0)->nullable();
             $blueprint->dateTime('idle_expires_at', 0)->nullable();
             $blueprint->dateTime('absolute_expires_at', 0)->nullable();
             $blueprint->dateTime('revoked_at', 0)->nullable();

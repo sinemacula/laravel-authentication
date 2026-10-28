@@ -127,6 +127,20 @@ interface EloquentDevice extends Device
     public function getRefreshRotatedAtName(): string;
 
     /**
+     * Column name holding when the session started.
+     *
+     * @return string
+     */
+    public function getSignedInAtName(): string;
+
+    /**
+     * Column name holding when the session last switched its principal.
+     *
+     * @return string
+     */
+    public function getPrincipalSwitchedAtName(): string;
+
+    /**
      * Column name holding the idle deadline.
      *
      * @return string

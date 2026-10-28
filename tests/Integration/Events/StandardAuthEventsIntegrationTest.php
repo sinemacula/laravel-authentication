@@ -20,8 +20,8 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -288,9 +288,10 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     }
 
     /**
-     * A wrong password ends in the package's `SignInFailed` after `Failed`:
-     * `invalid_credentials`, the identifier as given and the request's client,
-     * no identity (the password was never accepted), and nothing secret.
+     * A wrong password ends in the package's `AuthenticationFailed` after
+     * `Failed`: `invalid_credentials`, the identifier as given and the
+     * request's client, no identity (the password was never accepted), and
+     * nothing secret.
      *
      * @return void
      */
@@ -298,7 +299,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
     {
         $dispatched = [];
 
-        Event::listen([Failed::class, SignInFailed::class], static function (object $event) use (&$dispatched): void {
+        Event::listen([Failed::class, AuthenticationFailed::class], static function (object $event) use (&$dispatched): void {
             $dispatched[] = $event;
         });
 
@@ -307,17 +308,17 @@ final class StandardAuthEventsIntegrationTest extends TestCase
             'password' => 'wrong-password',
         ]));
 
-        self::assertSame([Failed::class, SignInFailed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
+        self::assertSame([Failed::class, AuthenticationFailed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
 
         $signIn = $dispatched[1];
 
-        self::assertInstanceOf(SignInFailed::class, $signIn);
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $signIn->reason);
-        self::assertSame(self::GUARD_NAME, $signIn->guard);
-        self::assertSame('password', $signIn->method);
+        self::assertInstanceOf(AuthenticationFailed::class, $signIn);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $signIn->reason);
+        self::assertSame(self::GUARD_NAME, $signIn->context->guard);
+        self::assertSame('password', $signIn->context->method);
         self::assertSame(self::USER_EMAIL, $signIn->identifier);
-        self::assertSame('127.0.0.1', $signIn->client->ip);
-        self::assertNull($signIn->identity);
+        self::assertSame('127.0.0.1', $signIn->context->client->ip);
+        self::assertNull($signIn->context->identity);
         self::assertStringNotContainsString('wrong-password', serialize($signIn));
     }
 

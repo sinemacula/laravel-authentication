@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 
 /**
@@ -27,7 +27,7 @@ final readonly class SignInResult
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus  $status
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingFactor  $pending
-     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
      */
     private function __construct(
@@ -42,7 +42,7 @@ final readonly class SignInResult
         public ?PendingFactor $pending = null,
 
         /** Why the sign-in failed, when it did. */
-        public ?SignInFailureReason $reason = null,
+        public ?FailureReason $reason = null,
 
         /** Seconds until another attempt may be made, for `rate_limited` only. */
         public ?int $retryAfter = null,
@@ -74,16 +74,16 @@ final readonly class SignInResult
      * A sign-in that failed. A refusal by the account's own limit is answered
      * as `invalid_credentials`, with no wait, as a wrong secret would be, so
      * the result never reveals that the account exists; only the server-side
-     * `SignInFailed` event says why.
+     * `AuthenticationFailed` event says why.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
      * @return self
      */
-    public static function failed(SignInFailureReason $reason, ?int $retryAfter = null): self
+    public static function failed(FailureReason $reason, ?int $retryAfter = null): self
     {
-        if ($reason === SignInFailureReason::ACCOUNT_RATE_LIMITED) {
-            return new self(SignInStatus::FAILED, reason: SignInFailureReason::INVALID_CREDENTIALS);
+        if ($reason === FailureReason::ACCOUNT_RATE_LIMITED) {
+            return new self(SignInStatus::FAILED, reason: FailureReason::INVALID_CREDENTIALS);
         }
 
         return new self(SignInStatus::FAILED, reason: $reason, retryAfter: $retryAfter);

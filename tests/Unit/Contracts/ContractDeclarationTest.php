@@ -15,12 +15,14 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
@@ -30,6 +32,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
 /**
@@ -95,11 +98,13 @@ final class ContractDeclarationTest extends TestCase
             'getIdleExpiresAt',
             'getLastUsedAt',
             'getPreviousRefreshKey',
+            'getPrincipalSwitchedAt',
             'getRefreshKey',
             'getRefreshRotatedAt',
             'getRevokedAt',
             'getRevokedReason',
             'getSignInMethod',
+            'getSignedInAt',
         ], self::declaredMethods(Device::class));
     }
 
@@ -140,11 +145,13 @@ final class ContractDeclarationTest extends TestCase
             'getLastUsedUserAgentName',
             'getPlatformName',
             'getPreviousRefreshKeyName',
+            'getPrincipalSwitchedAtName',
             'getRefreshKeyName',
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
             'getSignInMethodName',
+            'getSignedInAtName',
             'principal',
         ], self::declaredMethods(EloquentDevice::class));
     }
@@ -436,6 +443,55 @@ final class ContractDeclarationTest extends TestCase
     public function testAdditionalFactorPolicyDeclaresOneDecision(): void
     {
         self::assertSame(['requiresAdditionalFactor'], self::declaredMethods(AdditionalFactorPolicy::class));
+    }
+
+    /**
+     * `AuthenticationEvent` declares only the context every package event
+     * carries.
+     *
+     * @return void
+     */
+    public function testAuthenticationEventDeclaresOnlyItsContext(): void
+    {
+        self::assertSame(['context'], self::declaredMethods(AuthenticationEvent::class));
+    }
+
+    /**
+     * Every event the package ships implements `AuthenticationEvent`, so one
+     * listener on the contract receives them all.
+     *
+     * @return void
+     */
+    public function testEveryPackageEventImplementsAuthenticationEvent(): void
+    {
+        $events = [];
+
+        foreach (glob(__DIR__ . '/../../../src/Events/*.php') ?: [] as $file) {
+
+            $class = 'SineMacula\Laravel\Authentication\Events\\' . basename($file, '.php');
+
+            if ($class === EventContext::class) {
+                continue;
+            }
+
+            $events[$class] = (new \ReflectionClass($class))->implementsInterface(AuthenticationEvent::class);
+        }
+
+        self::assertNotEmpty($events);
+        self::assertSame(array_fill_keys(array_keys($events), true), $events);
+    }
+
+    /**
+     * "Tokens valid after" is a capability an identity or principal declares on
+     * its own: reading the time and moving it forward.
+     *
+     * @return void
+     */
+    public function testTokensValidAfterIsACapabilityOfItsOwn(): void
+    {
+        self::assertSame(['getTokensValidAfter', 'invalidateTokensIssuedBefore'], self::declaredMethods(HasTokensValidAfter::class));
+        self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Identity::class))->getInterfaceNames());
+        self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Principal::class))->getInterfaceNames());
     }
 
     /**

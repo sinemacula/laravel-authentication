@@ -17,6 +17,8 @@ The current note set is:
 
 - `guard-lifecycle-and-events.md`: standard Laravel auth events plus the package contextual events, and the exact
   successful event order for `attempt()`, direct `login()`, bearer auth, and refresh.
+- `event-model.md`: the context every package event carries, what survives a queue, when an event that reports a write
+  is dispatched, and the one failure event.
 - `refresh-rotation-and-replay.md`: why refresh is stateful, how per-device rotation works, the grace window for the
   previous rotation id, and when a replayed refresh token revokes the device (`rotation_reuse`).
 - `fail-closed-pid-did.md`: why `pid` and `did` are treated as commitments rather than advisory hints.

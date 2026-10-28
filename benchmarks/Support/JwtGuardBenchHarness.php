@@ -147,7 +147,7 @@ final class JwtGuardBenchHarness
         $this->events->setTransactionManagerResolver(static fn (): null => null);
         $this->events->listen(
             DeviceAuthenticated::class,
-            new RecordDeviceUsage(BenchRequest::client()),
+            new RecordDeviceUsage,
         );
 
         $hasher = new BcryptHasher;

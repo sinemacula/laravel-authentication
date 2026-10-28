@@ -7,13 +7,16 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 
 /**
  * Checks the session service makes of what a caller hands it, before anything
  * is signed in: that a session can be started for the identity at all, which
- * principal a session for an externally verified identity is pinned to, and
- * whether the guard's provider returned the very identity that was verified.
+ * principal a session for an externally verified identity is pinned to, whether
+ * the guard's provider returned the very identity that was verified, and that a
+ * sign-in method refused only as a method may.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -89,5 +92,33 @@ final class SessionPreconditions
     public static function isSameIdentity(Identity $reloaded, Identity $identity): bool
     {
         return $reloaded::class === $identity::class && IdentifierCoercion::matches($reloaded->getAuthIdentifier(), $identity->getAuthIdentifier());
+    }
+
+    /**
+     * The reason a sign-in method refused the input with, which must be one a
+     * method may give: any other is the session service's to decide, so a
+     * method that answers with one is misconfigured.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $method
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \LogicException
+     */
+    public static function methodReason(SignInMethod $method, FailureReason $reason): FailureReason
+    {
+        if (!$reason->isSignInMethodReason()) {
+
+            $message = sprintf(
+                'Sign-in method %s refused a sign-in as `%s`, which only the session service may decide;'
+                . ' a method answers `invalid_credentials`.',
+                $method::class,
+                $reason->value,
+            );
+
+            throw new \LogicException($message);
+        }
+
+        return $reason;
     }
 }

@@ -19,8 +19,8 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -211,7 +211,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
     {
         [$token, $device] = $this->rotateAtTheEndOfTheRepeatedHourAndRetry(self::DAYLIGHT_SAVING_ZONE);
 
-        self::assertSame(RefreshFailureReason::ROTATION_REUSE, $this->refreshFailure($token));
+        self::assertSame(FailureReason::ROTATION_REUSE, $this->refreshFailure($token));
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
     }
 
@@ -237,7 +237,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
 
         self::assertTrue($this->store()->rotate($device, self::ROTATION_ID, RefreshTokenHasher::successor(self::ROTATION_ID), $rotatedAt->addHours(3), $rotatedAt));
 
-        self::assertSame(RefreshFailureReason::ROTATION_REUSE, $this->refreshFailure($token));
+        self::assertSame(FailureReason::ROTATION_REUSE, $this->refreshFailure($token));
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());
     }
 
@@ -397,6 +397,7 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
             'guard'                => 'api',
             'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
+            'signed_in_at'         => $now,
             'idle_expires_at'      => $idle ?? $now->copy()->addHours(5),
             'absolute_expires_at'  => $now->copy()->addHours(9),
         ])->save();
@@ -443,15 +444,15 @@ final class RepeatedHourStorageIntegrationTest extends TestCase
      * Refresh with a token that must fail, and return the reason.
      *
      * @param  string  $token
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \Random\RandomException
      */
-    private function refreshFailure(#[\SensitiveParameter] string $token): ?RefreshFailureReason
+    private function refreshFailure(#[\SensitiveParameter] string $token): ?FailureReason
     {
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 

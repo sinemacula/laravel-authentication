@@ -8,7 +8,7 @@ use Illuminate\Contracts\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
@@ -92,12 +92,12 @@ final class SignInMethodManagerTest extends TestCase
              * Never verifies.
              *
              * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-             * @return \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+             * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason
              */
             #[\Override]
-            public function authenticate(SignInRequest $request): SignInFailureReason
+            public function authenticate(SignInRequest $request): FailureReason
             {
-                return SignInFailureReason::INVALID_CREDENTIALS;
+                return FailureReason::INVALID_CREDENTIALS;
             }
         };
 

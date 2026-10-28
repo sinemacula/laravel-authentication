@@ -7,7 +7,7 @@ namespace Tests\Fixtures\Sessions;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
@@ -55,10 +55,10 @@ final readonly class PermissiveAudiencePolicy implements AudiencePolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $identifierType
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
     #[\Override]
-    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?SignInFailureReason
+    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
     {
         unset($guard, $identity, $principal, $identifierType);
 

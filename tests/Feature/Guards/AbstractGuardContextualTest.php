@@ -5,9 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
@@ -37,14 +35,14 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof PrincipalAssigned
-                    && $event->guard     === self::GUARD_NAME
-                    && $event->principal === $principal),
+                    && $event->context->guard     === self::GUARD_NAME
+                    && $event->context->principal === $principal),
             );
 
         $guard->setPrincipal($principal);
@@ -61,14 +59,14 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $device = \Mockery::mock(Device::class);
+        $device = $this->mockDevice();
 
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
                 \Mockery::on(static fn (mixed $event): bool => $event instanceof DeviceAuthenticated
-                    && $event->guard  === self::GUARD_NAME
-                    && $event->device === $device),
+                    && $event->context->guard  === self::GUARD_NAME
+                    && $event->context->device === $device),
             );
 
         $guard->setDevice($device);
@@ -86,8 +84,9 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $tenant = \Mockery::mock(Tenant::class);
+        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
         $principal->shouldReceive('getTenant')
             ->andReturn($tenant);
 
@@ -100,7 +99,7 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
 
     /**
      * type() returns the principal's own type when it declares the `HasType`
-     * capability, without reading its tenant.
+     * capability, over the type of the tenant it acts within.
      *
      * @return void
      */
@@ -108,10 +107,14 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $principal = \Mockery::mock(Principal::class, HasType::class);
+        $tenant = \Mockery::mock(Tenant::class, HasType::class);
+        $tenant->shouldReceive('getTenantIdentifier')->andReturn('tenant-1');
+        $tenant->shouldNotReceive('getType');
+
+        $principal = $this->mockPrincipal(HasType::class);
         $principal->shouldReceive('getType')
             ->andReturn('client_admin');
-        $principal->shouldNotReceive('getTenant');
+        $principal->shouldReceive('getTenant')->andReturn($tenant);
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
@@ -131,10 +134,11 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $tenant = \Mockery::mock(Tenant::class, HasType::class);
+        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
         $tenant->shouldReceive('getType')
             ->andReturn('staff');
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
         $principal->shouldReceive('getTenant')
             ->andReturn($tenant);
 
@@ -156,8 +160,9 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $tenant = \Mockery::mock(Tenant::class);
+        $tenant->shouldReceive('getTenantIdentifier')->byDefault()->andReturn('tenant-1');
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
         $principal->shouldReceive('getTenant')
             ->andReturn($tenant);
 

@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -97,9 +97,9 @@ final class GuardAudiencePolicyTest extends TestCase
 
         self::assertNull($this->admit($this->principalOfType('client_admin')));
         self::assertNull($this->admit(new PlainPrincipalFixture(1, tenant: $tenant)));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('customer')));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('Staff')));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1)));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('customer')));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('Staff')));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1)));
     }
 
     /**
@@ -112,7 +112,7 @@ final class GuardAudiencePolicyTest extends TestCase
     {
         config()->set('authentication.audience.principal_types', ['staff']);
 
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1), 'other'));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1), 'other'));
 
         $this->setGuardAudience(['principal_types' => null]);
 
@@ -180,8 +180,8 @@ final class GuardAudiencePolicyTest extends TestCase
         $this->setGuardAudience(['require_verified_identifier' => true]);
 
         self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'email'));
-        self::assertSame(SignInFailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
-        self::assertSame(SignInFailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'phone'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'phone'));
         self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), null));
         self::assertNull($this->policy()->admit('other', $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
     }
@@ -196,7 +196,7 @@ final class GuardAudiencePolicyTest extends TestCase
     {
         $this->setGuardAudience(['require_verified_identifier' => true, 'principal_types' => ['staff']]);
 
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->policy()->admit(self::GUARD, $this->verifiable(false), $this->principalOfType('customer'), 'email'));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->policy()->admit(self::GUARD, $this->verifiable(false), $this->principalOfType('customer'), 'email'));
     }
 
     /**
@@ -268,7 +268,7 @@ final class GuardAudiencePolicyTest extends TestCase
         $this->setGuardAudience([$key => $value]);
 
         $this->assertFailsClosed($message, fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'));
-        $this->assertFailsClosed($message, fn (): ?SignInFailureReason => $this->admit(new PlainPrincipalFixture(1)));
+        $this->assertFailsClosed($message, fn (): ?FailureReason => $this->admit(new PlainPrincipalFixture(1)));
     }
 
     /**
@@ -386,9 +386,9 @@ final class GuardAudiencePolicyTest extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $guard
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
-    private function admit(Principal $principal, string $guard = self::GUARD): ?SignInFailureReason
+    private function admit(Principal $principal, string $guard = self::GUARD): ?FailureReason
     {
         return $this->policy()->admit($guard, $this->identity(), $principal, null);
     }

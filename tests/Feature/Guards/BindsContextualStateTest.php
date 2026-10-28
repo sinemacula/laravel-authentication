@@ -6,10 +6,8 @@ namespace Tests\Feature\Guards;
 
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
@@ -49,13 +47,14 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     {
         parent::setUp();
 
-        $this->identity  = \Mockery::mock(Identity::class);
-        $this->principal = \Mockery::mock(Principal::class);
-        $this->device    = \Mockery::mock(Device::class);
+        $this->identity  = $this->mockIdentity();
+        $this->principal = $this->mockPrincipal();
+        $this->device    = $this->mockDevice();
         $this->tenant    = \Mockery::mock(HasType::class, Tenant::class);
 
         $this->principal->shouldReceive('getTenant')->andReturn($this->tenant);
         $this->tenant->shouldReceive('getType')->andReturn('staff');
+        $this->tenant->shouldReceive('getTenantIdentifier')->andReturn('tenant-1');
 
         $this->events->shouldReceive('dispatch');
     }
@@ -147,7 +146,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
      */
     public function testSetPrincipalBeforeFirstAccessPinsOverTheResolvedPrincipal(): void
     {
-        $pinned = \Mockery::mock(Principal::class);
+        $pinned = $this->mockPrincipal();
         $guard  = $this->makeResolvingGuard();
 
         $guard->setPrincipal($pinned);
@@ -165,7 +164,7 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
      */
     public function testSetDeviceBeforeFirstAccessPinsOverTheResolvedDevice(): void
     {
-        $pinned = \Mockery::mock(Device::class);
+        $pinned = $this->mockDevice();
         $guard  = $this->makeResolvingGuard();
 
         $guard->setDevice($pinned);

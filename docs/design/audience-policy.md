@@ -82,10 +82,11 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   guards that check it, at most the largest `max` in each window of the shortest `decay_seconds`: a guard with a looser
   limit raises the bound for every guard, a stricter one only stops its own sign-ins sooner, and another guard with the
   same limit adds no guesses. An account with no attempts left is not checked and fails as `invalid_credentials`, so the
-  refusal is no existence oracle; only `SignInFailed`, which goes to server-side listeners, says `account_rate_limited`,
-  with the wait. `attempt()` refuses an identifier that is neither a string, a `Stringable`, an integer nor a query
-  closure before any lookup, and an IPv6 client is counted per /64 network, except that an address carrying an IPv4
-  client's address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4 address.
+  refusal is no existence oracle; only `AuthenticationFailed`, which goes to server-side listeners, says
+  `account_rate_limited`, with the wait. `attempt()` refuses an identifier that is neither a string, a `Stringable`, an
+  integer nor a query closure before any lookup, and an IPv6 client is counted per /64 network, except that an address
+  carrying an IPv4 client's address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4
+  address.
 - A custom `AudiencePolicy` decides the session's deadlines (the device's on sign-in, the idle deadline on each
   rotation) through `lifetimes()`; the access token's expiry is still computed by the guard's token service from
   `jwt.by_principal_type`, and is capped at the session's end. A policy that returns lifetimes the guard's
@@ -102,8 +103,8 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   `pty` in `issueAccessToken()`).
 - `src/Sessions/SessionService.php` and `src/Sessions/Admission/SignInAdmission.php`, shared with
   `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
-- `src/Jwt/RefreshTokenExchange.php` (`exchangeOn()`, `hydrateRefreshContext()`, `rotate()`) and
-  `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
+- `src/Jwt/RefreshTokenExchange.php` (`exchangeOn()`, `rotate()`), `src/Jwt/RefreshAdmission.php` (`admitByPolicy()`)
+  and `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
 - `src/Contracts/AttemptLimiter.php`, `src/RateLimiting/DatabaseAttemptLimiter.php`,
   `src/RateLimiting/AttemptLimits.php`, `src/RateLimiting/RateLimitStore.php`.
 - `src/Identifiers/IdentifierNormalisers.php`, `src/Casts/NormalisedIdentifier.php`, `src/Providers/ModelProvider.php`.

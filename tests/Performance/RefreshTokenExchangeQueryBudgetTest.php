@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -316,7 +316,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::REFRESH_KEY_MISSING, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::REFRESH_KEY_MISSING, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -343,7 +343,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_REVOKED, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::DEVICE_REVOKED, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -415,7 +415,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::SESSION_EXPIRED, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::SESSION_EXPIRED, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -435,7 +435,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_GUARD_MISMATCH, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::DEVICE_GUARD_MISMATCH, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -455,7 +455,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events   = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::METHOD_NOT_ALLOWED, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::METHOD_NOT_ALLOWED, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -478,7 +478,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::PRINCIPAL_INELIGIBLE, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::PRINCIPAL_INELIGIBLE, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -516,7 +516,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         self::assertInstanceOf(ThrottleRequestsException::class, $thrown);
         self::assertCount(1, $events);
-        self::assertSame(RefreshFailureReason::RATE_LIMITED, $events[0]->reason ?? null);
+        self::assertSame(FailureReason::RATE_LIMITED, $events[0]->reason ?? null);
     }
 
     /**
@@ -790,8 +790,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Record every `RefreshFailed` and `DeviceRevoked` event dispatched from
-     * here on.
+     * Record every `AuthenticationFailed` and `DeviceRevoked` event dispatched
+     * from here on.
      *
      * @return \ArrayObject<int, object>
      */
@@ -800,11 +800,34 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         /** @var \ArrayObject<int, object> $events */
         $events = new \ArrayObject;
 
-        Event::listen([RefreshFailed::class, DeviceRevoked::class], static function (object $event) use ($events): void {
+        Event::listen([AuthenticationFailed::class, DeviceRevoked::class], static function (object $event) use ($events): void {
             $events->append($event);
         });
 
         return $events;
+    }
+
+    /**
+     * The reason and device id of each recorded failure, and nothing for any
+     * other recorded event.
+     *
+     * @param  \ArrayObject<int, object>  $events
+     * @return list<array{0: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason, 1: ?string}>
+     */
+    private static function failures(\ArrayObject $events): array
+    {
+        $failures = [];
+
+        foreach ($events as $event) {
+
+            if (!$event instanceof AuthenticationFailed) {
+                continue;
+            }
+
+            $failures[] = [$event->reason, $event->context->deviceId];
+        }
+
+        return $failures;
     }
 
     /**

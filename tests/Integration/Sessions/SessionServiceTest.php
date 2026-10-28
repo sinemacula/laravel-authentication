@@ -161,6 +161,7 @@ final class SessionServiceTest extends TestCase
         self::assertFalse($again->deviceCreated);
         self::assertSame([SignedIn::class], $this->recordedClasses());
         self::assertFalse($this->recordedEvent(SignedIn::class)->deviceCreated);
+        self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
 
         $device = Device::query()->whereKey($first->device->getKey())->firstOrFail();
 

@@ -15,7 +15,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -271,9 +271,9 @@ final class PasswordSignInTest extends TestCase
 
         $method = $this->method('email');
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['email' => ['ada'], 'password' => 'secret'])));
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['password' => 'secret'])));
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['email' => 'ada@example.test', 'password' => 1234])));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['email' => ['ada'], 'password' => 'secret'])));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['password' => 'secret'])));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request(['email' => 'ada@example.test', 'password' => 1234])));
     }
 
     /**
@@ -302,7 +302,7 @@ final class PasswordSignInTest extends TestCase
         $method = $this->method('email');
 
         self::assertSame($identity, $method->authenticate($this->request($credentials, 'staff')));
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request($credentials, 'staff')));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request($credentials, 'staff')));
 
         self::assertSame('staff', $subjects[0]->guard);
         self::assertSame(AttemptFlow::SIGN_IN, $subjects[0]->flow);
@@ -386,7 +386,7 @@ final class PasswordSignInTest extends TestCase
 
         $outcome = $this->method('email')->authenticate($this->request(['email' => 'ada@example.test', 'password' => 'wrong']));
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $outcome);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $outcome);
     }
 
     /**

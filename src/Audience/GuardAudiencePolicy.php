@@ -9,7 +9,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -80,20 +80,20 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $identifierType
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     #[\Override]
-    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?SignInFailureReason
+    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
     {
         $settings = $this->settings($guard);
         $types    = $settings['principal_types'];
 
         if ($types !== null && !in_array(PrincipalType::of($principal), $types, true)) {
-            return SignInFailureReason::PRINCIPAL_INELIGIBLE;
+            return FailureReason::PRINCIPAL_INELIGIBLE;
         }
 
         if (!$settings['require_verified_identifier'] || $identifierType === null) {
@@ -102,7 +102,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
 
         $verifiable = IdentifierVerifier::verifiable($identity);
 
-        return WriteConnection::during($verifiable, static fn (): bool => $verifiable->hasVerifiedIdentifier($identifierType)) ? null : SignInFailureReason::IDENTIFIER_UNVERIFIED;
+        return WriteConnection::during($verifiable, static fn (): bool => $verifiable->hasVerifiedIdentifier($identifierType)) ? null : FailureReason::IDENTIFIER_UNVERIFIED;
     }
 
     /**

@@ -32,8 +32,8 @@ can verify its signature, and the `sub` is then looked up in the wrong guard's p
 - A token issued by another guard fails parsing: the bearer path is unauthenticated and refresh fails with
   `token_invalid`.
 - A refresh whose owner the provider does not return (outside the provider's scope, deleted, or not an `Identity`)
-  fails with `authenticatable_missing`, and so does one where the provider returns a different model or key.
-- A device row with no owner key fails with `authenticatable_missing` without asking the provider.
+  fails with `identity_unknown`, and so does one where the provider returns a different model or key.
+- A device row with no owner key fails with `identity_unknown` without asking the provider.
 - The provider is asked for the owner key the device row stores, which is the identity's primary key. Providers find
   identities by their auth identifier, which is the primary key unless the identity model overrides
   `getAuthIdentifierName()`; refresh does not work for such a model.
@@ -43,7 +43,7 @@ can verify its signature, and the `sub` is then looked up in the wrong guard's p
 - `src/Jwt/Enums/Claims.php`: `GUARD`.
 - `src/Jwt/JwtTokenService.php`: the guard constructor argument, `baseClaims()`, `firstClaimMismatch()`.
 - `src/Jwt/JwtTokenServiceFactory.php`: `buildForGuard()` passes the guard name.
-- `src/Jwt/RefreshTokenExchange.php`: `resolveRefreshIdentity()`.
+- `src/Jwt/RefreshAdmission.php`: `owner()`.
 - `src/Jwt/DeviceOwnership.php`: `ownerKey()` and `isOwner()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()` gives the exchange the guard's provider.
 
