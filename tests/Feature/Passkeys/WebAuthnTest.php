@@ -314,6 +314,9 @@ final class WebAuthnTest extends TestCase
             'a framed ceremony' => [static function (VirtualAuthenticator $authenticator): void {
                 $authenticator->topOrigin = 'https://frame.test';
             }],
+            'a framed ceremony reported only as cross-origin' => [static function (VirtualAuthenticator $authenticator): void {
+                $authenticator->crossOrigin = true;
+            }],
             'a backed-up ineligible key' => [static function (VirtualAuthenticator $authenticator): void {
                 $authenticator->backupEligible = false;
             }],
@@ -417,6 +420,9 @@ final class WebAuthnTest extends TestCase
             }],
             'a framed ceremony' => [static function (VirtualAuthenticator $authenticator): void {
                 $authenticator->topOrigin = 'https://frame.test';
+            }],
+            'a framed ceremony reported only as cross-origin' => [static function (VirtualAuthenticator $authenticator): void {
+                $authenticator->crossOrigin = true;
             }],
         ];
     }

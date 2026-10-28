@@ -686,7 +686,8 @@ present wins:
 scoped to it, and a guard only ever sees the passkeys of its own id, so guards that share an id share their passkeys.
 `name` is what the browser shows, by default `app.name`. `origins` lists the exact origins the ceremonies may run on,
 each `https://host[:port]`, or `http://localhost[:port]` for development, in lower case, with a host that is the id or a
-subdomain of it; a ceremony from any other origin, or framed in another site, is refused. The package does not consult
+subdomain of it; a ceremony from any other origin, or framed in another site (whether the browser reports the
+top-level origin or only that the ceremony is cross-origin), is refused. The package does not consult
 the public suffix list, so never name a public suffix (`co.uk`, say) as the id. Anything else, or an unknown key, fails
 closed with an `InvalidArgumentException` naming the guard and the key when the guard's passkeys are first used, and
 `authentication:check` reports it for every guard whose audience allows `passkey` or that sets a `passkeys` block.

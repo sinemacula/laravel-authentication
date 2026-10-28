@@ -57,6 +57,9 @@ final class VirtualAuthenticator
     /** @var ?string Top-level origin of a frame the ceremony runs in; `null` for a top-level ceremony. */
     public ?string $topOrigin = null;
 
+    /** @var bool Whether the browser reports the ceremony cross-origin without naming the top-level origin, as WebAuthn Level 2 browsers do. */
+    public bool $crossOrigin = false;
+
     /** @var bool Whether the user is reported present. */
     public bool $userPresent = true;
 
@@ -293,7 +296,7 @@ final class VirtualAuthenticator
             'type'        => $type,
             'challenge'   => $options['challenge'],
             'origin'      => $this->origin ?? $this->defaultOrigin,
-            'crossOrigin' => $this->topOrigin !== null,
+            'crossOrigin' => $this->crossOrigin || $this->topOrigin !== null,
         ];
 
         return (string) json_encode($this->topOrigin === null ? $data : [...$data, 'topOrigin' => $this->topOrigin], JSON_UNESCAPED_SLASHES);

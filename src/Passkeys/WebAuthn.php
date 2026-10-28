@@ -48,9 +48,10 @@ use Webauthn\PublicKeyCredentialUserEntity;
  * evaluated and every passkey is recorded as unattested. The credential
  * algorithms offered are ES256, EdDSA (when the sodium extension is loaded) and
  * RS256. The origin must be one of the relying party's exact origins, and a
- * cross-origin (framed) ceremony is refused. The library's own sign counter
- * check is replaced by `DeferredCounterCheck`: the package applies its rule
- * itself, atomically.
+ * cross-origin (framed) ceremony is refused, whether the browser reports it
+ * with `topOrigin` or only with `crossOrigin` (the library checks only the
+ * former). The library's own sign counter check is replaced by
+ * `DeferredCounterCheck`: the package applies its rule itself, atomically.
  *
  * Stateless between calls: one instance serves every guard, each ceremony built
  * for the relying party it is given.
@@ -194,7 +195,7 @@ final readonly class WebAuthn
     /**
      * Run the registration ceremony on the response against the stored creation
      * options and the relying party, and return the credential it registers, or
-     * `null` when it does not verify.
+     * `null` when it does not verify or comes from a cross-origin frame.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options
@@ -208,7 +209,7 @@ final readonly class WebAuthn
         $response = $credential->response;
         $creation = $this->serializer->denormalize($options, PublicKeyCredentialCreationOptions::class, 'json');
 
-        if (!$response instanceof AuthenticatorAttestationResponse) {
+        if (!$response instanceof AuthenticatorAttestationResponse || $response->clientDataJSON->crossOrigin) {
             return null;
         }
 
@@ -221,9 +222,10 @@ final readonly class WebAuthn
      * Run the assertion ceremony on the response against the stored request
      * options, the relying party and the stored credential, and return the
      * credential as the assertion leaves it (its new count and backup state),
-     * or `null` when it does not verify. The user handle is the one the
-     * identity was registered under when the ceremony was for a known identity,
-     * else `null`, and the response must then carry the credential's own.
+     * or `null` when it does not verify or comes from a cross-origin frame. The
+     * user handle is the one the identity was registered under when the
+     * ceremony was for a known identity, else `null`, and the response must
+     * then carry the credential's own.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  array<array-key, mixed>  $options
@@ -239,7 +241,7 @@ final readonly class WebAuthn
         $response = $credential->response;
         $request  = $this->serializer->denormalize($options, PublicKeyCredentialRequestOptions::class, 'json');
 
-        if (!$response instanceof AuthenticatorAssertionResponse) {
+        if (!$response instanceof AuthenticatorAssertionResponse || $response->clientDataJSON->crossOrigin) {
             return null;
         }
 
