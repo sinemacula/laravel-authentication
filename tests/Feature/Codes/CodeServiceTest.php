@@ -647,33 +647,35 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * Rows of `[setting, value, message start]`: malformed code settings.
+     * Rows of `[settings, message start]`: malformed code settings, and a key
+     * that cannot be had.
      *
-     * @return iterable<string, array{0: string, 1: mixed, 2: string}>
+     * @return iterable<string, array{0: array<string, mixed>, 1: string}>
      */
     public static function provideMalformedSettings(): iterable
     {
         yield from [
-            'delivery connection not configured' => ['queue.connection', 'missing', 'authentication.codes.queue.connection must name a connection'],
-            'code length out of range'           => ['length', 5, 'authentication.codes.length must be an integer from 6 to 10.'],
+            'delivery connection not configured' => [['authentication.codes.queue.connection' => 'missing'], 'authentication.codes.queue.connection must name a connection'],
+            'code length out of range'           => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
+            'a code key that is too short'       => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
+            'no code key and no application key' => [['authentication.codes.key' => null, 'app.key' => null], 'One-time codes are keyed with `authentication.codes.key`'],
         ];
     }
 
     /**
-     * A malformed code setting fails closed before any code request is counted
-     * or any code issued.
+     * A malformed code setting, or a key that cannot be had, fails closed
+     * before any code request is counted or any code issued.
      *
-     * @param  string  $setting
-     * @param  mixed  $value
+     * @param  array<string, mixed>  $settings
      * @param  string  $message
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideMalformedSettings')]
-    public function testMalformedSettingsFailClosedBeforeAnythingIsCounted(string $setting, mixed $value, string $message): void
+    public function testMalformedSettingsFailClosedBeforeAnythingIsCounted(array $settings, string $message): void
     {
-        config()->set('authentication.codes.' . $setting, $value);
+        config()->set($settings);
 
         try {
             $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
