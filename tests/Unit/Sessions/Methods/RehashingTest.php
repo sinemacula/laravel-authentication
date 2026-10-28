@@ -165,8 +165,9 @@ final class RehashingTest extends TestCase
     }
 
     /**
-     * A guard's attempt marks the user it validated, and no other, from the
-     * validation until the attempt ends for that user.
+     * A guard's attempt marks the user it validated, and no other (another key,
+     * or the same key of another class), from the validation until the attempt
+     * ends for that user.
      *
      * @return void
      */
@@ -184,6 +185,7 @@ final class RehashingTest extends TestCase
         self::assertSame(self::HELD, $this->answer($rehashing, new GenericUser(['id' => '7', 'password' => $this->rehash])));
         self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 8, 'password' => $this->rehash])));
         self::assertSame(self::CHANGE, $this->answer($rehashing, new PlainIdentityFixture(7, $this->rehash)));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new class (['id' => 7, 'password' => $this->rehash]) extends GenericUser {}));
 
         $rehashing->ended('admin', $user);
         $rehashing->ended('web', new GenericUser(['id' => 8]));
