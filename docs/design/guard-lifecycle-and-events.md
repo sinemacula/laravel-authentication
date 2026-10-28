@@ -69,6 +69,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   emits the same once its transport has read the token; a request that carries none emits nothing, and one its
   transport refuses (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and
   `AuthenticationFailed` (flow `refresh`), as any failed refresh does (see `refresh-token-transport.md`).
+- A new request (`setRequest()`, which the `request` rebind calls) resets the guard: the bound context, the last
+  retrieved identity and whether the request was resolved. A queue worker keeps the application between jobs, so the
+  package resets each resolved package guard to the current request when a job starts (`JobProcessing`,
+  `AuthManager::forgetGuardState()`), without creating guards or registering rebinding callbacks.
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
   then clears contextual state.
 
@@ -164,6 +168,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`, `refreshFromRequest()`.
+- `src/AuthManager.php`: `forgetGuardState()`; `src/Listeners/ForgetGuardStateBeforeJob.php`.
 - `src/Guards/BearerAuthentication.php` and `src/Guards/OwnedDevice.php`: the bearer checks, their order and reasons,
   and the device lookup they share with the `attempt()` device pin.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the
@@ -197,6 +202,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testRefreshDispatchesSuccessfulLifecycleEventsBeforeRefreshed`
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testSetRequestClearsBoundContextualState`
+- `tests/Integration/Process/RequestSequenceTest.php`
+- `tests/Integration/Process/QueueWorkerGuardStateTest.php`
+  `testWithoutTheResetOneJobsIdentityLeaksIntoTheNext`, `testEachJobStartsSignedOut`
 - `tests/Integration/Events/StandardAuthEventsIntegrationTest.php`
   `testSuccessfulAttemptDispatchesAttemptingThenValidatedThenLoginThenAuthenticated`
 - `tests/Integration/Events/CustomEventsIntegrationTest.php`

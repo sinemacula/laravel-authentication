@@ -13,6 +13,7 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -36,6 +37,7 @@ use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
@@ -272,13 +274,15 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `DeviceAuthenticated` event listener.
+     * Register the `DeviceAuthenticated` listener, and the reset of the package
+     * guards before each queued job.
      *
      * @return void
      */
     protected function registerListeners(): void
     {
         Event::listen(DeviceAuthenticated::class, RecordDeviceUsage::class);
+        Event::listen(JobProcessing::class, ForgetGuardStateBeforeJob::class);
     }
 
     /**

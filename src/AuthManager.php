@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -105,6 +106,32 @@ class AuthManager extends IlluminateAuthManager
     public function refreshTransport(?string $guard = null): RefreshTokenTransport
     {
         return $this->jwtGuard($guard, 'refresh token transport')->refreshTransport();
+    }
+
+    /**
+     * Reset every package guard already resolved to the current request, as a
+     * new HTTP request does, so nothing one unit of work bound (an identity, a
+     * principal, a device) carries into the next: a queued job in a worker,
+     * which keeps the application between jobs. Guards of other drivers are
+     * left alone; no guard is created and no rebinding callback registered, as
+     * `forgetGuards()` would on every job.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function forgetGuardState(): void
+    {
+        $request = $this->app->make('request');
+
+        foreach ($this->guards as $guard) {
+
+            if (!$guard instanceof AbstractGuard) {
+                continue;
+            }
+
+            $guard->setRequest($request);
+        }
     }
 
     /**

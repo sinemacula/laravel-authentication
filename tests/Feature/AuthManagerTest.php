@@ -12,6 +12,8 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
@@ -159,6 +161,54 @@ final class AuthManagerTest extends TestCase
         $manager = app('auth');
 
         $manager->refreshTransport('web');
+    }
+
+    /**
+     * `forgetGuardState()` resets each resolved package guard to the current
+     * request, signed out, without recreating it, and leaves guards of other
+     * drivers alone.
+     *
+     * @return void
+     */
+    public function testForgetGuardStateSignsThePackageGuardsOutOnTheCurrentRequest(): void
+    {
+        $this->configureJwtGuard();
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+        $session = \Mockery::mock(Guard::class);
+        $session->shouldNotReceive('setRequest');
+
+        $manager->extend('mocked', fn (): Guard => $session);
+        config()->set('auth.guards.mocked', ['driver' => 'mocked']);
+
+        // Another driver's guard resolved first, so the reset must pass it by.
+        $manager->guard('mocked');
+
+        $jwt = $manager->guard('test_jwt');
+
+        self::assertInstanceOf(JwtGuard::class, $jwt);
+
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(1);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn(1);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+
+        $request = Request::create('/next');
+
+        app()->instance('request', $request);
+
+        $jwt->setRequest(Request::create('/previous'));
+        $jwt->login($identity, $principal);
+
+        $manager->forgetGuardState();
+
+        self::assertFalse($jwt->hasUser());
+        self::assertNull($jwt->principal());
+        self::assertSame($request, $jwt->getRequest());
+        self::assertSame($jwt, $manager->guard('test_jwt'));
     }
 
     /**

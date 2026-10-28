@@ -15,6 +15,7 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
@@ -39,6 +40,7 @@ use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
@@ -138,6 +140,17 @@ final class AuthenticationServiceProviderTest extends TestCase
             $listeners,
             'RecordDeviceUsage must be registered as a listener for DeviceAuthenticated.',
         );
+    }
+
+    /**
+     * The package guards are reset before each queued job, so a worker does not
+     * carry one job's identity into the next.
+     *
+     * @return void
+     */
+    public function testTheGuardsAreResetBeforeEachQueuedJob(): void
+    {
+        self::assertContains(ForgetGuardStateBeforeJob::class, Event::getRawListeners()[JobProcessing::class] ?? []);
     }
 
     /**

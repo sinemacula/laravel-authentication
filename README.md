@@ -1490,6 +1490,19 @@ testing traits wrap around each test does not count either, so a test sees `Devi
 Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
 error, which surfaces as a server error for you to retry.
 
+### Long-running processes
+
+One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
+may reach the next. Each request rebinds Laravel's `request`, which resets every package guard already resolved: the
+identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates
+from its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its
+guards when each job starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a job signs in
+with `login()` or `setUser()` is signed out again for the next job. A dispatcher or principal resolver swapped in after
+a guard resolved (`Event::fake()`, a rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its
+session service, which read the guard's collaborators each time they run. The package's singletons hold
+configuration only: the token service factory memoises each guard's signing configuration, not any identity's data,
+and no package class keeps a request, an identity or a token in a static property.
+
 ## Key Rotation
 
 Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
