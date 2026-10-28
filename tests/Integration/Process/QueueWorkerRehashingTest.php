@@ -24,12 +24,12 @@ use Tests\TestCase;
 
 /**
  * End-to-end tests for the rehash mark across queued jobs run by one worker in
- * one application: an attempt one job abandons leaves its user marked, and a
- * worker forgets only scoped instances between jobs, so only the mark's scoped
- * binding keeps a later job's save of a fresh hash of the same password from
- * being taken for that attempt's rehash. A later job's `logoutOtherDevices()`
- * revokes either way, since its `OtherDeviceLogout` tells its forced rehash
- * apart.
+ * one application. A worker forgets only scoped instances between jobs, so the
+ * mark's scoped binding gives each job a mark of its own, and whatever an
+ * attempt one job abandoned left behind is gone for the next. A later job's
+ * save of a fresh hash of the same password, or its `logoutOtherDevices()`,
+ * revokes even with the mark shared, since it saves an instance of its own, not
+ * the one the abandoned attempt validated.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -95,11 +95,13 @@ final class QueueWorkerRehashingTest extends TestCase
 
         $this->runBothJobs(SavePasswordJob::class);
 
+        self::assertSame($this->app?->make('abandoned.mark'), $this->app?->make(Rehashing::class));
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
     }
 
     /**
-     * With the package's scoped binding, the second job starts with no mark, so
+     * With the package's scoped binding, the second job starts with a mark of
+     * its own, not the one the first job's abandoned attempt left behind, and
      * its save is answered as the change it is.
      *
      * @return void
@@ -110,6 +112,7 @@ final class QueueWorkerRehashingTest extends TestCase
     {
         $this->runBothJobs(SavePasswordJob::class);
 
+        self::assertNotSame($this->app?->make('abandoned.mark'), $this->app?->make(Rehashing::class));
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
     }
 

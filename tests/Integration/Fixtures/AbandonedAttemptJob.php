@@ -8,6 +8,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\Auth;
+use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 
 /**
  * A queued job whose `attemptWhen()` on Laravel's `web` guard validates the
@@ -50,6 +51,7 @@ final class AbandonedAttemptJob implements ShouldQueue
             });
         } catch (\RuntimeException) { // @phpstan-ignore catch.neverThrown
             app()->instance('abandoned.attempt', true);
+            app()->instance('abandoned.mark', app(Rehashing::class));
         }
     }
 }
