@@ -421,6 +421,34 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
+     * When the policy refuses every principal to the identifier the sign-in
+     * used, the sign-in fails with the policy's reason rather than as if the
+     * identity had no principal, storing and reporting no choice.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentifierRefusedEveryPrincipalFailsWithThePolicysReason(): void
+    {
+        $member  = $this->seedChooserMember();
+        $invited = ActivatableTenant::query()->create(['name' => 'Invited', 'is_active' => true]);
+
+        ChoosingMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $invited->getKey()]);
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->getKey()));
+
+        $this->recordEvents([PrincipalChoiceRequired::class]);
+
+        $result = $this->sessions(self::GUARD)->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertTrue($result->isFailed());
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $result->reason);
+        self::assertSame(0, DB::table('pending_sign_ins')->count());
+        self::assertSame([], $this->recorded);
+    }
+
+    /**
      * Choosing another identity's principal fails as `principal_mismatch`, and
      * choosing one in a tenant deactivated since the choice was offered fails
      * as `tenant_inactive`; either way the choice is used up.
