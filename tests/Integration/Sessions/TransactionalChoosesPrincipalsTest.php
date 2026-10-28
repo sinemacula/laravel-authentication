@@ -46,7 +46,7 @@ use Tests\TestCase;
  */
 #[CoversClass(SessionService::class)]
 #[CoversTrait(ChoosesPrincipals::class)]
-final class ChoiceAndSwitchCommitTest extends TestCase
+final class TransactionalChoosesPrincipalsTest extends TestCase
 {
     use InteractsWithRateLimits, InteractsWithSessions;
 

@@ -124,9 +124,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   a different switch, a deadline change, a deletion and an owner change)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
   waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
-- `tests/Integration/Sessions/ChoiceAndSwitchCommitTest.php` (`PrincipalSwitched` and `PrincipalChoiceRequired` only
-  on commit, and a rolled-back choice's slots kept), `tests/Integration/Sessions/PrincipalChoiceEndToEndTest.php` (offer,
-  choose, then a bearer request as the chosen principal)
+- `tests/Integration/Sessions/TransactionalChoosesPrincipalsTest.php` (`PrincipalSwitched` and
+  `PrincipalChoiceRequired` only on commit, and a rolled-back choice's slots kept),
+  `tests/Integration/Sessions/PrincipalChoiceEndToEndTest.php` (offer, choose, then a bearer request as the chosen
+  principal)
 - `tests/Integration/Sessions/ReplicaChoosesPrincipalsTest.php` (the eligible principals read on the write connection)
 - `tests/Feature/Sessions/PendingSignInsTest.php` `testIssueChoiceStoresTheSignInWithoutAPrincipal`,
   `testALivePendingSignInIsFoundOnlyForItsPurpose`, `testAChoicesProvenDeviceCountsOnlyForThePrincipalItRecords`

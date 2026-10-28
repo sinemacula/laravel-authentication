@@ -137,7 +137,7 @@ deleted. Starting a session is in
 - `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`,
   `tests/Integration/Sessions/ReplicaRevokesOnSecurityChangesTest.php`,
   `tests/Feature/Listeners/RevokeDevicesOn*Test.php`, `tests/Unit/Sessions/Methods/RehashingTest.php`,
-  `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`, `tests/Integration/Process/QueueWorkerRehashMarkTest.php`
+  `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`, `tests/Integration/Process/QueueWorkerRehashingTest.php`
 - `tests/Feature/Models/PrunesDevicesTest.php`, `tests/Feature/Database/DeviceRetentionTest.php`,
   `tests/Integration/Models/DevicePruningIntegrationTest.php`
 - `tests/Performance/DeviceListingQueryBudgetTest.php`, `tests/Performance/DevicePruneQueryBudgetTest.php`

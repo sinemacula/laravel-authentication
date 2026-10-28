@@ -35,7 +35,7 @@ use Tests\TestCase;
  */
 #[CoversClass(AuthenticationServiceProvider::class)]
 #[CoversClass(Rehashing::class)]
-final class QueueWorkerRehashMarkTest extends TestCase
+final class QueueWorkerRehashingTest extends TestCase
 {
     use InteractsWithSessions;
 
