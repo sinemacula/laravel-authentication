@@ -16,10 +16,10 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
  */
 enum RefreshFailureReason: string
 {
-    // Token decode/expiry/typ/iss/aud failure
+    // Token decode/expiry/missing claim/typ/guard/iss/aud failure
     case TOKEN_INVALID = 'token_invalid';
 
-    // Device id did not resolve
+    // Device id is not a key of the device model or names no device
     case DEVICE_UNKNOWN = 'device_unknown';
 
     // Rotation id did not match the stored digest
@@ -31,7 +31,7 @@ enum RefreshFailureReason: string
     // Device row marked revoked
     case DEVICE_REVOKED = 'device_revoked';
 
-    // Device authenticatable relation missing
+    // Guard's identity provider did not return the device owner
     case AUTHENTICATABLE_MISSING = 'authenticatable_missing';
 
     // Resolved identity reported inactive
@@ -45,4 +45,8 @@ enum RefreshFailureReason: string
 
     // Resolved principal reported inactive
     case PRINCIPAL_INACTIVE = 'principal_inactive';
+
+    // Tenant the resolved principal acts within reported inactive, or opts into
+    // activation and cannot be loaded
+    case TENANT_INACTIVE = 'tenant_inactive';
 }

@@ -26,7 +26,11 @@ interface HasPrincipals
     public function principals(): Builder;
 
     /**
-     * Application-defined default principal lookup.
+     * Application-defined default principal lookup. The default resolver runs
+     * it inside `WriteConnection::during()` for this identity: model reads on
+     * any connection, and query-builder reads on this identity's own connection
+     * when it is an Eloquent model, go to the write connection; any other
+     * query-builder read must pin itself (see `Database\WriteConnection`).
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
      */

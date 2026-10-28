@@ -253,6 +253,7 @@ final class CustomEventsIntegrationTest extends TestCase
                 'iat' => $this->now->getTimestamp(),
                 'exp' => $this->now->getTimestamp() + 3600,
                 'typ' => TokenType::REFRESH->value,
+                'grd' => self::JWT_GUARD,
             ],
             self::JWT_SECRET,
             'HS256',
@@ -365,10 +366,11 @@ final class CustomEventsIntegrationTest extends TestCase
         $now = $this->now->getTimestamp();
 
         return JWT::encode(
-            array_merge($claims, [
+            array_merge(['jti' => 'access-token-id'], $claims, [
                 'iat' => $now,
                 'exp' => $now + (15 * 60),
                 'typ' => TokenType::ACCESS->value,
+                'grd' => self::JWT_GUARD,
             ]),
             self::JWT_SECRET,
             'HS256',

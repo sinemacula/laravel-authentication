@@ -9,6 +9,7 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 
 /**
  * Eloquent-backed identity provider.
@@ -17,6 +18,10 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
  * token methods, which are inert for this stateless package. Consumers may
  * subclass `createModel()` or `retrieveByCredentials()` for tenant scoping,
  * soft-delete exclusion, or other domain-specific lookups.
+ *
+ * Identity lookups decide authentication, so they read from the write
+ * connection, together with any relations the identity model eager-loads; a
+ * subclass that builds its own query must do the same (see `WriteConnection`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -62,6 +67,11 @@ class ModelProvider implements IdentityProvider
     /**
      * Retrieve a user by its unique identifier.
      *
+     * The lookup runs inside `WriteConnection::during()` for the model, so
+     * relations the identity eager-loads (`$with`) come from the writer as
+     * well, on whichever connection they live: Eloquent runs each eager load as
+     * a separate query that the root query's write-PDO flag does not reach.
+     *
      * @param  mixed  $identifier
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
@@ -69,11 +79,10 @@ class ModelProvider implements IdentityProvider
     public function retrieveById(mixed $identifier): ?Authenticatable
     {
         $model = $this->createModel();
+        $query = $this->freshQuery($model)->where($model->getAuthIdentifierName(), $identifier);
 
         /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
-        return $this->freshQuery($model)
-            ->where($model->getAuthIdentifierName(), $identifier)
-            ->first();
+        return WriteConnection::during($model, static fn (): mixed => $query->first());
     }
 
     /**
@@ -111,6 +120,10 @@ class ModelProvider implements IdentityProvider
      * the single source of password verification. An empty filtered set returns
      * `null` rather than running a where-less query.
      *
+     * The clauses are applied inside the same `WriteConnection::during()`
+     * window as the lookup, because a credential closure may run queries of its
+     * own (a suspension lookup, say) that must not read a lagging replica.
+     *
      * @param  array<array-key, mixed>  $credentials
      * @return ?\Illuminate\Contracts\Auth\Authenticatable
      */
@@ -123,18 +136,21 @@ class ModelProvider implements IdentityProvider
             return null;
         }
 
-        $query = $this->freshQuery($this->createModel());
-
-        if (!$this->applyCredentialClauses($query, $filtered)) {
-            return null;
-        }
+        $model = $this->createModel();
+        $query = $this->freshQuery($model);
 
         /** @var (\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model)|null */
-        return $query->first();
+        return WriteConnection::during($model, fn (): mixed => $this->applyCredentialClauses($query, $filtered) ? $query->first() : null);
     }
 
     /**
      * Validate the supplied credentials against the resolved user.
+     *
+     * The stored hash is read inside `WriteConnection::during()` for the user,
+     * so a password getter that reads another table or lazily loads a
+     * credential relation reads the writer: a hash a lagging replica still
+     * holds cannot admit a password the primary has already replaced. An
+     * account without a stored hash (a `null` password) is rejected.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<array-key, mixed>  $credentials
@@ -149,7 +165,12 @@ class ModelProvider implements IdentityProvider
             return false;
         }
 
-        return $this->hasher->check($plain, $user->getAuthPassword());
+        $hash = WriteConnection::during($user, static fn (): mixed => $user->getAuthPassword());
+
+        // The contract documents a string, but Eloquent returns the raw
+        // attribute: null for an account stored without a password.
+        // @phpstan-ignore function.alreadyNarrowedType
+        return is_string($hash) && $this->hasher->check($plain, $hash);
     }
 
     /**
@@ -195,9 +216,11 @@ class ModelProvider implements IdentityProvider
     }
 
     /**
-     * Build a fresh Eloquent query rooted at the supplied model. Single
-     * localised site for the dynamic-class `newQuery()` call so any phpstan
-     * suppressions live in one place.
+     * Build a fresh Eloquent query rooted at the supplied model and pinned to
+     * the write connection, so a lagging read replica cannot resolve a
+     * deactivated or deleted identity. Single localised site for the
+     * dynamic-class `newQuery()` call so any phpstan suppressions live in one
+     * place.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model  $model
      * @return \Illuminate\Database\Eloquent\Builder<\Illuminate\Contracts\Auth\Authenticatable&\Illuminate\Database\Eloquent\Model>
@@ -205,7 +228,7 @@ class ModelProvider implements IdentityProvider
     private function freshQuery(Authenticatable&Model $model): Builder
     {
         // @phpstan-ignore staticMethod.dynamicCall
-        return $model->newQuery();
+        return WriteConnection::query($model->newQuery());
     }
 
     /**

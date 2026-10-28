@@ -6,6 +6,7 @@ namespace Tests\Unit\Providers;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -233,6 +234,9 @@ final class ModelProviderConstructorTest extends TestCase
     public function testRetrieveByCredentialsDoesNotDropPassSubstringOnlyKeys(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('pass', 'something')
@@ -312,6 +316,9 @@ final class ModelProviderConstructorTest extends TestCase
     public function testRetrieveByCredentialsAppliesBoolCredentialAsWhereClause(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('is_active', true)
@@ -348,6 +355,9 @@ final class ModelProviderConstructorTest extends TestCase
         };
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('token', $stringable)
@@ -378,6 +388,9 @@ final class ModelProviderConstructorTest extends TestCase
         // query, so the caller bails out with null and the query is never
         // executed.
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldNotReceive('where');
         $builder->shouldNotReceive('whereIn');
         $builder->shouldNotReceive('first');
@@ -388,6 +401,8 @@ final class ModelProviderConstructorTest extends TestCase
             ->andReturn($builder);
         $model->shouldReceive('getAuthIdentifierName')
             ->andReturn('id');
+        $model->shouldReceive('getConnection')
+            ->andReturn($this->mockConnection());
 
         $provider = new class ($this->hasher, StubAuthenticatableModel::class, $model) extends ModelProvider {
             /**
@@ -442,6 +457,8 @@ final class ModelProviderConstructorTest extends TestCase
         $model = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $model->shouldReceive('newQuery')
             ->andReturn($builder);
+        $model->shouldReceive('getConnection')
+            ->andReturn($this->mockConnection());
 
         return new class ($this->hasher, StubAuthenticatableModel::class, $model) extends ModelProvider {
             /**
@@ -476,5 +493,20 @@ final class ModelProviderConstructorTest extends TestCase
                 return $this->instance;
             }
         };
+    }
+
+    /**
+     * Build a database connection double the lookup pins to the write
+     * connection for its duration.
+     *
+     * @return \Illuminate\Database\Connection&\Mockery\MockInterface
+     */
+    private function mockConnection(): MockInterface
+    {
+        $connection = \Mockery::mock(Connection::class);
+        $connection->shouldReceive('useWriteConnectionWhenReading')
+            ->andReturnSelf();
+
+        return $connection;
     }
 }

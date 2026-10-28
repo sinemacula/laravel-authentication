@@ -22,7 +22,10 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  *
  * - signing material and algorithm live in a `JwtKeyring` that fails closed
  * - kid-based rotation via the active kid header and `kid -> Key` map
- * - `typ` claim distinguishes access from refresh
+ * - `typ` claim distinguishes access from refresh, and each type's required
+ *   claims (`TokenType::requiredClaims()`) must be present on every parse
+ * - `grd` claim binds every token to the guard whose service issued it; a token
+ *   from another guard is rejected even when the guards share a key
  * - configurable clock skew via `leewaySeconds` on every verification
  * - optional strict `iss` / `aud` verification
  *
@@ -38,17 +41,23 @@ final class JwtTokenService
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtKeyring  $keyring
+     * @param  string  $guard
      * @param  int  $accessTtlMinutes
      * @param  int  $refreshTtlMinutes
      * @param  int  $leewaySeconds
      * @param  ?string  $issuer
      * @param  ?string  $audience
      * @param  ?\Psr\Log\LoggerInterface  $logger
+     *
+     * @throws \InvalidArgumentException
      */
     public function __construct(
 
         /** Signing and verification material, keyed by kid. */
         private JwtKeyring $keyring,
+
+        /** Guard the service issues for; written to and required in `grd`. */
+        private string $guard,
 
         /** Access-token lifetime in minutes, written into the `exp` claim. */
         private int $accessTtlMinutes,
@@ -69,17 +78,27 @@ final class JwtTokenService
         // NullLogger.
         ?LoggerInterface $logger = null,
     ) {
+        if ($guard === '') {
+            throw new \InvalidArgumentException('JWT token service requires a non-empty guard name.');
+        }
+
         $this->logger = $logger ?? new NullLogger;
     }
 
     /**
      * Encode an access-token payload for the given context.
      *
+     * Refuses to issue a token that `parse()` would reject or that would lose
+     * part of its context: the identity and principal, and the device when one
+     * is given, must each have an identifier that can be written into its claim
+     * (a saved model's scalar key).
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return string
      *
+     * @throws \InvalidArgumentException
      * @throws \Random\RandomException
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device): string
@@ -88,9 +107,9 @@ final class JwtTokenService
 
         $payload = $this->baseClaims($now, $now + ($this->accessTtlMinutes * 60), TokenType::ACCESS);
 
-        $payload[Claims::SUBJECT->value]      = IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $payload[Claims::PRINCIPAL_ID->value] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
-        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier());
+        $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
+        $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
+        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
         $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
 
         return $this->encode($payload);
@@ -100,12 +119,17 @@ final class JwtTokenService
      * Encode a refresh-token payload bound to a specific device.
      *
      * The caller MUST hash the supplied plaintext `$rotationId` before
-     * persisting it on the device row.
+     * persisting it on the device row. Refuses to issue a token that `parse()`
+     * would reject or that would lose its principal: the device, and the
+     * principal when one is given, must each have an identifier that can be
+     * written into its claim, and the rotation id must not be empty.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return string
+     *
+     * @throws \InvalidArgumentException
      */
     public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null): string
     {
@@ -113,11 +137,11 @@ final class JwtTokenService
 
         $payload = $this->baseClaims($now, $now + ($this->refreshTtlMinutes * 60), TokenType::REFRESH);
 
-        $payload[Claims::DEVICE_ID->value] = IdentifierCoercion::stringify($device->getDeviceIdentifier());
-        $payload[Claims::JWT_ID->value]    = $rotationId;
+        $payload[Claims::DEVICE_ID->value] = $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
+        $payload[Claims::JWT_ID->value]    = $this->requireClaimValue(Claims::JWT_ID, $rotationId);
 
         if ($principal !== null) {
-            $payload[Claims::PRINCIPAL_ID->value] = IdentifierCoercion::stringify($principal->getPrincipalIdentifier());
+            $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
         }
 
         return $this->encode($payload);
@@ -127,9 +151,11 @@ final class JwtTokenService
      * Decode and verify a token, returning claims as an array.
      *
      * Returns `null` on any failure so callers can treat parse as a total
-     * function. When `$expectedType` is supplied, tokens whose `typ` claim does
-     * not match are rejected to prevent a refresh token being presented as an
-     * access token (and vice versa).
+     * function. A token whose `grd` claim does not name this service's guard is
+     * always rejected. When `$expectedType` is supplied, tokens whose `typ`
+     * claim does not match are rejected to prevent a refresh token being
+     * presented as an access token (and vice versa). A token missing any claim
+     * its type requires, or whose `typ` is not a known type, is rejected.
      *
      * @param  string  $token
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -149,7 +175,7 @@ final class JwtTokenService
     }
 
     /**
-     * Build the base claim set (iat, exp, typ, iss, aud).
+     * Build the base claim set (iat, exp, typ, grd, iss, aud).
      *
      * @param  int  $issuedAt
      * @param  int  $expiresAt
@@ -162,6 +188,7 @@ final class JwtTokenService
             Claims::ISSUED_AT->value  => $issuedAt,
             Claims::EXPIRES_AT->value => $expiresAt,
             Claims::TYPE->value       => $type->value,
+            Claims::GUARD->value      => $this->guard,
         ];
 
         if ($this->issuer !== null) {
@@ -173,6 +200,35 @@ final class JwtTokenService
         }
 
         return $claims;
+    }
+
+    /**
+     * Stringify the value of a claim the token cannot do without, throwing
+     * instead of issuing a token whose claim would be missing: `null` (an
+     * unsaved model's identifier, or one that is not a scalar) and the empty
+     * string both read as missing to `parse()`.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\Claims  $claim
+     * @param  mixed  $value
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function requireClaimValue(Claims $claim, #[\SensitiveParameter] mixed $value): string
+    {
+        $stringified = IdentifierCoercion::stringify($value);
+
+        if ($stringified === null || $stringified === '') {
+
+            $message = sprintf(
+                'Cannot issue a token without its `%s` claim: the identifier is null (is the model saved?), empty, or not a scalar.',
+                $claim->value,
+            );
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        return $stringified;
     }
 
     /**
@@ -240,7 +296,8 @@ final class JwtTokenService
     }
 
     /**
-     * Verify issuer, audience, and `typ` against expected values.
+     * Verify guard, issuer, audience, and `typ` against expected values, then
+     * that every claim the token's type requires is present.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
@@ -248,31 +305,65 @@ final class JwtTokenService
      */
     private function matchesExpectedClaims(array $claims, ?TokenType $expectedType): bool
     {
-        $mismatch = $this->firstClaimMismatch($claims, $expectedType);
+        $failure = $this->firstClaimMismatch($claims, $expectedType) ?? $this->firstMissingClaim($claims);
 
-        if ($mismatch === null) {
+        if ($failure === null) {
             return true;
         }
 
-        $this->logger->debug($mismatch['message'], [
-            'expected' => $mismatch['expected'],
-            'received' => $mismatch['received'],
-        ]);
+        $this->logger->debug($failure['message'], $failure['context']);
 
         return false;
     }
 
     /**
-     * Locate the first issuer/audience/`typ` mismatch, or return `null` when
-     * every check passes.
+     * Locate the first claim the token's type requires that is absent, `null`,
+     * or empty, or return `null` when all are present. A token whose `typ` is
+     * not a known type fails here too, since its required claims are unknown.
+     *
+     * @param  array<string, mixed>  $claims
+     * @return array{message: string, context: array<string, mixed>}|null
+     */
+    private function firstMissingClaim(array $claims): ?array
+    {
+        $typ  = $claims[Claims::TYPE->value] ?? null;
+        $type = is_string($typ) ? TokenType::tryFrom($typ) : null;
+
+        if ($type === null) {
+            return [
+                'message' => 'JWT typ unknown',
+                'context' => ['received' => $typ],
+            ];
+        }
+
+        foreach ($type->requiredClaims() as $claim) {
+
+            $value = $claims[$claim->value] ?? null;
+
+            if ($value === null || $value === '') {
+                return [
+                    'message' => 'JWT required claim missing',
+                    'context' => ['claim' => $claim->value, 'typ' => $type->value],
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Locate the first guard/issuer/audience/`typ` mismatch, or return `null`
+     * when every check passes. The guard is always checked, so a token missing
+     * `grd` is rejected.
      *
      * @param  array<string, mixed>  $claims
      * @param  ?\SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $expectedType
-     * @return array{message: string, expected: mixed, received: mixed}|null
+     * @return array{message: string, context: array{expected: mixed, received: mixed}}|null
      */
     private function firstClaimMismatch(array $claims, ?TokenType $expectedType): ?array
     {
         $checks = [
+            [Claims::GUARD->value, $this->guard, 'JWT guard mismatch'],
             [Claims::ISSUER->value, $this->issuer, 'JWT issuer mismatch'],
             [Claims::AUDIENCE->value, $this->audience, 'JWT audience mismatch'],
             [Claims::TYPE->value, $expectedType?->value, 'JWT typ mismatch'],
@@ -281,9 +372,8 @@ final class JwtTokenService
         foreach ($checks as [$claimKey, $expected, $message]) {
             if ($expected !== null && ($claims[$claimKey] ?? null) !== $expected) {
                 return [
-                    'message'  => $message,
-                    'expected' => $expected,
-                    'received' => $claims[$claimKey] ?? null,
+                    'message' => $message,
+                    'context' => ['expected' => $expected, 'received' => $claims[$claimKey] ?? null],
                 ];
             }
         }

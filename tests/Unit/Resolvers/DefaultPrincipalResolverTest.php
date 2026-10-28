@@ -78,6 +78,9 @@ final class DefaultPrincipalResolverTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with('principal-id-7')
@@ -132,6 +135,9 @@ final class DefaultPrincipalResolverTest extends TestCase
     public function testHintedNonPrincipalFallsThroughToDefaultResolution(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with('non-principal-id')
@@ -161,6 +167,9 @@ final class DefaultPrincipalResolverTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with('missing-principal')
@@ -192,6 +201,9 @@ final class DefaultPrincipalResolverTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->once()
             ->with('missing-principal')

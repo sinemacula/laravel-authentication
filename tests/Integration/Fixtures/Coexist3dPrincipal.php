@@ -6,6 +6,8 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
@@ -34,9 +36,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * @internal
  */
-final class Coexist3dPrincipal extends Model implements Principal
+final class Coexist3dPrincipal extends Model implements CanBeActive, Principal
 {
-    use ActsAsPrincipal;
+    use ActsAsPrincipal, ProvidesActiveState;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'coexist_3d_principals';

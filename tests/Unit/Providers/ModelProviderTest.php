@@ -6,6 +6,7 @@ namespace Tests\Unit\Providers;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -65,6 +66,9 @@ final class ModelProviderTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('id', 7)
@@ -86,6 +90,9 @@ final class ModelProviderTest extends TestCase
     public function testRetrieveByIdReturnsNullWhenNotFound(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('id', 99)
@@ -182,6 +189,9 @@ final class ModelProviderTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', 'a@b.com')
@@ -224,6 +234,8 @@ final class ModelProviderTest extends TestCase
         $model = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $model->shouldReceive('newQuery')
             ->andReturn($builder);
+        $model->shouldReceive('getConnection')
+            ->andReturn($this->mockConnection());
         $model->shouldReceive('getAuthIdentifierName')
             ->andReturn('id');
 
@@ -260,5 +272,20 @@ final class ModelProviderTest extends TestCase
                 return $this->instance;
             }
         };
+    }
+
+    /**
+     * Build a database connection double the lookup pins to the write
+     * connection for its duration.
+     *
+     * @return \Illuminate\Database\Connection&\Mockery\MockInterface
+     */
+    private function mockConnection(): MockInterface
+    {
+        $connection = \Mockery::mock(Connection::class);
+        $connection->shouldReceive('useWriteConnectionWhenReading')
+            ->andReturnSelf();
+
+        return $connection;
     }
 }

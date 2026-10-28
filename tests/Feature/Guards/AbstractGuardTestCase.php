@@ -10,6 +10,7 @@ use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -100,18 +101,21 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
-     * Build a Mockery mock of the Principal contract whose `isActive()` returns
-     * `true` - used by any attempt-path test where the guard calls `isActive()`
-     * after the resolver returns.
+     * Build a Mockery mock of a `CanBeActive` principal whose `isActive()`
+     * returns `true` and that acts within no tenant - used by any attempt-path
+     * test where the guard checks activation after the resolver returns.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
      */
     protected function mockActivePrincipal(): MockInterface
     {
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('isActive')
             ->byDefault()
             ->andReturnTrue();
+        $principal->shouldReceive('getTenant')
+            ->byDefault()
+            ->andReturnNull();
 
         return $principal;
     }

@@ -74,6 +74,7 @@ final class JwtTokenServiceFactory
 
         return new JwtTokenService(
             $this->buildKeyring($guardJwtConfig, $algorithm),
+            $guard,
             $this->resolveJwtInteger($guardJwtConfig, 'access_ttl_minutes', 15),
             $this->resolveJwtInteger($guardJwtConfig, 'refresh_ttl_minutes', 60 * 24 * 30),
             $this->resolveJwtInteger($guardJwtConfig, 'leeway_seconds', 30),

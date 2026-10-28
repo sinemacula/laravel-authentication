@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -164,6 +165,47 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
+     * Rows of `[claim]`: time claims a correctly signed access token must
+     * carry.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideRequiredTimeClaims(): iterable
+    {
+        yield from [
+            'no exp, so it never expires' => ['exp'],
+            'no iat'                      => ['iat'],
+        ];
+    }
+
+    /**
+     * A correctly signed access token without a required time claim is rejected
+     * with 401, so a token that never expires cannot authenticate.
+     *
+     * @param  string  $claim
+     * @return void
+     */
+    #[DataProvider('provideRequiredTimeClaims')]
+    public function testBearerTokenWithoutARequiredTimeClaimIsRejectedByAuthMiddleware(string $claim): void
+    {
+        $user = $this->seedUser();
+
+        $claims = [
+            'sub' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'pid' => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'iat' => $this->now->getTimestamp(),
+            'exp' => $this->now->getTimestamp() + 600,
+        ];
+
+        unset($claims[$claim]);
+
+        Route::middleware(self::AUTH_MIDDLEWARE)->get('/me', static fn (): string => 'ok');
+
+        $this->withHeaders(['Authorization' => self::BEARER_PREFIX . $this->encodeAccessToken($claims)])->getJson('/me')
+            ->assertUnauthorized();
+    }
+
+    /**
      * An authenticated request exposes the resolved principal and device
      * through the `AuthManager` contextual accessors.
      *
@@ -252,16 +294,15 @@ final class JwtGuardIntegrationTest extends TestCase
     }
 
     /**
-     * Revoking a device blocks refresh for that device, but already-issued
-     * access tokens still authenticate until they expire because the bearer
-     * path does not consult access-token `jti` values or the device's
-     * `revoked_at` timestamp.
+     * Revoking a device ends its session at once: an access token naming the
+     * device is rejected exactly as if the device were missing, and its refresh
+     * token no longer rotates.
      *
      * @return void
      *
      * @throws \Random\RandomException
      */
-    public function testRevokingDeviceBlocksRefreshButNotExistingAccessToken(): void
+    public function testRevokingDeviceBlocksRefreshAndExistingAccessToken(): void
     {
         $user = $this->seedUser();
 
@@ -288,26 +329,13 @@ final class JwtGuardIntegrationTest extends TestCase
             ->whereKey($device->getKey())
             ->update(['revoked_at' => $this->now]);
 
-        Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-device', static function (): array {
-
-            /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
-            $manager = app('auth');
-
-            return [
-                'check'      => Auth::check(),
-                'device_key' => $manager->device()?->getDeviceIdentifier(),
-            ];
-        });
+        Route::middleware(self::AUTH_MIDDLEWARE)->get('/revoked-device', static fn (): string => 'ok');
 
         $response = $this->withHeaders([
             'Authorization' => self::BEARER_PREFIX . $accessToken,
         ])->getJson('/revoked-device');
 
-        $response->assertOk();
-        $response->assertJson([
-            'check'      => true,
-            'device_key' => $device->getKey(),
-        ]);
+        $response->assertStatus(401);
 
         $guard = $this->freshGuard();
 
@@ -372,7 +400,10 @@ final class JwtGuardIntegrationTest extends TestCase
     private function encodeAccessToken(array $claims): string
     {
         return JWT::encode(
-            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
+            array_merge([Claims::JWT_ID->value => 'access-token-id'], $claims, [
+                Claims::TYPE->value  => TokenType::ACCESS->value,
+                Claims::GUARD->value => 'api',
+            ]),
             self::JWT_SECRET,
             'HS256',
             self::JWT_KID,

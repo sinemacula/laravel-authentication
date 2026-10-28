@@ -11,6 +11,8 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 /**
  * Unit tests for the `IdentifierCoercion` JWT claim helper.
  *
+ * `matches()` compares two identifiers in their claim form and fails closed.
+ *
  * Pins the documented branch matrix:
  *
  * - `null` -> `null` - `string` -> the same string verbatim -
@@ -179,6 +181,35 @@ final class IdentifierCoercionTest extends TestCase
         } finally {
             fclose($resource);
         }
+    }
+
+    /**
+     * An identifier matches a supplied value with the same string form, so an
+     * integer key matches its decimal string as it arrives in a claim.
+     *
+     * @return void
+     */
+    public function testMatchesComparesTheStringForms(): void
+    {
+        self::assertTrue(IdentifierCoercion::matches('p-1', 'p-1'));
+        self::assertTrue(IdentifierCoercion::matches(5, '5'));
+        self::assertTrue(IdentifierCoercion::matches('5', 5));
+        self::assertFalse(IdentifierCoercion::matches('p-1', 'p-2'));
+        self::assertFalse(IdentifierCoercion::matches('p-1', 'p-10'));
+    }
+
+    /**
+     * Matching fails closed when either side does not coerce, including two
+     * `null` identifiers, so an unsaved model never matches a missing hint.
+     *
+     * @return void
+     */
+    public function testMatchesFailsClosedWhenEitherSideDoesNotCoerce(): void
+    {
+        self::assertFalse(IdentifierCoercion::matches(null, 'p-1'));
+        self::assertFalse(IdentifierCoercion::matches('p-1', null));
+        self::assertFalse(IdentifierCoercion::matches(null, null));
+        self::assertFalse(IdentifierCoercion::matches([1], [1]));
     }
 
     /**

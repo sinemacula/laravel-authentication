@@ -7,28 +7,29 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
-use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
 /**
  * Refresh-token exchange service.
  *
  * Encapsulates the refresh round trip: parse the token, verify the rotation id
- * against the device's stored digest in constant time, hydrate the contextual
- * lifecycle from the device's polymorphic `authenticatable` relation, rotate
- * the digest server-side, and issue a new access + refresh token pair.
+ * against the device's stored digest in constant time, reload the device's
+ * owner through the guard's identity provider (so the provider's scopes apply
+ * and an owner the guard does not serve is rejected), resolve the principal,
+ * rotate the digest server-side, and issue a new access + refresh token pair.
  *
  * Failure paths dispatch `RefreshFailed` events with machine-readable reason
  * codes for SIEM attribution.
@@ -42,6 +43,7 @@ final class RefreshTokenExchange
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
+     * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \Illuminate\Database\ConnectionResolverInterface  $connections
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @param  \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver  $resolver
@@ -52,11 +54,14 @@ final class RefreshTokenExchange
         /** Token service for parsing and issuing tokens. */
         private readonly JwtTokenService $tokens,
 
+        /** The guard's identity provider, which reloads the device owner. */
+        private readonly IdentityProvider $provider,
+
         /** Connection resolver for raw CAS digest rotation. */
         private readonly ConnectionResolverInterface $connections,
 
         /** Event dispatcher for RefreshFailed events. */
-        private readonly Dispatcher $events,
+        private Dispatcher $events,
 
         /** Resolver mapping identity to acting principal. */
         private PrincipalResolver $resolver,
@@ -79,6 +84,21 @@ final class RefreshTokenExchange
     }
 
     /**
+     * Rebind the event dispatcher that receives `RefreshFailed`, so a
+     * dispatcher swapped in after the guard resolved (e.g. `Event::fake()`)
+     * receives the exchange's events as well as the guard's.
+     *
+     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
+     * @return self
+     */
+    public function setDispatcher(Dispatcher $events): self
+    {
+        $this->events = $events;
+
+        return $this;
+    }
+
+    /**
      * Exchange a refresh token for a new access + refresh token pair, rotating
      * the device's stored digest. Returns `null` on any failure path; a
      * `RefreshFailed` event is dispatched first.
@@ -86,8 +106,10 @@ final class RefreshTokenExchange
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
+     * @throws \InvalidArgumentException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function exchange(#[\SensitiveParameter] string $refreshToken): ?ExchangedRefresh
     {
@@ -165,8 +187,10 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Extract and shape-check the refresh-token claims. Dispatches
-     * `token_invalid` and returns `null` for any malformed payload.
+     * Extract and shape-check the refresh-token claims. `parse()` has already
+     * rejected a token missing `did` or `jti`, so what remains is a `jti` that
+     * is not a string. Dispatches `token_invalid` and returns `null` for any
+     * malformed payload.
      *
      * @param  ?array<string, mixed>  $claims
      * @return array{0: mixed, 1: string, 2: mixed}|null
@@ -180,12 +204,11 @@ final class RefreshTokenExchange
             return null;
         }
 
-        $rawDeviceId   = $claims[Claims::DEVICE_ID->value]    ?? null;
-        $rotationId    = $claims[Claims::JWT_ID->value]       ?? null;
+        $rawDeviceId   = $claims[Claims::DEVICE_ID->value];
+        $rotationId    = $claims[Claims::JWT_ID->value];
         $principalHint = $claims[Claims::PRINCIPAL_ID->value] ?? null;
-        $shapeOk       = $rawDeviceId !== null && is_string($rotationId) && $rotationId !== '';
 
-        if (!$shapeOk) {
+        if (!is_string($rotationId)) {
 
             $this->dispatchRefreshFailure(
                 RefreshFailureReason::TOKEN_INVALID,
@@ -219,6 +242,10 @@ final class RefreshTokenExchange
      * constant-time verification, so a revoked row cannot be used to time-probe
      * the valid rotation-id space.
      *
+     * The revocation time and the digest are read inside
+     * `WriteConnection::during()` for the device, so a device that derives
+     * either from a relation or another table reads it from the writer as well.
+     *
      * @param  mixed  $rawDeviceId
      * @param  string  $rotationId
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
@@ -237,14 +264,14 @@ final class RefreshTokenExchange
             return null;
         }
 
-        if ($device->getRevokedAt() !== null) {
+        [$revokedAt, $storedDigest] = WriteConnection::during($device, static fn (): array => [$device->getRevokedAt(), $device->getRefreshKey()]);
+
+        if ($revokedAt !== null) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::DEVICE_REVOKED, $deviceId);
 
             return null;
         }
-
-        $storedDigest = $device->getRefreshKey();
 
         if ($storedDigest === null || !RefreshTokenHasher::verify($rotationId, $storedDigest)) {
 
@@ -257,7 +284,15 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Look up a device by id through the configured device model class.
+     * Look up a device by id through the configured device model class, which
+     * must satisfy the explicit Eloquent-backed `EloquentDevice` boundary,
+     * reading from the write connection so a lagging replica cannot serve a
+     * stale digest or revocation state. The lookup runs inside
+     * `WriteConnection::during()` for the device model, so relations the device
+     * model eager-loads come from the writer too.
+     *
+     * An id that cannot be a key of the device model names no device and is
+     * rejected without a query; database errors on a well-formed id propagate.
      *
      * @param  mixed  $id
      * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
@@ -266,44 +301,20 @@ final class RefreshTokenExchange
      */
     private function findDeviceById(mixed $id): (EloquentDevice&Model)|null
     {
-        $class = $this->configuredDeviceModelClass();
-
-        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $model */
-        $model = new $class;
-
-        try {
-            $device = $model->newQuery()->find($id);
-        } catch (QueryException) { // @phpstan-ignore catch.neverThrown
-            return null;
-        }
-
-        if (!$device instanceof Model) {
-            return null;
-        }
-
-        return $device;
-    }
-
-    /**
-     * Resolve the configured device model class and validate that it satisfies
-     * the explicit Eloquent-backed persistence boundary.
-     *
-     * @formatter:off
-     *
-     * @return class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice>
-     *
-     * @formatter:on
-     *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
-     */
-    private function configuredDeviceModelClass(): string
-    {
         $class = Config::string('authentication.device.model', '');
 
         InvalidDeviceModelConfigurationException::validate($class);
 
-        /** @var class-string<\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice> $class */
-        return $class;
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $model */
+        $model = new $class;
+
+        if (!DeviceKeyShape::matches($model, $id)) {
+            return null;
+        }
+
+        $device = WriteConnection::during($model, static fn (): mixed => WriteConnection::query($model->newQuery())->find($id));
+
+        return $device instanceof Model ? $device : null;
     }
 
     /**
@@ -316,6 +327,8 @@ final class RefreshTokenExchange
      * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
      *
      * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function hydrateRefreshContext(EloquentDevice&Model $device, mixed $principalHint): ?array
     {
@@ -333,8 +346,16 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Validate the device's `authenticatable` relation and confirm the resolved
-     * identity is currently active.
+     * Reload the device's owner through the guard's identity provider, so the
+     * provider's own scoping applies, and confirm it is that exact owner and
+     * currently active. A device row with no owner key, or a provider answer
+     * that is not the owner (no row through this provider, or another model
+     * sharing the key), fails as `authenticatable_missing`.
+     *
+     * The provider is asked for the owner key the device row stores, which is
+     * the identity's primary key; providers find identities by their auth
+     * identifier, which is the primary key unless the identity model overrides
+     * `getAuthIdentifierName()`.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  ?string  $deviceId
@@ -342,17 +363,17 @@ final class RefreshTokenExchange
      */
     private function resolveRefreshIdentity(EloquentDevice&Model $device, ?string $deviceId): ?Identity
     {
-        /** @var ?\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
-        $identity = $device->getRelationValue('authenticatable');
+        $ownerKey = DeviceOwnership::ownerKey($device);
+        $identity = $ownerKey === null ? null : $this->provider->retrieveById($ownerKey);
 
-        if (!$identity instanceof Identity) {
+        if (!$identity instanceof Identity || !DeviceOwnership::isOwner($device, $identity)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::AUTHENTICATABLE_MISSING, $deviceId);
 
             return null;
         }
 
-        if (!$this->isIdentityActive($identity)) {
+        if (!ActivationPolicy::isActive($identity)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::IDENTITY_INACTIVE, $deviceId);
 
@@ -363,36 +384,22 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Whether the identity opts into activation checking and, if it does,
-     * whether it currently reports active.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return bool
-     */
-    private function isIdentityActive(Identity $identity): bool
-    {
-        if (!$identity instanceof CanBeActive) {
-            return true;
-        }
-
-        return $identity->isActive();
-    }
-
-    /**
-     * Resolve a principal for the refresh-flow identity and verify it is
-     * currently active.
+     * Resolve a principal for the refresh-flow identity and verify it and the
+     * tenant it acts within are currently active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $deviceId
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolveRefreshPrincipal(Identity $identity, ?string $deviceId, mixed $hint = null): ?Principal
     {
         $hintProvided = $hint !== null;
-        $principal    = $this->safeResolvePrincipal($identity, $hint);
+        $principal    = $this->resolvePrincipal($identity, $hint);
 
-        if ($hintProvided && !$this->matchesPidHint($principal, $hint)) {
+        if ($hintProvided && !IdentifierCoercion::matches($principal?->getPrincipalIdentifier(), $hint)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_MISMATCH, $deviceId);
 
@@ -406,9 +413,16 @@ final class RefreshTokenExchange
             return null;
         }
 
-        if (!$principal->isActive()) {
+        if (!ActivationPolicy::isActive($principal)) {
 
             $this->dispatchRefreshFailure(RefreshFailureReason::PRINCIPAL_INACTIVE, $deviceId);
+
+            return null;
+        }
+
+        if (!ActivationPolicy::isTenantActive($principal)) {
+
+            $this->dispatchRefreshFailure(RefreshFailureReason::TENANT_INACTIVE, $deviceId);
 
             return null;
         }
@@ -417,52 +431,37 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Resolve a principal for the identity, catching
-     * `UnresolvableIdentityException` and returning `null` so the caller
-     * surfaces `RefreshFailed` rather than a 500.
+     * Resolve a principal for the identity through the bound resolver. An
+     * `UnresolvableIdentityException` is a misconfiguration and propagates as a
+     * server error rather than being reported as a refresh failure.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     */
-    private function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
-    {
-        try {
-            return $hint === null
-                ? $this->resolver->resolve($identity)
-                : $this->resolver->resolve($identity, $hint);
-        } catch (UnresolvableIdentityException) {
-            return null;
-        }
-    }
-
-    /**
-     * Confirm a resolver-returned principal matches the `pid` hint.
      *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
-     * @param  mixed  $hint
-     * @return bool
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function matchesPidHint(?Principal $resolved, mixed $hint): bool
+    private function resolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
     {
-        if ($resolved === null) {
-            return false;
-        }
-
-        $resolvedId = IdentifierCoercion::stringify($resolved->getPrincipalIdentifier());
-        $hintId     = IdentifierCoercion::stringify($hint);
-
-        return $resolvedId !== null && $hintId !== null && hash_equals($resolvedId, $hintId);
+        return $hint === null
+            ? $this->resolver->resolve($identity)
+            : $this->resolver->resolve($identity, $hint);
     }
 
     /**
-     * Atomically rotate the digest via a compare-and-swap UPDATE, issue the new
-     * tokens, and assemble the DTO. Does NOT bind any state on a guard.
+     * Issue the new token pair, then atomically rotate the digest via a
+     * compare-and-swap UPDATE, and assemble the DTO. Does NOT bind any state on
+     * a guard.
+     *
+     * Both tokens are issued before the CAS, so a failure while issuing
+     * (signing, randomness, an identifier that cannot be read) propagates
+     * before anything is written and the presented refresh token stays valid.
+     * The pair is only returned once the CAS has committed.
      *
      * Returns `null` when the CAS affects zero rows: the token verified earlier
      * but a concurrent refresh (or a stolen-token replay) has rotated the
-     * digest in between. The whole device is revoked and `rotation_reuse` is
-     * dispatched.
+     * digest in between. The issued pair is discarded, the whole device is
+     * revoked, and `rotation_reuse` is dispatched.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -470,11 +469,17 @@ final class RefreshTokenExchange
      * @param  string  $oldRotationId
      * @return ?\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
+     * @throws \InvalidArgumentException
      * @throws \Random\RandomException
      */
     private function completeExchange(EloquentDevice&Model $device, Identity $identity, Principal $principal, #[\SensitiveParameter] string $oldRotationId): ?ExchangedRefresh
     {
         $newRotationId = RefreshTokenHasher::generate();
+
+        $tokens = new RefreshResult(
+            $this->tokens->issueAccessToken($identity, $principal, $device),
+            $this->tokens->issueRefreshToken($device, $newRotationId, $principal),
+        );
 
         $rotated = $this->atomicallyRotateRefreshKey($device, $oldRotationId, $newRotationId);
 
@@ -482,7 +487,6 @@ final class RefreshTokenExchange
 
             $deviceId = IdentifierCoercion::stringify($device->getDeviceIdentifier());
 
-            // CAS lost: concurrent rotation or reuse. Revoke the device family.
             $this->revokeDevice($device);
             $this->dispatchRefreshFailure(RefreshFailureReason::ROTATION_REUSE, $deviceId);
 
@@ -493,11 +497,6 @@ final class RefreshTokenExchange
         // during this request see the new digest.
         $refreshKeyColumn = $this->refreshKeyColumn($device);
         $device->setAttribute($refreshKeyColumn, RefreshTokenHasher::hash($newRotationId));
-
-        $tokens = new RefreshResult(
-            $this->tokens->issueAccessToken($identity, $principal, $device),
-            $this->tokens->issueRefreshToken($device, $newRotationId, $principal),
-        );
 
         return new ExchangedRefresh($identity, $principal, $device, $tokens);
     }

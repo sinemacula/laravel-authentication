@@ -5,11 +5,14 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -21,6 +24,8 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
@@ -32,8 +37,8 @@ use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
  *
  * Registers configuration, the package `AuthManager` singleton, the `model`
  * user provider driver, the `jwt` guard driver, the default principal resolver
- * binding, the `DeviceAuthenticated` listener, and the config + migration
- * publishing tags.
+ * binding, the package-aware `auth` middleware and `401` guest response, the
+ * `DeviceAuthenticated` listener, and the config + migration publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -54,6 +59,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         );
 
         $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
+        $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,
             static fn (Application $app): JwtTokenServiceFactory => new JwtTokenServiceFactory(
@@ -74,6 +80,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->registerProviderDriver();
         $this->registerGuardDrivers();
         $this->registerListeners();
+        $this->registerUnauthenticatedResponse();
         $this->registerPublishing();
     }
 
@@ -110,6 +117,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
         $exchange = new RefreshTokenExchange(
             $tokens,
+            $provider,
             $app->make(ConnectionResolverInterface::class),
             $events,
             $resolver,
@@ -189,6 +197,24 @@ final class AuthenticationServiceProvider extends ServiceProvider
     protected function registerListeners(): void
     {
         Event::listen(DeviceAuthenticated::class, UpdateDeviceTimestamp::class);
+    }
+
+    /**
+     * Register the package guards' `401` guest response with the exception
+     * handler, after any render callbacks the application registered itself.
+     *
+     * @return void
+     */
+    protected function registerUnauthenticatedResponse(): void
+    {
+        $this->callAfterResolving(ExceptionHandler::class, static function (mixed $handler, Application $app): void {
+
+            if (!$handler instanceof Handler) {
+                return;
+            }
+
+            $handler->renderable($app->make(UnauthenticatedResponse::class));
+        });
     }
 
     /**

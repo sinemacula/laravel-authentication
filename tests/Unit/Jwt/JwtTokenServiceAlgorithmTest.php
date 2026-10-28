@@ -62,6 +62,7 @@ final class JwtTokenServiceAlgorithmTest extends JwtTokenServiceTestCase
     {
         $service = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::LONG_SECRET], self::KID, $algorithm),
+            self::GUARD,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );

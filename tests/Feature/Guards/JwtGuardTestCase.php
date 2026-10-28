@@ -104,6 +104,7 @@ abstract class JwtGuardTestCase extends TestCase
         $this->timebox  = \Mockery::mock(Timebox::class);
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
+            self::GUARD_NAME,
             self::ACCESS_TTL,
             self::REFRESH_TTL,
         );
@@ -190,6 +191,7 @@ abstract class JwtGuardTestCase extends TestCase
 
         $exchange = new RefreshTokenExchange(
             $this->tokens,
+            $this->provider,
             $app->make(ConnectionResolverInterface::class),
             $this->events,
             $this->resolver,
@@ -227,9 +229,10 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode an access-token-style JWT with `iat`, `exp`, and `typ = access`
-     * claims baked in so the real `JwtTokenService::parse(..., TYPE_ACCESS)`
-     * path accepts it.
+     * Encode an access-token-style JWT with `iat`, `exp`, `typ = access`, and
+     * the guard's `grd` claims baked in (plus a default `jti` the claims may
+     * override) so the real `JwtTokenService::parse(..., TYPE_ACCESS)` path
+     * accepts it.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -238,10 +241,11 @@ abstract class JwtGuardTestCase extends TestCase
     {
         $now = $this->now->getTimestamp();
 
-        return $this->encodeToken(array_merge($claims, [
+        return $this->encodeToken(array_merge(['jti' => 'access-token-id'], $claims, [
             'iat' => $now,
             'exp' => $now + (self::ACCESS_TTL * 60),
             'typ' => TokenType::ACCESS->value,
+            'grd' => self::GUARD_NAME,
         ]));
     }
 
@@ -257,9 +261,8 @@ abstract class JwtGuardTestCase extends TestCase
     }
 
     /**
-     * Encode a refresh-token-style JWT with `iat`, `exp`, and `typ = refresh`
-     * claims so the real `JwtTokenService::parse(..., TYPE_REFRESH)` path
-     * accepts it.
+     * Encode a refresh-token-style JWT with `iat`, `exp`, `typ = refresh`, and
+     * the guard's `grd` claims so the real refresh parse path accepts it.
      *
      * @param  array<string, mixed>  $claims
      * @return string
@@ -272,22 +275,28 @@ abstract class JwtGuardTestCase extends TestCase
             'iat' => $now,
             'exp' => $now + (self::REFRESH_TTL * 60),
             'typ' => TokenType::REFRESH->value,
+            'grd' => self::GUARD_NAME,
         ]));
     }
 
     /**
      * Swap the configured device model to `StubInjectableDevice`, whose
      * `newQuery()` yields a Builder mock that returns the supplied in-memory
-     * device from `find()`. This lets the refresh tests keep their manually
-     * preset `authenticatable` relation intact rather than re-fetching from the
-     * DB (which would clear the relation).
+     * device from `find()`, so the refresh tests control the exact device row
+     * the exchange sees without a database round trip. The device is reloaded
+     * first so it carries every column, as the exchange's own lookup would.
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
      * @return void
      */
     protected function swapDeviceModelToInMemoryInstance(StubDevice $device): void
     {
+        $device->refresh();
+
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->atLeast()->once()
+            ->andReturnSelf();
         $builder->shouldReceive('find')
             ->with($device->id)
             ->andReturn($device);
@@ -297,5 +306,22 @@ abstract class JwtGuardTestCase extends TestCase
         StubInjectableDevice::$injectedBuilder = $builder;
 
         config()->set('authentication.device.model', StubInjectableDevice::class);
+    }
+
+    /**
+     * Expect the guard's identity provider to reload the device's owner once,
+     * by the owner key stored on the device row, and answer with the supplied
+     * identity.
+     *
+     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  mixed  $identity
+     * @return void
+     */
+    protected function expectOwnerReload(StubDevice $device, mixed $identity): void
+    {
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with($device->getAttribute('authenticatable_id'))
+            ->andReturn($identity);
     }
 }

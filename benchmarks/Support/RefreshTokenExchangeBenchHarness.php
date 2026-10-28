@@ -130,7 +130,7 @@ final class RefreshTokenExchangeBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens              = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 15, 60 * 24 * 30);
+        $this->tokens              = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 'api', 15, 60 * 24 * 30);
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
         $this->tenantAwareProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
         $this->timebox             = new Timebox;
@@ -404,8 +404,10 @@ final class RefreshTokenExchangeBenchHarness
      */
     private function seedFailureTokens(StubPrincipal $identity): void
     {
+        // A well-formed id that names no row, so the bench measures the lookup
+        // rather than the shape check that rejects malformed ids before it.
         $missingDevice = new Device;
-        $missingDevice->forceFill(['id' => 'bench-missing-device']);
+        $missingDevice->forceFill(['id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
         $this->unknownDeviceToken = $this->tokens->issueRefreshToken($missingDevice, 'bench-missing-device-rotation');
 
         $mismatchDevice = Device::query()->where('os', 'bench-refresh-mismatch')->first();
@@ -432,8 +434,11 @@ final class RefreshTokenExchangeBenchHarness
      */
     private function makeGuard(?ModelProvider $provider = null): JwtGuard
     {
+        $provider ??= $this->provider;
+
         $exchange = new RefreshTokenExchange(
             $this->tokens,
+            $provider,
             BenchDatabase::connectionResolver(),
             $this->events,
             $this->resolver,
@@ -442,7 +447,7 @@ final class RefreshTokenExchangeBenchHarness
 
         return new JwtGuard(
             'api',
-            $provider ?? $this->provider,
+            $provider,
             $this->resolver,
             $this->events,
             Request::create('/bench/refresh', 'POST'),

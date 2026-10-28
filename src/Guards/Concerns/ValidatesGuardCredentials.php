@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\Config;
 
 /**
  * Credential-validation primitive plus the standard Laravel `Attempting` /
- * `Validated` / `Failed` event-firing helpers.
+ * `Validated` / `Failed` event-firing helpers. The credentials those events
+ * carry have their password-like keys removed.
  *
  * Timing safety is the caller's responsibility: the enclosing guard flow wraps
  * the retrieve -> validate -> dispatch pipeline in a single top-level timebox.
@@ -37,6 +38,9 @@ trait ValidatesGuardCredentials
 {
     /** @var int Default timebox budget in microseconds. */
     protected const int DEFAULT_TIMEBOX_MICROSECONDS = 400000;
+
+    /** @var string Credential key fragment that is always redacted from events. */
+    protected const string REDACTED_CREDENTIAL_FRAGMENT = 'password';
 
     /**
      * Credential validation; fires `Validated` on success.
@@ -93,18 +97,19 @@ trait ValidatesGuardCredentials
     }
 
     /**
-     * Fire the standard Laravel `Attempting` event.
+     * Fire the standard Laravel `Attempting` event with the credentials
+     * redacted.
      *
      * @param  array<string, mixed>  $credentials
      * @return void
      */
     protected function fireAttemptingEvent(#[\SensitiveParameter] array $credentials): void
     {
-        $this->events->dispatch(new Attempting($this->name, $credentials, false));
+        $this->events->dispatch(new Attempting($this->name, $this->redactCredentials($credentials), false));
     }
 
     /**
-     * Fire the standard Laravel `Failed` event.
+     * Fire the standard Laravel `Failed` event with the credentials redacted.
      *
      * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
      * @param  array<string, mixed>  $credentials
@@ -112,6 +117,62 @@ trait ValidatesGuardCredentials
      */
     protected function fireFailedEvent(?Authenticatable $user, #[\SensitiveParameter] array $credentials): void
     {
-        $this->events->dispatch(new Failed($this->name, $user, $credentials));
+        $this->events->dispatch(new Failed($this->name, $user, $this->redactCredentials($credentials)));
+    }
+
+    /**
+     * Return the credentials without their password-like keys, for the events
+     * any listener, queued job, or log can capture.
+     *
+     * A key is removed when its name contains, case-insensitively, `password`
+     * (so `password`, `current_password` and `password_confirmation` all go) or
+     * any fragment listed in `authentication.events.redacted_credential_keys`.
+     * Every other key, the identifier included, is kept for throttling and
+     * audit listeners.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    protected function redactCredentials(#[\SensitiveParameter] array $credentials): array
+    {
+        $fragments = $this->redactedCredentialFragments();
+
+        return array_filter(
+            $credentials,
+            static function (int|string $key) use ($fragments): bool {
+
+                $name = strtolower((string) $key);
+
+                foreach ($fragments as $fragment) {
+                    if (str_contains($name, $fragment)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
+     * Resolve the lower-cased key fragments to redact.
+     *
+     * @return list<string>
+     */
+    private function redactedCredentialFragments(): array
+    {
+        $fragments = [self::REDACTED_CREDENTIAL_FRAGMENT];
+
+        foreach (Config::array('authentication.events.redacted_credential_keys', []) as $fragment) {
+
+            if (!is_string($fragment) || $fragment === '') {
+                continue;
+            }
+
+            $fragments[] = strtolower($fragment);
+        }
+
+        return $fragments;
     }
 }

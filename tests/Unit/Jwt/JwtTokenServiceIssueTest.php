@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Unit\Jwt;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -174,5 +175,123 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
         self::assertSame('device-42', $claims[Claims::DEVICE_ID->value]);
         self::assertSame('opaque-rotation-id', $claims[Claims::JWT_ID->value]);
         self::assertSame('principal-3', $claims[Claims::PRINCIPAL_ID->value]);
+    }
+
+    /**
+     * Identifier values that cannot be written into a required claim: an
+     * unsaved model's `null`, the empty string `parse()` reads as missing, and
+     * values that are not scalar.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideUnusableIdentifiers(): iterable
+    {
+        yield from [
+            'null'         => [null],
+            'empty string' => [''],
+            'array'        => [['id' => 7]],
+            'object'       => [new \stdClass],
+        ];
+    }
+
+    /**
+     * An access token is not issued for an identity whose identifier cannot
+     * become the `sub` claim, since `parse()` would reject the token.
+     *
+     * @param  mixed  $identifier
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideUnusableIdentifiers')]
+    public function testIssueAccessTokenRefusesAnIdentityWithoutUsableIdentifier(mixed $identifier): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('without its `sub` claim');
+
+        $this->makeService()->issueAccessToken($this->mockIdentity($identifier), $this->mockPrincipal('principal-3'), null);
+    }
+
+    /**
+     * An access token is not issued for a principal whose identifier cannot
+     * become the `pid` claim, since `parse()` would reject the token.
+     *
+     * @param  mixed  $identifier
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideUnusableIdentifiers')]
+    public function testIssueAccessTokenRefusesAPrincipalWithoutUsableIdentifier(mixed $identifier): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('without its `pid` claim');
+
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal($identifier), null);
+    }
+
+    /**
+     * An access token issued with a device whose identifier cannot become the
+     * `did` claim is refused rather than silently issued as device-less.
+     *
+     * @param  mixed  $identifier
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideUnusableIdentifiers')]
+    public function testIssueAccessTokenRefusesADeviceWithoutUsableIdentifier(mixed $identifier): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('without its `did` claim');
+
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), $this->mockDevice($identifier));
+    }
+
+    /**
+     * A refresh token is not issued for a device whose identifier cannot become
+     * the `did` claim, since `parse()` would reject the token.
+     *
+     * @param  mixed  $identifier
+     * @return void
+     */
+    #[DataProvider('provideUnusableIdentifiers')]
+    public function testIssueRefreshTokenRefusesADeviceWithoutUsableIdentifier(mixed $identifier): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('without its `did` claim');
+
+        $this->makeService()->issueRefreshToken($this->mockDevice($identifier), 'opaque-rotation-id');
+    }
+
+    /**
+     * A refresh token issued with a principal whose identifier cannot become
+     * the `pid` claim is refused rather than silently issued without one, which
+     * would refresh into the default principal.
+     *
+     * @param  mixed  $identifier
+     * @return void
+     */
+    #[DataProvider('provideUnusableIdentifiers')]
+    public function testIssueRefreshTokenRefusesAPrincipalWithoutUsableIdentifier(mixed $identifier): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('without its `pid` claim');
+
+        $this->makeService()->issueRefreshToken($this->mockDevice('device-42'), 'opaque-rotation-id', $this->mockPrincipal($identifier));
+    }
+
+    /**
+     * A refresh token is not issued with an empty rotation id, which would
+     * leave the `jti` claim `parse()` requires empty.
+     *
+     * @return void
+     */
+    public function testIssueRefreshTokenRefusesAnEmptyRotationId(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('without its `jti` claim');
+
+        $this->makeService()->issueRefreshToken($this->mockDevice('device-42'), '');
     }
 }

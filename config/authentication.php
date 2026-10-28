@@ -46,6 +46,24 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Credential redaction in events
+    |---------------------------------------------------------------------------
+    |
+    | Laravel's `Attempting` and `Failed` events receive the credentials passed
+    | to a guard's `attempt()`, and any listener, queued job, or log can capture
+    | them. The guards remove every key whose name contains `password`
+    | (case-insensitive) before dispatching, always, and keep the rest, the
+    | identifier included, for throttling and audit listeners. List further
+    | key-name fragments to remove (for example `secret` or `code`) here.
+    |
+    */
+
+    'events' => [
+        'redacted_credential_keys' => [],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | JWT
     |---------------------------------------------------------------------------
     |
@@ -59,7 +77,9 @@ return [
     | its kid, and any kid in the map verifies. Signing is HMAC only:
     | `algorithm` must be HS256, HS384, or HS512, and every key must be at
     | least 32, 48, or 64 bytes respectively. Invalid signing material fails
-    | closed when a JWT guard or token service is resolved. `issuer`/`audience`
+    | closed when a JWT guard or token service is resolved. Every token carries
+    | a `grd` claim naming the guard that issued it, and a guard rejects tokens
+    | issued by any other guard, even with a shared key. `issuer`/`audience`
     | are optional; when set they are strictly verified on every parse.
     |
     */

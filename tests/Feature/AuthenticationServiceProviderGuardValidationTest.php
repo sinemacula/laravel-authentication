@@ -10,6 +10,7 @@ use Illuminate\Foundation\Application;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
@@ -76,8 +77,6 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
             'principal_resolver' => StubAlternateGuardScopedPrincipalResolver::class,
         ]);
 
-        // Exercise the guard's resolver by logging in with a stub identity and
-        // verifying the resolved principal is the scoped one.
         $identity         = new StubIdentity(['id' => 1]);
         $identity->exists = true;
         $guard->login($identity, $scopedPrincipal);
@@ -94,7 +93,6 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 
         $guard->setPrincipalResolver($replacementResolver);
 
-        // login() with the new resolver should now yield the replacement
         $guard->login($identity, $replacementPrincipal);
         self::assertSame($replacementPrincipal, $guard->principal());
     }
@@ -301,7 +299,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
      */
     private function mockPrincipal(string $id): Principal
     {
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn($id);
         $principal->shouldReceive('isActive')->andReturnTrue();
         $principal->shouldReceive('getTenant')->andReturnNull();

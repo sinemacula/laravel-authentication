@@ -142,10 +142,6 @@ final class DeviceModelOverrideTest extends TestCase
      */
     public function testGuardResolvesDeviceThroughCustomModelClass(): void
     {
-        // Arrange: persist a principal identity and a device row on the custom
-        // table, then build a refresh token whose `did` claim points at that
-        // row. The stored refresh_key is the SHA-256 digest of the plaintext
-        // rotation id; the token carries the plaintext in its `jti` claim.
         $principal = new StubPrincipal;
         $principal->forceFill(['is_active' => true])->save();
 
@@ -168,12 +164,8 @@ final class DeviceModelOverrideTest extends TestCase
 
         $guard = $this->makeJwtGuard();
 
-        // Act: exchange the refresh token via the guard's refresh() path, which
-        // reads the configured model class.
         $result = $guard->refresh($refreshToken);
 
-        // Assert: the refresh succeeded and the bound device is an instance of
-        // the overridden model class.
         self::assertInstanceOf(RefreshResult::class, $result);
         self::assertNotSame('', $result->accessToken);
         self::assertNotSame('', $result->refreshToken);
@@ -231,6 +223,7 @@ final class DeviceModelOverrideTest extends TestCase
         $events   = app(Dispatcher::class);
         $exchange = new RefreshTokenExchange(
             $tokens,
+            $provider,
             app(ConnectionResolverInterface::class),
             $events,
             $resolver,

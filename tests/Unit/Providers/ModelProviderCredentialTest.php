@@ -6,6 +6,7 @@ namespace Tests\Unit\Providers;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -64,6 +65,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)
@@ -91,6 +95,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)
@@ -118,6 +125,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)
@@ -144,6 +154,9 @@ final class ModelProviderCredentialTest extends TestCase
         $roles = ['admin', 'staff'];
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('whereIn')
             ->once()
             ->with('role', $roles)
@@ -165,6 +178,9 @@ final class ModelProviderCredentialTest extends TestCase
     public function testRetrieveByCredentialsInvokesClosureCredentialsAgainstQuery(): void
     {
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('flag', true)
@@ -200,6 +216,9 @@ final class ModelProviderCredentialTest extends TestCase
         $found = new StubAuthenticatableModel;
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
         $builder->shouldReceive('where')
             ->once()
             ->with('email', self::ALICE_EMAIL)
@@ -296,6 +315,26 @@ final class ModelProviderCredentialTest extends TestCase
             ->andReturnTrue();
 
         self::assertTrue($provider->validateCredentials($user, ['password' => 'plain']));
+    }
+
+    /**
+     * An account without a stored hash is rejected without asking the hasher,
+     * rather than failing on the missing hash.
+     *
+     * @return void
+     */
+    public function testValidateCredentialsReturnsFalseWhenStoredHashIsNull(): void
+    {
+        $provider = new ModelProvider($this->hasher, StubAuthenticatableModel::class);
+
+        $user = \Mockery::mock(Authenticatable::class);
+        $user->shouldReceive('getAuthPassword')
+            ->once()
+            ->andReturnNull();
+
+        $this->hasher->shouldNotReceive('check');
+
+        self::assertFalse($provider->validateCredentials($user, ['password' => 'plain']));
     }
 
     /**
@@ -426,6 +465,8 @@ final class ModelProviderCredentialTest extends TestCase
         $model = \Mockery::mock(StubAuthenticatableModel::class)->makePartial();
         $model->shouldReceive('newQuery')
             ->andReturn($builder);
+        $model->shouldReceive('getConnection')
+            ->andReturn($this->mockConnection());
         $model->shouldReceive('getAuthIdentifierName')
             ->andReturn('id');
 
@@ -462,5 +503,20 @@ final class ModelProviderCredentialTest extends TestCase
                 return $this->instance;
             }
         };
+    }
+
+    /**
+     * Build a database connection double the lookup pins to the write
+     * connection for its duration.
+     *
+     * @return \Illuminate\Database\Connection&\Mockery\MockInterface
+     */
+    private function mockConnection(): MockInterface
+    {
+        $connection = \Mockery::mock(Connection::class);
+        $connection->shouldReceive('useWriteConnectionWhenReading')
+            ->andReturnSelf();
+
+        return $connection;
     }
 }

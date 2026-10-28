@@ -41,9 +41,11 @@ device record live in the `devices` table so replay and stale credentials can be
 - **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
-- **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), strict `iss` / `aud` / `typ` / `exp` /
-  leeway enforcement, per-token `jti`, and fail-closed behaviour on empty or short keys, unsupported algorithms,
-  type confusion, and `pid` / `did` mismatches.
+- **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
+  issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, required claims per token type (`exp`, `iat`,
+  `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), and fail-closed
+  behaviour on empty or short keys, unsupported algorithms, type confusion, tokens from another guard, missing claims,
+  and `pid` / `did` mismatches.
 - **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
   machine-readable `RefreshFailed` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
@@ -62,6 +64,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/refresh-rotation-and-replay.md`
 - `docs/design/fail-closed-pid-did.md`
 - `docs/design/access-only-mode.md`
+- `docs/design/guard-bound-tokens.md`
 
 ## Installation
 
@@ -128,6 +131,18 @@ Register guards and providers in `config/auth.php` exactly as you would with any
 ],
 ```
 
+### Unauthenticated requests
+
+A guest on a route that only package guards protect (`auth:api`, or `auth` when the default guard is a package guard)
+gets `401` with `{"message": "Unauthenticated."}`, whatever its `Accept` header. The guards are stateless, so there
+is no login page to redirect to, and an API without a `login` route no longer answers browser-style requests with a
+server error. Laravel's own guards keep their guest redirect, and so does a route that also accepts one of them
+(`auth:web,api`).
+
+The package binds its `SineMacula\Laravel\Authentication\Http\Middleware\Authenticate` in place of Laravel's `auth`
+middleware and registers the `401` as an exception-handler render callback, after any your application registers for
+`AuthenticationException`. If your application aliases its own `auth` middleware, extend the package's class.
+
 ### Per-guard JWT configuration
 
 Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
@@ -157,11 +172,17 @@ entry; missing fields fall back to the defaults:
 ],
 ```
 
-Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. The `aud` claim on each issued token
-matches the guard that issued it, so tokens minted for one audience cannot authenticate against the other. Every
-field in the package `jwt` block is overridable (`keys`, `active_kid`, `algorithm`, `access_ttl_minutes`,
-`refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a
-guard that overrides `keys` should also set `active_kid` to a kid in its own map.
+Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
+guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
+authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
+audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the device's owner
+through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The device
+row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
+identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
+with `authenticatable_missing`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
+`algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and
+`active_kid` fall back independently: a guard that overrides `keys` should also set `active_kid` to a kid in its own
+map.
 
 ### Per-guard principal resolvers
 
@@ -197,6 +218,17 @@ or swap `device.model` entirely - custom models must implement the `EloquentDevi
 that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates
 the default names, so a model that renames a column needs its own migration.
 
+A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
+missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
+than when its access tokens expire. `ActsAsDevice` reads any stored value as a revocation, with or without a `datetime`
+cast on the column, and throws a `LogicException` when the device was loaded without that column (a `devices()` relation
+or a global scope that selects other columns), so a partial select is reported instead of being read as not revoked.
+
+Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
+ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
+treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`
+to describe it. Database errors are never read as an unknown device: they propagate as server errors.
+
 ### Credential validation timing
 
 `attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels:
@@ -208,6 +240,40 @@ the default names, so a model that renames a column needs its own migration.
 ```
 
 Must exceed the worst-case hasher cost.
+
+### Read replicas
+
+Every read that decides authentication - the identity, the principal and the tenant it acts within, and the device with
+its refresh digest and revocation state - goes to the write connection, even when the database connection has `read`
+and `write` hosts. A replica can lag behind a revocation, a deactivation, or a refresh rotation, and a lookup it served
+could admit a credential the primary has already rejected.
+
+The package pins the lookups it makes, including the relations the identity, principal and device models eager-load
+(`$with`), on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug
+in carries the same obligation:
+
+- a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
+  must read from the write connection, including the relations its results eager-load;
+- `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `devices()` and, when `ModelProvider` checks a password,
+  `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
+  `isActive()` for the model it belongs to, and a device's `getRevokedAt()` and `getRefreshKey()` for the device: every
+  model read made there, on any connection, goes to that connection's writer, and so does a query-builder read on the
+  model's own connection. A query-builder or `DB` read on another connection, or made by a principal or identity that
+  is not an Eloquent model, must pin itself.
+
+`WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
+queries that it does not reach, so run a lookup whose results load relations inside `during()`, which pins every
+connection a model resolves while its callback runs, plus the given model's own connection:
+
+```php
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
+
+// A query you build: route it to the write PDO, scoped to the identity.
+$membership = WriteConnection::query(Membership::query()->where('identity_id', $identity->getKey()))->find($hint);
+
+// Model reads on any connection, eager loads included, plus the identity's connection.
+$principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
+```
 
 ## Identity Models
 
@@ -260,6 +326,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
@@ -270,6 +337,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsTenant;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesTenantType;
 
 class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
@@ -292,11 +360,16 @@ class AppIdentity extends User implements Identity, HasDevices, HasPrincipals
     }
 }
 
-class AppMembership extends Model implements PrincipalContract
+class AppMembership extends Model implements CanBeActive, PrincipalContract
 {
-    use ActsAsPrincipal;
+    use ActsAsPrincipal, ProvidesActiveState;
 
     protected $fillable = ['identity_id', 'tenant_id', 'role', 'is_active'];
+
+    public function identity(): BelongsTo
+    {
+        return $this->belongsTo(AppIdentity::class, 'identity_id');
+    }
 
     public function tenant(): BelongsTo
     {
@@ -313,16 +386,20 @@ class AppTenant extends Model implements HasType, TenantContract
 With that shape:
 
 - `Auth::identity()` returns the `AppIdentity`.
-- `Auth::principal()` returns the `AppMembership` - resolved via `principals()->find($pid)` when the JWT carries
-  a `pid`, or via `resolveDefaultPrincipal()` otherwise.
+- `Auth::principal()` returns the `AppMembership` - resolved via `principals()->find($pid)` from the token's `pid`
+  (every access token carries one), or via `resolveDefaultPrincipal()` on sign-in and on a refresh token issued
+  without a principal.
 - `Auth::tenant()` returns the `AppTenant` the membership belongs to.
 - `Auth::type()` returns the tenant's type string, or `null` when `HasType` is absent.
+- A membership whose `is_active` is `false` cannot sign in, refresh, or authenticate a request (see
+  [Active-state enforcement](#active-state-enforcement)).
 
 Implement `ResolvesHintedPrincipal` on the identity to replace the default `principals()->find($hint)` lookup
 with a custom query - for example, joining the tenant row in one SQL so `Auth::tenant()` does not lazy-load.
 
 For domain-specific resolution (subdomain, header, session claim), implement `PrincipalResolver` and bind it in
-a service provider:
+a service provider. A hint can come from a caller pinning a principal on `attempt()`, so a custom resolver or
+`resolveHintedPrincipal()` must look the hint up among the identity's own principals only, never by the hint alone:
 
 ```php
 $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
@@ -330,8 +407,10 @@ $this->app->singleton(PrincipalResolver::class, MyTenantScopedResolver::class);
 
 ### Active-state enforcement
 
-When an identity model implements `CanBeActive`, the guard consults `isActive()` on every bearer, refresh, and
-credential path and rejects authentication when it returns `false`:
+Activation is opt-in. A model that does not implement `CanBeActive` is always active, so the 2D example above, on
+Laravel's default `users` table, signs in without an activation column. Implement `CanBeActive` on an identity or a
+principal to have the guard consult `isActive()` on every credential, bearer, and refresh path and reject
+authentication when it returns `false`:
 
 ```php
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -346,6 +425,37 @@ class AppUser extends User implements Identity, Principal, CanBeActive
     }
 }
 ```
+
+To read the flag from a column instead, implement `CanBeActive` and use the `ProvidesActiveState` trait, as
+`AppMembership` does above. The trait alone is never consulted: only models that implement `CanBeActive` are checked,
+and PHPStan reports a class that uses the trait without the interface. It reads `is_active` (override
+`getActiveAttributeName()` to use another column) and throws a `LogicException` when the model was loaded without that
+column, so a partial select is reported instead of being read as either active or inactive.
+
+A tenant opts in the same way. When the tenant a principal acts within implements `CanBeActive` and reports inactive,
+every principal in it is rejected on the same paths (refresh fails with `tenant_inactive`):
+
+```php
+class AppTenant extends Model implements CanBeActive, HasType, TenantContract
+{
+    use ActsAsTenant, ProvidesActiveState, ProvidesTenantType;
+}
+```
+
+A principal whose opted-in tenant cannot be loaded is rejected on the same paths: when the principal's `BelongsTo`
+tenant key names a `CanBeActive` tenant that is deleted, soft-deleted, or hidden by a scope,
+`ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive tenant,
+instead of returning `null` as if the principal acted within no tenant. The default model a `withDefault()` relation
+returns for such a missing row counts as missing too, rather than as a present tenant. A `Principal` that implements
+`getTenant()` itself should do the same. As with `ProvidesActiveState`, a principal loaded without the key of an
+opted-in tenant (a partial select) throws a `LogicException` rather than being read as acting within no tenant. A
+polymorphic (`MorphTo`) tenant relation names its model through its type column, so a principal loaded without that
+column throws a `LogicException` as well, and one whose type is empty while its key is set is rejected like a tenant
+that cannot be loaded. A tenant that does not implement `CanBeActive` is never checked, so a missing one reads as no
+tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
+
+Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
+resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
 
 ## Usage
 
@@ -363,6 +473,41 @@ Auth::device();         // Device|null     - the issuing device
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
 Auth::type();           // string|null     - the tenant's type when HasType is declared
 ```
+
+Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
+routes without `auth` middleware. A request is authenticated at most once, whether its token is accepted or rejected,
+and after `Auth::logout()` it stays signed out for the rest of the request. `Auth::tenant()` and `Auth::type()` throw a
+`TenantUnavailableException` for a principal whose opted-in tenant cannot be loaded, and a `LogicException` for one
+loaded without that tenant's key (or polymorphic type). Sign-in, bearer requests and refresh reject such a principal, so
+that only happens for one bound through `login()`, `setUser()` or `setPrincipal()`, which skip the activity check.
+
+`setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
+principal (and no device), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
+`login($identity, $principal, $device)` to bind a specific principal or a device. `actingAs()` binds the guard for code
+that runs in the test itself; it does not yet carry through an HTTP request the test sends through the kernel, such as
+`$this->actingAs($user, 'api')->getJson('/me')`, because each request rebinds the guard to its own request and starts
+the context over.
+
+Sign in with credentials through `attempt()`, optionally pinning the principal and device to act as:
+
+```php
+$guard->attempt(['email' => $email, 'password' => $password], $membership, $device);
+```
+
+The pins are verified rather than trusted, because they often come from request input: the principal must be one the
+resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
+identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
+(through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin that fails either check fails the
+attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and device
+you have already proven belong to the identity. `setPrincipal()` and `setDevice()` are trusted binds in the same way:
+they do not check ownership, activity or revocation, so a principal or device taken from request input (a header that
+switches the acting membership, say) must be verified first, as `attempt()` verifies its pins.
+
+Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
+`identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
+from the principal's own stored key, even when Eloquent's strict mode prevents lazy loading, ignoring any identity
+relation the resolver already set, and a principal whose owner cannot be read (no relation, or an owner that has been
+deleted) fails the attempt.
 
 Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
 
@@ -384,6 +529,11 @@ return [
     'refresh_token' => $rotated->refreshToken,
 ];
 ```
+
+A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
+token valid for a retry. After the commit, `refresh()` binds the new context and dispatches `Refreshed`; an exception
+from a listener on those events loses the new pair, and the presented token then fails with `rotation_mismatch`, so
+keep those listeners from throwing or queue them.
 
 ## Key Rotation
 
@@ -429,31 +579,46 @@ signed under it, which is also how to revoke a compromised key.
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
 
+The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
+(case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
+dispatched, and the identifier is kept for throttling and audit listeners. To remove more keys, list name fragments in
+the published config:
+
+```php
+'events' => [
+    'redacted_credential_keys' => ['secret', 'code'],
+],
+```
+
 `RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution:
 
 | Reason                    | Meaning                                              |
 |---------------------------|------------------------------------------------------|
-| `token_invalid`           | Decode, expiry, typ, iss, or aud failure             |
-| `device_unknown`          | Device id did not resolve                            |
+| `token_invalid`           | Decode, expiry, missing claim, typ, guard, iss, aud  |
+| `device_unknown`          | Device id is not a device key or names no device     |
 | `rotation_mismatch`       | Digest did not match the stored refresh key          |
 | `rotation_reuse`          | Replay or concurrent rotation; device revoked        |
 | `device_revoked`          | Device row marked revoked                            |
-| `authenticatable_missing` | Device authenticatable relation missing              |
+| `authenticatable_missing` | Guard's provider did not return the device owner     |
 | `identity_inactive`       | Resolved identity reported inactive                  |
 | `principal_unresolved`    | Principal resolver returned null                     |
 | `principal_mismatch`      | Resolved principal does not match refresh token hint |
 | `principal_inactive`      | Resolved principal reported inactive                 |
+| `tenant_inactive`         | Principal's tenant inactive, or opted in and missing |
 
 ## Extensibility
 
-All concrete classes in this package are `final`. Extension is through **composition and DI**, not inheritance:
+Concrete classes in this package are `final` except `AuthManager` (the package's subclass of Laravel's manager), the
+shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
+inheritance:
 
 | Extension point                   | How                                                                    |
 |-----------------------------------|------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces) |
 | Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait               |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally              |
-| Custom identity retrieval         | Subclass `ModelProvider` (the one non-final service)                   |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                   |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                    |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                      |
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.

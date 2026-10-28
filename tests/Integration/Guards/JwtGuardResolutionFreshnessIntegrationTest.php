@@ -243,7 +243,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
 
     /**
      * The bearer path must resolve principals against the current resolver
-     * policy on a fresh request.
+     * policy on a fresh request: once the resolver stops mapping the token's
+     * `pid` to that principal, the same token is rejected.
      *
      * @return void
      *
@@ -253,10 +254,11 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity('resolver-change@example.test');
 
-        $this->resolver()->setDefaultPrincipal(new PlainPrincipalFixture('staff-actor', $identity));
+        $this->resolver()->setHintedPrincipal('staff-actor', new PlainPrincipalFixture('staff-actor', $identity));
 
         $token = $this->encodeAccessToken([
             'sub' => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'pid' => 'staff-actor',
             'iat' => time(),
             'exp' => time() + 600,
         ]);
@@ -266,12 +268,9 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         self::assertTrue($firstGuard->check());
         self::assertSame('staff-actor', $firstGuard->principal()?->getPrincipalIdentifier());
 
-        $this->resolver()->setDefaultPrincipal(new PlainPrincipalFixture('customer-actor', $identity));
+        $this->resolver()->setHintedPrincipal('staff-actor', new PlainPrincipalFixture('customer-actor', $identity));
 
-        $secondGuard = $this->guardForBearer($token);
-
-        self::assertTrue($secondGuard->check());
-        self::assertSame('customer-actor', $secondGuard->principal()?->getPrincipalIdentifier());
+        self::assertFalse($this->guardForBearer($token)->check());
     }
 
     /**
@@ -408,7 +407,10 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
     private function encodeAccessToken(array $claims): string
     {
         return JWT::encode(
-            array_merge($claims, [Claims::TYPE->value => TokenType::ACCESS->value]),
+            array_merge([Claims::JWT_ID->value => 'access-token-id'], $claims, [
+                Claims::TYPE->value  => TokenType::ACCESS->value,
+                Claims::GUARD->value => self::GUARD,
+            ]),
             self::JWT_SECRET,
             'HS256',
             self::JWT_KID,

@@ -8,10 +8,10 @@ namespace SineMacula\Laravel\Authentication\Resolvers;
  * Thrown by `DefaultPrincipalResolver::resolve()` when the identity implements
  * neither `Principal` nor `HasPrincipals`.
  *
- * Programmer-error signal: the identity model is misconfigured. Guards catch
- * this inside the auth flow and convert it into a standard `Failed` event so
- * the request surfaces as 401, but the typed exception is preserved for error
- * reporters.
+ * Programmer-error signal: the identity model is misconfigured. Guards and the
+ * refresh exchange let it propagate on every path (credential attempts, bearer
+ * resolution and refresh), so it surfaces as a server error and reaches error
+ * reporters instead of being reported as a failed authentication.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

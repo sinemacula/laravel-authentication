@@ -82,4 +82,38 @@ final class StubCredentialGuard extends AbstractGuard
     {
         return $this->timeboxMicroseconds();
     }
+
+    /**
+     * Redact credentials through the inherited `redactCredentials()` hook.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function redact(#[\SensitiveParameter] array $credentials): array
+    {
+        return $this->redactCredentials($credentials);
+    }
+
+    /**
+     * Fire `Attempting` through the inherited `fireAttemptingEvent()` hook.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return void
+     */
+    public function announceAttempting(#[\SensitiveParameter] array $credentials): void
+    {
+        $this->fireAttemptingEvent($credentials);
+    }
+
+    /**
+     * Fire `Failed` through the inherited `fireFailedEvent()` hook.
+     *
+     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  array<string, mixed>  $credentials
+     * @return void
+     */
+    public function announceFailed(?Authenticatable $user, #[\SensitiveParameter] array $credentials): void
+    {
+        $this->fireFailedEvent($user, $credentials);
+    }
 }

@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Stubs;
 
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -18,7 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
  *
  * @internal
  */
-final readonly class PlainPrincipalFixture implements Principal
+final readonly class PlainPrincipalFixture implements CanBeActive, Principal
 {
     /**
      * Constructor.

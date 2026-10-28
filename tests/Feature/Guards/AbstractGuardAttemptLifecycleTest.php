@@ -5,11 +5,15 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Feature tests for the timebox budget, lifecycle state management, and
@@ -237,7 +241,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        // First login binds identity, principal, and device.
         $guard->login($identity1, $principal1, $device1);
 
         self::assertSame($device1, $guard->device());
@@ -245,7 +248,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         $identity2  = $this->mockIdentity();
         $principal2 = $this->mockActivePrincipal();
 
-        // Second login without a device must NOT carry over device1.
         $guard->login($identity2, $principal2);
 
         self::assertNull($guard->device());
@@ -293,22 +295,24 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * `attempt()` accepts an explicit `Principal` argument and uses it directly
-     * instead of invoking the resolver. Pins the `$principal ??
-     * $this->safeResolvePrincipal(...)` short-circuit - a mutation that swaps
-     * `??` for `?:` would still pass when the caller-provided principal is
-     * truthy, so we use a fresh mock the resolver MUST NOT touch.
+     * `attempt()` resolves an explicit `Principal` argument through the
+     * resolver's hinted path instead of the default principal, and binds the
+     * resolver's instance.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAttemptUsesExplicitPrincipalArgumentWithoutInvokingResolver(): void
+    public function testAttemptResolvesExplicitPrincipalThroughTheHintedPath(): void
     {
         $guard = $this->makeGuard();
 
         $identity = $this->mockIdentity();
+        $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
+
         $explicit = $this->mockActivePrincipal();
+        $explicit->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $explicit->shouldReceive('getIdentity')->andReturn($identity);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()
@@ -317,9 +321,10 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
             ->once()
             ->andReturnTrue();
 
-        // The resolver MUST NOT be called when an explicit principal is
-        // supplied.
-        $this->resolver->shouldNotReceive('resolve');
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($explicit);
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
@@ -335,8 +340,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
 
     /**
      * `attempt()` fires `DeviceAuthenticated` exactly once when an explicit
-     * `Device` argument is supplied. Pins the `setDevice` call inside
-     * `bindAuthenticationLifecycle` for the non-null device branch.
+     * `Device` argument the identity owns is supplied. Pins the `setDevice`
+     * call inside `bindAuthenticationLifecycle` for the non-null device branch.
      *
      * @return void
      *
@@ -346,9 +351,21 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $identity  = $this->mockIdentity();
+        $deviceId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+
+        $device = \Mockery::mock(Device::class);
+        $device->shouldReceive('getDeviceIdentifier')->andReturn($deviceId);
+        $device->shouldReceive('getRevokedAt')->andReturnNull();
+
+        $devices = \Mockery::mock(Builder::class);
+        $devices->shouldReceive('useWritePdo')->once()->andReturnSelf();
+        $devices->shouldReceive('getModel')->andReturn(new StubDevice);
+        $devices->shouldReceive('find')->once()->with($deviceId)->andReturn($device);
+
+        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity->shouldReceive('devices')->andReturn($devices);
+
         $principal = $this->mockActivePrincipal();
-        $device    = \Mockery::mock(Device::class);
 
         $this->provider->shouldReceive('retrieveByCredentials')
             ->once()

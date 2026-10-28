@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
@@ -163,27 +164,38 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
     }
 
     /**
-     * setUser() binds the identity and fires the Authenticated event.
+     * setUser() binds the identity with its default principal and fires
+     * Authenticated then PrincipalAssigned, without Login.
      *
      * @return void
      */
-    public function testSetUserBindsIdentityAndFiresAuthenticatedEvent(): void
+    public function testSetUserBindsIdentityWithDefaultPrincipalAndFiresEvents(): void
     {
         $guard = $this->makeGuard();
 
-        $identity = $this->mockIdentity();
+        $identity  = $this->mockIdentity();
+        $principal = \Mockery::mock(Principal::class);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
+
+        $dispatched = [];
 
         $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof Authenticated
-                    && $event->guard === self::GUARD_NAME
-                    && $event->user  === $identity),
-            );
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event;
+            });
 
-        $guard->setUser($identity);
+        self::assertSame($guard, $guard->setUser($identity));
 
         self::assertSame($identity, $guard->user());
+        self::assertSame($principal, $guard->principal());
+        self::assertSame([Authenticated::class, PrincipalAssigned::class], array_map(static fn (object $event): string => $event::class, $dispatched));
+        self::assertInstanceOf(Authenticated::class, $dispatched[0]);
+        self::assertSame(self::GUARD_NAME, $dispatched[0]->guard);
+        self::assertSame($identity, $dispatched[0]->user);
     }
 
     /**

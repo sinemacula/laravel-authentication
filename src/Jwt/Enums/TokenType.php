@@ -9,7 +9,8 @@ namespace SineMacula\Laravel\Authentication\Jwt\Enums;
  *
  * Backed enum distinguishing access tokens from refresh tokens. Used as the
  * `typ` claim value and as the type-safe parameter for
- * `JwtTokenService::parse()` so callers cannot pass a typo'd string.
+ * `JwtTokenService::parse()` so callers cannot pass a typo'd string, and owns
+ * the set of claims each type must carry.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -18,4 +19,20 @@ enum TokenType: string
 {
     case ACCESS  = 'access';
     case REFRESH = 'refresh';
+
+    /**
+     * Claims a token of this type must carry with a non-empty value; an access
+     * token's `did` stays optional for access-only mode.
+     *
+     * @return list<\SineMacula\Laravel\Authentication\Jwt\Enums\Claims>
+     */
+    public function requiredClaims(): array
+    {
+        $common = [Claims::EXPIRES_AT, Claims::ISSUED_AT, Claims::JWT_ID, Claims::TYPE, Claims::GUARD];
+
+        return match ($this) {
+            self::ACCESS  => [...$common, Claims::SUBJECT, Claims::PRINCIPAL_ID],
+            self::REFRESH => [...$common, Claims::DEVICE_ID],
+        };
+    }
 }

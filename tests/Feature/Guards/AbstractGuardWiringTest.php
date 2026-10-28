@@ -7,7 +7,9 @@ namespace Tests\Feature\Guards;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Contracts\Events\Dispatcher;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
 /**
@@ -40,13 +42,21 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $replacement = \Mockery::mock(Dispatcher::class);
 
-        $identity = $this->mockIdentity();
+        $identity  = $this->mockIdentity();
+        $principal = \Mockery::mock(Principal::class);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity)
+            ->andReturn($principal);
 
         $replacement->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::type(Authenticated::class));
+        $replacement->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(PrincipalAssigned::class));
 
-        // The original dispatcher must NOT receive the event.
         $this->events->shouldNotReceive('dispatch');
 
         self::assertSame($guard, $guard->setDispatcher($replacement));
@@ -76,7 +86,6 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
             ->with($identity)
             ->andReturn($principal);
 
-        // The original resolver must NOT be called.
         $this->resolver->shouldNotReceive('resolve');
 
         $this->provider->shouldReceive('retrieveByCredentials')
@@ -110,7 +119,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->setUser($identity);
+        $guard->login($identity, \Mockery::mock(Principal::class));
 
         self::assertNull($guard->id());
     }
@@ -131,7 +140,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->setUser($identity);
+        $guard->login($identity, \Mockery::mock(Principal::class));
 
         self::assertSame('user-42', $guard->id());
     }
@@ -153,7 +162,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->setUser($identity);
+        $guard->login($identity, \Mockery::mock(Principal::class));
 
         self::assertSame(0, $guard->id());
     }
@@ -174,7 +183,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->setUser($identity);
+        $guard->login($identity, \Mockery::mock(Principal::class));
 
         self::assertSame('0', $guard->id());
     }
@@ -195,7 +204,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->setUser($identity);
+        $guard->login($identity, \Mockery::mock(Principal::class));
 
         self::assertNull($guard->id());
     }
@@ -216,7 +225,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->setUser($identity);
+        $guard->login($identity, \Mockery::mock(Principal::class));
 
         self::assertNull($guard->id());
     }
@@ -237,7 +246,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->setUser($identity);
+        $guard->login($identity, \Mockery::mock(Principal::class));
 
         self::assertNull($guard->id());
     }
@@ -261,7 +270,6 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
             ->andReturnNull();
         $this->provider->shouldNotReceive('validateCredentials');
 
-        // No `Validated` event should fire on the failure path.
         $this->events->shouldNotReceive('dispatch');
 
         self::assertFalse($guard->validate(['email' => 'ghost@example.test']));

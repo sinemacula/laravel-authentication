@@ -142,7 +142,7 @@ final class JwtGuardBenchHarness
 
         $hasher = new BcryptHasher;
 
-        $this->tokens  = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 15, 60 * 24 * 30);
+        $this->tokens  = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 'api', 15, 60 * 24 * 30);
         $this->timebox = new Timebox;
 
         $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
@@ -504,6 +504,7 @@ final class JwtGuardBenchHarness
     {
         $exchange = new RefreshTokenExchange(
             $this->tokens,
+            $provider,
             BenchDatabase::connectionResolver(),
             $this->events,
             $this->resolver,

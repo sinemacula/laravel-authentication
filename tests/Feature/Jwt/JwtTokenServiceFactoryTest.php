@@ -158,7 +158,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $service = $manager->jwt('staff');
         $token   = $this->issueAccessToken($service);
 
-        $verifier = $this->makeVerifier([self::STAFF_KID => self::STAFF_SECRET], 'staff-api');
+        $verifier = $this->makeVerifier('staff', [self::STAFF_KID => self::STAFF_SECRET], 'staff-api');
         $claims   = $verifier->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
@@ -178,14 +178,13 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $service = PackageAuth::jwt('customer');
         $token   = $this->issueAccessToken($service);
 
-        $verifier = $this->makeVerifier([self::CUSTOMER_KID => self::CUSTOMER_SECRET], 'customer-api');
+        $verifier = $this->makeVerifier('customer', [self::CUSTOMER_KID => self::CUSTOMER_SECRET], 'customer-api');
         $claims   = $verifier->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
         self::assertSame('customer-api', $claims[Claims::AUDIENCE->value]);
 
-        // Token must NOT be parseable with the staff secret.
-        $wrongVerifier = $this->makeVerifier([self::CUSTOMER_KID => self::STAFF_SECRET], 'customer-api');
+        $wrongVerifier = $this->makeVerifier('customer', [self::CUSTOMER_KID => self::STAFF_SECRET], 'customer-api');
         self::assertNull($wrongVerifier->parse($token, TokenType::ACCESS));
     }
 
@@ -205,7 +204,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         $service = PackageAuth::jwt('package_default');
         $token   = $this->issueAccessToken($service);
 
-        $verifier = $this->makeVerifier([self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
+        $verifier = $this->makeVerifier('package_default', [self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
         $claims   = $verifier->parse($token, TokenType::ACCESS);
 
         self::assertNotNull($claims);
@@ -236,14 +235,10 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         self::assertSame(self::KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
 
-        // The token must be parseable by the same service (which accepts both
-        // the new and old kid for verification).
         $claims = $service->parse($token, TokenType::ACCESS);
         self::assertNotNull($claims);
 
-        // A standalone service with only the new kid's secret must also parse
-        // the token.
-        $newKeyVerifier = $this->makeVerifier([self::KID_NEW => self::KID_NEW_SECRET]);
+        $newKeyVerifier = $this->makeVerifier('rotating', [self::KID_NEW => self::KID_NEW_SECRET]);
         self::assertNotNull($newKeyVerifier->parse($token, TokenType::ACCESS));
     }
 
@@ -271,7 +266,6 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         self::assertNotNull($service);
 
-        // Parsing a malformed token triggers the decode-failure debug log.
         $service->parse('not-a-valid-jwt');
     }
 
@@ -359,7 +353,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
         self::assertNotNull($service->parse($token, TokenType::ACCESS));
 
         $oldToken = $this->issueAccessToken(
-            $this->makeVerifier([self::NUMERIC_KID_OLD => self::KID_OLD_SECRET], 'package-default-audience'),
+            $this->makeVerifier('numeric_kids', [self::NUMERIC_KID_OLD => self::KID_OLD_SECRET], 'package-default-audience'),
         );
 
         self::assertSame(self::NUMERIC_KID_OLD, $this->jwtHeader($oldToken)['kid'] ?? null);
@@ -482,8 +476,8 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken(PackageAuth::jwt('active_kid_only'));
 
-        $newKeyVerifier   = $this->makeVerifier([self::KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
-        $wrongKeyVerifier = $this->makeVerifier([self::KID_NEW => self::PACKAGE_SECRET], 'package-default-audience');
+        $newKeyVerifier   = $this->makeVerifier('active_kid_only', [self::KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
+        $wrongKeyVerifier = $this->makeVerifier('active_kid_only', [self::KID_NEW => self::PACKAGE_SECRET], 'package-default-audience');
 
         self::assertNotNull($newKeyVerifier->parse($token, TokenType::ACCESS));
         self::assertNull($wrongKeyVerifier->parse($token, TokenType::ACCESS));
@@ -515,7 +509,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken(PackageAuth::jwt('integer_active_kid'));
 
-        $verifier = $this->makeVerifier([self::NUMERIC_KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
+        $verifier = $this->makeVerifier('integer_active_kid', [self::NUMERIC_KID_NEW => self::KID_NEW_SECRET], 'package-default-audience');
 
         self::assertSame(self::NUMERIC_KID_NEW, $this->jwtHeader($token)['kid'] ?? null);
         self::assertNotNull($verifier->parse($token, TokenType::ACCESS));
@@ -559,7 +553,7 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
         $token = $this->issueAccessToken(PackageAuth::jwt('null_active_kid'));
 
-        $verifier = $this->makeVerifier([self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
+        $verifier = $this->makeVerifier('null_active_kid', [self::PACKAGE_KID => self::PACKAGE_SECRET], 'package-default-audience');
 
         self::assertSame(self::PACKAGE_KID, $this->jwtHeader($token)['kid'] ?? null);
         self::assertNotNull($verifier->parse($token, TokenType::ACCESS));
@@ -861,17 +855,19 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
-     * Build a standalone verifier over the supplied key map, using its first
-     * kid as the active kid.
+     * Build a standalone verifier for the named guard over the supplied key
+     * map, using its first kid as the active kid.
      *
+     * @param  string  $guard
      * @param  array<string, string>  $keys
      * @param  ?string  $audience
      * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
      */
-    private function makeVerifier(#[\SensitiveParameter] array $keys, ?string $audience = null): JwtTokenService
+    private function makeVerifier(string $guard, #[\SensitiveParameter] array $keys, ?string $audience = null): JwtTokenService
     {
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, (string) array_key_first($keys), 'HS256'),
+            $guard,
             15,
             60 * 24 * 30,
             30,

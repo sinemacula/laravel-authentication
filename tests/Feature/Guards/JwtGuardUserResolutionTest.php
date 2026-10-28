@@ -11,13 +11,18 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -35,6 +40,12 @@ use Tests\Unit\Stubs\StubIdentity;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 {
+    /** @var string Well-formed id of the device the token names. */
+    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
+
+    /** @var string Well-formed id that names no stored device. */
+    private const string MISSING_DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f71';
+
     /**
      * A request with no Authorization header returns null from `user()` without
      * firing Attempting or Failed (there is nothing to attempt).
@@ -56,7 +67,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     /**
      * A request whose `Authorization: Bearer` header carries an empty string
      * token returns null without firing any events. Mutation guard: pins the
-     * `$token === ''` arm in `user()` separately from the `null` arm above.
+     * `$token === ''` arm in `JwtGuard::resolveUserFromRequest()` separately
+     * from the `null` arm above.
      *
      * @return void
      *
@@ -98,6 +110,39 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * A rejected token is attempted once per request: repeated `user()`,
+     * `check()` and accessor calls neither re-run the lookups nor re-fire
+     * `Attempting` and `Failed`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserAttemptsARejectedTokenOncePerRequest(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-missing', 'pid' => 'p-1']);
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-missing')
+            ->andReturnNull();
+
+        self::assertNull($guard->user());
+        self::assertNull($guard->user());
+        self::assertFalse($guard->check());
+        self::assertNull($guard->principal());
+        self::assertSame([Attempting::class, Failed::class], $dispatched);
+    }
+
+    /**
      * A token whose claims array lacks `sub` fires Attempting+Failed and
      * returns null.
      *
@@ -125,6 +170,34 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * An access token without `pid` is rejected before any lookup, instead of
+     * falling back to the resolver's default principal.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserRejectsTokenWithoutPrincipalClaimInsteadOfUsingTheDefault(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event::class;
+            });
+
+        $this->provider->shouldNotReceive('retrieveById');
+        $this->resolver->shouldNotReceive('resolve');
+
+        self::assertNull($guard->user());
+        self::assertSame([Attempting::class, Failed::class], $dispatched);
+    }
+
+    /**
      * When `retrieveById()` returns null, `user()` returns null.
      *
      * @return void
@@ -133,7 +206,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenIdentityNotFound(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -162,7 +235,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenResolvedUserIsNotIdentity(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -192,7 +265,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenResolverProducesNoPrincipal(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -205,7 +278,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->resolver->shouldReceive('resolve')
             ->once()
-            ->with($identity)
+            ->with($identity, 'p-1')
             ->andReturnNull();
 
         $this->events->shouldReceive('dispatch')
@@ -232,7 +305,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $identity = \Mockery::mock(Identity::class);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -258,6 +331,130 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * The resolver's `UnresolvableIdentityException` is a misconfiguration: it
+     * propagates out of `user()` as a server error instead of being reported as
+     * a `Failed` bearer attempt.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserPropagatesUnresolvableIdentityException(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity  = \Mockery::mock(Identity::class);
+        $exception = new UnresolvableIdentityException('cannot resolve');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andThrow($exception);
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldNotReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
+
+        try {
+            $guard->user();
+            self::fail('Expected the UnresolvableIdentityException to propagate.');
+        } catch (UnresolvableIdentityException $caught) {
+            self::assertSame($exception, $caught);
+        }
+    }
+
+    /**
+     * A principal acting within a `CanBeActive` tenant that reports inactive is
+     * rejected by `user()`.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserReturnsNullWhenPrincipalTenantIsInactive(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $tenant = \Mockery::mock(Tenant::class, CanBeActive::class);
+        $tenant->shouldReceive('isActive')->once()->andReturnFalse();
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('getTenant')
+            ->once()
+            ->andReturn($tenant);
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(Failed::class));
+
+        self::assertNull($guard->user());
+    }
+
+    /**
+     * Activation is opt-in: a principal that does not implement `CanBeActive`
+     * is bound without consulting any active flag.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserBindsPrincipalWithoutActivationCapability(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $identity = \Mockery::mock(Identity::class);
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch');
+
+        self::assertSame($identity, $guard->user());
+        self::assertSame($principal, $guard->principal());
+    }
+
+    /**
      * A `CanBeActive` identity reporting `false` is rejected by `user()` after
      * `retrieveById()` returns it.
      *
@@ -267,7 +464,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserReturnsNullWhenIdentityIsInactive(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1']);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
@@ -415,8 +612,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      * Fail-closed: when the resolver returns a principal whose identifier
      * stringifies to `null` (e.g. an unsaved Eloquent model returned from a
      * misbehaving custom resolver), the guard MUST reject the token rather than
-     * bind a transient actor. Pins the `$resolvedId !== null` arm of
-     * `matchesPidHint()`.
+     * bind a transient actor. Pins the fail-closed `null` arm of
+     * `IdentifierCoercion::matches()`.
      *
      * @return void
      *
@@ -463,14 +660,20 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-missing']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_DEVICE_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->once()
-            ->with('d-missing')
+            ->with(self::MISSING_DEVICE_ID)
             ->andReturnNull();
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
@@ -479,7 +682,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->once()
             ->andReturn($builder);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -505,6 +709,296 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     }
 
     /**
+     * Fail-closed: a `did` naming a revoked device is rejected exactly like a
+     * missing device, from the single lookup that loaded it, and `Failed` names
+     * the resolved identity.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserRejectsTokenWhenDidHintNamesRevokedDevice(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $device = new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => $this->now]);
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andReturn($device);
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
+                $dispatched[] = $event;
+            });
+
+        self::assertNull($guard->user());
+        self::assertNull($guard->device());
+        self::assertSame([Attempting::class, Failed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
+        self::assertInstanceOf(Failed::class, $dispatched[1]);
+        self::assertSame($identity, $dispatched[1]->user);
+    }
+
+    /**
+     * A `did` naming a device loaded without its revocation column is reported
+     * as a misconfiguration rather than read as "not revoked", so no user is
+     * bound.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserReportsDidHintNamingDeviceLoadedWithoutItsRevocation(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')->andReturnSelf();
+        $builder->shouldReceive('getModel')->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andReturn(new StubDevice(['id' => self::DEVICE_ID]));
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->with($identity, 'p-1')->andReturn($principal);
+        $this->events->shouldReceive('dispatch');
+
+        try {
+            $guard->user();
+
+            self::fail('The unloaded revocation column should have been reported.');
+        } catch (\LogicException $exception) {
+            self::assertStringContainsString('its `revoked_at` attribute is not loaded', $exception->getMessage());
+        }
+
+        self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * The identity's devices relation is built while reads are pinned to the
+     * write connection, so a relation that queries while it is built cannot
+     * read a lagging replica.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserBuildsTheDevicesRelationWithReadsPinnedToTheWriteConnection(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')->andReturnSelf();
+        $builder->shouldReceive('getModel')->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->with(self::DEVICE_ID)
+            ->andReturn(new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => null]));
+
+        $resolvers = [];
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturnUsing(static function () use ($builder, &$resolvers): Builder {
+                $resolvers[] = Model::getConnectionResolver();
+
+                return $builder;
+            });
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->with($identity, 'p-1')->andReturn($principal);
+        $this->events->shouldReceive('dispatch');
+
+        self::assertNotNull($guard->user());
+        self::assertSame($identity, $guard->identity());
+        self::assertCount(1, $resolvers);
+        self::assertInstanceOf(PinningConnectionResolver::class, $resolvers[0]);
+        self::assertNotInstanceOf(PinningConnectionResolver::class, Model::getConnectionResolver());
+    }
+
+    /**
+     * A `did` that cannot be a key of the identity's device model is rejected
+     * without querying the devices relation, and `Failed` still names the
+     * resolved identity.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserRejectsMalformedDidHintWithoutQueryingDevices(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'not-a-uuid']);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
+        $builder->shouldNotReceive('find');
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $failedEvent = null;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
+                if (!$event instanceof Failed) {
+                    return;
+                }
+
+                $failedEvent = $event;
+            });
+
+        self::assertNull($guard->user());
+        self::assertInstanceOf(Failed::class, $failedEvent);
+        self::assertSame($identity, $failedEvent->user);
+    }
+
+    /**
+     * A database error while looking up a well-formed `did` propagates as a
+     * server error instead of reading as a missing device.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserPropagatesDatabaseErrorFromDeviceLookup(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $failure = new QueryException('testing', 'select', [], new \PDOException('server has gone away'));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
+        $builder->shouldReceive('find')
+            ->once()
+            ->with(self::DEVICE_ID)
+            ->andThrow($failure);
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')
+            ->once()
+            ->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')
+            ->once()
+            ->with('i-1')
+            ->andReturn($identity);
+
+        $this->resolver->shouldReceive('resolve')
+            ->once()
+            ->with($identity, 'p-1')
+            ->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(Attempting::class));
+        $this->events->shouldNotReceive('dispatch')
+            ->with(\Mockery::type(Failed::class));
+
+        $this->expectExceptionObject($failure);
+
+        $guard->user();
+    }
+
+    /**
      * When the `did` fail-closed branch rejects a token after `sub` already
      * resolved, the `Failed` event carries that resolved identity for
      * attribution.
@@ -515,14 +1009,20 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-missing']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_DEVICE_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->once()
-            ->with('d-missing')
+            ->with(self::MISSING_DEVICE_ID)
             ->andReturnNull();
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
@@ -531,7 +1031,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->once()
             ->andReturn($builder);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -576,16 +1077,22 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserBindsIdentityPrincipalAndDeviceFromValidToken(): void
     {
-        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => 'd-1']);
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $device = new StubDevice(['id' => 'd-1']);
+        $device = new StubDevice(['id' => self::DEVICE_ID, 'revoked_at' => null]);
 
         $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')
+            ->once()
+            ->andReturnSelf();
+        $builder->shouldReceive('getModel')
+            ->once()
+            ->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->once()
-            ->with('d-1')
+            ->with(self::DEVICE_ID)
             ->andReturn($device);
 
         /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
@@ -594,7 +1101,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->once()
             ->andReturn($builder);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')
@@ -658,7 +1166,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $identity = \Mockery::mock(Identity::class);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('isActive')

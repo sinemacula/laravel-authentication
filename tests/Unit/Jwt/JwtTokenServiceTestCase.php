@@ -37,6 +37,9 @@ abstract class JwtTokenServiceTestCase extends TestCase
     /** @var string Kid the shared secret is registered under. */
     protected const string KID = 'test-kid';
 
+    /** @var string Guard the test services are bound to. */
+    protected const string GUARD = 'api';
+
     /** @var string HMAC algorithm used by the service under test. */
     protected const string ALGORITHM = 'HS256';
 
@@ -107,6 +110,7 @@ abstract class JwtTokenServiceTestCase extends TestCase
     {
         return new JwtTokenService(
             $this->makeKeyring(),
+            self::GUARD,
             self::ACCESS_TTL_MINUTES,
             self::REFRESH_TTL_MINUTES,
         );
@@ -128,10 +132,10 @@ abstract class JwtTokenServiceTestCase extends TestCase
      * Build an Identity mock whose getAuthIdentifier() returns the supplied
      * value.
      *
-     * @param  string  $id
+     * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity
      */
-    protected function mockIdentity(string $id): Identity
+    protected function mockIdentity(mixed $id): Identity
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Identity $identity */
         $identity = \Mockery::mock(Identity::class);
@@ -145,10 +149,10 @@ abstract class JwtTokenServiceTestCase extends TestCase
      * Build a Principal mock whose getPrincipalIdentifier() returns the
      * supplied value.
      *
-     * @param  string  $id
+     * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Principal
      */
-    protected function mockPrincipal(string $id): Principal
+    protected function mockPrincipal(mixed $id): Principal
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
         $principal = \Mockery::mock(Principal::class);
@@ -162,10 +166,10 @@ abstract class JwtTokenServiceTestCase extends TestCase
      * Build a Device mock whose getDeviceIdentifier() returns the supplied
      * value.
      *
-     * @param  string  $id
+     * @param  mixed  $id
      * @return \SineMacula\Laravel\Authentication\Contracts\Device
      */
-    protected function mockDevice(string $id): Device
+    protected function mockDevice(mixed $id): Device
     {
         /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device $device */
         $device = \Mockery::mock(Device::class);

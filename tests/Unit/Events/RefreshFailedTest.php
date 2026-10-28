@@ -65,5 +65,6 @@ final class RefreshFailedTest extends TestCase
         self::assertSame('principal_unresolved', RefreshFailureReason::PRINCIPAL_UNRESOLVED->value);
         self::assertSame('principal_mismatch', RefreshFailureReason::PRINCIPAL_MISMATCH->value);
         self::assertSame('principal_inactive', RefreshFailureReason::PRINCIPAL_INACTIVE->value);
+        self::assertSame('tenant_inactive', RefreshFailureReason::TENANT_INACTIVE->value);
     }
 }

@@ -11,7 +11,6 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
-use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -20,7 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
-use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
+use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 
 /**
  * Abstract base for the package's stateless contextual guards.
@@ -31,17 +30,21 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
  * `attempt()`/`login()` to bind the resolved context.
  *
  * Contextual binding is composed via `BindsContextualState`;
- * credential-validation primitives via `ValidatesGuardCredentials`.
+ * credential-validation primitives via `ValidatesGuardCredentials`; ownership
+ * checks for principal hints and pinned context via `VerifiesPinnedContext`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 abstract class AbstractGuard implements ContextualGuard
 {
-    use BindsContextualState, ValidatesGuardCredentials;
+    use BindsContextualState, ValidatesGuardCredentials, VerifiesPinnedContext;
 
     /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
+
+    /** @var bool Whether the current request is settled: resolved, successfully or not, or signed out. */
+    protected bool $requestResolved = false;
 
     /**
      * Constructor.
@@ -75,9 +78,12 @@ abstract class AbstractGuard implements ContextualGuard
     ) {}
 
     /**
-     * Determine if the current request has no authenticated identity.
+     * Determine if the current request has no authenticated identity, resolving
+     * the request on first access.
      *
      * @return bool
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      *
      * @imperative
      */
@@ -88,9 +94,12 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Determine if the current request has an authenticated identity.
+     * Determine if the current request has an authenticated identity, resolving
+     * the request on first access.
      *
      * @return bool
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      *
      * @imperative
      */
@@ -101,25 +110,48 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Return the authenticated identity bound to the guard, if any.
+     * Return the authenticated identity, resolving it from the current request
+     * on first access.
+     *
+     * Resolution runs at most once per request, whether it succeeds or fails,
+     * so a bad credential is not re-parsed, re-queried, or re-reported on every
+     * call. After `logout()` the guard stays signed out for the rest of the
+     * request, as Laravel's session guard does. An explicit `login()`,
+     * `attempt()`, or `setUser()` still binds an identity, and a successful
+     * `login()` or `attempt()` settles the request as well, so the request's
+     * own credential is never resolved in the middle of that sign-in.
+     * `setRequest()` starts over for the next request.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     #[\Override]
     public function user(): ?Identity
     {
-        return $this->identity;
+        if ($this->identity !== null || $this->requestResolved) {
+            return $this->identity;
+        }
+
+        // Recorded before resolving, so a failure is not retried and a listener
+        // that calls user() during resolution does not re-enter it.
+        $this->requestResolved = true;
+
+        return $this->resolveUserFromRequest();
     }
 
     /**
-     * Return the auth identifier of the bound identity, if any.
+     * Return the auth identifier of the authenticated identity, if any,
+     * resolving the request on first access.
      *
      * @return int|string|null
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     #[\Override]
     public function id(): int|string|null
     {
-        $identifier = $this->identity?->getAuthIdentifier();
+        $identifier = $this->user()?->getAuthIdentifier();
 
         if ($identifier === null || is_int($identifier) || is_string($identifier)) {
             return $identifier;
@@ -170,7 +202,17 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Bind an authenticated identity to the guard.
+     * Bind an authenticated identity to the guard with its default principal.
+     *
+     * The trusted bind behind Laravel's `actingAs()`. The previous identity's
+     * principal and device are cleared and the resolver's default principal for
+     * the new identity is bound, so the guard never pairs one identity with
+     * another's principal or device. Use `login()` to bind a specific principal
+     * or a device.
+     *
+     * Throws an `InvalidArgumentException` when the identity has no default
+     * principal. An `UnresolvableIdentityException` from the resolver, for a
+     * misconfigured identity model, propagates.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
      * @return $this
@@ -184,7 +226,16 @@ abstract class AbstractGuard implements ContextualGuard
             throw new \InvalidArgumentException(sprintf('Guard %s expected an Identity instance, got %s.', $this->name, $user::class));
         }
 
+        $principal = $this->resolvePrincipal($user);
+
+        if ($principal === null) {
+            throw new \InvalidArgumentException(sprintf('Guard %s could not resolve a default principal for identity %s; bind one with login().', $this->name, $user::class));
+        }
+
+        $this->clearContextualState();
+
         $this->setIdentity($user);
+        $this->setPrincipal($principal);
 
         return $this;
     }
@@ -192,6 +243,12 @@ abstract class AbstractGuard implements ContextualGuard
     /**
      * Attempt to authenticate a request against the identity provider,
      * optionally pinning a specific principal and device on success.
+     *
+     * Pins are verified, not trusted, because callers may take them from
+     * request input: the principal must resolve through the resolver's hinted
+     * path to the same principal of the same class, and the device must be one
+     * of the identity's own live (unrevoked) devices. The resolved instances
+     * are bound, and a pin that fails either check fails the attempt.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -209,7 +266,7 @@ abstract class AbstractGuard implements ContextualGuard
 
             $this->fireAttemptingEvent($credentials);
 
-            $resolved = $this->resolveContextForCredentials($credentials, $principal);
+            $resolved = $this->resolveContextForCredentials($credentials, $principal, $device);
 
             if ($resolved === null) {
                 $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
@@ -217,11 +274,11 @@ abstract class AbstractGuard implements ContextualGuard
                 return false;
             }
 
-            [$identity, $resolvedPrincipal] = $resolved;
+            [$identity, $resolvedPrincipal, $resolvedDevice] = $resolved;
 
             // hasValidCredentials() already fired Validated; bind directly and
             // skip login() to avoid double-dispatching.
-            $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $device);
+            $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $resolvedDevice);
 
             $timebox->returnEarly();
 
@@ -233,10 +290,12 @@ abstract class AbstractGuard implements ContextualGuard
      * Bind a fully resolved identity, principal, and optional device, firing
      * `Validated` and `Login` around the bind.
      *
-     * Public entry point for callers that validated the identity out-of-band
-     * (refresh, OAuth, SSO). Paths that already went through
-     * `hasValidCredentials()` should call `bindAuthenticationLifecycle()`
-     * directly to avoid double-firing `Validated`.
+     * Public, trusted entry point for callers that validated the identity
+     * out-of-band (refresh, OAuth, SSO): the principal and device are bound as
+     * given, without the ownership checks `attempt()` applies to its pins.
+     * Paths that already went through `hasValidCredentials()` should call
+     * `bindAuthenticationLifecycle()` directly to avoid double-firing
+     * `Validated`.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
      * device from a prior login on the same instance.
@@ -255,20 +314,26 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Clear all bound state and fire the standard Laravel `Logout` event when
-     * an identity was previously bound.
+     * Sign the request out: fire the standard Laravel `Logout` event when the
+     * request is authenticated, resolving it first as Laravel's session guard
+     * does, then clear all bound state. The guard stays signed out for the rest
+     * of the request instead of resolving the request's credential again.
      *
      * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     public function logout(): void
     {
-        $identity = $this->identity;
+        $identity = $this->user();
 
         if ($identity !== null) {
             $this->events->dispatch(new Logout($this->name, $identity));
         }
 
         $this->clearContextualState();
+
+        $this->requestResolved = true;
     }
 
     /**
@@ -282,8 +347,9 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Rebind the current HTTP request onto the guard. Called by the service
-     * provider on each container-resolve cycle.
+     * Rebind the current HTTP request onto the guard and forget everything
+     * resolved for the previous one. Called by the service provider on each
+     * container-resolve cycle.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return static
@@ -292,6 +358,7 @@ abstract class AbstractGuard implements ContextualGuard
     {
         $this->request           = $request;
         $this->lastRetrievedUser = null;
+        $this->requestResolved   = false;
         $this->clearContextualState();
 
         return $this;
@@ -342,40 +409,40 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Whether the identity opts into activation checking and, if it does,
-     * whether it currently reports active. Returns `true` for identities that
-     * do not implement `CanBeActive`.
+     * Resolve a principal for the identity through the bound resolver.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return bool
-     */
-    protected function isIdentityActive(Identity $identity): bool
-    {
-        if (!$identity instanceof CanBeActive) {
-            return true;
-        }
-
-        return $identity->isActive();
-    }
-
-    /**
-     * Resolve a principal for the identity, catching
-     * `UnresolvableIdentityException` and returning `null` so the calling auth
-     * path surfaces a `Failed` event + 401 rather than propagating a 500.
+     * An `UnresolvableIdentityException` (an identity model that is neither a
+     * `Principal` nor `HasPrincipals`) is a misconfiguration, not a failed
+     * authentication, so it propagates as a server error rather than being
+     * reported as a `Failed` attempt.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    protected function safeResolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
+    protected function resolvePrincipal(Identity $identity, mixed $hint = null): ?Principal
     {
-        try {
-            return $hint === null
-                ? $this->resolver->resolve($identity)
-                : $this->resolver->resolve($identity, $hint);
-        } catch (UnresolvableIdentityException) {
-            return null;
-        }
+        return $hint === null
+            ? $this->resolver->resolve($identity)
+            : $this->resolver->resolve($identity, $hint);
+    }
+
+    /**
+     * Resolve the identity carried by the current request and bind its context,
+     * returning `null` when the request carries no valid credential.
+     *
+     * Called by `user()` at most once per request. The base guard reads no
+     * request credential; request-authenticating guards override this.
+     *
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    protected function resolveUserFromRequest(): ?Identity
+    {
+        return null;
     }
 
     /**
@@ -385,6 +452,11 @@ abstract class AbstractGuard implements ContextualGuard
      *
      * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
      *
+     * An explicit bind settles the request: a `Login` listener that reads the
+     * guard before the identity is set gets no identity rather than resolving
+     * the request's own credential, whose device would otherwise stay bound to
+     * the identity signing in.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
@@ -392,6 +464,8 @@ abstract class AbstractGuard implements ContextualGuard
      */
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
     {
+        $this->requestResolved = true;
+
         $this->clearContextualState();
 
         $this->events->dispatch(new Login($this->name, $identity, false));
@@ -407,20 +481,27 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Resolve the (identity, principal) pair for an `attempt()` call, or `null`
-     * if any check fails. Stores the retrieved user on
+     * Resolve the (identity, principal, device) triple for an `attempt()` call,
+     * or `null` if any check fails. Stores the retrieved user on
      * `$this->lastRetrievedUser` so the caller can attribute the `Failed` event
      * without re-fetching.
      *
      * @formatter:off
      *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|null
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal, 2: ?\SineMacula\Laravel\Authentication\Contracts\Device}|null
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal): ?array
+    private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal, ?Device $device): ?array
     {
         $this->lastRetrievedUser = $this->provider->retrieveByCredentials($credentials);
         $user                    = $this->lastRetrievedUser;
@@ -430,15 +511,23 @@ abstract class AbstractGuard implements ContextualGuard
         // handles the null case internally.
         $credentialsAccepted = $this->hasValidCredentials($user, $credentials)
             && $user instanceof Identity
-            && $this->isIdentityActive($user);
+            && ActivationPolicy::isActive($user);
 
         if (!$credentialsAccepted) {
             return null;
         }
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        $resolved = $principal ?? $this->safeResolvePrincipal($user);
+        $resolvedPrincipal = $principal === null
+            ? $this->resolvePrincipal($user)
+            : $this->resolvePinnedPrincipal($user, $principal);
 
-        return $resolved !== null && $resolved->isActive() ? [$user, $resolved] : null;
+        if ($resolvedPrincipal === null || !ActivationPolicy::isPrincipalActive($resolvedPrincipal)) {
+            return null;
+        }
+
+        $resolvedDevice = $device === null ? null : $this->resolvePinnedDevice($user, $device);
+
+        return $device !== null && $resolvedDevice === null ? null : [$user, $resolvedPrincipal, $resolvedDevice];
     }
 }
