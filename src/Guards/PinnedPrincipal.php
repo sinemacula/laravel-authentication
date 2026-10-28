@@ -60,15 +60,12 @@ final class PinnedPrincipal
      * class with the same auth identifier. In 2D mode the principal is its own
      * identity.
      *
-     * An Eloquent principal's owner is read from its own stored key on a copy
-     * without loaded relations, so an identity relation the resolver already
+     * An Eloquent principal's owner is read from its own stored key through
+     * `WriteConnection::stored()`, so an identity relation the resolver already
      * set (for example the inverse of the lookup it made) cannot vouch for the
      * principal. A principal whose owner cannot be read (`getIdentity()` throws
      * a `LogicException`, as `ActsAsPrincipal` does for a deleted owner or a
-     * model without an identity relation) is not owned. The copy may lazy-load
-     * its owner even when the principal was hydrated with lazy loading
-     * prevented (Eloquent strict mode), because the package re-reads the owner
-     * on purpose (`WriteConnection::stored()`).
+     * model without an identity relation) is not owned.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

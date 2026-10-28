@@ -145,10 +145,9 @@ final readonly class RevocationScope
     }
 
     /**
-     * The principal's owning identity, read on the write connection from a copy
-     * without loaded relations (so a relation set by whoever loaded it cannot
-     * stand in for the stored owner, and Eloquent strict mode cannot stop the
-     * read), or `null` when it cannot be read: a `LogicException`, as
+     * The principal's owning identity, read through `WriteConnection::stored()`
+     * so a relation set by whoever loaded it cannot stand in for the stored
+     * owner, or `null` when it cannot be read: a `LogicException`, as
      * `ActsAsPrincipal` throws for a deleted owner.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

@@ -39,7 +39,7 @@ enum FailureReason: string
     // device's exact owner
     case IDENTITY_UNKNOWN = 'identity_unknown';
 
-    // The identity reported inactive
+    // The identity's `isActive()` returned false
     case IDENTITY_INACTIVE = 'identity_inactive';
 
     // No principal could be resolved for the identity

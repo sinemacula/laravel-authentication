@@ -27,21 +27,23 @@ enum RevocationReason: string
     // administrator)
     case REVOKED = 'revoked';
 
-    // The identity's password was changed
+    // The identity's password was changed: `passwordChanged()`
     case PASSWORD_CHANGED = 'password_changed';
 
-    // The identity's password was reset
+    // The identity's password was reset: `passwordReset()`
     case PASSWORD_RESET = 'password_reset';
 
-    // A factor the identity signed in with was removed
+    // A factor the identity signed in with was removed: `factorRemoved()`
     case FACTOR_REMOVED = 'factor_removed';
 
-    // The identity was deactivated
+    // The identity was deactivated: `identityDeactivated()`
     case IDENTITY_DEACTIVATED = 'identity_deactivated';
 
-    // The principal the device's session acts as was deactivated
+    // The principal the device's session acts as was deactivated:
+    // `principalDeactivated()`
     case PRINCIPAL_DEACTIVATED = 'principal_deactivated';
 
-    // The tenant the device's principal acts within was deactivated
+    // The tenant the device's principal acts within was deactivated:
+    // `tenantDeactivated()`
     case TENANT_DEACTIVATED = 'tenant_deactivated';
 }

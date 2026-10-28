@@ -34,7 +34,7 @@ final class TenantUnavailableException extends \RuntimeException
      */
     public function __construct(
 
-        // The message, as any exception's.
+        // Which principal names the tenant, and through which relation.
         string $message,
 
         /** Class of the tenant model the principal names, when its relation says. */

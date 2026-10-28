@@ -53,18 +53,8 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  * method still allowed; and the additional-factor policy, which may not ask for
  * a further factor (sign in again as the target then).
  *
- * With the current rotation id, the token's principal must be the one the
- * device records. The switch keeps the session's absolute clock, held to the
- * target type's absolute lifetime counted from the sign-in, restarts the idle
- * one, issues both tokens for the target at `$now` before writing, and writes
- * the target, the switch time, the rotation and both deadlines in one
- * compare-and-swap. A switch to the principal the device already records
- * rotates like a refresh. With the previous rotation id inside the grace
- * window, the current credential is handed back only when the device already
- * records the target from that very rotation (a lost switch response retried)
- * or the token's own principal is the target; anything else is a conflict,
- * without revoking. A missed swap re-reads the row with a lock and judges it
- * once more; there is never a second swap.
+ * A switch keeps the session's absolute clock, restarts the idle one, and
+ * writes in one compare-and-swap.
  *
  * One switch is one instance, built with the guard, the client and the target
  * when the switch runs.

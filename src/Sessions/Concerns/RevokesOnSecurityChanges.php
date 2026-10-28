@@ -158,11 +158,10 @@ trait RevokesOnSecurityChanges
     }
 
     /**
-     * Refuse a principal that does not act within the tenant, read on the write
-     * connection from a copy without loaded relations, so a tenant relation set
-     * by whoever loaded the principal (or eager-loaded from a replica) cannot
-     * stand in for the stored one, and Eloquent strict mode cannot stop the
-     * read. A principal whose opted-in tenant cannot be loaded any more
+     * Refuse a principal that does not act within the tenant, read through
+     * `WriteConnection::stored()` so a tenant relation set by whoever loaded
+     * the principal (or eager-loaded from a replica) cannot stand in for the
+     * stored one. A principal whose opted-in tenant cannot be loaded any more
      * (deleted, soft-deleted, hidden by a scope) acts within the tenant when
      * its `TenantUnavailableException` names that very tenant: its class and
      * key.

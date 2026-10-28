@@ -15,12 +15,12 @@ namespace SineMacula\Laravel\Authentication\Http\Enums;
  */
 enum RefreshTokenSource: string
 {
-    // The guard's HttpOnly refresh cookie
+    // The guard's HttpOnly `refresh_token.cookie`
     case COOKIE = 'cookie';
 
-    // A field of the JSON or form body
+    // The guard's `refresh_token.body_field`, in the JSON or form body
     case BODY = 'body';
 
-    // A request header
+    // The guard's `refresh_token.header`
     case HEADER = 'header';
 }

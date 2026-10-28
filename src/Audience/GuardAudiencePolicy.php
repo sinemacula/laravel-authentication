@@ -102,13 +102,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * `identifier_unverified` unless it reports that identifier verified (read
      * on the write connection); otherwise admit it (`null`). The identity must
      * implement `HasVerifiableIdentifiers` then; one that does not is a
-     * misconfiguration (`LogicException`).
-     *
-     * The answer depends on the identity alone, so a sign-in asks it before it
-     * resolves any principal: an unverified identifier is refused alike whether
-     * the identity has principals or not, and the refusal says nothing about
-     * which it has. `admit()` asks it too, so the answer holds wherever a
-     * principal is admitted with a type.
+     * misconfiguration (`LogicException`). `admit()` asks it too.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

@@ -340,7 +340,7 @@ abstract class AbstractGuard implements ContextualGuard
      * given, without the ownership checks `attempt()` applies to its pins.
      * Paths that already fired `Validated` (as `attempt()` does once the
      * password sign-in method accepts the credentials) call
-     * `bindAuthenticationLifecycle()` directly to avoid firing it twice.
+     * `bindVerifiedContext()` directly to avoid firing it twice.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
      * device from a prior login on the same instance. The events carry the
@@ -489,18 +489,8 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Internal bind: clear prior state, dispatch `Login`, then set the
-     * contextual triple and dispatch `Authenticated`, `PrincipalAssigned`, and
-     * `DeviceAuthenticated` in order. The events carry the tenant the principal
-     * names (none when it cannot be loaded) and, with a device, the sign-in
-     * method its session records.
-     *
-     * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
-     *
-     * An explicit bind settles the request: a `Login` listener that reads the
-     * guard before the identity is set gets no identity rather than resolving
-     * the request's own credential, whose device would otherwise stay bound to
-     * the identity signing in.
+     * Bind as a sign-in, with the tenant the principal names and the sign-in
+     * method the device records.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -519,6 +509,13 @@ abstract class AbstractGuard implements ContextualGuard
      * check loaded and the sign-in method to report: clear prior state and
      * settle the request, dispatch `Login` when it is a sign-in, then bind the
      * triple and dispatch its events.
+     *
+     * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
+     *
+     * An explicit bind settles the request: a `Login` listener that reads the
+     * guard before the identity is set gets no identity rather than resolving
+     * the request's own credential, whose device would otherwise stay bound to
+     * the identity signing in.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

@@ -72,9 +72,7 @@ trait RevokesOnceCommitted
     }
 
     /**
-     * The acting guard's session service: the guard given to the listener, else
-     * the current default guard when it is a jwt guard, else the first jwt
-     * guard configured.
+     * The acting guard's session service.
      *
      * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
      *

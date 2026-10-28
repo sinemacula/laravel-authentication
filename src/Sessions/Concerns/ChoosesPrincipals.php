@@ -399,10 +399,9 @@ trait ChoosesPrincipals
      * `false` when the principal is not eligible at all (inactive, within an
      * inactive tenant, or refused with no identifier type), the policy's reason
      * when it refuses the eligible principal to the type, and `null` when it
-     * admits it. The principal is read as stored (`WriteConnection::stored()`):
-     * one of a collection is hydrated with lazy loading prevented under
-     * Eloquent strict mode, and its tenant, which the checks read, is loaded on
-     * purpose.
+     * admits it. The principal is read through `WriteConnection::stored()`, so
+     * its tenant, which the checks read, is loaded even when a collection
+     * hydrated it with lazy loading prevented.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
      * @param  string  $guard
