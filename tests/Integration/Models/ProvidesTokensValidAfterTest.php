@@ -24,7 +24,7 @@ use Tests\TestCase;
  * @internal
  */
 #[CoversTrait(ProvidesTokensValidAfter::class)]
-final class TokensValidAfterIntegrationTest extends TestCase
+final class ProvidesTokensValidAfterTest extends TestCase
 {
     /**
      * Create the identity table.

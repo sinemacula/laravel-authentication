@@ -111,7 +111,8 @@ deleted. Starting a session is in
 
 ## Authoritative Tests
 
-- `tests/Feature/Sessions/DeviceListTest.php`: the device list over HTTP behind `auth:api`
+- `tests/Feature/Sessions/ActiveDevicesTest.php`: the device list over HTTP behind `auth:api`;
+  `tests/Feature/Sessions/ScopesActiveDevicesTest.php`: the `active()` scope
 - `tests/Integration/Sessions/DeviceListingIntegrationTest.php`, `tests/Integration/Sessions/ReplicaDeviceListingTest.php`
 - `tests/Unit/Sessions/DeviceSummaryTest.php`
 - `tests/Feature/Sessions/ManagesDevicesTest.php`: logout, sign out everywhere and a device list's revoke over HTTP

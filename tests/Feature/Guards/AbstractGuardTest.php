@@ -958,6 +958,33 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * `setUser()` binds the identity as its resolver's default principal, with
+     * no device, and reports the bind (`Authenticated`, `PrincipalAssigned`)
+     * once the whole context is bound.
+     *
+     * @return void
+     */
+    public function testSetUserBindsTheDefaultPrincipalAndReportsIt(): void
+    {
+        $guard     = $this->makeGuard();
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockPrincipal();
+        $seen      = [];
+
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
+
+        $this->events->shouldReceive('dispatch')->andReturnUsing(static function (object $event) use ($guard, &$seen): void {
+            $seen[] = [$event::class, $guard->principal()];
+        });
+
+        self::assertSame($guard, $guard->setUser($identity));
+        self::assertSame($identity, $guard->identity());
+        self::assertSame($principal, $guard->principal());
+        self::assertNull($guard->device());
+        self::assertSame([[Authenticated::class, $principal], [PrincipalAssigned::class, $principal]], $seen);
+    }
+
+    /**
      * Expect the provider to find the identity and accept its password, each
      * once, recording both calls.
      *

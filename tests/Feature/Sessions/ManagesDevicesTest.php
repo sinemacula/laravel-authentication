@@ -217,6 +217,28 @@ final class ManagesDevicesTest extends TestCase
     }
 
     /**
+     * The device list holds fifteen devices to a page unless asked otherwise,
+     * the request's own device marked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheDeviceListHoldsFifteenToAPageByDefault(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signIn('Phone');
+
+        $guard = $this->freshGuard();
+        $guard->login($identity, $identity, $session->device);
+
+        $page = $guard->sessions()->devices($identity);
+
+        self::assertSame(15, $page->perPage());
+        self::assertTrue($page->items()[0]->current);
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app

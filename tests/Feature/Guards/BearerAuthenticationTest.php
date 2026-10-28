@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -18,10 +19,11 @@ use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
 /**
- * Feature tests for the "tokens valid after" time on the bearer path: an access
- * token issued without a device is rejected as `issued_before_cutoff` when it
- * was issued at or before the time its identity or its principal records, and a
- * token that names a device is never held to it.
+ * Feature tests for the bearer path's principal and "tokens valid after"
+ * checks: a token whose principal does not resolve exactly is a mismatch, and
+ * an access token issued without a device is rejected as `issued_before_cutoff`
+ * when it was issued at or before the time its identity or its principal
+ * records, and a token that names a device is never held to it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -202,6 +204,62 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
         $this->expectException(\LogicException::class);
 
         $this->guardFor($identity, $this->principal(null))->user();
+    }
+
+    /**
+     * A token whose principal the resolver does not hand back exactly, another
+     * principal or none, is rejected as `principal_mismatch` before any time is
+     * read.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAPrincipalTheResolverDoesNotHandBackIsAMismatch(): void
+    {
+        $other = \Mockery::mock(Principal::class);
+        $other->shouldReceive('getPrincipalIdentifier')->andReturn('p-2');
+
+        foreach ([$other, null] as $resolved) {
+
+            $identity = \Mockery::mock(Identity::class, HasTokensValidAfter::class);
+            $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
+            $identity->shouldNotReceive('getTokensValidAfter');
+
+            $this->provider->shouldReceive('retrieveById')->once()->with('i-1')->andReturn($identity);
+            $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($resolved);
+
+            $this->events->shouldReceive('dispatch')
+                ->once()
+                ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed && $event->reason === FailureReason::PRINCIPAL_MISMATCH));
+
+            self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])))->user());
+        }
+    }
+
+    /**
+     * A token whose principal is inactive is rejected as `principal_inactive`
+     * before any time is read.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testAnInactivePrincipalIsRejected(): void
+    {
+        $identity = \Mockery::mock(Identity::class, HasTokensValidAfter::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
+        $identity->shouldNotReceive('getTokensValidAfter');
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('isActive')->andReturnFalse();
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed && $event->reason === FailureReason::PRINCIPAL_INACTIVE));
+
+        self::assertNull($this->guardFor($identity, $principal)->user());
     }
 
     /**
