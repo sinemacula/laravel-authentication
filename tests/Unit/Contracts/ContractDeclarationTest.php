@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDeviceOrigin;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
@@ -121,13 +122,17 @@ final class ContractDeclarationTest extends TestCase
             Device::class,
             (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
         );
+        self::assertContains(
+            EloquentDeviceOrigin::class,
+            (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
+        );
     }
 
     /**
      * `EloquentDevice` adds exactly the owner and principal relations and the
      * column names the session creation, refresh, revocation, and last-use
-     * writes need. The identifier has no column name: it is always the primary
-     * key.
+     * writes need, besides those of the session's origin. The identifier has no
+     * column name: it is always the primary key.
      *
      * @return void
      */
@@ -136,31 +141,44 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame([
             'authenticatable',
             'getAbsoluteExpiresAtName',
-            'getClientNameName',
-            'getCreatedIpName',
-            'getCreatedUserAgentName',
-            'getGuardName',
             'getIdleExpiresAtName',
             'getLastUsedAtName',
             'getLastUsedIpName',
             'getLastUsedUserAgentName',
-            'getPlatformName',
             'getPreviousRefreshKeyName',
             'getPrincipalSwitchedAtName',
             'getRefreshKeyName',
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
-            'getSignInIdentifierTypeName',
-            'getSignInMethodName',
             'getSignedInAtName',
             'principal',
         ], self::declaredMethods(EloquentDevice::class));
     }
 
     /**
+     * `EloquentDeviceOrigin` declares exactly the column names of what a
+     * device's session started with, which the session service writes.
+     *
+     * @return void
+     */
+    public function testEloquentDeviceOriginDeclaresExactlyTheOriginColumns(): void
+    {
+        self::assertSame([
+            'getClientNameName',
+            'getCreatedIpName',
+            'getCreatedUserAgentName',
+            'getGuardName',
+            'getPlatformName',
+            'getSignInIdentifierTypeName',
+            'getSignInMethodName',
+        ], self::declaredMethods(EloquentDeviceOrigin::class));
+    }
+
+    /**
      * `EloquentDevice::authenticatable()` and `principal()` must return MorphTo
-     * relations, and the persistence column-name accessors must return strings.
+     * relations, and the persistence column-name accessors, its origin's
+     * included, must return strings.
      *
      * @return void
      */
@@ -172,7 +190,8 @@ final class ContractDeclarationTest extends TestCase
             self::assertSame(MorphTo::class, $relationReturn->getName());
         }
 
-        $columnNameAccessors = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable', 'principal']);
+        $persistence         = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable', 'principal']);
+        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentDeviceOrigin::class)];
 
         foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
