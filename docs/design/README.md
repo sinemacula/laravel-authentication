@@ -22,7 +22,7 @@ The current note set is:
 - `refresh-rotation-and-replay.md`: why refresh is stateful, how per-device rotation works, the grace window for the
   previous rotation id, and when a replayed refresh token revokes the device (`rotation_reuse`).
 - `refresh-token-transport.md`: where a guard reads the refresh token from, why a request may carry it in only one
-  place, and the cookie's cross-site checks.
+  place, the cookie's cross-site checks, and the cookie that carries a browser's refresh token.
 - `fail-closed-pid-did.md`: why `pid` and `did` are treated as commitments rather than advisory hints.
 - `access-only-mode.md`: the supported bearer-only, no-devices migration path.
 - `guard-bound-tokens.md`: the `grd` claim that ties every token to its issuing guard, and the provider-scoped owner

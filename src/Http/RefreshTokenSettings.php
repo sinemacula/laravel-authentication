@@ -38,6 +38,9 @@ final readonly class RefreshTokenSettings
     /** @var string A cookie domain: a host name, optionally with a leading dot. */
     private const string DOMAIN_PATTERN = '/^\.?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/';
 
+    /** @var string An origin: `http` or `https`, a lower-case host name or bracketed IPv6 address, and an optional port. */
+    private const string ORIGIN_PATTERN = '/^https?:\/\/(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$/';
+
     /** @var string The prefix of a cookie a browser keeps only with `Path=/` and no `Domain`. */
     private const string HOST_PREFIX = '__Host-';
 
@@ -91,16 +94,17 @@ final readonly class RefreshTokenSettings
      */
     public static function forGuard(string $guard, ConfigRepository $config): self
     {
-        [$settings, $cookie] = self::merged($guard, $config);
+        $settings = self::merged($guard, $config);
+
+        /** @var array<array-key, mixed> $cookie */
+        $cookie = $settings['cookie'] ?? [];
 
         $sources = self::sources($guard, $settings['sources'] ?? null);
         $name    = self::name($guard, 'cookie.name', $cookie['name'] ?? null);
         $path    = self::path($guard, $cookie['path'] ?? null, in_array(RefreshTokenSource::COOKIE, $sources, true));
         $domain  = self::domain($guard, $cookie['domain'] ?? null);
 
-        if (str_starts_with($name, self::HOST_PREFIX) && ($path !== '/' || $domain !== null)) {
-            throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'may start with `__Host-` only with `cookie.path` set to `/` and no `cookie.domain`'));
-        }
+        self::assertHostCookie($guard, $name, $path, $domain);
 
         return new self(
             $sources,
@@ -115,12 +119,31 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The package block with the guard's over it, and the two `cookie` blocks
-     * merged the same way.
+     * Reject a `__Host-` cookie a browser would not keep: one with a path other
+     * than `/`, or a domain.
+     *
+     * @param  string  $guard
+     * @param  string  $name
+     * @param  ?string  $path
+     * @param  ?string  $domain
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function assertHostCookie(string $guard, string $name, ?string $path, ?string $domain): void
+    {
+        if (str_starts_with($name, self::HOST_PREFIX) && ($path !== '/' || $domain !== null)) {
+            throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'may start with `__Host-` only with `cookie.path` set to `/` and no `cookie.domain`'));
+        }
+    }
+
+    /**
+     * The package block with the guard's over it, its `cookie` the two `cookie`
+     * blocks merged the same way.
      *
      * @param  string  $guard
      * @param  \Illuminate\Config\Repository  $config
-     * @return array{0: array<array-key, mixed>, 1: array<array-key, mixed>}
+     * @return array<array-key, mixed>
      *
      * @throws \InvalidArgumentException
      */
@@ -135,12 +158,12 @@ final readonly class RefreshTokenSettings
         $package   = self::block($guard, $config->get('authentication.refresh_token'), '`authentication.refresh_token`', self::KEYS);
         $overrides = self::block($guard, $guardConfig['refresh_token'] ?? [], 'the guard\'s `refresh_token`', self::KEYS);
 
-        $cookie = [
-            ...self::block($guard, $package['cookie'] ?? [], '`authentication.refresh_token.cookie`', self::COOKIE_KEYS),
-            ...self::block($guard, $overrides['cookie'] ?? [], 'the guard\'s `refresh_token.cookie`', self::COOKIE_KEYS),
-        ];
+        $cookie = array_replace(
+            self::block($guard, $package['cookie'] ?? [], '`authentication.refresh_token.cookie`', self::COOKIE_KEYS),
+            self::block($guard, $overrides['cookie'] ?? [], 'the guard\'s `refresh_token.cookie`', self::COOKIE_KEYS),
+        );
 
-        return [[...$package, ...$overrides], $cookie];
+        return array_replace($package, $overrides, ['cookie' => $cookie]);
     }
 
     /**
@@ -299,13 +322,7 @@ final readonly class RefreshTokenSettings
      */
     private static function isOrigin(mixed $value): bool
     {
-        $parts = is_string($value) ? parse_url($value) : false;
-
-        if (!is_array($parts) || !isset($parts['scheme'], $parts['host']) || !in_array($parts['scheme'], ['http', 'https'], true)) {
-            return false;
-        }
-
-        return strtolower($parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '')) === $value;
+        return is_string($value) && preg_match(self::ORIGIN_PATTERN, $value) === 1;
     }
 
     /**

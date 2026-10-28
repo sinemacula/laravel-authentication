@@ -4,10 +4,16 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Http;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use Symfony\Component\HttpFoundation\Cookie;
 
 /**
  * Reads a refresh token from a request through the one source a guard allows.
@@ -21,6 +27,10 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
  * itself, must come with an `Origin` that is the request's own or an allowed
  * one, and with the custom header, which a cross-site form cannot send.
  *
+ * It also makes the cookie that carries a browser's refresh token, and the one
+ * that clears it, for the application to attach to its own responses: the token
+ * lives only in the browser, so the API stays stateless.
+ *
  * @api
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -28,6 +38,10 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
  */
 final readonly class RefreshTokenTransport
 {
+    /** @var string Why a guard that does not read the cookie neither sets nor clears it. */
+    private const string NOT_A_COOKIE_GUARD = 'This guard does not read its refresh token from the cookie:'
+        . ' add `cookie` to its `refresh_token.sources` and set `refresh_token.cookie.path`.';
+
     /**
      * Constructor.
      *
@@ -71,9 +85,80 @@ final readonly class RefreshTokenTransport
             return $present === [] ? null : FailureReason::REFRESH_TOKEN_CONFLICT;
         }
 
-        return $present[0] === RefreshTokenSource::COOKIE && !$this->isSameSite($request)
+        [$source] = $present;
+
+        return $source === RefreshTokenSource::COOKIE && !$this->isSameSite($request)
             ? FailureReason::CROSS_SITE_REQUEST
-            : $this->presented($request, $present[0]);
+            : $this->presented($request, $source);
+    }
+
+    /**
+     * The cookie that carries the refresh token to the browser: `HttpOnly`, so
+     * scripts cannot read it, `Secure`, `SameSite=Strict`, with the guard's
+     * name, path and domain, and expiring when the device's session ends (the
+     * earlier of its deadlines, as the token itself does).
+     *
+     * @param  string  $refreshToken
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return \Symfony\Component\HttpFoundation\Cookie
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function cookie(#[\SensitiveParameter] string $refreshToken, Device $device): Cookie
+    {
+        return $this->makeCookie($refreshToken, self::sessionEnd($device));
+    }
+
+    /**
+     * The cookie that clears the refresh cookie: the same name, path and
+     * domain, already expired. Any response may carry it, a logout route
+     * outside the cookie's path included, since a path limits where a browser
+     * sends a cookie, not which response may set it.
+     *
+     * @return \Symfony\Component\HttpFoundation\Cookie
+     *
+     * @throws \LogicException
+     */
+    public function forgetCookie(): Cookie
+    {
+        return $this->makeCookie(null, Carbon::now()->subYear());
+    }
+
+    /**
+     * When the device's session ends, the earlier of its deadlines, read on the
+     * write connection, as the refresh token's own `exp` is.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return \Carbon\CarbonImmutable
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function sessionEnd(Device $device): CarbonImmutable
+    {
+        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => TokenLifetimes::liveDeadlines($device, Carbon::now()))
+            ?? throw new \InvalidArgumentException('Cannot set a refresh cookie for a device whose session has ended or that has no idle and absolute deadlines.');
+
+        return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));
+    }
+
+    /**
+     * A refresh cookie with the guard's name, path and domain and the browser
+     * protections, or a `LogicException` when the guard does not read the
+     * cookie: a cookie it would never read must not be set.
+     *
+     * @param  ?string  $value
+     * @param  \DateTimeInterface  $expires
+     * @return \Symfony\Component\HttpFoundation\Cookie
+     *
+     * @throws \LogicException
+     */
+    private function makeCookie(#[\SensitiveParameter] ?string $value, \DateTimeInterface $expires): Cookie
+    {
+        $path = (in_array(RefreshTokenSource::COOKIE, $this->settings->sources, true) ? $this->settings->cookiePath : null)
+            ?? throw new \LogicException(self::NOT_A_COOKIE_GUARD);
+
+        return new Cookie($this->settings->cookieName, $value, $expires, $path, $this->settings->cookieDomain, true, true, false, Cookie::SAMESITE_STRICT);
     }
 
     /**
@@ -108,9 +193,9 @@ final readonly class RefreshTokenTransport
             RefreshTokenSource::BODY   => [self::body($request)[$this->settings->bodyField]],
         };
 
-        return count($values) === 1 && is_string($values[0]) && $values[0] !== ''
-            ? new PresentedRefreshToken($values[0], $source)
-            : FailureReason::TOKEN_INVALID;
+        $value = count($values) === 1 ? reset($values) : null;
+
+        return is_string($value) && $value !== '' ? new PresentedRefreshToken($value, $source) : FailureReason::TOKEN_INVALID;
     }
 
     /**

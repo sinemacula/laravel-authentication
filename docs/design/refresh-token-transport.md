@@ -3,7 +3,7 @@
 ## Purpose
 
 This note describes how a guard reads the refresh token from a request: from which sources, what it refuses, and why a
-request may carry the token in only one place.
+request may carry the token in only one place; and the cookie that carries a browser's refresh token.
 
 ## Invariants
 
@@ -23,6 +23,12 @@ request may carry the token in only one place.
 - A present value that is not one non-empty string (an empty field, `null`, an array, a header sent twice, a cookie
   that could not be decrypted) is `token_invalid`.
 - Reading has no side effects: it changes nothing on the request and runs no query.
+- `cookie($refreshToken, $device)` makes the refresh cookie: `HttpOnly`, `Secure`, `SameSite=Strict`, the guard's name,
+  path and domain, expiring at the earlier of the device's deadlines (read on the write connection), which is the
+  refresh token's own `exp`. `forgetCookie()` makes the same cookie, empty and expired; a path limits where a browser
+  sends a cookie, not which response may set it, so any route may clear it. Both throw a `LogicException` for a guard
+  that does not list `cookie`, and `cookie()` an `InvalidArgumentException` for a session that has ended. Nothing is
+  stored on the server.
 - `refresh(string)` stays for a token the caller reads itself and makes none of the cookie's checks, so only
   `refreshFromRequest()` reads the cookie.
 
@@ -38,6 +44,8 @@ request may carry the token in only one place.
 
 - A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`, the reason,
   the guard and the request's client, no identity) and returns the reason. It reaches no device and no limit.
+- A cookie the routes' `EncryptCookies` cannot decrypt arrives as `null` and is `token_invalid`; leave the cookie out
+  of encryption, or set and read it on routes that both encrypt.
 - A refusal by the exchange returns the exchange's reason after the same events as `refresh()`; `rate_limited` throws
   the 429 there as well.
 - A `__Host-` cookie name requires `cookie.path` `/` and no `cookie.domain`, as a browser keeps it only so.
@@ -46,7 +54,7 @@ request may carry the token in only one place.
 
 ## Implementation Anchors
 
-- `src/Http/RefreshTokenTransport.php`: `read()`.
+- `src/Http/RefreshTokenTransport.php`: `read()`, `cookie()`, `forgetCookie()`.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
 - `src/Guards/JwtGuard.php`: `refreshFromRequest()`, `refreshTransport()`, `exchangeRefresh()`, `refuseRefresh()`.
 - `src/AuthManager.php`: `refreshTransport()`.
@@ -60,6 +68,8 @@ request may carry the token in only one place.
   `testRefreshFromARequestWithoutATokenAttemptsNothing`, `testATokenTheTransportRefusesIsAFailedRefresh`,
   `testARefreshFromTheRequestSaysWhereTheTokenWasRead`
 - `tests/Integration/Http/RefreshTokenTransportIntegrationTest.php`
+- `tests/Integration/Http/RefreshTokenCookieIntegrationTest.php`
+  `testABrowserKeepsItsSessionInTheCookie`, `testTheCookieExpiresWithTheRefreshToken`
 - `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php`
   `testARefreshFromTheRequestCostsWhatARefreshCosts`, `testARequestTheTransportRefusesCostsNoQuery`
 
@@ -72,3 +82,4 @@ Update this note when any of the following change:
 - the cookie's origin and custom header checks
 - the events and return value of a refusal by the transport
 - how the guard and package settings merge
+- the refresh cookie's attributes or expiry, or how it is cleared

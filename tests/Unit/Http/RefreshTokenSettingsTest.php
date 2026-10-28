@@ -67,7 +67,7 @@ final class RefreshTokenSettingsTest extends TestCase
     {
         $settings = RefreshTokenSettings::forGuard('api', self::config([
             'sources' => ['cookie'],
-            'cookie'  => ['path' => '/auth', 'domain' => '.example.test', 'allowed_origins' => ['https://app.example.test', 'http://localhost:3000']],
+            'cookie'  => ['path' => '/auth', 'domain' => '.example.test', 'allowed_origins' => ['https://app.example.test', 'http://localhost:3000', 'http://[::1]:8080']],
         ]));
 
         self::assertSame([RefreshTokenSource::COOKIE], $settings->sources);
@@ -75,8 +75,23 @@ final class RefreshTokenSettingsTest extends TestCase
         self::assertSame('__Secure-refresh_token', $settings->cookieName);
         self::assertSame('/auth', $settings->cookiePath);
         self::assertSame('.example.test', $settings->cookieDomain);
-        self::assertSame(['https://app.example.test', 'http://localhost:3000'], $settings->allowedOrigins);
+        self::assertSame(['https://app.example.test', 'http://localhost:3000', 'http://[::1]:8080'], $settings->allowedOrigins);
         self::assertSame('X-Requested-With', $settings->csrfHeader);
+    }
+
+    /**
+     * A guard that overrides only some cookie keys keeps the package's others,
+     * the first among them.
+     *
+     * @return void
+     */
+    public function testTheGuardsCookieKeysWinOneByOne(): void
+    {
+        $settings = RefreshTokenSettings::forGuard('api', self::config(['cookie' => ['csrf_header' => 'X-CSRF']]));
+
+        self::assertSame('__Secure-refresh_token', $settings->cookieName);
+        self::assertSame('X-CSRF', $settings->csrfHeader);
+        self::assertSame([RefreshTokenSource::BODY, RefreshTokenSource::HEADER], $settings->sources);
     }
 
     /**
@@ -144,6 +159,8 @@ final class RefreshTokenSettingsTest extends TestCase
         yield 'an origin without a host' => [['cookie' => ['allowed_origins' => ['https:///app']]], $origins];
         yield 'an origin with credentials' => [['cookie' => ['allowed_origins' => ['https://user@app.example.test']]], $origins];
         yield 'an origin that is not a string' => [['cookie' => ['allowed_origins' => [443]]], $origins];
+        yield 'an origin after other text' => [['cookie' => ['allowed_origins' => ['xhttps://app.example.test']]], $origins];
+        yield 'an origin with an empty port' => [['cookie' => ['allowed_origins' => ['https://app.example.test:']]], $origins];
         yield 'a host cookie on another path' => [['sources' => ['cookie'], 'cookie' => ['name' => '__Host-refresh', 'path' => '/auth']], $host];
         yield 'a host cookie with a domain' => [['sources' => ['cookie'], 'cookie' => ['name' => '__Host-refresh', 'path' => '/', 'domain' => 'example.test']], $host];
     }

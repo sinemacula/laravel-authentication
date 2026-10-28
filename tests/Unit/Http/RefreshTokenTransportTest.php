@@ -4,8 +4,10 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Http;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -14,11 +16,14 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use Symfony\Component\HttpFoundation\Cookie;
+use Tests\Unit\Stubs\PlainDeviceFixture;
 
 /**
  * Unit tests for reading a refresh token through the one source a guard allows:
  * the sources it does not list are never read, a token carried twice is a
- * conflict, and a cookie must pass the cross-site checks.
+ * conflict, and a cookie must pass the cross-site checks; and for the cookies
+ * that carry the token to a browser and clear it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -259,6 +264,128 @@ final class RefreshTokenTransportTest extends TestCase
 
         self::assertSame(RefreshTokenSource::HEADER, self::presented($transport->read(self::withHeaders(['X-Token' => self::TOKEN])))->source);
         self::assertNull($transport->read(self::json(['refresh_token' => self::TOKEN])));
+    }
+
+    /**
+     * Rows of `[seconds to the idle deadline, seconds to the absolute one]`:
+     * the cookie expires at whichever comes first.
+     *
+     * @return iterable<string, array{0: int, 1: int}>
+     */
+    public static function provideDeadlines(): iterable
+    {
+        yield 'the idle deadline first' => [3600, 7200];
+        yield 'the absolute deadline first' => [7200, 3600];
+    }
+
+    /**
+     * The refresh cookie carries the token `HttpOnly`, `Secure` and
+     * `SameSite=Strict`, with the guard's name, path and domain, and expires
+     * when the device's session ends.
+     *
+     * @param  int  $idle
+     * @param  int  $absolute
+     * @return void
+     */
+    #[DataProvider('provideDeadlines')]
+    public function testTheCookieCarriesTheTokenUntilTheSessionEnds(int $idle, int $absolute): void
+    {
+        $now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($now);
+
+        try {
+            $cookie = self::cookieTransport('.example.test')->cookie(self::TOKEN, new PlainDeviceFixture('device-1', $now->addSeconds($idle), $now->addSeconds($absolute)));
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        self::assertSame(self::COOKIE, $cookie->getName());
+        self::assertSame(self::TOKEN, $cookie->getValue());
+        self::assertSame('/auth', $cookie->getPath());
+        self::assertSame('.example.test', $cookie->getDomain());
+        self::assertSame($now->getTimestamp() + 3600, $cookie->getExpiresTime());
+        self::assertTrue($cookie->isHttpOnly());
+        self::assertTrue($cookie->isSecure());
+        self::assertSame(Cookie::SAMESITE_STRICT, $cookie->getSameSite());
+        self::assertFalse($cookie->isRaw());
+    }
+
+    /**
+     * A device whose session has ended, or that has no deadlines, gets no
+     * cookie.
+     *
+     * @return void
+     */
+    public function testAnEndedSessionGetsNoCookie(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Cannot set a refresh cookie for a device whose session has ended or that has no idle and absolute deadlines.');
+
+        self::cookieTransport()->cookie(self::TOKEN, new PlainDeviceFixture('device-1'));
+    }
+
+    /**
+     * The clearing cookie has the same name, path and domain, no value, and has
+     * already expired.
+     *
+     * @return void
+     */
+    public function testTheClearingCookieMatchesTheCookieAndHasExpired(): void
+    {
+        $cookie = self::cookieTransport(null)->forgetCookie();
+
+        self::assertSame(self::COOKIE, $cookie->getName());
+        self::assertNull($cookie->getValue());
+        self::assertSame('/auth', $cookie->getPath());
+        self::assertNull($cookie->getDomain());
+        self::assertTrue($cookie->isCleared());
+        self::assertLessThan(time(), $cookie->getExpiresTime());
+        self::assertTrue($cookie->isHttpOnly());
+        self::assertTrue($cookie->isSecure());
+        self::assertSame(Cookie::SAMESITE_STRICT, $cookie->getSameSite());
+    }
+
+    /**
+     * Rows of `[setting or clearing the cookie]`.
+     *
+     * @return iterable<string, array{0: \Closure(\SineMacula\Laravel\Authentication\Http\RefreshTokenTransport): \Symfony\Component\HttpFoundation\Cookie}>
+     */
+    public static function provideCookieCalls(): iterable
+    {
+        $device = new PlainDeviceFixture('device-1', Carbon::now()->addHour(), Carbon::now()->addHours(2));
+
+        yield 'setting it' => [static fn (RefreshTokenTransport $transport): Cookie => $transport->cookie(self::TOKEN, $device)];
+        yield 'clearing it' => [static fn (RefreshTokenTransport $transport): Cookie => $transport->forgetCookie()];
+    }
+
+    /**
+     * A guard that does not read the cookie neither sets nor clears one, even
+     * with a path configured: a cookie it never reads must not be set.
+     *
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Http\RefreshTokenTransport): \Symfony\Component\HttpFoundation\Cookie  $call
+     * @return void
+     */
+    #[DataProvider('provideCookieCalls')]
+    public function testAGuardThatDoesNotReadTheCookieSetsNone(\Closure $call): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('does not read its refresh token from the cookie: add `cookie` to its `refresh_token.sources` and set `refresh_token.cookie.path`.');
+
+        $call(self::transport());
+    }
+
+    /**
+     * A transport that reads only the cookie, scoped to `/auth` and the domain.
+     *
+     * @param  ?string  $domain
+     * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
+     */
+    private static function cookieTransport(?string $domain = null): RefreshTokenTransport
+    {
+        $settings = new RefreshTokenSettings([RefreshTokenSource::COOKIE], 'refresh_token', 'X-Refresh-Token', self::COOKIE, '/auth', $domain, [], 'X-Requested-With');
+
+        return new RefreshTokenTransport($settings);
     }
 
     /**

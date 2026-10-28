@@ -1298,14 +1298,15 @@ return [
 
 The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
 `refresh_token` field of the JSON or form body (never the query string) and the `X-Refresh-Token` header, or the
-`cookie`. A request that carries a token in more than one of them, equal or not, is refused as `refresh_token_conflict`:
-the server never chooses between two tokens, and a request cannot get past the cookie's cross-site checks by also
-sending the token another way. A value that is not one non-empty string is `token_invalid`. A refusal by the transport
-dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`) like any failed refresh, without touching
-a device or counting against a limit; a token the exchange refuses fails with the exchange's reason, the 429 for
-`rate_limited` included. The result's `source` (`RefreshTokenSource::COOKIE`, `BODY` or `HEADER`) says where the token
-came from, so a refresh read from the cookie can be answered with a cookie.
-`Auth::refreshTransport('api')->read($request)` reads a request the same way without refreshing.
+`cookie` (see [Refresh token cookie](#refresh-token-cookie)). A request that carries a token in more than one of them,
+equal or not, is refused as `refresh_token_conflict`: the server never chooses between two tokens, and a request cannot
+get past the cookie's cross-site checks by also sending the token another way. A value that is not one non-empty string
+is `token_invalid`. A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow
+`refresh`) like any failed refresh, without touching a device or counting against a limit; a token the exchange refuses
+fails with the exchange's reason, the 429 for `rate_limited` included. The result's `source`
+(`RefreshTokenSource::COOKIE`, `BODY` or `HEADER`) says where the token came from, so a refresh read from the cookie can
+be answered with a cookie. `Auth::refreshTransport('api')->read($request)` reads a request the same way without
+refreshing.
 
 The package defaults are `authentication.refresh_token`; a guard overrides any of them in a `refresh_token` block on its
 `config/auth.php` entry, where a key it sets wins, inside `cookie` too:
@@ -1341,6 +1342,96 @@ token valid for a retry. After the commit, the refresh binds the new context and
 rotation is committed on the device's connection; an exception from a listener on those events loses the new pair, but a
 retry with the presented token inside the grace window still gets the current credential (see [Refresh token
 replay](#refresh-token-replay)). Keep those listeners from throwing or queue them, so a retry is never needed.
+
+### Refresh token cookie
+
+A browser application can keep its refresh token where its scripts cannot read it, in an `HttpOnly` cookie the API
+sets on its own responses. The token lives only in the browser; nothing is stored on the server, so the API stays
+stateless. List the cookie as the guard's source and give it the path its routes live under:
+
+```php
+'browser' => [
+    'driver'        => 'jwt',
+    'provider'      => 'users',
+    'refresh_token' => [
+        'sources' => ['cookie'],
+        'cookie'  => ['path' => '/auth'],
+    ],
+],
+```
+
+Put the routes that read the cookie under that path (refresh, and sign-in for a browser that proves its device), and
+set the cookie with the guard's transport whenever the API hands out a pair:
+
+```php
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+
+Route::post('/auth/sign-in', function (Request $request) {
+    $session = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'))->session;
+
+    abort_if($session === null, 401);
+
+    return response()->json(['access_token' => $session->tokens->accessToken])
+        ->withCookie(Auth::refreshTransport('browser')->cookie($session->tokens->refreshToken, $session->device));
+});
+
+Route::post('/auth/refresh', function () {
+    $guard  = Auth::guard('browser');
+    $result = $guard->refreshFromRequest();
+
+    abort_unless($result instanceof RefreshResult && $result->source === RefreshTokenSource::COOKIE, 401);
+
+    return response()->json(['access_token' => $result->accessToken])
+        ->withCookie(Auth::refreshTransport('browser')->cookie($result->refreshToken, $guard->device()));
+});
+
+Route::post('/logout', function () {
+    Auth::guard('browser')->logout();
+
+    return response()->noContent()->withCookie(Auth::refreshTransport('browser')->forgetCookie());
+});
+```
+
+The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, named `__Secure-refresh_token` by default, scoped to the
+configured `path` and `domain` (`null`, the default, keeps it to the API's host), and expires when the device's session
+does, as the refresh token in it does. `forgetCookie()` returns the same cookie already expired; any route may send it,
+a logout route outside the cookie's path included, since a path limits where the browser sends a cookie, not which
+response may set it. A `__Host-` name is accepted only with the path `/` and no domain, as browsers require. Setting or
+clearing the cookie on a guard that does not list `cookie` throws a `LogicException`.
+
+A browser attaches the cookie by itself, to any request for its path, so a refresh read from it is held to two checks
+a cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
+`cookie.allowed_origins` (each exactly `scheme://host[:port]`), and it must carry the `cookie.csrf_header` header
+(`X-Requested-With` by default) with a value, which a form or a simple request cannot send. Anything else is
+`cross_site_request`. A script refreshes with:
+
+```js
+await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});
+```
+
+`SameSite=Strict` keeps the cookie from being sent from another site at all, so `allowed_origins` serves origins of
+the same site, such as an application on `app.example.com` calling an API on `api.example.com`. For such an origin,
+let Laravel's CORS middleware allow credentials only for the origins you list (`supports_credentials` set to `true`
+and `allowed_origins` naming them in `config/cors.php`, never `*`). Behind a proxy or load balancer that ends TLS,
+configure Laravel's trusted proxies, so the request knows its own scheme and host and the API's own origin matches.
+
+Laravel's `EncryptCookies` middleware, when it runs on these routes, encrypts the cookies a response sets and decrypts
+the ones a request sends. The refresh token is already signed, and only the API reads it, so the simplest setup leaves
+it out:
+
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->encryptCookies(except: ['__Secure-refresh_token']);
+})
+```
+
+If you keep it encrypted, set and read the cookie on routes that both run `EncryptCookies`, so the value the browser
+returns is the one the middleware made; a value it cannot decrypt reaches the guard as an invalid token
+(`token_invalid`), and the client signs in again. Routes in `routes/api.php` do not run `EncryptCookies` unless you
+add it.
 
 ### Refresh token replay
 

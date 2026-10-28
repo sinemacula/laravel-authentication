@@ -274,11 +274,14 @@ return [
     | `allowed_origins` (each exactly `scheme://host[:port]`, in lower case)
     | and a non-empty `csrf_header` header, else `cross_site_request`. The
     | cookie's `path`, the path the refresh route lives under, is required when
-    | the cookie is a source; `domain` is `null` for the request's host only. A
-    | guard overrides any key in a `refresh_token` block on its
-    | `config/auth.php` entry, where a key that is present wins, inside
-    | `cookie` too. A malformed value or an unknown key fails closed with an
-    | `InvalidArgumentException` naming the guard and the key.
+    | the cookie is a source; `domain` is `null` for the request's host only.
+    | `Auth::refreshTransport($guard)->cookie()` makes the cookie (`HttpOnly`,
+    | `Secure`, `SameSite=Strict`, expiring with the session) and
+    | `forgetCookie()` the one that clears it. A guard overrides any key in a
+    | `refresh_token` block on its `config/auth.php` entry, where a key that is
+    | present wins, inside `cookie` too. A malformed value or an unknown key
+    | fails closed with an `InvalidArgumentException` naming the guard and the
+    | key.
     |
     */
 
