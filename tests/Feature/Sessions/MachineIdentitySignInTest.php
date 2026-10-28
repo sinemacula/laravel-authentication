@@ -24,11 +24,13 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
 use Tests\Integration\Fixtures\MachineClient;
@@ -38,9 +40,10 @@ use Tests\TestCase;
  * Feature tests holding non-human identities to having no password, no
  * interactive sign-in, no session and no refresh, at every entry point that
  * verifies something: a password is never checked for a machine, every sign-in
- * method's identity is refused at admission, a machine's device can neither
- * refresh nor switch principal, a session token naming one is refused, and the
- * token service issues it no session token.
+ * method's identity is refused at admission (a passkey whose owner became a
+ * machine included), a machine's device can neither refresh nor switch
+ * principal, a session token naming one is refused, and the token service
+ * issues it no session token.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -49,13 +52,14 @@ use Tests\TestCase;
  */
 #[CoversClass(SignInAdmission::class)]
 #[CoversClass(PasswordSignIn::class)]
+#[CoversClass(PasskeySignIn::class)]
 #[CoversClass(SessionPreconditions::class)]
 #[CoversClass(RefreshAdmission::class)]
 #[CoversClass(BearerAuthentication::class)]
 #[CoversClass(JwtTokenService::class)]
 final class MachineIdentitySignInTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithPasskeys, InteractsWithSessions;
 
     /** @var string Email the machine and the human share, so a lookup by it finds either. */
     private const string EMAIL = 'robot@example.test';
@@ -197,6 +201,43 @@ final class MachineIdentitySignInTest extends TestCase
     }
 
     /**
+     * A passkey a person registered, whose owner is now a machine with the same
+     * key, signs nothing in: the assertion verifies, and admission refuses the
+     * machine as `machine_identity` with no device. A machine cannot register a
+     * passkey of its own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasskeyWhoseOwnerBecameAMachineIsRefused(): void
+    {
+        $human = $this->seedIdentity(self::EMAIL);
+
+        $this->registerPasskey($human);
+
+        $machine = $this->seedMachineWithPassword();
+
+        self::assertSame($human->getKey(), $machine->getKey());
+
+        DB::table('passkeys')->update(['authenticatable_type' => MachineClient::class]);
+
+        config()->set('auth.providers.identities.model', MachineClient::class);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $result = $this->signInWithPasskey();
+
+        self::assertSame(FailureReason::MACHINE_IDENTITY, $result->reason);
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame([FailureReason::MACHINE_IDENTITY, AuthenticationFlow::SIGN_IN, PasskeySignIn::NAME], [$failure->reason, $failure->flow, $failure->context->method]);
+        self::assertTrue($machine->is($failure->context->identity));
+        self::assertSame(0, DB::table('devices')->count());
+    }
+
+    /**
      * A session started for an externally verified machine is refused the same
      * way, before anything is resolved or written.
      *
@@ -304,8 +345,9 @@ final class MachineIdentitySignInTest extends TestCase
         $config = $app->make(ConfigRepository::class);
 
         self::configureSessionGuards($config);
+        self::configurePasskeys($config);
 
-        $config->set('auth.guards.api.audience.methods', ['password', 'proven']);
+        $config->set('auth.guards.api.audience.methods', ['password', 'proven', 'passkey']);
         $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
         $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'machines', 'audience' => ['methods' => ['password', 'proven']]]);
     }
