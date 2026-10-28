@@ -416,6 +416,70 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
+     * A rotation whose drawn public part collides is drawn again, and the
+     * replacement is issued under a fresh one.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testRotationDrawsAgainWhenAPublicPartCollides(): void
+    {
+        $machine  = $this->seedMachine();
+        $previous = $this->apiKeys()->issue($machine, $machine);
+        $draws    = [$previous->summary->publicId, 'ak_fresh0fresh0fresh'];
+        $service  = $this->drawingService(static function () use (&$draws): string {
+            return (string) array_shift($draws);
+        });
+
+        $rotated = $service->rotate($machine, $previous->id);
+
+        self::assertNotNull($rotated);
+        self::assertSame('ak_fresh0fresh0fresh', $rotated->summary->publicId);
+        self::assertSame([], $draws);
+        self::assertSame($rotated->id, DB::table('api_keys')->where('id', $previous->id)->value('replaced_by'));
+        self::assertSame(2, DB::table('api_keys')->count());
+    }
+
+    /**
+     * A rotation whose public parts keep colliding gives up after three draws,
+     * and its transaction takes back the end it set on the replaced key, so
+     * that key is neither cut to the overlap nor pointed at a replacement that
+     * was never stored, and nothing is reported.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testARotationThatGivesUpChangesNothing(): void
+    {
+        $machine  = $this->seedMachine();
+        $previous = $this->apiKeys()->issue($machine, $machine);
+        $taken    = $previous->summary->publicId;
+        $service  = $this->drawingService(static fn (): string => $taken);
+
+        $this->recordMachineEvents([ApiKeyRotated::class]);
+
+        try {
+            $service->rotate($machine, $previous->id, 3600);
+
+            self::fail('Expected the rotation to give up.');
+        } catch (\UnexpectedValueException $exception) {
+            self::assertSame('Could not draw an API key public part that no stored key has in 3 attempts.', $exception->getMessage());
+        }
+
+        $row = DB::table('api_keys')->where('id', $previous->id)->first();
+
+        self::assertNotNull($row);
+        self::assertNull($row->rotated_at);
+        self::assertNull($row->replaced_by);
+        self::assertNull($row->expires_at);
+        self::assertSame(1, DB::table('api_keys')->count());
+        self::assertSame([], $this->machineEvents);
+        self::assertSame($previous->id, $this->apiKeys()->find($machine, $previous->id)?->id);
+    }
+
+    /**
      * A key issued inside a transaction on its connection is reported only on
      * commit, and never when the transaction rolls back.
      *
