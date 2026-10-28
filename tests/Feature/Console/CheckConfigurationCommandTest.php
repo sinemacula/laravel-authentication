@@ -237,13 +237,13 @@ final class CheckConfigurationCommandTest extends TestCase
             'auth.guards.api.audience'   => ['methods' => ['phone_code']],
             'auth.guards.2024'           => ['driver' => 'jwt', 'provider' => 'users', 'audience' => ['methods' => ['phone_code']]],
             'auth.guards.web.audience'   => ['methods' => ['phone_code']],
-            'auth.guards.admin.audience' => ['methods' => ['password']],
+            'auth.guards.admin.audience' => ['methods' => ['password', 'email_code']],
         ]);
 
         [$code, $output] = $this->check();
 
         self::assertSame(1, $code);
-        self::assertContains('[codes] Guards [api, 2024] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
+        self::assertContains('[codes] Guards [api, admin, 2024] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
     }
 
     /**

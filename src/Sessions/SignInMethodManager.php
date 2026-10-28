@@ -171,6 +171,18 @@ final class SignInMethodManager extends Manager
     }
 
     /**
+     * Build the email address one-time code sign-in method.
+     *
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeSignIn
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    protected function createEmailCodeDriver(): CodeSignIn
+    {
+        return $this->container->make(CodeSignIn::class, ['type' => 'email']);
+    }
+
+    /**
      * Whether a method is registered under exactly the name: a package method
      * whose creator is defined, or one registered with `extend()`.
      *

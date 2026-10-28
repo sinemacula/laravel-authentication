@@ -213,7 +213,7 @@ final class CheckConfigurationCommand extends Command
     private static function allowsCodes(AudiencePolicy $policy, string $guard): bool
     {
         try {
-            return $policy->allowsMethod($guard, CodeSignIn::PHONE);
+            return $policy->allowsMethod($guard, CodeSignIn::PHONE) || $policy->allowsMethod($guard, CodeSignIn::EMAIL);
         } catch (\InvalidArgumentException) {
             return false;
         }

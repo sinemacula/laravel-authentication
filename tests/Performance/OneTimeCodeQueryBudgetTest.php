@@ -156,6 +156,32 @@ final class OneTimeCodeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * An email code costs what a phone code does: the request writes its limits
+     * and the code and reads no identity, and the sign-in reads the identity
+     * and the code once each.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEmailCodeCostsWhatAPhoneCodeDoes(): void
+    {
+        self::seedCodeIdentity();
+
+        $codes = $this->codeService();
+
+        $this->statements = [];
+
+        self::assertTrue($this->assertQueryBudget(0, 6, static fn (): CodeRequest => $codes->send('email_code', ['email' => ' Ada@Example.test']))->isSent());
+        self::assertSame([], array_filter($this->statements, static fn (string $sql): bool => str_contains($sql, 'code_identities')));
+
+        $sessions = $this->sessions('mobile');
+        $signIn   = static fn (): SignInResult => $sessions->signIn('email_code', ['email' => 'ada@example.test', 'code' => self::CODE]);
+
+        self::assertTrue($this->assertQueryBudget(2, 12, $signIn)->isSignedIn());
+    }
+
+    /**
      * A wrong code reads the identity and the code once each and writes the
      * reservations and the attempt; a malformed one reads nothing but the
      * limits and counts nothing against the code.

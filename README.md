@@ -87,11 +87,11 @@ device record live in the `devices` table so replay and stale credentials can be
   default), and a password rehash that never overwrites a concurrent change.
 - **Rate limits in the database**: sign-in, code requests and refresh limited per identifier and per IP address, counted
   atomically on the write connection without a cache.
-- **One-time codes**: passwordless sign-in with a numeric code sent to a verified phone number (`phone_code`), and
-  identifier verification by code, through a sender contract the application binds (no provider ships; a fake for
-  tests does). Codes are stored as keyed hashes bound to their purpose, guard and identifier, work once, expire, lock
-  after a few wrong guesses, resend after a cooldown, and are delivered by a queued job, so a request for a code looks
-  the same whether or not anyone has the number.
+- **One-time codes**: passwordless sign-in with a numeric code sent to a verified phone number (`phone_code`) or email
+  address (`email_code`), and identifier verification by code, through a sender contract the application binds (no
+  provider ships; a fake for tests does). Codes are stored as keyed hashes bound to their purpose, guard and
+  identifier, work once, expire, lock after a few wrong guesses, resend after a cooldown, and are delivered by a queued
+  job, so a request for a code looks the same whether or not anyone has the identifier.
 - **Identifier verification**: signed verification links or one-time codes bound to their purpose and identifier, and
   an opt-in, per-guard requirement that sign-in identifiers be verified.
 - **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` guard's settings and fails
@@ -538,7 +538,7 @@ when a password sign-in runs. A sign-in that needs a further factor waits in `pe
 ],
 ```
 
-The `phone_code` sign-in method and verification by code (see
+The `phone_code` and `email_code` sign-in methods and verification by code (see
 [Signing in with a one-time code](#signing-in-with-a-one-time-code)) send a code of `length` digits (6 to 10), drawn
 uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts` checks (1
 to 20); after that it is locked until another is requested. Another code for the same number may be requested
@@ -575,6 +575,7 @@ $this->app->bind(OneTimeCodeSender::class, SmsCodeSender::class);
 ```
 
 ```php
+use Illuminate\Support\Facades\Mail;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 
@@ -584,11 +585,17 @@ final class SmsCodeSender implements OneTimeCodeSender
 
     public function send(OneTimeCodeMessage $message): void
     {
-        // $message->identifier is the E.164 number; $message->code the code, in clear: never log it.
-        $this->sms->send($message->identifier, "Your sign-in code is {$message->code}.");
+        // $message->identifier is the E.164 number or the normalised address; $message->code is in clear: never log it.
+        match ($message->type) {
+            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
+            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
+        };
     }
 }
 ```
+
+The message also carries the guard, the purpose (`CodePurpose::SIGN_IN` or `VERIFY_IDENTIFIER`, to word it) and the
+recipient identity.
 
 A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
 that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see
@@ -1347,10 +1354,12 @@ and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 
 #### Signing in with a one-time code
 
-The package registers `phone_code`: a numeric code sent to a verified phone number signs in with no password. Allow it
-in the guard's audience, bind a `OneTimeCodeSender` (see [One-time codes](#one-time-codes)), and give the identity a
-normalised `phone` column with `HasVerifiableIdentifiers` (see [Identifiers](#identifiers) and
-[Identifier verification](#identifier-verification)):
+The package registers `phone_code`, a numeric code sent to a verified phone number, and `email_code`, the same sent to a
+verified email address: either signs in with no password, as a primary method or a fallback. Allow it in the guard's
+audience, bind a `OneTimeCodeSender` (see [One-time codes](#one-time-codes)), and give the identity a normalised `phone`
+or `email` column with `HasVerifiableIdentifiers` (see [Identifiers](#identifiers) and
+[Identifier verification](#identifier-verification)). The input carries the identifier under its type's name (`phone`,
+`email`) and the code under `code`:
 
 ```php
 'mobile' => [
@@ -1389,6 +1398,11 @@ Route::post('/sign-in/code', function (Request $request) {
 });
 ```
 
+An email address is used in its normal form throughout: a code requested for `Ben@Example.com` is sent to, bound to and
+signs in with `ben@example.com`, however either step spells it, and the sender's message carries the normal form; an
+address the `email` normaliser rejects (blank, or not valid UTF-8) is `identifier_invalid`. Everything below applies to
+`email_code` as to `phone_code`, with the address for the number.
+
 A code request does nothing that depends on whether anyone has the number. The guard must allow the method
 (`method_not_allowed`), the number must be one the `phone` normaliser accepts (`identifier_invalid`), the number and the
 IP address must have code requests left (`rate_limited`, with the wait), and no code may have been sent to the number
@@ -1411,7 +1425,8 @@ the audience policy, a further factor and the device, which records `phone_code`
 row, on the device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt
 back; the sign-in limits on `rate_limits.connection` still count it.
 
-Another identifier type signs in by code once it has a normaliser: register a code method for it, and allow it.
+Another identifier type signs in by code once it has a normaliser and a column: register a code method for it, and
+allow it.
 
 ```php
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;

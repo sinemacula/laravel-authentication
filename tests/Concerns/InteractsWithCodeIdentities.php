@@ -20,10 +20,11 @@ use Tests\Integration\Fixtures\UnverifiableCodeIdentity;
  * that allow the code sign-in methods over them, built on the session tests'
  * helpers.
  *
- * Guards: `mobile` and `kiosk` allow `phone_code` (and `password`) over
- * `CodeIdentity`; `web` allows only `password`; `machines` allows `phone_code`
- * over `CodeMachineClient`; `unverifiable` allows `phone_code` over identities
- * that cannot report verification.
+ * Guards: `mobile` and `kiosk` allow `phone_code` and `email_code` (and
+ * `mobile` `password`) over `CodeIdentity`; `console` allows `email_code` and
+ * `password` and requires verified identifiers; `web` allows only `password`;
+ * `machines` allows the code methods over `CodeMachineClient`; `unverifiable`
+ * allows them over identities that cannot report verification.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -82,11 +83,15 @@ trait InteractsWithCodeIdentities
         $config->set('auth.providers.code_machines', ['driver' => 'model', 'model' => CodeMachineClient::class]);
         $config->set('auth.providers.unverifiable', ['driver' => 'model', 'model' => UnverifiableCodeIdentity::class]);
 
-        $config->set('auth.guards.mobile', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => ['methods' => ['phone_code', 'password']]]);
-        $config->set('auth.guards.kiosk', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => ['methods' => ['phone_code']]]);
+        $codes    = ['methods' => ['phone_code', 'email_code']];
+        $verified = ['methods' => ['email_code', 'password'], 'require_verified_identifier' => true];
+
+        $config->set('auth.guards.mobile', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => ['methods' => ['phone_code', 'email_code', 'password']]]);
+        $config->set('auth.guards.kiosk', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => $codes]);
+        $config->set('auth.guards.console', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => $verified]);
         $config->set('auth.guards.web', ['driver' => 'jwt', 'provider' => 'code_identities', 'audience' => ['methods' => ['password']]]);
-        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'code_machines', 'audience' => ['methods' => ['phone_code']]]);
-        $config->set('auth.guards.unverifiable', ['driver' => 'jwt', 'provider' => 'unverifiable', 'audience' => ['methods' => ['phone_code']]]);
+        $config->set('auth.guards.machines', ['driver' => 'jwt', 'provider' => 'code_machines', 'audience' => $codes]);
+        $config->set('auth.guards.unverifiable', ['driver' => 'jwt', 'provider' => 'unverifiable', 'audience' => $codes]);
 
         $config->set('queue.default', 'sync');
         $config->set('queue.connections.sync', ['driver' => 'sync']);

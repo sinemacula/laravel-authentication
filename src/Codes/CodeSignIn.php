@@ -18,9 +18,10 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * A one-time code sign-in method: an identifier of one type and the code
  * `Auth::codes($guard)->send()` sent to it.
  *
- * The package registers it as `phone_code`, for phone numbers. The input
- * carries the identifier under the identifier type's name (`phone`), which is
- * also the identity's column it is looked up by, and the code under `code`.
+ * The package registers it as `phone_code`, for phone numbers, and as
+ * `email_code`, for email addresses. The input carries the identifier under
+ * the identifier type's name (`phone`, `email`), which is also the identity's
+ * column it is looked up by, and the code under `code`.
  * An application registers it for another identifier type with
  * `extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']))`,
  * given a normaliser for the type.
@@ -48,6 +49,9 @@ final readonly class CodeSignIn implements SignInMethod
 {
     /** @var string Name the package registers phone number codes under. */
     public const string PHONE = 'phone_code';
+
+    /** @var string Name the package registers email address codes under. */
+    public const string EMAIL = 'email_code';
 
     /** @var string Input key holding the code. */
     private const string CODE_KEY = 'code';

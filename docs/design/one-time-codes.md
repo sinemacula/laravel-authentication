@@ -2,10 +2,10 @@
 
 ## Purpose
 
-This note records how the package issues, delivers and checks one-time codes: the `phone_code` sign-in method (a
-numeric code sent to a verified phone number) and identifier verification by code. It states what a code is bound to,
-what is stored, how the attempt, cooldown and request limits hold under concurrency, why a request for a code looks the
-same whether or not anyone has the identifier, and who a code is ever delivered to.
+This note records how the package issues, delivers and checks one-time codes: the `phone_code` and `email_code` sign-in
+methods (a numeric code sent to a verified phone number or email address) and identifier verification by code. It states
+what a code is bound to, what is stored, how the attempt, cooldown and request limits hold under concurrency, why a
+request for a code looks the same whether or not anyone has the identifier, and who a code is ever delivered to.
 
 ## Invariants
 
@@ -103,7 +103,8 @@ same whether or not anyone has the identifier, and who a code is ever delivered 
 
 - `src/Codes/OneTimeCodes.php` (engine), `src/Codes/CodeKeys.php`, `src/Codes/CodeBinding.php`,
   `src/Codes/CodeSettings.php`, `src/Codes/Enums/CodeCheck.php`.
-- `src/Codes/CodeService.php` (`Auth::codes()`), `src/Codes/CodeSignIn.php` (`phone_code`), `src/Codes/SendOneTimeCode.php`.
+- `src/Codes/CodeService.php` (`Auth::codes()`), `src/Codes/CodeSignIn.php` (`phone_code`, `email_code`),
+  `src/Codes/SendOneTimeCode.php`.
 - `src/Contracts/OneTimeCodeSender.php`, `src/Codes/OneTimeCodeMessage.php`, `src/Testing/FakeOneTimeCodeSender.php`.
 - `src/Identifiers/E164PhoneNormaliser.php`, `src/Models/OneTimeCode.php`,
   `database/migrations/2026_04_06_000003_create_one_time_codes_table.php`.
@@ -117,8 +118,8 @@ same whether or not anyone has the identifier, and who a code is ever delivered 
 - `tests/Integration/Codes/SendOneTimeCodeTest.php`: recipients, live issuance, encrypted payload on a real queue,
   after-response delivery on `sync`.
 - `tests/Integration/Codes/ReplicaOneTimeCodesTest.php`: write-connection reads.
-- `tests/Feature/Codes/CodeSignInTest.php`, `tests/Feature/Codes/CodeServiceTest.php`,
-  `tests/Feature/Codes/CodeRoutesTest.php`.
+- `tests/Feature/Codes/CodeSignInTest.php`, `tests/Feature/Codes/EmailCodeSignInTest.php`,
+  `tests/Feature/Codes/CodeServiceTest.php`, `tests/Feature/Codes/CodeRoutesTest.php`.
 - `tests/Performance/OneTimeCodeQueryBudgetTest.php`.
 
 ## Change Triggers
