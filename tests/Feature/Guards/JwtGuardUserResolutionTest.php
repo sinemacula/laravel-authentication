@@ -28,6 +28,7 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
+use Tests\Unit\Stubs\StubModel;
 
 /**
  * Feature tests for the bearer-token `user()` resolution path on `JwtGuard`.
@@ -757,6 +758,50 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             self::fail('The unloaded revocation column should have been reported.');
         } catch (\LogicException $exception) {
             self::assertStringContainsString('its `revoked_at` attribute is not loaded', $exception->getMessage());
+        }
+
+        self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * A `did` looked up through a `devices()` relation over a model that is not
+     * an `EloquentDevice` is reported as the misconfiguration it is, before the
+     * relation is queried, rather than read as an unknown device.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testUserReportsADevicesRelationOverAModelThatIsNotADevice(): void
+    {
+        $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
+
+        $guard = $this->makeGuard($this->makeRequest($token));
+
+        $builder = \Mockery::mock(Builder::class);
+        $builder->shouldReceive('useWritePdo')->andReturnSelf();
+        $builder->shouldReceive('getModel')->andReturn(new StubModel);
+        $builder->shouldNotReceive('find');
+
+        /** @var \Mockery\MockInterface&\Tests\Unit\Stubs\StubIdentity $identity */
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldReceive('devices')->andReturn($builder);
+
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
+        $this->provider->shouldReceive('retrieveById')->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->with($identity, 'p-1')->andReturn($principal);
+        $this->events->shouldNotReceive('dispatch');
+
+        try {
+            $guard->user();
+
+            self::fail('The devices relation over another model should have been reported.');
+        } catch (\LogicException $exception) {
+            self::assertStringContainsString('must query a model that implements', $exception->getMessage());
         }
 
         self::assertFalse($guard->hasUser());

@@ -680,6 +680,10 @@ class AppUser extends User implements Identity, Principal, HasDevices
 }
 ```
 
+The relation must query the configured device model, or another model that implements `EloquentDevice`: the bearer
+path, sign-in pins, the device list and revocations all read it, and a relation over any other model throws a
+`LogicException`.
+
 ### 3D adoption (separate identity, principal, tenant)
 
 For multi-tenant apps where the logged-in human acts on behalf of a tenant-scoped actor, split identity and

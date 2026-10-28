@@ -22,8 +22,10 @@ interface HasDevices
      *
      * The guard calls it inside `WriteConnection::during()` for the identity,
      * so a query the relation runs while it is built reads the write
-     * connection. The devices it returns must carry the revocation column:
-     * `ActsAsDevice` throws for a device loaded without it.
+     * connection. It must query a model that implements `EloquentDevice` (any
+     * other is a `LogicException` wherever the package reads it), and the
+     * devices it returns must carry the revocation column: `ActsAsDevice`
+     * throws for a device loaded without it.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */

@@ -238,8 +238,9 @@ other rotated token as a replay that revokes the device.
   taxonomies; `src/Events/AuthenticationFailed.php`, `src/Events/DeviceRevoked.php`.
 - `src/Guards/JwtGuard.php`: `refresh()` delegates to the live refresh exchange with the request's client, and turns a
   `rate_limited` failure into the 429 (`refuseIfRateLimited()`).
-- `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolveDeviceFromHint()`, which treats a device of another guard
-  as missing on the bearer path and for sign-in pins.
+- `src/Guards/OwnedDevice.php`: `refusal()`, which refuses a device of another guard on the bearer path
+  (`device_guard_mismatch`) and for sign-in pins (`resolveDeviceFromHint()` in
+  `src/Guards/Concerns/VerifiesPinnedContext.php`).
 - `src/Concerns/ReadsDeviceAttributes.php`: `toDeviceTimestamp()` and `earliestInstantOf()`, which read a device time
   in the repeated daylight saving hour as its first pass.
 

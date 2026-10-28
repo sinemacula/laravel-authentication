@@ -67,7 +67,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `pid` re-check.
 - A resolver that returns an unsaved principal with a `null` identifier is rejected for the same reason.
 - On the bearer path, `did` resolution is identity-scoped through `HasDevices`; a token that claims a device against an
-  identity with no device capability fails closed instead of silently binding no device.
+  identity with no device capability fails closed instead of silently binding no device, and a `devices()` relation
+  over a model that is not an `EloquentDevice` throws a `LogicException` before it is queried.
 - On the refresh path, `did` resolution is global through the configured device model, and the device's owner is
   reloaded through the guard's identity provider (see `guard-bound-tokens.md`).
 - When bearer auth rejects a token after the identity has already been loaded, the `AuthenticationFailed` event still
@@ -76,13 +77,17 @@ specific principal or device and the runtime cannot prove that claim, authentica
 
 ## Implementation Anchors
 
-- `src/Guards/JwtGuard.php`: `resolveContextFromToken()`, `resolvePrincipalFromClaims()`, `loadIdentityFromClaims()`.
-- `src/Guards/Concerns/VerifiesPinnedContext.php`: `matchesPidHint()` and `resolveDeviceFromHint()`, each shared by the
-  bearer path and the pinned-context check in `attempt()`, plus `resolvePinnedPrincipal()` and `resolvePinnedDevice()`.
-- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`, `classify()`; `src/Jwt/RefreshAdmission.php`:
-  `principal()`; the device is found by `src/Jwt/DeviceLookup.php`'s `find()`.
-- `src/Jwt/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind `matchesPidHint()` and
-  the refresh `pid` check.
+- `src/Guards/BearerAuthentication.php`: `authenticate()`, `admitAs()` (the exact `pid` match), `onDevice()` and
+  `principalRefusal()`; `src/Guards/OwnedDevice.php`: `refusal()`, `actsAs()` and `isIssuedSinceSwitch()`, shared with
+  the `attempt()` device pin.
+- `src/Sessions/IdentityDevices.php`: `find()`, the identity-scoped device lookup behind a bearer `did`, a device pinned
+  on `attempt()` and the session service's `revokeDevice()`.
+- `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolvePinnedPrincipal()`, `resolvePinnedDevice()` and
+  `resolveDeviceFromHint()`, the pinned-context checks in `attempt()`.
+- `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`; `src/Jwt/RefreshJudgement.php`: `classify()`;
+  `src/Jwt/RefreshAdmission.php`: `principal()`; the device is found by `src/Jwt/DeviceLookup.php`'s `find()`.
+- `src/Jwt/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and refresh
+  `pid` checks.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
 - `src/Jwt/TokenLifetimes.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and issuance share.

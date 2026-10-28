@@ -10,12 +10,11 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\OwnedDevice;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 
 /**
- * Proves that a principal or device someone else named belongs to an identity:
- * a principal hint (a `pid` claim or a principal pinned on `attempt()`) and a
- * device hint (a `did` claim or a device pinned on `attempt()`).
+ * Proves that a principal or device pinned on `attempt()` belongs to the
+ * identity signing in.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,25 +23,6 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
  */
 trait VerifiesPinnedContext
 {
-    /**
-     * Confirm a resolver-returned principal matches a principal hint (a `pid`
-     * claim or a caller-supplied principal's identifier), so a hint that
-     * resolves to a different principal is rejected rather than silently
-     * downgraded.
-     *
-     * Fail-closed on unsaved principals: if either identifier stringifies to
-     * `null` (an unsaved model returned by a misbehaving custom resolver), the
-     * match returns `false` so the guard does not bind a transient actor.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
-     * @param  mixed  $hint
-     * @return bool
-     */
-    protected function matchesPidHint(?Principal $resolved, mixed $hint): bool
-    {
-        return IdentifierCoercion::matches($resolved?->getPrincipalIdentifier(), $hint);
-    }
-
     /**
      * Resolve a caller-supplied principal through the resolver's hinted path,
      * with the exact-match and ownership checks of
@@ -83,15 +63,17 @@ trait VerifiesPinnedContext
     }
 
     /**
-     * Resolve a device for the identity from a hint (a `did` claim or a pinned
-     * device's identifier). Returns null when the identity does not implement
-     * `HasDevices`, the hint cannot be a key of the device model (no query is
-     * made), or the device is not found, belongs to another guard's sessions
-     * (or to none), has been revoked, or its session has ended (past its idle
-     * or absolute deadline, or without deadlines): such a device is treated
-     * exactly like a missing one, from the row already loaded, on the write
-     * connection (see `OwnedDevice`). The deadlines are checked against the
-     * current time with no leeway, so a token cannot outlive its session.
+     * Resolve a device for the identity from a pinned device's identifier.
+     * Returns null when the identity does not implement `HasDevices`, the hint
+     * cannot be a key of the device model (no query is made), or the device is
+     * not found (`IdentityDevices::find()`), belongs to another guard's
+     * sessions (or to none), has been revoked, or its session has ended (past
+     * its idle or absolute deadline, or without deadlines): such a device is
+     * treated exactly like a missing one, from the row already loaded, on the
+     * write connection (see `OwnedDevice`). The deadlines are checked against
+     * the current time with no leeway, so a pin cannot outlive its session. A
+     * `devices()` relation over a model that is not an `EloquentDevice` is a
+     * misconfiguration, and throws.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
@@ -101,7 +83,7 @@ trait VerifiesPinnedContext
      */
     protected function resolveDeviceFromHint(Identity $identity, mixed $hint): ?Device
     {
-        $device = OwnedDevice::find($identity, $hint);
+        $device = IdentityDevices::find($identity, $hint);
 
         return $device !== null && OwnedDevice::refusal($device, $this->name, Carbon::now()) === null ? $device : null;
     }

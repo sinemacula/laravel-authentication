@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Guards;
 
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
@@ -12,7 +11,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\OwnedDevice;
 use Tests\Concerns\InteractsWithDevices;
@@ -21,9 +19,8 @@ use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
 /**
- * Feature tests for finding a named device among an identity's own and judging
- * whether a guard may authenticate on it, for which principal, and with tokens
- * issued since when.
+ * Feature tests for judging whether a guard may authenticate on a named device,
+ * for which principal, and with tokens issued since when.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -34,53 +31,6 @@ use Tests\Unit\Stubs\StubIdentity;
 final class OwnedDeviceTest extends TestCase
 {
     use InteractsWithDevices, MockeryPHPUnitIntegration;
-
-    /** @var string Well-formed id of the device named. */
-    private const string DEVICE_ID = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
-
-    /**
-     * No hint names no device, without building the identity's relation.
-     *
-     * @return void
-     */
-    public function testNoHintFindsNothingWithoutAQuery(): void
-    {
-        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldNotReceive('devices');
-
-        self::assertNull(OwnedDevice::find($identity, null));
-    }
-
-    /**
-     * An identity that holds no devices finds none for any hint.
-     *
-     * @return void
-     */
-    public function testAnIdentityWithoutDevicesFindsNothing(): void
-    {
-        self::assertNull(OwnedDevice::find(\Mockery::mock(Identity::class), self::DEVICE_ID));
-    }
-
-    /**
-     * A hint that cannot be a key of the device model is not looked up, and a
-     * well-formed one is found through the relation.
-     *
-     * @return void
-     */
-    public function testAHintIsLookedUpOnlyWhenItCanBeAKey(): void
-    {
-        $device  = new StubDevice(['id' => self::DEVICE_ID]);
-        $builder = \Mockery::mock(Builder::class);
-        $builder->shouldReceive('useWritePdo')->andReturnSelf();
-        $builder->shouldReceive('getModel')->andReturn(new StubDevice);
-        $builder->shouldReceive('find')->once()->with(self::DEVICE_ID)->andReturn($device);
-
-        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
-        $identity->shouldReceive('devices')->twice()->andReturn($builder);
-
-        self::assertNull(OwnedDevice::find($identity, 'not-a-uuid'));
-        self::assertSame($device, OwnedDevice::find($identity, self::DEVICE_ID));
-    }
 
     /**
      * Rows of `[guard, revoked seconds ago or null, idle deadline in seconds,

@@ -181,7 +181,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`, `refreshFromRequest()`.
 - `src/AuthManager.php`: `forgetGuardState()`; `src/Listeners/ForgetGuardStateBeforeJob.php`.
 - `src/Guards/BearerAuthentication.php` and `src/Guards/OwnedDevice.php`: the bearer checks, their order and reasons,
-  and the device lookup they share with the `attempt()` device pin.
+  and the device checks they share with the `attempt()` device pin; `src/Sessions/IdentityDevices.php`: the device
+  lookup both use.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the
   `auth` middleware binding, and the guest response render callback.
 - `src/Guards/JwtGuard.php` and `src/Jwt/RefreshTokenExchange.php`: `setDispatcher()` and `setPrincipalResolver()`,

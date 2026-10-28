@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
+use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 
 /**
  * Decides whom a request's access token authenticates, and why not when it does
@@ -182,7 +183,7 @@ final readonly class BearerAuthentication
             return self::isIssuedAfterCutoff($admitted, $issuedAt) ? $admitted : RefusedSignIn::after(FailureReason::ISSUED_BEFORE_CUTOFF, $admitted);
         }
 
-        $device  = OwnedDevice::find($admitted->identity, $deviceId);
+        $device  = IdentityDevices::find($admitted->identity, $deviceId);
         $refusal = $device === null
             ? FailureReason::DEVICE_UNKNOWN
             : OwnedDevice::refusal($device, $this->guard, Carbon::now()) ?? self::principalRefusal($device, $admitted->principal, $issuedAt);

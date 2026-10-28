@@ -21,18 +21,6 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 final class StubPinnedContextGuard extends AbstractGuard
 {
     /**
-     * Expose `matchesPidHint()`.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
-     * @param  mixed  $hint
-     * @return bool
-     */
-    public function matches(?Principal $resolved, mixed $hint): bool
-    {
-        return $this->matchesPidHint($resolved, $hint);
-    }
-
-    /**
      * Expose `resolvePinnedPrincipal()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

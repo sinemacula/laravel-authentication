@@ -13,9 +13,10 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 
 /**
- * An identity's devices as the session service reads them: through the
- * identity's `devices()` relation, built inside `WriteConnection::during()` for
- * the identity and routed to the write connection, over a model that must be an
+ * An identity's devices as the package reads them, for the session service and
+ * for the device a token or an `attempt()` pin names: through the identity's
+ * `devices()` relation, built inside `WriteConnection::during()` for the
+ * identity and routed to the write connection, over a model that must be an
  * Eloquent `EloquentDevice` so its columns are known.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -53,9 +54,9 @@ final class IdentityDevices
 
     /**
      * The identity's device with the identifier, read on the write connection,
-     * or `null` when the identity holds no devices, the identifier cannot be a
-     * key of the device model (no query is made), or the identity has no such
-     * device.
+     * or `null` when the identifier is `null` or the identity holds no devices
+     * (the relation is not built), the identifier cannot be a key of the device
+     * model (no query is made), or the identity has no such device.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $id
@@ -65,7 +66,7 @@ final class IdentityDevices
      */
     public static function find(Identity $identity, mixed $id): (EloquentDevice&Model)|null
     {
-        if (!$identity instanceof HasDevices) {
+        if ($id === null || !$identity instanceof HasDevices) {
             return null;
         }
 

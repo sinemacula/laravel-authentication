@@ -53,7 +53,7 @@ principal auth without device tracking or refresh rotation.
 
 - `src/Jwt/JwtTokenService.php`: `issueAccessToken()` and `issueRefreshToken()`.
 - `src/Guards/JwtGuard.php`: `resolveBearerToken()`; `src/Guards/BearerAuthentication.php`: `isIssuedAfterCutoff()`.
-- `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolveDeviceFromHint()`.
+- `src/Sessions/IdentityDevices.php`: `find()`, which finds no device for an identity without `HasDevices`.
 - `src/Guards/AbstractGuard.php`: `bindAuthenticationLifecycle()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()` and `assertValidDeviceModelConfiguration()`.
 

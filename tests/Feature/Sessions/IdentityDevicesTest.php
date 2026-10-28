@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubIdentity;
 
 /**
  * Feature tests of finding one of an identity's devices by its identifier, on
@@ -98,6 +99,19 @@ final class IdentityDevicesTest extends TestCase
         self::assertNull(IdentityDevices::find($identity, ['0190e1a4-0000-7000-8000-000000000000']));
         self::assertNull(IdentityDevices::find(\Mockery::mock(Identity::class, Principal::class), '0190e1a4-0000-7000-8000-000000000000'));
         self::assertSame(0, $queries);
+    }
+
+    /**
+     * No identifier names no device, without building the identity's relation.
+     *
+     * @return void
+     */
+    public function testNoIdentifierFindsNothingWithoutBuildingTheRelation(): void
+    {
+        $identity = \Mockery::mock(StubIdentity::class)->makePartial();
+        $identity->shouldNotReceive('devices');
+
+        self::assertNull(IdentityDevices::find($identity, null));
     }
 
     /**

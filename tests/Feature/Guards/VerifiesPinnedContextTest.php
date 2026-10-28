@@ -591,24 +591,6 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * The hint check matches a resolved principal only on an equal, non-null
-     * identifier, comparing integer and string forms alike.
-     *
-     * @return void
-     */
-    public function testPrincipalHintMatchesOnlyAnEqualIdentifier(): void
-    {
-        $guard = $this->makeStubGuard();
-
-        self::assertTrue($guard->matches($this->principal('5'), 5));
-        self::assertTrue($guard->matches($this->principal('p-1'), 'p-1'));
-        self::assertFalse($guard->matches($this->principal('p-1'), 'p-2'));
-        self::assertFalse($guard->matches($this->principal(null), 'p-1'));
-        self::assertFalse($guard->matches($this->principal('p-1'), null));
-        self::assertFalse($guard->matches(null, 'p-1'));
-    }
-
-    /**
      * The pinned-principal, pinned-device, and device-hint checks are callable
      * from a guard subclass, as `JwtGuard` calls the device-hint lookup, and
      * return the identity's own instances.
