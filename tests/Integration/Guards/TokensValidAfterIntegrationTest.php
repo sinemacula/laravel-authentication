@@ -64,6 +64,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
             $blueprint->increments('id');
             $blueprint->string('email')->unique();
             $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
             $blueprint->dateTime('tokens_valid_after', 0)->nullable();
             $blueprint->timestamps();
         });

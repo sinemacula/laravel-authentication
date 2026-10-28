@@ -21,7 +21,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithSessions;
-use Tests\Integration\Fixtures\ActiveCutoffIdentity;
+use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -60,7 +60,7 @@ final class DeviceRevocationsTest extends TestCase
 
         $this->createSessionTables();
 
-        Schema::create('active_cutoff_identities', static function (Blueprint $blueprint): void {
+        Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email');
             $blueprint->string('password')->nullable();
@@ -80,7 +80,7 @@ final class DeviceRevocationsTest extends TestCase
     {
         CarbonImmutable::setTestNow();
 
-        Schema::dropIfExists('active_cutoff_identities');
+        Schema::dropIfExists('cutoff_identities');
 
         $this->dropSessionTables();
 
@@ -259,9 +259,9 @@ final class DeviceRevocationsTest extends TestCase
      */
     public function testAFailedDeviceTransactionLeavesTheCutoffMoved(): void
     {
-        $identity = new ActiveCutoffIdentity;
+        $identity = new CutoffIdentity;
         $identity->forceFill(['email' => 'ada@example.test'])->save();
-        $identity = ActiveCutoffIdentity::query()->findOrFail($identity->id);
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
 
         DB::table('devices')->insert($this->deviceRow($identity, 1));
 
@@ -273,7 +273,7 @@ final class DeviceRevocationsTest extends TestCase
             $this->sessions()->revokeDevices($identity, RevocationReason::PASSWORD_RESET);
             self::fail('The device transaction did not fail.');
         } catch (QueryException) {
-            self::assertSame(self::NOW, DB::table('active_cutoff_identities')->value('tokens_valid_after'));
+            self::assertSame(self::NOW, DB::table('cutoff_identities')->value('tokens_valid_after'));
             self::assertSame(1, DB::table('devices')->whereNull('revoked_at')->count());
             self::assertSame([], $this->recorded);
         } finally {
@@ -303,11 +303,11 @@ final class DeviceRevocationsTest extends TestCase
     /**
      * A live device of the identity.
      *
-     * @param  \Tests\Integration\Fixtures\ActiveCutoffIdentity|\Tests\Integration\Fixtures\IntegrationIdentity  $identity
+     * @param  \Tests\Integration\Fixtures\CutoffIdentity|\Tests\Integration\Fixtures\IntegrationIdentity  $identity
      * @param  int  $index
      * @return array<string, mixed>
      */
-    private function deviceRow(ActiveCutoffIdentity|IntegrationIdentity $identity, int $index): array
+    private function deviceRow(CutoffIdentity|IntegrationIdentity $identity, int $index): array
     {
         return [
             'id'                   => (string) Str::uuid7(),

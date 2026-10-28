@@ -35,7 +35,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
-use Tests\Integration\Fixtures\ActiveCutoffIdentity;
+use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\Integration\Fixtures\ForeignModelDevicesIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -81,7 +81,7 @@ final class DeviceRevocationsTest extends TestCase
 
         $this->createSessionTables();
 
-        Schema::create('active_cutoff_identities', static function (Blueprint $blueprint): void {
+        Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email');
             $blueprint->string('password')->nullable();
@@ -104,7 +104,7 @@ final class DeviceRevocationsTest extends TestCase
 
         JWT::$timestamp = null;
 
-        Schema::dropIfExists('active_cutoff_identities');
+        Schema::dropIfExists('cutoff_identities');
 
         $this->dropSessionTables();
 
@@ -561,16 +561,16 @@ final class DeviceRevocationsTest extends TestCase
      */
     public function testMovesTheScopesCutoffAndReportsIt(): void
     {
-        $identity = new ActiveCutoffIdentity;
+        $identity = new CutoffIdentity;
         $identity->forceFill(['email' => 'ada@example.test'])->save();
-        $identity = ActiveCutoffIdentity::query()->findOrFail($identity->id);
+        $identity = CutoffIdentity::query()->findOrFail($identity->id);
 
         $this->recordEvents([SignedOutEverywhere::class]);
 
         $this->sessions()->revokeDevices($identity, RevocationReason::SIGNED_OUT_EVERYWHERE);
         $this->sessions()->revokeDevices($identity, RevocationReason::SIGNED_OUT_EVERYWHERE);
 
-        self::assertSame(self::NOW, DB::table('active_cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame(self::NOW, DB::table('cutoff_identities')->value('tokens_valid_after'));
         [$first, $second] = $this->recorded;
 
         self::assertInstanceOf(SignedOutEverywhere::class, $first);

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
-use Tests\Integration\Fixtures\ActiveCutoffIdentity;
+use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
 
 /**
@@ -36,7 +36,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
     {
         parent::setUp();
 
-        Schema::create('active_cutoff_identities', static function (Blueprint $blueprint): void {
+        Schema::create('cutoff_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email');
             $blueprint->string('password')->nullable();
@@ -54,7 +54,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('active_cutoff_identities');
+        Schema::dropIfExists('cutoff_identities');
 
         parent::tearDown();
     }
@@ -81,8 +81,8 @@ final class TokensValidAfterIntegrationTest extends TestCase
         self::assertNotNull($mirrored);
         self::assertSame('2027-01-15 10:00:00', $mirrored->format('Y-m-d H:i:s'));
         self::assertFalse($identity->isDirty());
-        self::assertSame('2027-01-15 10:00:00', DB::table('active_cutoff_identities')->value('tokens_valid_after'));
-        self::assertSame('2027-01-15 10:00:00', ActiveCutoffIdentity::query()->findOrFail($identity->id)->getTokensValidAfter()?->format('Y-m-d H:i:s'));
+        self::assertSame('2027-01-15 10:00:00', DB::table('cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame('2027-01-15 10:00:00', CutoffIdentity::query()->findOrFail($identity->id)->getTokensValidAfter()?->format('Y-m-d H:i:s'));
     }
 
     /**
@@ -97,11 +97,11 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         self::assertFalse($identity->invalidateTokensIssuedBefore(CarbonImmutable::parse('2027-01-15 10:00:00')));
         self::assertFalse($identity->invalidateTokensIssuedBefore(CarbonImmutable::parse('2027-01-15 09:59:59')));
-        self::assertSame('2027-01-15 10:00:00', DB::table('active_cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame('2027-01-15 10:00:00', DB::table('cutoff_identities')->value('tokens_valid_after'));
         self::assertSame('2027-01-15 10:00:00', $identity->getTokensValidAfter()?->format('Y-m-d H:i:s'));
 
         self::assertTrue($identity->invalidateTokensIssuedBefore(CarbonImmutable::parse('2027-01-15 10:00:01')));
-        self::assertSame('2027-01-15 10:00:01', DB::table('active_cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame('2027-01-15 10:00:01', DB::table('cutoff_identities')->value('tokens_valid_after'));
     }
 
     /**
@@ -114,10 +114,10 @@ final class TokensValidAfterIntegrationTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        DB::table('active_cutoff_identities')->update(['tokens_valid_after' => '2027-01-15 11:00:00']);
+        DB::table('cutoff_identities')->update(['tokens_valid_after' => '2027-01-15 11:00:00']);
 
         self::assertFalse($identity->invalidateTokensIssuedBefore(CarbonImmutable::parse('2027-01-15 10:00:00')));
-        self::assertSame('2027-01-15 11:00:00', DB::table('active_cutoff_identities')->value('tokens_valid_after'));
+        self::assertSame('2027-01-15 11:00:00', DB::table('cutoff_identities')->value('tokens_valid_after'));
         self::assertNull($identity->getTokensValidAfter());
     }
 
@@ -133,7 +133,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         $identity->invalidateTokensIssuedBefore(CarbonImmutable::parse('2027-01-15 10:00:00'));
 
-        self::assertNull(DB::table('active_cutoff_identities')->where('id', $other->id)->value('tokens_valid_after'));
+        self::assertNull(DB::table('cutoff_identities')->where('id', $other->id)->value('tokens_valid_after'));
     }
 
     /**
@@ -146,10 +146,10 @@ final class TokensValidAfterIntegrationTest extends TestCase
     {
         $this->seedIdentity('2027-01-15 10:00:00');
 
-        $partial = ActiveCutoffIdentity::query()->select(['id', 'email'])->firstOrFail();
+        $partial = CutoffIdentity::query()->select(['id', 'email'])->firstOrFail();
 
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('Cannot read when the tokens of ' . ActiveCutoffIdentity::class . ' become valid: its `tokens_valid_after` attribute is not loaded.');
+        $this->expectExceptionMessage('Cannot read when the tokens of ' . CutoffIdentity::class . ' become valid: its `tokens_valid_after` attribute is not loaded.');
 
         $partial->getTokensValidAfter();
     }
@@ -159,14 +159,14 @@ final class TokensValidAfterIntegrationTest extends TestCase
      *
      * @param  ?string  $cutoff
      * @param  string  $email
-     * @return \Tests\Integration\Fixtures\ActiveCutoffIdentity
+     * @return \Tests\Integration\Fixtures\CutoffIdentity
      */
-    private function seedIdentity(?string $cutoff = null, string $email = 'ada@example.test'): ActiveCutoffIdentity
+    private function seedIdentity(?string $cutoff = null, string $email = 'ada@example.test'): CutoffIdentity
     {
-        $identity = new ActiveCutoffIdentity;
+        $identity = new CutoffIdentity;
 
         $identity->forceFill(['email' => $email, 'tokens_valid_after' => $cutoff])->save();
 
-        return ActiveCutoffIdentity::query()->findOrFail($identity->id);
+        return CutoffIdentity::query()->findOrFail($identity->id);
     }
 }

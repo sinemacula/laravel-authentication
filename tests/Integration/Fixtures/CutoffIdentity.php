@@ -4,11 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Integration\Fixtures;
 
-use Carbon\CarbonInterface;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
+use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -16,9 +18,10 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 /**
- * A 2D identity that records from when its access tokens issued without a
- * device are valid, in its own `tokens_valid_after` column, as an application
- * implements `HasTokensValidAfter`.
+ * Activatable 2D identity that records, through `ProvidesTokensValidAfter`,
+ * when its access tokens issued without a device become valid, in the
+ * `tokens_valid_after` column of `cutoff_identities`, and owns devices of the
+ * shipped model.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,13 +29,14 @@ use SineMacula\Laravel\Authentication\Models\Device;
  * @property int $id
  * @property string $email
  * @property string $password
+ * @property bool $is_active
  * @property ?\Carbon\CarbonInterface $tokens_valid_after
  *
  * @internal
  */
-final class CutoffIdentity extends Model implements HasDevices, HasTokensValidAfter, Identity, Principal
+final class CutoffIdentity extends Model implements CanBeActive, HasDevices, HasTokensValidAfter, Identity, Principal
 {
-    use ActsAsPrincipal, Authenticatable;
+    use ActsAsPrincipal, Authenticatable, ProvidesActiveState, ProvidesTokensValidAfter;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'cutoff_identities';
@@ -41,7 +45,7 @@ final class CutoffIdentity extends Model implements HasDevices, HasTokensValidAf
     protected $guarded = [];
 
     /**
-     * The identity's devices.
+     * The identity's devices of the shipped model.
      *
      * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
@@ -50,36 +54,7 @@ final class CutoffIdentity extends Model implements HasDevices, HasTokensValidAf
     {
         return Device::query()
             ->where('authenticatable_type', self::class)
-            ->where('authenticatable_id', (string) $this->getKey()); // @phpstan-ignore cast.string
-    }
-
-    /**
-     * The recorded time, or `null`.
-     *
-     * @return ?\Carbon\CarbonInterface
-     */
-    #[\Override]
-    public function getTokensValidAfter(): ?CarbonInterface
-    {
-        return $this->tokens_valid_after;
-    }
-
-    /**
-     * Move the recorded time forward to the given one.
-     *
-     * @param  \Carbon\CarbonInterface  $time
-     * @return bool
-     *
-     * @imperative
-     */
-    #[\Override]
-    public function invalidateTokensIssuedBefore(CarbonInterface $time): bool
-    {
-        if ($this->tokens_valid_after !== null && $this->tokens_valid_after->greaterThanOrEqualTo($time)) {
-            return false;
-        }
-
-        return $this->forceFill(['tokens_valid_after' => $time])->save();
+            ->where('authenticatable_id', (string) $this->id);
     }
 
     /**
@@ -91,6 +66,7 @@ final class CutoffIdentity extends Model implements HasDevices, HasTokensValidAf
     protected function casts(): array
     {
         return [
+            'is_active'          => 'boolean',
             'tokens_valid_after' => 'datetime',
         ];
     }

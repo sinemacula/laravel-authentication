@@ -122,7 +122,6 @@ abstract class AbstractGuardTestCase extends TestCase
     protected function mockIdentity(string ...$capabilities): MockInterface
     {
         $identity = \Mockery::mock(Identity::class, ...$capabilities);
-        $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
         $identity->shouldReceive('getAuthIdentifier')
             ->byDefault()
             ->andReturn(1);
@@ -206,8 +205,6 @@ abstract class AbstractGuardTestCase extends TestCase
     protected function mockActivePrincipal(): MockInterface
     {
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('isActive')
             ->byDefault()
             ->andReturnTrue();

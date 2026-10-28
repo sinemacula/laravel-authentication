@@ -43,6 +43,7 @@ final class TokensValidAfterQueryBudgetTest extends PerformanceContractTestCase
             $blueprint->increments('id');
             $blueprint->string('email')->unique();
             $blueprint->string('password');
+            $blueprint->boolean('is_active')->default(true);
             $blueprint->dateTime('tokens_valid_after', 0)->nullable();
             $blueprint->timestamps();
         });
