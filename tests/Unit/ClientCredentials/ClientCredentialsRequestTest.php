@@ -35,7 +35,7 @@ final class ClientCredentialsRequestTest extends TestCase
 
         self::assertInstanceOf(PresentedClient::class, $presented);
         self::assertSame('id', $presented->clientId);
-        self::assertSame('secret', $presented->clientSecret);
+        self::assertSame('secret', $presented->clientSecret());
         self::assertSame('a b', $presented->scope);
         self::assertFalse($presented->basic);
     }
@@ -55,7 +55,7 @@ final class ClientCredentialsRequestTest extends TestCase
 
         self::assertInstanceOf(PresentedClient::class, $presented);
         self::assertSame('my id', $presented->clientId);
-        self::assertSame('se:cr et:x', $presented->clientSecret);
+        self::assertSame('se:cr et:x', $presented->clientSecret());
         self::assertNull($presented->scope);
         self::assertTrue($presented->basic);
         self::assertTrue(ClientCredentialsRequest::usesBasic($request));
@@ -120,7 +120,7 @@ final class ClientCredentialsRequestTest extends TestCase
         $presented = ClientCredentialsRequest::read($request);
 
         self::assertInstanceOf(PresentedClient::class, $presented);
-        self::assertSame([$id, $secret, $scope, $basic], [$presented->clientId, $presented->clientSecret, $presented->scope, $presented->basic]);
+        self::assertSame([$id, $secret, $scope, $basic], [$presented->clientId, $presented->clientSecret(), $presented->scope, $presented->basic]);
     }
 
     /**

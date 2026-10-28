@@ -9,6 +9,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySummary;
 use SineMacula\Laravel\Authentication\ApiKeys\IssuedApiKey;
+use Symfony\Component\VarDumper\Cloner\VarCloner;
+use Symfony\Component\VarDumper\Dumper\CliDumper;
 
 /**
  * Unit tests for what is shown about an API key, and the key shown once.
@@ -76,26 +78,38 @@ final class ApiKeySummaryTest extends TestCase
     }
 
     /**
-     * An issued key holds the key for its caller, and a dump of it shows the
-     * key redacted.
+     * An issued key hands the key to its caller, and no dump of it shows the
+     * key: not Laravel's VarDumper, `print_r` or `var_export`; serialising it
+     * throws, and the constructor's parameter is sensitive.
      *
      * @return void
      */
-    public function testAnIssuedKeyRedactsTheKeyWhenDumped(): void
+    public function testAnIssuedKeyIsShownByNoDump(): void
     {
-        $key    = 'ak_abcdefghijklmnop_' . str_repeat('s', 40);
+        $secret = str_repeat('s', 40);
+        $key    = 'ak_abcdefghijklmnop_' . $secret;
         $issued = new IssuedApiKey('key-1', $key, self::summary());
 
-        self::assertSame($key, $issued->key);
-        self::assertSame(['id' => 'key-1', 'key' => '[redacted]', 'summary' => $issued->summary], $issued->__debugInfo());
-        $dumped = print_r($issued, true);
+        self::assertSame($key, $issued->key());
 
-        self::assertStringNotContainsString(str_repeat('s', 40), $dumped);
-        self::assertStringContainsString('[redacted]', $dumped);
+        $dumps = [
+            (string) (new CliDumper)->dump((new VarCloner)->cloneVar($issued), true),
+            print_r($issued, true),
+            var_export($issued, true),
+        ];
+
+        foreach ($dumps as $dumped) {
+            self::assertStringNotContainsString($secret, $dumped);
+            self::assertStringContainsString('key-1', $dumped);
+        }
 
         $parameter = new \ReflectionParameter([IssuedApiKey::class, '__construct'], 'key');
 
         self::assertNotSame([], $parameter->getAttributes(\SensitiveParameter::class));
+
+        $this->expectExceptionMessage('Serialization of \'SensitiveParameterValue\' is not allowed');
+
+        serialize($issued);
     }
 
     /**

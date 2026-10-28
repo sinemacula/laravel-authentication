@@ -8,6 +8,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient;
+use Symfony\Component\VarDumper\Cloner\VarCloner;
+use Symfony\Component\VarDumper\Dumper\CliDumper;
 
 /**
  * Unit tests for what a client credentials token request presented: the client
@@ -52,5 +54,27 @@ final class PresentedClientTest extends TestCase
     public function testReportsOnlyAClientIdInForm(string $clientId, ?string $reported): void
     {
         self::assertSame($reported, (new PresentedClient($clientId, 'secret', null, false))->reportedId());
+    }
+
+    /**
+     * The secret is handed over by `clientSecret()` alone: no dump of what was
+     * presented shows it, and serialising it throws.
+     *
+     * @return void
+     */
+    public function testTheSecretIsShownByNoDump(): void
+    {
+        $presented = new PresentedClient('ak_abcdefghijklmnop', self::SECRET, 'read', true);
+
+        self::assertSame(self::SECRET, $presented->clientSecret());
+
+        foreach ([(string) (new CliDumper)->dump((new VarCloner)->cloneVar($presented), true), print_r($presented, true), var_export($presented, true)] as $dumped) {
+            self::assertStringNotContainsString(self::SECRET, $dumped);
+            self::assertStringContainsString('ak_abcdefghijklmnop', $dumped);
+        }
+
+        $this->expectExceptionMessage('Serialization of \'SensitiveParameterValue\' is not allowed');
+
+        serialize($presented);
     }
 }

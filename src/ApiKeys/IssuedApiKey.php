@@ -7,7 +7,9 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 /**
  * A key the service just issued: the one place its plaintext exists. Show it to
  * whoever asked for it once; only its digest is stored, so it cannot be shown
- * again. Dumped, it shows the key redacted.
+ * again. The key is held as a `\SensitiveParameterValue` and read through
+ * `key()`, so no dump of the object (Laravel's VarDumper, `print_r`,
+ * `var_export`) shows it, and serialising the object throws.
  *
  * @api
  *
@@ -16,6 +18,9 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
  */
 final readonly class IssuedApiKey
 {
+    /** @var \SensitiveParameterValue The key a client presents, `<prefix>_<public>_<secret>`, shown once. */
+    private \SensitiveParameterValue $key;
+
     /**
      * Constructor.
      *
@@ -28,21 +33,23 @@ final readonly class IssuedApiKey
         /** The key's id. */
         public string $id,
 
-        /** The key a client presents, `<prefix>_<public>_<secret>`, shown once. */
+        // The key a client presents, held out of every dump.
         #[\SensitiveParameter]
-        public string $key,
+        string $key,
 
         /** What may be shown about the key afterwards. */
         public ApiKeySummary $summary,
-    ) {}
+    ) {
+        $this->key = new \SensitiveParameterValue($key);
+    }
 
     /**
-     * The key's parts for a dump, the key itself redacted.
+     * The key a client presents, `<prefix>_<public>_<secret>`: show it once.
      *
-     * @return array{id: string, key: string, summary: \SineMacula\Laravel\Authentication\ApiKeys\ApiKeySummary}
+     * @return string
      */
-    public function __debugInfo(): array
+    public function key(): string
     {
-        return ['id' => $this->id, 'key' => '[redacted]', 'summary' => $this->summary];
+        return $this->key->getValue();
     }
 }

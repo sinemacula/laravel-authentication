@@ -82,7 +82,7 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
         $issued  = $this->apiKeys('m2m')->issue($machine, $machine);
 
         $public = $issued->summary->publicId;
-        $secret = substr($issued->key, 20);
+        $secret = substr($issued->key(), 20);
 
         $this->startMachineRequest();
 
@@ -121,7 +121,7 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $token = PackageAuth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key, 20))->accessToken;
+        $token = PackageAuth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key(), 20))->accessToken;
 
         self::assertNotNull($token);
 

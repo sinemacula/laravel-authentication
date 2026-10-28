@@ -199,7 +199,7 @@ final readonly class ClientCredentialsExchange
     ): ClientCredentialsResult {
         $now     = CarbonImmutable::now()->startOfSecond();
         $outcome = (new ApiKeyAuthentication($this->guard->getName(), self::METHOD, $this->guard->getProvider(), $this->guard->getPrincipalResolver(), $audience))
-            ->authenticate($presented->clientId, $presented->clientSecret, $now);
+            ->authenticate($presented->clientId, $presented->clientSecret(), $now);
 
         if ($outcome->admission instanceof RefusedSignIn || $outcome->key === null) {
 

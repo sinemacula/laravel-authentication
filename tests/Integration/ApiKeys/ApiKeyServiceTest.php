@@ -101,15 +101,15 @@ final class ApiKeyServiceTest extends TestCase
 
         $issued = $this->apiKeys()->issue($machine, $machine, ['invoices:read', 'invoices:read', 'reports'], 'Billing sync', CarbonImmutable::now()->addDays(30));
 
-        self::assertMatchesRegularExpression('/^ak_[a-z0-9]{16}_[A-Za-z0-9]{40}$/', $issued->key);
-        self::assertSame(substr($issued->key, 0, 19), $issued->summary->publicId);
+        self::assertMatchesRegularExpression('/^ak_[a-z0-9]{16}_[A-Za-z0-9]{40}$/', $issued->key());
+        self::assertSame(substr($issued->key(), 0, 19), $issued->summary->publicId);
 
         $row = DB::table('api_keys')->where('id', $issued->id)->first();
 
         self::assertNotNull($row);
         self::assertSame($issued->summary->publicId, $row->public_id);
-        self::assertSame(hash('sha256', substr($issued->key, 20)), $row->secret_hash);
-        self::assertStringNotContainsString(substr($issued->key, 20), json_encode($row, JSON_THROW_ON_ERROR));
+        self::assertSame(hash('sha256', substr($issued->key(), 20)), $row->secret_hash);
+        self::assertStringNotContainsString(substr($issued->key(), 20), json_encode($row, JSON_THROW_ON_ERROR));
         self::assertSame('machine', $row->guard);
         self::assertSame('Billing sync', $row->name);
         self::assertSame(MachineClient::class, $row->authenticatable_type);
@@ -137,7 +137,7 @@ final class ApiKeyServiceTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($machine->getKey()), $events[0]->context->principalId);
         self::assertSame(self::MACHINE_IP, $events[0]->context->client->ip);
         self::assertNull($events[0]->context->method);
-        self::assertStringNotContainsString($issued->key, serialize($events[0]));
+        self::assertStringNotContainsString($issued->key(), serialize($events[0]));
     }
 
     /**
@@ -154,7 +154,7 @@ final class ApiKeyServiceTest extends TestCase
         $first  = $keys->issue($machine, $machine);
         $second = $keys->issue($machine, $machine);
 
-        self::assertNotSame($first->key, $second->key);
+        self::assertNotSame($first->key(), $second->key());
         self::assertNotSame($first->summary->publicId, $second->summary->publicId);
         self::assertSame([], $first->summary->scopes);
         self::assertNull($first->summary->expiresAt);
@@ -192,7 +192,7 @@ final class ApiKeyServiceTest extends TestCase
 
         $machine = $this->seedMachine();
 
-        self::assertMatchesRegularExpression('/^acme2_[a-z0-9]{16}_[A-Za-z0-9]{40}$/', $this->apiKeys()->issue($machine, $machine)->key);
+        self::assertMatchesRegularExpression('/^acme2_[a-z0-9]{16}_[A-Za-z0-9]{40}$/', $this->apiKeys()->issue($machine, $machine)->key());
     }
 
     /**
@@ -645,7 +645,7 @@ final class ApiKeyServiceTest extends TestCase
         self::assertNotNull($listed[1]->revokedAt);
         $shown = json_encode(array_map(static fn (ApiKeySummary $summary): array => $summary->toArray(), $listed), JSON_THROW_ON_ERROR);
 
-        self::assertStringNotContainsString(substr($second->key, 20), $shown);
+        self::assertStringNotContainsString(substr($second->key(), 20), $shown);
     }
 
     /**
@@ -671,7 +671,7 @@ final class ApiKeyServiceTest extends TestCase
         $rotated = $this->apiKeys('accounts')->rotate($membership, $previous->id, 3600);
 
         self::assertNotNull($rotated);
-        self::assertNotSame($previous->key, $rotated->key);
+        self::assertNotSame($previous->key(), $rotated->key());
         self::assertSame(['read'], $rotated->summary->scopes);
         self::assertSame('sync', $rotated->summary->name);
         self::assertNull($rotated->summary->expiresAt);

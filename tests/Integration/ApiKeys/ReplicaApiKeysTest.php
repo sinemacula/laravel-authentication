@@ -125,7 +125,7 @@ final class ReplicaApiKeysTest extends TestCase
         $issued = $this->apiKeys()->issue($this->machine, $this->machine, ['read']);
 
         self::assertSame(0, DB::connection(self::REPLICA_CONNECTION)->table('api_keys')->count());
-        self::assertTrue($this->authenticates('machine', $issued->key));
+        self::assertTrue($this->authenticates('machine', $issued->key()));
         self::assertSame($issued->id, $this->apiKeys()->find($this->machine, $issued->id)?->id);
         self::assertCount(1, $this->apiKeys()->keys($this->machine));
 
@@ -133,7 +133,7 @@ final class ReplicaApiKeysTest extends TestCase
 
         self::assertTrue($this->apiKeys()->revoke($this->machine, $issued->id));
         self::assertNull(DB::connection(self::REPLICA_CONNECTION)->table('api_keys')->value('revoked_at'));
-        self::assertFalse($this->authenticates('machine', $issued->key));
+        self::assertFalse($this->authenticates('machine', $issued->key()));
     }
 
     /**
@@ -150,8 +150,8 @@ final class ReplicaApiKeysTest extends TestCase
         $rotated = $this->apiKeys()->rotate($this->machine, $issued->id, 0);
 
         self::assertNotNull($rotated);
-        self::assertTrue($this->authenticates('machine', $rotated->key));
-        self::assertFalse($this->authenticates('machine', $issued->key));
+        self::assertTrue($this->authenticates('machine', $rotated->key()));
+        self::assertFalse($this->authenticates('machine', $issued->key()));
     }
 
     /**
@@ -169,7 +169,7 @@ final class ReplicaApiKeysTest extends TestCase
 
         $this->startMachineRequest();
 
-        $result = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key, 20));
+        $result = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key(), 20));
 
         self::assertTrue($result->isGranted());
         self::assertNotNull($result->accessToken);

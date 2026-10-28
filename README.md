@@ -2568,19 +2568,20 @@ $issued = Auth::apiKeys('machine')->issue(
     expiresAt: now()->addYear(),       // optional; never expires without it
 );
 
-$issued->key;      // ak_k3j9x0m2p8q4r7t1_9fJ2kL8mN3pQ7rS1tV5wX0yZ4aB6cD8eF2gH4iJ6 - show it once
+$issued->key();    // ak_k3j9x0m2p8q4r7t1_9fJ2kL8mN3pQ7rS1tV5wX0yZ4aB6cD8eF2gH4iJ6 - show it once
 $issued->summary;  // ApiKeySummary: id, public id, guard, name, scopes, expiry, last use, rotation, revocation
 ```
 
 A key is `<prefix>_<public>_<secret>`: the configured prefix (`ak` by default), 16 random lower-case letters or digits,
 and a 40-character random secret. Only `<prefix>_<public>` (the summary's `publicId`) and the SHA-256 digest of the
 secret are stored, so the key is shown once and cannot be shown again; a secret of about 238 bits needs no password hash
-to resist guessing. The principal must be one the identity acts as on the guard (resolved through the guard's principal
-resolver, as a pinned principal is) and one the guard's audience admits; the key records the identity, the principal,
-the principal's tenant and the guard, and authenticates only as them, on that guard. A malformed or past expiry, a
-principal the identity does not act as or the audience does not admit, a name that is empty or longer than 255
-characters, and a malformed or rejected scope (see [Credential scopes](#credential-scopes)) are each an
-`InvalidArgumentException`: issuing is a trusted, programmatic action.
+to resist guessing. `IssuedApiKey` holds the key as a `SensitiveParameterValue`, so no dump of it (`dump()`, `print_r`,
+`var_export`) shows the key, and serialising it throws. The principal must be one the identity acts as on the guard
+(resolved through the guard's principal resolver, as a pinned principal is) and one the guard's audience admits; the key
+records the identity, the principal, the principal's tenant and the guard, and authenticates only as them, on that
+guard. A malformed or past expiry, a principal the identity does not act as or the audience does not admit, a name that
+is empty or longer than 255 characters, and a malformed or rejected scope (see [Credential scopes](#credential-scopes))
+are each an `InvalidArgumentException`: issuing is a trusted, programmatic action.
 
 A request presents the key as a bearer credential, `Authorization: Bearer <key>`, on a route the guard protects
 (`auth:machine`). The guard reads the key's public part with one indexed lookup on the write connection, compares the
