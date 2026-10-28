@@ -14,10 +14,14 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
@@ -32,9 +36,10 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * device from the configured provider/resolver/model state before binding them
  * (see `BearerAuthentication`).
  *
- * Exposes `refresh()` for refresh-credential exchange; the round trip is
- * delegated to `RefreshTokenExchange`. `sessions()` returns the guard's session
- * service, which starts sessions.
+ * Exposes `refreshFromRequest()`, which reads the refresh token through the
+ * guard's `RefreshTokenTransport`, and `refresh()` for a token the caller read
+ * itself; the round trip is delegated to `RefreshTokenExchange`. `sessions()`
+ * returns the guard's session service, which starts sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,6 +65,7 @@ final class JwtGuard extends AbstractGuard
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
      * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
+     * @param  \Closure(): \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport  $transportFactory
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -93,6 +99,9 @@ final class JwtGuard extends AbstractGuard
 
         /** Builds the guard's session service, given the guard and its credential timebox, the first time it is asked for. */
         private readonly \Closure $sessionFactory,
+
+        /** Builds the guard's refresh token transport from the configuration as it is now. */
+        private readonly \Closure $transportFactory,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
     }
@@ -130,6 +139,10 @@ final class JwtGuard extends AbstractGuard
      * presented token inside the grace window gets the current credential;
      * after the window it is treated as a replay and revokes the device.
      *
+     * For a token the caller read itself; never pass it one read from the
+     * refresh cookie, whose cross-site checks only `refreshFromRequest()`
+     * makes.
+     *
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
      *
@@ -140,32 +153,61 @@ final class JwtGuard extends AbstractGuard
      */
     public function refresh(#[\SensitiveParameter] string $refreshToken): ?RefreshResult
     {
-        $this->fireAttemptingEvent([]);
+        $outcome = $this->exchangeRefresh($refreshToken);
 
-        $client = ClientContext::fromRequest($this->request);
-        $result = $this->exchange->exchange($refreshToken, $client);
+        return $outcome instanceof RefreshResult ? $outcome : null;
+    }
 
-        if ($result instanceof AuthenticationFailed) {
+    /**
+     * Refresh with the token the request carries, read through the guard's
+     * refresh token transport, so it comes from the one source the guard allows
+     * and a cookie passes its cross-site checks.
+     *
+     * Returns `null`, dispatching nothing, when the request carries no token
+     * (nothing was attempted). A token the transport refuses fails with its
+     * reason (`refresh_token_conflict`, `cross_site_request`, `token_invalid`)
+     * after `Attempting`, `Failed` and `AuthenticationFailed`; a token the
+     * exchange refuses fails with the exchange's reason, as `refresh()` does,
+     * the 429 for `rate_limited` included. A successful refresh's result says
+     * where the token was read from, so a cookie refresh can be answered with a
+     * cookie.
+     *
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Jwt\RefreshResult|null
+     *
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
+     * @throws \InvalidArgumentException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function refreshFromRequest(): FailureReason|RefreshResult|null
+    {
+        $presented = $this->refreshTransport()->read($this->request);
 
-            $this->fireFailedEvent(null, []);
+        if ($presented instanceof PresentedRefreshToken) {
 
-            $this->events->dispatch($result);
+            $outcome = $this->exchangeRefresh($presented->token);
 
-            self::refuseIfRateLimited($result);
-
-            return null;
+            return $outcome instanceof RefreshResult ? new RefreshResult($outcome->accessToken, $outcome->refreshToken, $presented->source) : $outcome;
         }
 
-        // Validated then the full bind, so a refresh fires the same event
-        // sequence as attempt(); Refreshed follows once the rotation commits so
-        // consumers can tell a rotation from a sign-in.
-        $this->fireValidatedEvent($result->identity);
+        if ($presented !== null) {
+            $this->fireAttemptingEvent([]);
+            $this->refuseRefresh(new AuthenticationFailed(new EventContext($this->name, ClientContext::fromRequest($this->request)), AuthenticationFlow::REFRESH, $presented));
+        }
 
-        $this->bindVerifiedContext($result->identity, $result->principal, $result->device, $result->tenant, $result->method, true);
+        return $presented;
+    }
 
-        $this->reportRefresh($result, $client);
-
-        return $result->tokens;
+    /**
+     * The guard's refresh token transport, built from the configuration as it
+     * is now; a malformed configuration throws an `InvalidArgumentException`
+     * naming the guard and the key.
+     *
+     * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
+     */
+    public function refreshTransport(): RefreshTokenTransport
+    {
+        return ($this->transportFactory)();
     }
 
     /**
@@ -228,17 +270,59 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Answer a refresh the limits refused with a 429 carrying `Retry-After`,
-     * since `refresh()` cannot say so through its return value and a 401 would
-     * be wrong.
+     * Exchange the token and bind what it names, or refuse it: the result, or
+     * the reason the exchange refused it.
+     *
+     * @param  string  $refreshToken
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Jwt\RefreshResult
+     *
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
+     * @throws \InvalidArgumentException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    private function exchangeRefresh(#[\SensitiveParameter] string $refreshToken): FailureReason|RefreshResult
+    {
+        $this->fireAttemptingEvent([]);
+
+        $client = ClientContext::fromRequest($this->request);
+        $result = $this->exchange->exchange($refreshToken, $client);
+
+        if ($result instanceof AuthenticationFailed) {
+
+            $this->refuseRefresh($result);
+
+            return $result->reason;
+        }
+
+        // Validated then the full bind, so a refresh fires the same event
+        // sequence as attempt(); Refreshed follows once the rotation commits so
+        // consumers can tell a rotation from a sign-in.
+        $this->fireValidatedEvent($result->identity);
+
+        $this->bindVerifiedContext($result->identity, $result->principal, $result->device, $result->tenant, $result->method, true);
+
+        $this->reportRefresh($result, $client);
+
+        return $result->tokens;
+    }
+
+    /**
+     * Report a refused refresh, Laravel's `Failed` and then the failure, and
+     * answer one the limits refused with a 429 carrying `Retry-After`, since a
+     * refresh cannot say so through its return value and a 401 would be wrong.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\AuthenticationFailed  $failure
      * @return void
      *
      * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      */
-    private static function refuseIfRateLimited(AuthenticationFailed $failure): void
+    private function refuseRefresh(AuthenticationFailed $failure): void
     {
+        $this->fireFailedEvent(null, []);
+
+        $this->events->dispatch($failure);
+
         if ($failure->retryAfter !== null) {
             throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $failure->retryAfter]);
         }

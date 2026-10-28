@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
@@ -160,6 +161,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
                 $app->make(ConnectionResolverInterface::class),
                 static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
             ),
+            static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard($name, $app->make(ConfigRepository::class)),
         );
 
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);

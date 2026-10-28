@@ -65,7 +65,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   loaded and the method the device's session records (see `BearerAuthentication`).
 - Successful `refresh()` emits `Attempting`, then `Validated` and the full bind (`Login -> Authenticated ->
   PrincipalAssigned -> DeviceAuthenticated`), then the package `Refreshed` and `SignedIn` (`refresh` set) events once
-  the rotation is committed on the device's connection (at once with no transaction open there).
+  the rotation is committed on the device's connection (at once with no transaction open there). `refreshFromRequest()`
+  emits the same once its transport has read the token; a request that carries none emits nothing, and one its
+  transport refuses (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and
+  `AuthenticationFailed` (flow `refresh`), as any failed refresh does (see `refresh-token-transport.md`).
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
   then clears contextual state.
 
@@ -160,7 +163,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `bindContext()`, `clearContextualState()`.
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
   `attempt()`.
-- `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`.
+- `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`, `refreshFromRequest()`.
 - `src/Guards/BearerAuthentication.php` and `src/Guards/OwnedDevice.php`: the bearer checks, their order and reasons,
   and the device lookup they share with the `attempt()` device pin.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the

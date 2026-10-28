@@ -54,6 +54,8 @@ device record live in the `devices` table so replay and stale credentials can be
   replayed, and machine-readable `AuthenticationFailed` and `DeviceRevoked` events for SIEM attribution. Every refresh
   is held to the device's guard and the guard's audience policy, and failed refreshes are counted, with a 429 past the
   limit.
+- **One refresh token transport per guard**: the token is read from the cookie, the body or a header as the guard
+  allows, a request carrying it more than once is refused, and the result says where it came from.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
   it, so keys rotate without signing anyone out.
 - **A session service** per JWT guard, `Auth::sessions('api')`, that signs in through a method or starts a session for
@@ -996,13 +998,13 @@ rehashes, as with Laravel's own guards; neither does a bearer request or a refre
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
-(through `HasDevices`, looked up the way a bearer `did` is), of this guard (a device of another guard, or of none, counts
-as missing), not revoked, and with a session that has not ended. A pin
-that fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
-only pass it a principal and device you have already proven belong to the identity. `setPrincipal()` and `setDevice()`
-are trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a
-principal or device taken from request input (a header that switches the acting membership, say) must be verified
-first, as `attempt()` verifies its pins.
+(through `HasDevices`, looked up the way a bearer `did` is), of this guard (a device of another guard, or of none,
+counts as missing), not revoked, with a session that has not ended, and acting as the principal being bound. A pin that
+fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only
+pass it a principal and device you have already proven belong to the identity. `setPrincipal()` and `setDevice()` are
+trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a principal or
+device taken from request input (a header that switches the acting membership, say) must be verified first, as
+`attempt()` verifies its pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
@@ -1273,23 +1275,53 @@ device, so the session service signs in only identities that implement `HasDevic
 device the guard could never find again. Access-only guards (identities without `HasDevices`) sign in with `attempt()`
 and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 
-Exchange the refresh token through the guard:
+### Refreshing
+
+Refresh with the token the request carries, read through the guard's refresh token transport:
 
 ```php
-$guard = auth()->guard('api');
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 
-$rotated = $guard->refresh($refreshToken);
+$result = auth()->guard('api')->refreshFromRequest();
 
-if ($rotated === null) {
-    // Failed and AuthenticationFailed already dispatched with a machine-readable reason
+if (!$result instanceof RefreshResult) {
+    // null: the request carried no refresh token, and nothing was dispatched.
+    // A FailureReason: refused, after Failed and AuthenticationFailed with that reason.
     abort(401);
 }
 
 return [
-    'access_token'  => $rotated->accessToken,
-    'refresh_token' => $rotated->refreshToken,
+    'access_token'  => $result->accessToken,
+    'refresh_token' => $result->refreshToken,
 ];
 ```
+
+The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
+`refresh_token` field of the JSON or form body (never the query string) and the `X-Refresh-Token` header, or the
+`cookie`. A request that carries a token in more than one of them, equal or not, is refused as `refresh_token_conflict`:
+the server never chooses between two tokens, and a request cannot get past the cookie's cross-site checks by also
+sending the token another way. A value that is not one non-empty string is `token_invalid`. A refusal by the transport
+dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow `refresh`) like any failed refresh, without touching
+a device or counting against a limit; a token the exchange refuses fails with the exchange's reason, the 429 for
+`rate_limited` included. The result's `source` (`RefreshTokenSource::COOKIE`, `BODY` or `HEADER`) says where the token
+came from, so a refresh read from the cookie can be answered with a cookie.
+`Auth::refreshTransport('api')->read($request)` reads a request the same way without refreshing.
+
+The package defaults are `authentication.refresh_token`; a guard overrides any of them in a `refresh_token` block on its
+`config/auth.php` entry, where a key it sets wins, inside `cookie` too:
+
+```php
+'api' => [
+    'driver'        => 'jwt',
+    'provider'      => 'users',
+    'refresh_token' => ['sources' => ['header'], 'header' => 'X-App-Refresh'],
+],
+```
+
+A malformed value or an unknown key fails closed with an `InvalidArgumentException` naming the guard and the key, read
+when the guard reads a token. `refresh($refreshToken)` remains for a token your code reads itself and returns the
+result or `null`; never pass it a token read from the refresh cookie, which only `refreshFromRequest()` reads with the
+cookie's cross-site checks.
 
 A refresh is held to the guard as well as the token. A device the row records for another guard (or for none) fails
 with `device_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
@@ -1300,12 +1332,12 @@ Neither revokes the device, so the session refreshes again once the policy allow
 deadline by the idle lifetime the policy gives the principal's type.
 
 Failed refreshes are counted against the token's device and the request's IP address by the bound `AttemptLimiter`;
-successful ones are not. Once either count is full, `refresh()` dispatches `Failed` and `AuthenticationFailed`
+successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
 (`rate_limited`) without looking the device up, then throws Laravel's `ThrottleRequestsException`, which renders as a
 429 with `Retry-After`.
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
-token valid for a retry. After the commit, `refresh()` binds the new context and dispatches `Refreshed` once the
+token valid for a retry. After the commit, the refresh binds the new context and dispatches `Refreshed` once the
 rotation is committed on the device's connection; an exception from a listener on those events loses the new pair, but a
 retry with the presented token inside the grace window still gets the current credential (see [Refresh token
 replay](#refresh-token-replay)). Keep those listeners from throwing or queue them, so a retry is never needed.

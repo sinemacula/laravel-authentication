@@ -8,6 +8,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
@@ -156,6 +157,55 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $result = $this->assertQueryBudget(3, 1, static fn () => $guard->refresh($token));
 
         self::assertNotNull($result);
+    }
+
+    /**
+     * Reading the token through the guard's transport adds no query: a refresh
+     * with the token the request carries costs what `refresh()` costs.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testARefreshFromTheRequestCostsWhatARefreshCosts(): void
+    {
+        $identity   = $this->seedIdentity();
+        $rotationId = 'refresh-from-request-rotation-id';
+
+        $device = new Device;
+        $device->forceFill([
+            ...self::liveSession(),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        app()->instance('request', Request::create('/auth/refresh', 'POST', ['refresh_token' => $jwt->issueRefreshToken($device, $rotationId, $identity)]));
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(3, 1, static fn () => $guard->refreshFromRequest()));
+    }
+
+    /**
+     * A request the transport refuses is refused before the exchange: no query,
+     * and no limit counted.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testARequestTheTransportRefusesCostsNoQuery(): void
+    {
+        app()->instance('request', Request::create('/auth/refresh', 'POST', ['refresh_token' => 'a'], [], [], ['HTTP_X_REFRESH_TOKEN' => 'a']));
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $this->assertQueryBudget(0, 0, static fn () => $guard->refreshFromRequest()));
     }
 
     /**

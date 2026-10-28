@@ -573,6 +573,7 @@ final class JwtGuardBenchHarness
                 BenchDatabase::connectionResolver(),
                 static fn (): null => null,
             ),
+            BenchRequest::refreshTransport(...),
         );
     }
 

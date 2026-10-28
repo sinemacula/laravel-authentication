@@ -261,6 +261,43 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Refresh token transport
+    |---------------------------------------------------------------------------
+    |
+    | Where `JwtGuard::refreshFromRequest()` reads a refresh token from: any of
+    | `cookie`, `body` (`body_field` of the JSON or form body, never the query
+    | string) and `header`. Only the listed sources are read, and a request
+    | that carries a token in more than one of them is refused
+    | (`refresh_token_conflict`), so the cookie's cross-site checks cannot be
+    | side-stepped by also sending the token another way. A token read from the
+    | cookie must come with an `Origin` that is the request's own or one of
+    | `allowed_origins` (each exactly `scheme://host[:port]`, in lower case)
+    | and a non-empty `csrf_header` header, else `cross_site_request`. The
+    | cookie's `path`, the path the refresh route lives under, is required when
+    | the cookie is a source; `domain` is `null` for the request's host only. A
+    | guard overrides any key in a `refresh_token` block on its
+    | `config/auth.php` entry, where a key that is present wins, inside
+    | `cookie` too. A malformed value or an unknown key fails closed with an
+    | `InvalidArgumentException` naming the guard and the key.
+    |
+    */
+
+    'refresh_token' => [
+        'sources'    => ['body', 'header'],
+        'body_field' => 'refresh_token',
+        'header'     => 'X-Refresh-Token',
+
+        'cookie' => [
+            'name'            => '__Secure-refresh_token',
+            'path'            => null,
+            'domain'          => null,
+            'allowed_origins' => [],
+            'csrf_header'     => 'X-Requested-With',
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Identifier verification
     |---------------------------------------------------------------------------
     |

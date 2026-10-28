@@ -570,6 +570,7 @@ final class RefreshTokenExchangeBenchHarness
                 BenchDatabase::connectionResolver(),
                 static fn (): null => null,
             ),
+            BenchRequest::refreshTransport(...),
         );
     }
 }

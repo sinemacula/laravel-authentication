@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -20,10 +21,10 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
  * (`identity`, `principal`, `device`, `tenant`, `type`), guard-scoped `jwt()`
- * issuance and each JWT guard's `sessions()` directly on the manager. Each
- * contextual accessor forwards to the active guard when it implements
- * `ContextualGuard`, otherwise returns `null`. Bound to the `auth` container
- * key by `AuthenticationServiceProvider`.
+ * issuance and each JWT guard's `sessions()` and `refreshTransport()` directly
+ * on the manager. Each contextual accessor forwards to the active guard when it
+ * implements `ContextualGuard`, otherwise returns `null`. Bound to the `auth`
+ * container key by `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -88,13 +89,22 @@ class AuthManager extends IlluminateAuthManager
      */
     public function sessions(?string $guard = null): SessionService
     {
-        $resolved = $this->guard($guard);
+        return $this->jwtGuard($guard, 'session service')->sessions();
+    }
 
-        if (!$resolved instanceof JwtGuard) {
-            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it has no session service.', $guard ?? $this->getDefaultDriver()));
-        }
-
-        return $resolved->sessions();
+    /**
+     * Return the refresh token transport of the named JWT guard, or of the
+     * current default guard when the name is omitted, to read a refresh token
+     * from a request through the one source the guard allows.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function refreshTransport(?string $guard = null): RefreshTokenTransport
+    {
+        return $this->jwtGuard($guard, 'refresh token transport')->refreshTransport();
     }
 
     /**
@@ -170,5 +180,26 @@ class AuthManager extends IlluminateAuthManager
         $guard = $this->guard();
 
         return $guard instanceof ContextualGuard ? $guard->type() : null;
+    }
+
+    /**
+     * Resolve the named guard, or the default one, as a JWT guard, or fail
+     * saying it has no such service.
+     *
+     * @param  ?string  $guard
+     * @param  string  $service
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function jwtGuard(?string $guard, string $service): JwtGuard
+    {
+        $resolved = $this->guard($guard);
+
+        if (!$resolved instanceof JwtGuard) {
+            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is not a jwt guard, so it has no %s.', $guard ?? $this->getDefaultDriver(), $service));
+        }
+
+        return $resolved;
     }
 }

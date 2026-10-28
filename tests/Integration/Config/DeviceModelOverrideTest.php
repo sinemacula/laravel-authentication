@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
@@ -243,6 +244,7 @@ final class DeviceModelOverrideTest extends TestCase
                 app(ConnectionResolverInterface::class),
                 static fn (): mixed => app('db.transactions'),
             ),
+            static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard('custom-jwt', config()),
         );
     }
 }
