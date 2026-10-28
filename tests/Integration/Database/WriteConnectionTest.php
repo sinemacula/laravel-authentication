@@ -245,6 +245,67 @@ final class WriteConnectionTest extends TestCase
     }
 
     /**
+     * An Eloquent subject is handed to the callback as a copy without its
+     * loaded relations, so a relation whoever loaded it set cannot stand in
+     * for the stored one, and reads inside the callback go to the write
+     * connection; the subject itself keeps its relation, and the connection
+     * reads from the replica again once the callback returns.
+     *
+     * @return void
+     */
+    public function testStoredHandsOverACopyWithoutRelationsReadOnTheWriter(): void
+    {
+        $device  = $this->seedDevice();
+        $subject = new Device;
+        $subject->forceFill(['id' => $device->getKey()]);
+        $subject->setRelation('authenticatable', new Device);
+
+        [$copy, $found] = WriteConnection::stored($subject, static fn (Device $stored): array => [$stored, Device::query()->find($device->getKey())]);
+
+        self::assertNotSame($subject, $copy);
+        self::assertSame($device->getKey(), $copy->getKey());
+        self::assertFalse($copy->relationLoaded('authenticatable'));
+        self::assertTrue($subject->relationLoaded('authenticatable'));
+        self::assertInstanceOf(Device::class, $found);
+        self::assertNull(Device::query()->find($device->getKey()));
+    }
+
+    /**
+     * The copy may lazy-load even when its model was hydrated with lazy loading
+     * prevented (Eloquent strict mode), since the package re-reads on purpose;
+     * the subject itself stays as strict as it was.
+     *
+     * @return void
+     */
+    public function testStoredLetsTheCopyLazyLoadUnderStrictMode(): void
+    {
+        $subject                      = new Device;
+        $subject->preventsLazyLoading = true;
+
+        $copy = WriteConnection::stored($subject, static fn (Device $stored): Device => $stored);
+
+        self::assertFalse($copy->preventsLazyLoading);
+        self::assertTrue($subject->preventsLazyLoading);
+    }
+
+    /**
+     * A subject that is not an Eloquent model is handed over as it is, with
+     * model reads inside the callback pinned to the writer.
+     *
+     * @return void
+     */
+    public function testStoredHandsOverANonModelSubjectAsItIs(): void
+    {
+        $device  = $this->seedDevice();
+        $subject = new \stdClass;
+
+        [$given, $found] = WriteConnection::stored($subject, static fn (\stdClass $stored): array => [$stored, Device::query()->find($device->getKey())]);
+
+        self::assertSame($subject, $given);
+        self::assertInstanceOf(Device::class, $found);
+    }
+
+    /**
      * `WriteConnection` is a static utility; instantiation is disallowed via
      * the private constructor so consumers cannot create a stateful
      * write-connection helper. Reflection invokes the private constructor so

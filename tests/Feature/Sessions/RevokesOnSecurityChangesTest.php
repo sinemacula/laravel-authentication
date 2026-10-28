@@ -6,6 +6,7 @@ namespace Tests\Feature\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
@@ -86,6 +87,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
     protected function tearDown(): void
     {
         CarbonImmutable::setTestNow();
+        Model::preventLazyLoading(false);
 
         Schema::dropIfExists('cutoff_identities');
 
@@ -284,6 +286,68 @@ final class RevokesOnSecurityChangesTest extends TestCase
         }
 
         self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * A tenant relation set on the principal by whoever loaded it does not
+     * decide: the principal's stored tenant does, read afresh. A membership of
+     * another tenant whose relation names the deactivated one is refused, and a
+     * membership of the deactivated tenant whose relation names another one is
+     * accepted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantRelationSetOnThePrincipalDoesNotDecide(): void
+    {
+        [, $member, $tenant]  = $this->seedMember();
+        [, $outsider, $other] = $this->seedMember('outsider@example.test');
+
+        $this->memberSignIn('member@example.test');
+        $this->memberSignIn('outsider@example.test');
+
+        $outsider->setRelation('tenant', $tenant);
+
+        try {
+            $this->sessions('members')->tenantDeactivated($tenant, [$outsider]);
+            self::fail('A relation naming the tenant stood in for the stored one.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('does not act within tenant', $exception->getMessage());
+        }
+
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+
+        $member->setRelation('tenant', $other);
+
+        self::assertSame(1, $this->sessions('members')->tenantDeactivated($tenant, [$member]));
+        self::assertSame(1, DB::table('devices')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * The principals a tenant lists, hydrated in one collection while Eloquent
+     * prevents lazy loading (strict mode), each have their tenant read all the
+     * same, and their sessions are ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPrincipalsHydratedUnderStrictModeHaveTheirTenantReadAllTheSame(): void
+    {
+        [, , $tenant] = $this->seedMember();
+
+        $this->seedMember('second@example.test', $tenant);
+        $this->memberSignIn('member@example.test');
+        $this->memberSignIn('second@example.test');
+
+        Model::preventLazyLoading();
+
+        $memberships = ActivatableTenantMembership::query()->get();
+
+        self::assertTrue($memberships->firstOrFail()->preventsLazyLoading);
+        self::assertSame(2, $this->sessions('members')->tenantDeactivated($tenant, $memberships));
+        self::assertFalse($memberships->firstOrFail()->relationLoaded('tenant'));
     }
 
     /**

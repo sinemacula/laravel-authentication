@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\Sessions;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
@@ -17,13 +18,16 @@ use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AccessOnlyMember;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\TestCase;
 
 /**
  * Feature tests of a principal's revocation scope: whether its sessions can
  * hold devices is decided by its owner as stored, read afresh, never by an
- * identity relation whoever loaded the principal set on it.
+ * identity relation whoever loaded the principal set on it; an owner that
+ * cannot be read does not stop its sessions being ended, and neither does
+ * Eloquent strict mode.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -65,6 +69,8 @@ final class RevocationScopeTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
+        Model::preventLazyLoading(false);
+
         Schema::dropIfExists('cutoff_identities');
 
         $this->dropSessionTables();
@@ -98,6 +104,68 @@ final class RevocationScopeTest extends TestCase
 
         self::assertInstanceOf(ActivatableTenantMember::class, $identity);
         self::assertSame($member->getKey(), $identity->getKey());
+    }
+
+    /**
+     * A membership whose owner can no longer be read (its row deleted) still
+     * has its sessions revoked: an unreadable owner might hold devices, so they
+     * are looked for, and the scope carries no identity.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalWhoseOwnerCannotBeReadStillHasItsSessionsEnded(): void
+    {
+        [$member, $membership] = $this->seedMember();
+
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+
+        DB::table('activatable_tenant_members')->where('id', $member->getKey())->delete();
+
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        $stored = ActivatableTenantMembership::query()->findOrFail($membership->getKey());
+
+        self::assertSame(1, $this->sessions('members')->revokePrincipalDevices($stored, RevocationReason::REVOKED));
+        self::assertSame(0, DB::table('devices')->whereNull('revoked_at')->count());
+        self::assertNull($this->recordedEvent(SignedOutEverywhere::class)->context->identity);
+        self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
+    }
+
+    /**
+     * A membership hydrated with others in one collection while Eloquent
+     * prevents lazy loading (strict mode) has its owner read all the same, and
+     * its sessions are ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalHydratedUnderStrictModeHasItsOwnerReadAllTheSame(): void
+    {
+        [$member, $membership, $tenant] = $this->seedMember();
+
+        $this->seedMember('second@example.test', $tenant);
+
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+
+        Model::preventLazyLoading();
+
+        $memberships = ActivatableTenantMembership::query()->orderBy('id')->get();
+
+        self::assertTrue($memberships->first()?->preventsLazyLoading);
+
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        self::assertSame(1, $this->sessions('members')->revokePrincipalDevices($memberships->firstOrFail(), RevocationReason::REVOKED));
+        self::assertTrue($membership->is($memberships->first()));
+
+        $identity = $this->recordedEvent(SignedOutEverywhere::class)->context->identity;
+
+        self::assertInstanceOf(ActivatableTenantMember::class, $identity);
+        self::assertSame($member->getKey(), $identity->getKey());
+        self::assertFalse($memberships->firstOrFail()->relationLoaded('identity'));
     }
 
     /**

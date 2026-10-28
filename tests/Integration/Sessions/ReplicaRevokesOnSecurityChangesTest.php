@@ -20,7 +20,8 @@ use Tests\TestCase;
 /**
  * Proves a tenant's deactivation reads each principal's tenant from the write
  * connection: a principal the primary has just moved into a new tenant acts
- * within it, though the replica does not hold that tenant yet.
+ * within it, though the replica does not hold that tenant yet. A principal's
+ * deactivation reads its owner from the write connection too.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -106,6 +107,34 @@ final class ReplicaRevokesOnSecurityChangesTest extends TestCase
         self::assertSame(0, Auth::sessions('api')->tenantDeactivated($tenant, [$principal]));
         self::assertCount(1, $reported);
         self::assertSame($tenant, $reported[0]->context->tenant);
+    }
+
+    /**
+     * A principal's owner that only the primary holds is read all the same, and
+     * carried as the identity whose sessions ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalsOwnerOnlyThePrimaryHoldsIsCarried(): void
+    {
+        $identity  = TenantAware3dIdentity::query()->create(['email' => 'member@example.test', 'password' => 'unused']);
+        $tenant    = TenantAware3dTenant::query()->create(['name' => 'New', 'type' => 'team']);
+        $principal = TenantAware3dPrincipal::query()->create(['identity_id' => $identity->getKey(), 'tenant_id' => $tenant->getKey(), 'name' => 'Member']);
+
+        self::assertSame(0, TenantAware3dIdentity::query()->count());
+
+        $reported = [];
+
+        Event::listen(SignedOutEverywhere::class, static function (SignedOutEverywhere $event) use (&$reported): void {
+            $reported[] = $event;
+        });
+
+        self::assertSame(0, Auth::sessions('api')->principalDeactivated($principal));
+        self::assertCount(1, $reported);
+        self::assertInstanceOf(TenantAware3dIdentity::class, $reported[0]->context->identity);
+        self::assertSame($identity->getKey(), $reported[0]->context->identity->getKey());
     }
 
     /**

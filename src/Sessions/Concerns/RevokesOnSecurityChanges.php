@@ -154,10 +154,13 @@ trait RevokesOnSecurityChanges
     }
 
     /**
-     * Refuse a principal that does not act within the tenant. A principal whose
-     * tenant cannot be loaded any more (deleted, soft-deleted, hidden by a
-     * scope) acts within the tenant when it names that very tenant: its class
-     * and key.
+     * Refuse a principal that does not act within the tenant, read on the write
+     * connection from a copy without loaded relations, so a tenant relation set
+     * by whoever loaded the principal (or eager-loaded from a replica) cannot
+     * stand in for the stored one, and Eloquent strict mode cannot stop the
+     * read. A principal whose tenant cannot be loaded any more (deleted,
+     * soft-deleted, hidden by a scope) acts within the tenant when it names
+     * that very tenant: its class and key.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -168,7 +171,7 @@ trait RevokesOnSecurityChanges
     private static function assertActsWithin(Principal $principal, Tenant $tenant): void
     {
         try {
-            $actual = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+            $actual = WriteConnection::stored($principal, static fn (Principal $stored): ?Tenant => $stored->getTenant());
         } catch (TenantUnavailableException $exception) {
             $actual = $exception->isFor($tenant) ? $tenant : null;
         }

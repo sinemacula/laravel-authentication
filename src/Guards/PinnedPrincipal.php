@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
-use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -69,8 +68,7 @@ final class PinnedPrincipal
      * model without an identity relation) is not owned. The copy may lazy-load
      * its owner even when the principal was hydrated with lazy loading
      * prevented (Eloquent strict mode), because the package re-reads the owner
-     * on purpose. The owner is read inside `WriteConnection::during()` for the
-     * principal.
+     * on purpose (`WriteConnection::stored()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -78,16 +76,8 @@ final class PinnedPrincipal
      */
     public static function isOwnedBy(Principal $principal, Identity $identity): bool
     {
-        $stored = $principal;
-
-        if ($principal instanceof Model) {
-            $stored = $principal->withoutRelations();
-
-            $stored->preventsLazyLoading = false;
-        }
-
         try {
-            $owner = WriteConnection::during($stored, static fn (): Identity => $stored->getIdentity());
+            $owner = WriteConnection::stored($principal, static fn (Principal $stored): Identity => $stored->getIdentity());
         } catch (\LogicException) {
             return false;
         }
