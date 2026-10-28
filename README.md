@@ -728,7 +728,7 @@ servers and do not depend on a cache. Publish the migration with the others (`au
 | `code_request`       | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
 | `code_request`       | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
 | `passkey_options`    | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
-| `client_credentials` | `per_identifier` | 10 per 60 seconds   | Exchanges refused for the client's credentials or identity, by client id as given                              |
+| `client_credentials` | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                    |
 | `client_credentials` | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
@@ -1579,7 +1579,7 @@ yours; what the package guarantees for each method and helper, and what its test
 | Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job, after the response | Not applicable                                                                                               |
 | Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                           | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
 | API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                           | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
-| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given                      | None                           | As API key                                                                                                   |
+| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited       | None                           | As API key                                                                                                   |
 
 The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
 looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity. Answer `sent` the same
@@ -2658,13 +2658,15 @@ and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, 
 | Its principal or tenant no longer the key's, or inactive                                 | 401 `invalid_client`           |
 | The guard's audience does not list `client_credentials`, or does not admit the principal | 400 `unauthorized_client`      |
 | A scope that is malformed or not granted to the key                                      | 400 `invalid_scope`            |
-| The client id or the IP address used up its failures                                     | 429 `slow_down`, `Retry-After` |
+| The IP address (or, when you limit it, the client id) used up its failures               | 429 `slow_down`, `Retry-After` |
 
 A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`;
 `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749 error
 but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to authenticate
-the client count against the `client_credentials` limits (10 per client id and 100 per IP address a minute by default),
-and each is answered alike. No scope asks for every scope the key grants; otherwise the token grants exactly those
+the client count against the `client_credentials` limits (100 per IP address a minute by default), and each is answered
+alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section 2.2), so a
+limit on it would let anyone who knows it hold the real client back from any address, while against a 40-character
+random secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks for every scope the key grants; otherwise the token grants exactly those
 asked for. Every failure dispatches `AuthenticationFailed` (flow `client_credentials`, the client id as given, the key
 once found) and a grant `ClientCredentialsGranted`, with the key and the scopes granted.
 

@@ -69,10 +69,10 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A granted exchange reads the client's limits, the key and its owner, and
      * writes the key's last use; an unknown client reads the limits and looks
-     * once for a key, and counts its failure against the client id and the IP
-     * address (an update, then an insert for a new window, each); a wrong
-     * secret for a known client costs exactly the same and is answered the
-     * same.
+     * once for a key, and counts its failure against the IP address (an update,
+     * then an insert for a new window; the client id is not counted by
+     * default); a wrong secret for a known client costs exactly the same and is
+     * answered the same.
      *
      * @return void
      */
@@ -93,7 +93,7 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
         $this->startMachineRequest();
 
         $wrong   = str_repeat('a', 40);
-        $refused = $this->assertQueryBudget(2, 4, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange('ak_zzzzzzzzzzzzzzzz', $wrong));
+        $refused = $this->assertQueryBudget(2, 2, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange('ak_zzzzzzzzzzzzzzzz', $wrong));
 
         self::assertSame('invalid_client', $refused->error);
 
@@ -101,7 +101,7 @@ final class ClientCredentialsQueryBudgetTest extends PerformanceContractTestCase
 
         $this->startMachineRequest();
 
-        $mistaken = $this->assertQueryBudget(2, 4, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange($public, $wrong));
+        $mistaken = $this->assertQueryBudget(2, 2, static fn (): ClientCredentialsResult => PackageAuth::clientCredentials('m2m')->exchange($public, $wrong));
 
         self::assertSame($refused->toArray(), $mistaken->toArray());
     }

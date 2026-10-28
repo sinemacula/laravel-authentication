@@ -37,19 +37,21 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  * access token of the guard. No device is created and no refresh token issued.
  *
  * In order: the guard's audience must list `client_credentials`
- * (`unauthorized_client`); the client id must not have used up its failures for
- * now, nor the IP address (`slow_down`, 429 with `Retry-After`); the key must
- * be this guard's, live, its secret right, and its owner and principal admitted
- * as on an `api_key` guard (`invalid_client`, or `unauthorized_client` for a
- * principal the audience does not admit); the requested scope, space-separated,
- * must be granted to the key (none asks for every granted scope; else
- * `invalid_scope`). The token then carries the key's id in `cid` and the scopes
- * in `scope`, lives the guard's access lifetime for the principal's type and
- * never past the key's expiry, and is checked against its key on every request,
- * so revoking the key, or the end of its rotation's overlap, ends it at once.
- * Only failures to authenticate the client are counted. Every failure
- * dispatches `AuthenticationFailed` (flow `client_credentials`) with the client
- * id as given; a grant dispatches `ClientCredentialsGranted`.
+ * (`unauthorized_client`); the IP address must not have used up its failures
+ * for now, nor the client id when the guard limits it, which it does not by
+ * default, as a client id is no secret (`slow_down`, 429 with `Retry-After`);
+ * the key must be this guard's, live, its secret right, and its owner and
+ * principal admitted as on an `api_key` guard (`invalid_client`, or
+ * `unauthorized_client` for a principal the audience does not admit); the
+ * requested scope, space-separated, must be granted to the key (none asks for
+ * every granted scope; else `invalid_scope`). The token then carries the key's
+ * id in `cid` and the scopes in `scope`, lives the guard's access lifetime for
+ * the principal's type and never past the key's expiry, and is checked against
+ * its key on every request, so revoking the key, or the end of its rotation's
+ * overlap, ends it at once. Only failures to authenticate the client are
+ * counted. Every failure dispatches `AuthenticationFailed` (flow
+ * `client_credentials`) with the client id as given; a grant dispatches
+ * `ClientCredentialsGranted`.
  *
  * Reads the guard's provider, resolver, dispatcher and request each time it
  * runs, so it keeps nothing between calls.

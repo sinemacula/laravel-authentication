@@ -309,7 +309,7 @@ final class ClientCredentialsExchangeTest extends TestCase
         self::assertSame($reason, $failure[0]->reason);
         self::assertSame($id, $failure[0]->identifier);
         self::assertSame(in_array($case, ['unknown', 'malformed'], true) ? null : $issued->id, $failure[0]->context->credentialId);
-        self::assertSame(2, DB::table('rate_limits')->count());
+        self::assertSame(1, DB::table('rate_limits')->count());
         self::assertSame([], $this->machineEventsOf(ClientCredentialsGranted::class));
     }
 
@@ -367,7 +367,7 @@ final class ClientCredentialsExchangeTest extends TestCase
             ->assertHeaderMissing('WWW-Authenticate');
 
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->machineEventsOf(AuthenticationFailed::class)[0]->reason);
-        self::assertSame(2, DB::table('rate_limits')->count());
+        self::assertSame(1, DB::table('rate_limits')->count());
     }
 
     /**
@@ -424,7 +424,7 @@ final class ClientCredentialsExchangeTest extends TestCase
         self::assertSame($reason, $failure[0]->reason);
         self::assertSame($issued->id, $failure[0]->context->credentialId);
         self::assertSame(['read'], $failure[0]->context->scopes);
-        self::assertSame(2, DB::table('rate_limits')->count());
+        self::assertSame(1, DB::table('rate_limits')->count());
     }
 
     /**
@@ -480,20 +480,40 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * Past its limit a client id is answered 429 `slow_down` with
-     * `Retry-After`, whether or not it names a key, without its secret being
-     * checked.
+     * A client id is not a secret, so by default failures are not counted
+     * against it: wrong secrets sent from one address for a real client id
+     * leave the real client, calling from another, its token.
      *
      * @return void
      */
-    public function testAClientPastItsLimitIsToldToSlowDown(): void
+    public function testFailuresForAClientIdDoNotLockTheClientOut(): void
     {
         [, $issued] = $this->machineKey();
 
         $wrong = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->prefix . ':' . str_repeat('a', 40))];
 
-        for ($attempt = 0; $attempt < 10; $attempt++) {
+        for ($attempt = 0; $attempt < 20; $attempt++) {
             $this->token('grant_type=client_credentials', $wrong)->assertStatus(401);
+        }
+
+        $this->token('grant_type=client_credentials', ['REMOTE_ADDR' => '203.0.113.9', ...$this->basic($issued)])->assertOk();
+    }
+
+    /**
+     * Past its limit an address is answered 429 `slow_down` with `Retry-After`,
+     * whether or not the client id names a key, without the secret being
+     * checked.
+     *
+     * @return void
+     */
+    public function testAnAddressPastItsLimitIsToldToSlowDown(): void
+    {
+        config()->set('authentication.rate_limits.client_credentials.per_ip', ['max' => 3, 'decay_seconds' => 60]);
+
+        [, $issued] = $this->machineKey();
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $this->token('grant_type=client_credentials&client_id=ak_zzzzzzzzzzzzzzzz&client_secret=' . str_repeat('a', 40))->assertStatus(401);
         }
 
         $this->machineEvents = [];
@@ -507,6 +527,30 @@ final class ClientCredentialsExchangeTest extends TestCase
         self::assertSame(FailureReason::RATE_LIMITED, $failure->reason);
         self::assertSame(60, $failure->retryAfter);
         self::assertNull(DB::table('api_keys')->value('last_used_at'));
+    }
+
+    /**
+     * A guard that opts in to a limit per client id gets it, from any address:
+     * the trade-off the default avoids, since anyone who knows the id can then
+     * hold the client back.
+     *
+     * @return void
+     */
+    public function testALimitPerClientIdHoldsTheClientBackFromAnyAddress(): void
+    {
+        config()->set('auth.guards.m2m.rate_limits', ['client_credentials' => ['per_identifier' => ['max' => 3, 'decay_seconds' => 60]]]);
+
+        [, $issued] = $this->machineKey();
+
+        $wrong = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->prefix . ':' . str_repeat('a', 40))];
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $this->token('grant_type=client_credentials', $wrong)->assertStatus(401);
+        }
+
+        $this->token('grant_type=client_credentials', ['REMOTE_ADDR' => '203.0.113.9', ...$this->basic($issued)])
+            ->assertStatus(429)
+            ->assertExactJson(['error' => 'slow_down']);
     }
 
     /**

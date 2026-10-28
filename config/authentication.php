@@ -252,12 +252,15 @@ return [
     | address. A request for a one-time code counts every request, per
     | identifier and per IP address, and never gives one back. A request for
     | passkey sign-in options counts every request per IP address (it names no
-    | identifier, so its `per_identifier` must stay `null`). A client credentials exchange counts only failures, per
-    | client id and per IP address. Counts on `connection` are rolled back with
-    | any transaction a caller opened there around a sign-in. A guard overrides any limit in a
-    | `rate_limits` block on its `config/auth.php` entry, where a scope that is
-    | present wins, `null` included, and a flow set to `null` turns both of its
-    | limits off. A malformed limit or an unknown key fails closed with an
+    | identifier, so its `per_identifier` must stay `null`). A client
+    | credentials exchange counts only failures, per IP address; not per client
+    | id by default, since a client id is not a secret and a count on it would
+    | let anyone who knows it lock the client out. Counts on `connection` are
+    | rolled back with any transaction a caller opened there around a sign-in. A
+    | guard overrides any limit in a `rate_limits` block on its
+    | `config/auth.php` entry, where a scope that is present wins, `null`
+    | included, and a flow set to `null` turns both of its limits off. A
+    | malformed limit or an unknown key fails closed with an
     | `InvalidArgumentException` naming the guard and the key. Counters are
     | stored under digests keyed from `app.key`, so rotating it starts every
     | window afresh. Prune ended windows with `model:prune`.
@@ -289,7 +292,7 @@ return [
         ],
 
         'client_credentials' => [
-            'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
+            'per_identifier' => null,
             'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
         ],
     ],
