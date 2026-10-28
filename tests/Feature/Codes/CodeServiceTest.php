@@ -504,6 +504,32 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
+     * A right code whose number changed after the identity was loaded is used
+     * up and answers `mismatch`: neither number is recorded verified and
+     * nothing is reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testANumberChangedAfterTheIdentityWasLoadedIsAMismatch(): void
+    {
+        $identity = self::seedCodeIdentity(verified: false);
+
+        $this->codeService()->sendVerification($identity, 'phone');
+
+        DB::table('code_identities')->where('id', $identity->getKey())->update(['phone' => '+447700900124']);
+
+        $this->recordEvents([IdentifierVerified::class, AuthenticationFailed::class]);
+
+        self::assertSame(IdentifierVerification::MISMATCH, $this->codeService()->verify($identity, 'phone', self::CODE));
+        self::assertSame([], $this->recorded);
+        self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
+        self::assertNull(DB::table('code_identities')->where('id', $identity->getKey())->value('phone_verified_at'));
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->codeService()->verify($identity, 'phone', self::CODE));
+    }
+
+    /**
      * An identity with no number, or one the normaliser refuses, has nothing to
      * verify: `identifier_invalid`, reported with the identity, and nothing
      * counted or issued.

@@ -1223,10 +1223,10 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 // Send it: a code to the signed-in identity's phone number, delivered by your OneTimeCodeSender.
 $request = Auth::codes('mobile')->sendVerification(Auth::identity(), 'phone');   // sent, rate_limited or identifier_invalid
 
-// Check it: verified or already_verified, or the FailureReason why not.
+// Check it: verified, already_verified or mismatch, or the FailureReason why not.
 $result = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['code']);
 
-abort_unless($result instanceof IdentifierVerification, 422);
+abort_unless(in_array($result, [IdentifierVerification::VERIFIED, IdentifierVerification::ALREADY_VERIFIED], true), 422);
 ```
 
 A verification code is bound to its purpose, its guard, its identity and the identifier in its normal form, so it
@@ -1236,7 +1236,9 @@ and the delivery job reads the identity again from the write connection and send
 longer the one the code is bound to. Requests are held to the `code_request` limits and the resend cooldown, and the
 code to the same lifetime, attempts and single use as a sign-in code (see [One-time codes](#one-time-codes)). A refused
 check returns `invalid_credentials`, `code_expired` or `code_exhausted` as it is (the caller already holds the
-identity), and reports it with `AuthenticationFailed` on the `identifier_verification` flow. An identity with no
+identity), and reports it with `AuthenticationFailed` on the `identifier_verification` flow. A right code whose
+identifier changed after the identity you passed was loaded is used up and answers `mismatch`, as a link does: nothing
+is recorded or reported, and the identity can request a code for its new identifier. An identity with no
 identifier of the type, or one its normaliser rejects, is `identifier_invalid`; an identity that cannot verify
 identifiers throws a `LogicException`, and a machine identity, which has none to verify, an `InvalidArgumentException`.
 

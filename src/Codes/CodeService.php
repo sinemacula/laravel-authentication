@@ -146,7 +146,9 @@ final readonly class CodeService
      * why not (`invalid_credentials`, `code_expired` or `code_exhausted`; not
      * concealed, since the caller already holds the identity), reported by
      * `AuthenticationFailed`. A code sent before the identifier changed is
-     * bound to the old one, so it verifies nothing.
+     * bound to the old one, so it verifies nothing; one whose identifier
+     * changed after the identity was loaded is used up and answers `mismatch`,
+     * with nothing recorded or reported, as the verifier gives it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
