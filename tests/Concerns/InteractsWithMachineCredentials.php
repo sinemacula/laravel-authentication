@@ -37,6 +37,8 @@ use Tests\Integration\Fixtures\MachineMembership;
  */
 trait InteractsWithMachineCredentials
 {
+    use InteractsWithMachineClients;
+
     /** @var string IP address requests come from. */
     protected const string MACHINE_IP = '198.51.100.20';
 
@@ -54,13 +56,7 @@ trait InteractsWithMachineCredentials
      */
     protected function createMachineTables(): void
     {
-        Schema::create('machine_clients', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password')->nullable();
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
+        self::createMachineClientsTable();
 
         Schema::create('machine_accounts', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');

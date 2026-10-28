@@ -5,14 +5,13 @@ declare(strict_types = 1);
 namespace Tests\Feature\Passkeys;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyOwner;
+use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -33,7 +32,7 @@ use Tests\TestCase;
 #[CoversClass(PasskeyOwner::class)]
 final class PasskeyOwnerTest extends TestCase
 {
-    use InteractsWithPasskeys, InteractsWithSessions;
+    use InteractsWithMachineClients, InteractsWithPasskeys, InteractsWithSessions;
 
     /**
      * Create the tables.
@@ -47,13 +46,7 @@ final class PasskeyOwnerTest extends TestCase
 
         $this->createSessionTables();
 
-        Schema::create('machine_clients', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password')->nullable();
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
+        self::createMachineClientsTable();
     }
 
     /**
@@ -64,7 +57,7 @@ final class PasskeyOwnerTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('machine_clients');
+        self::dropMachineClientsTable();
 
         $this->dropSessionTables();
 

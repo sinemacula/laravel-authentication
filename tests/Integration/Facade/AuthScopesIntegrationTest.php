@@ -5,15 +5,14 @@ declare(strict_types = 1);
 namespace Tests\Integration\Facade;
 
 use Illuminate\Config\Repository as ConfigRepository;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
@@ -31,7 +30,7 @@ use Tests\TestCase;
 #[CoversClass(AuthManager::class)]
 final class AuthScopesIntegrationTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithMachineClients, InteractsWithSessions;
 
     /**
      * Create the identity and machine tables and a route reporting the scopes.
@@ -45,13 +44,7 @@ final class AuthScopesIntegrationTest extends TestCase
 
         $this->createSessionTables();
 
-        Schema::create('machine_clients', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password')->nullable();
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
+        self::createMachineClientsTable();
 
         Route::middleware('auth:api')->get('/scopes', static fn (): array => ['scopes' => Auth::scopes()]);
     }
@@ -64,7 +57,7 @@ final class AuthScopesIntegrationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('machine_clients');
+        self::dropMachineClientsTable();
 
         $this->dropSessionTables();
 

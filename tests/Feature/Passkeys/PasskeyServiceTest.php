@@ -7,12 +7,10 @@ namespace Tests\Feature\Passkeys;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Events\QueryExecuted;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -33,6 +31,7 @@ use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyOwner;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
+use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Concerns\InteractsWithSessions;
@@ -62,7 +61,7 @@ use Tests\TestCase;
 #[CoversClass(AuthManager::class)]
 final class PasskeyServiceTest extends TestCase
 {
-    use InteractsWithPasskeys, InteractsWithRateLimits, InteractsWithSessions;
+    use InteractsWithMachineClients, InteractsWithPasskeys, InteractsWithRateLimits, InteractsWithSessions;
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -84,13 +83,7 @@ final class PasskeyServiceTest extends TestCase
 
         $this->createSessionTables();
 
-        Schema::create('machine_clients', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password')->nullable();
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
+        self::createMachineClientsTable();
     }
 
     /**
@@ -101,7 +94,7 @@ final class PasskeyServiceTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('machine_clients');
+        self::dropMachineClientsTable();
 
         $this->dropSessionTables();
 

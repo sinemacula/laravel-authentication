@@ -7,11 +7,9 @@ namespace Tests\Feature\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
@@ -30,6 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Sessions\ProvenIdentitySignIn;
@@ -59,7 +58,7 @@ use Tests\TestCase;
 #[CoversClass(JwtTokenService::class)]
 final class MachineIdentitySignInTest extends TestCase
 {
-    use InteractsWithPasskeys, InteractsWithSessions;
+    use InteractsWithMachineClients, InteractsWithPasskeys, InteractsWithSessions;
 
     /** @var string Email the machine and the human share, so a lookup by it finds either. */
     private const string EMAIL = 'robot@example.test';
@@ -77,13 +76,7 @@ final class MachineIdentitySignInTest extends TestCase
 
         $this->createSessionTables();
 
-        Schema::create('machine_clients', static function (Blueprint $blueprint): void {
-            $blueprint->increments('id');
-            $blueprint->string('email')->unique();
-            $blueprint->string('password')->nullable();
-            $blueprint->boolean('is_active')->default(true);
-            $blueprint->timestamps();
-        });
+        self::createMachineClientsTable();
 
         app(SignInMethodManager::class)->extend('proven', fn (): SignInMethod => new ProvenIdentitySignIn);
 
@@ -100,7 +93,7 @@ final class MachineIdentitySignInTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('machine_clients');
+        self::dropMachineClientsTable();
 
         $this->dropSessionTables();
 
