@@ -541,6 +541,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $token = $this->encodeRefreshToken([
             'pid' => 'p-1',
             'did' => $device->id,
@@ -634,6 +636,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-19')
             ->andReturn($principal);
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $token = $this->encodeRefreshToken([
             'pid' => 'p-19',
             'did' => $device->id,
@@ -715,6 +719,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity)
             ->andReturn($principal);
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $token = $this->encodeRefreshToken([
             'did' => $device->id,
             'jti' => $plainRotationId,
@@ -777,6 +783,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->resolver->shouldNotReceive('resolve');
 
         $guard->setPrincipalResolver($replacement);
+
+        $device->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
             'did' => $device->id,

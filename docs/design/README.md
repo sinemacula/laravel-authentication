@@ -31,6 +31,8 @@ The current note set is:
   and reports it.
 - `device-lifecycle.md`: which devices are active, how an identity's devices are listed, and when ended devices are
   pruned.
+- `principal-choice-and-switch.md`: how a sign-in that names no principal waits for the identity to choose one, and how
+  a session switches to another principal on its device, proven by its refresh token.
 - `audience-policy.md`: what each guard decides about its sessions (methods, principal types, verified identifiers,
   lifetimes per principal type), where every path enforces it, and how the attempt limits and identifier normalisers
   meet it.

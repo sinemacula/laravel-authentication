@@ -18,6 +18,10 @@ enum SignInStatus: string
     // A further factor is required: the result carries the pending sign-in
     case FACTOR_REQUIRED = 'factor_required';
 
+    // The identity must choose the principal to act as: the result carries the
+    // choice
+    case PRINCIPAL_REQUIRED = 'principal_required';
+
     // The sign-in failed: the result carries the reason
     case FAILED = 'failed';
 }

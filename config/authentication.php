@@ -51,11 +51,12 @@ return [
     | letter, then letters, digits, or underscores) that does not contain
     | `password`; anything else fails closed when a password sign-in runs.
     |
-    | A sign-in the additional-factor policy asks a further factor of waits in
-    | `pending_table` (on the device model's connection) for at most
-    | `pending_ttl_seconds` (30 to 3600; an integer, or a digit string as
-    | `env()` returns one); anything else fails closed when a pending sign-in
-    | is issued. Prune expired pending sign-ins with `model:prune`.
+    | A sign-in the additional-factor policy asks a further factor of, or that
+    | waits for the identity to choose its principal, waits in `pending_table`
+    | (on the device model's connection) for at most `pending_ttl_seconds` (30
+    | to 3600; an integer, or a digit string as `env()` returns one); anything
+    | else fails closed when a pending sign-in is issued. Prune expired pending
+    | sign-ins with `model:prune`.
     |
     */
 

@@ -48,7 +48,11 @@ to these events, so the shape and the timing are a contract.
 - Sign-in: the session service builds one context for a written session (guard, client, identity, principal, the
   tenant admission loaded, device, method) and dispatches `DeviceCreated` (new devices) and `SignedIn` with it after
   the device's connection commits. A sign-in held for a factor dispatches `AdditionalFactorRequired` with the proven
-  device, after the pending sign-in commits.
+  device, after the pending sign-in commits, and one held for a choice of principal `PrincipalChoiceRequired`, with
+  the identity, the method and the proven device but no principal or tenant.
+- Switch of principal: the guard binds the switched session, then `PrincipalSwitched` carries the new principal and
+  tenant in its context and the previous principal's recorded type and identifier as snapshots of its own, after the
+  switch commits on the device's connection.
 - Refresh: the guard binds the exchanged session, then dispatches `Refreshed` with the session's context, including the
   tenant the exchange's activity check loaded and the method the device records, after the rotation commits on the
   device's connection.

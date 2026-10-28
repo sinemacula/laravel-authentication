@@ -79,7 +79,8 @@ final class PendingSignInsTableSchemaTest extends TestCase
      * The table holds the token digest and purpose, the guard, method and
      * identifier type, the owner and principal, the client, the proven device,
      * the windows of the attempt-limit slots the sign-in holds, the expiry and
-     * the timestamps; only what a sign-in may lack is nullable.
+     * the timestamps; only what a sign-in may lack is nullable, the principal
+     * included, which a sign-in waiting for a choice of principal lacks.
      *
      * @return void
      */
@@ -104,8 +105,8 @@ final class PendingSignInsTableSchemaTest extends TestCase
             'id'                   => false,
             'identifier_type'      => true,
             'platform'             => true,
-            'principal_id'         => false,
-            'principal_type'       => false,
+            'principal_id'         => true,
+            'principal_type'       => true,
             'purpose'              => false,
             'sign_in_method'       => false,
             'token_digest'         => false,

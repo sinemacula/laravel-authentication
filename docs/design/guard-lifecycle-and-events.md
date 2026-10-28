@@ -52,6 +52,14 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits. `complete()`
   binds and emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then
   `AuthenticationFailed` (`additional_factor_failed`).
+- A sign-in held for a choice of principal binds nothing either: `Attempting` (from `signIn()`) and then
+  `PrincipalChoiceRequired` once the choice commits. `choose()` binds and emits the `signIn()` sequence without
+  `Attempting` (or holds the chosen principal for a factor); a discarded choice emits `Failed` and then
+  `AuthenticationFailed` (`principal_choice_abandoned`).
+- `switchPrincipal()` is no sign-in: it binds through `authenticateAs()` (`Authenticated -> PrincipalAssigned ->
+  DeviceAuthenticated`, no `Validated` or `Login`) and dispatches `PrincipalSwitched` once the switch commits on the
+  device's connection; a refusal emits only `AuthenticationFailed` (flow `principal_switch`), with `DeviceRevoked` first
+  for a replayed token.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`
@@ -279,8 +287,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `DeviceAuthenticated`, `Refreshed`, `AuthenticationFailed`, `AdditionalFactorRequired`, `DeviceRevoked`, or
-  `IdentifierVerified`
+  `DeviceAuthenticated`, `Refreshed`, `AuthenticationFailed`, `AdditionalFactorRequired`, `PrincipalChoiceRequired`,
+  `PrincipalSwitched`, `DeviceRevoked`, or `IdentifierVerified`
 - the order of the sign-in policy checks in `attempt()`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards

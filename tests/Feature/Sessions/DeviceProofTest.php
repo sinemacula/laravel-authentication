@@ -159,6 +159,30 @@ final class DeviceProofTest extends TestCase
     }
 
     /**
+     * A proof for a sign-in that has no principal yet (one waiting for a
+     * choice) needs the device to be the identity's own for the guard, live,
+     * and holding the rotation id, whatever principal it records.
+     *
+     * @return void
+     */
+    public function testAProofWithoutAPrincipalIgnoresTheRecordedPrincipal(): void
+    {
+        $token = $this->session->tokens->refreshToken;
+        $proof = new DeviceProof(Auth::manager()->jwt('api'));
+
+        $this->updateDevice(['principal_id' => '999']);
+
+        self::assertSame($this->session->device->getKey(), $proof->provenDeviceOf('api', $this->identity, null, $token)?->getDeviceIdentifier());
+        self::assertNull($proof->provenDeviceOf('api', $this->identity, $this->identity, $token));
+        self::assertNull($proof->provenDeviceOf('api', $this->seedIdentity('bea@example.test'), null, $token));
+        self::assertNull($proof->provenDeviceOf('admin', $this->identity, null, $token));
+
+        $this->updateDevice(['revoked_at' => Carbon::now()]);
+
+        self::assertNull($proof->provenDeviceOf('api', $this->identity, null, $token));
+    }
+
+    /**
      * Only a refresh token of this guard naming an existing device is a proof:
      * garbage, an access token, another guard's refresh token, and one naming
      * no device prove nothing.

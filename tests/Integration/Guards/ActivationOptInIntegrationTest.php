@@ -129,7 +129,7 @@ final class ActivationOptInIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $user),
             'authenticatable_type' => DefaultUsersTableIdentity::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

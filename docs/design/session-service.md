@@ -95,6 +95,10 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   same transaction; a failed check still uses it up. Every lookup failure is `pending_invalid`. A completion runs in the
   completing request's client: its events and the device's last use carry that client, while a device it creates
   records the client the sign-in came from as its creation.
+- A sign-in that names no principal, for an identity whose resolver has no default but which has eligible principals,
+  waits for a choice instead of failing: a pending sign-in of purpose `principal_choice`, with no principal and the
+  sign-in's slots, reported by `PrincipalChoiceRequired`. `pending()` and `complete()` never take a choice token. See
+  `principal-choice-and-switch.md`.
 - Inside a caller's transaction the service's transaction is a savepoint: the guard is bound at once, the lifecycle
   events wait for the caller's commit, and a rollback withdraws them with the device while the guard stays bound. Do not
   roll back around a sign-in.

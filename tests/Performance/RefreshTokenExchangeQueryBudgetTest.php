@@ -141,7 +141,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -174,7 +174,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -448,7 +448,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -585,7 +585,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(self::TENANT_AWARE_GUARD),
+            ...self::liveSession(self::TENANT_AWARE_GUARD, $principal),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -626,7 +626,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(self::TENANT_AWARE_GUARD),
+            ...self::liveSession(self::TENANT_AWARE_GUARD, $secondaryPrincipal),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -830,7 +830,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     {
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             ...$state,

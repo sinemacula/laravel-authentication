@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
  */
 #[CoversClass(SignInResult::class)]
 #[CoversClass(SignedInSession::class)]
+#[CoversClass(PrincipalChoice::class)]
 final class SignInResultTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -88,6 +90,43 @@ final class SignInResultTest extends TestCase
     }
 
     /**
+     * A sign-in that waits for a choice of principal carries the choice, and
+     * neither a session, a pending factor nor a reason; no other result
+     * requires a principal.
+     *
+     * @return void
+     */
+    public function testAPrincipalRequiredResultCarriesTheChoice(): void
+    {
+        $identity   = \Mockery::mock(Identity::class);
+        $principals = [\Mockery::mock(Principal::class)];
+        $expiresAt  = CarbonImmutable::now();
+        $choice     = new PrincipalChoice('token', 'api', $identity, $principals, 'password', $expiresAt);
+        $result     = SignInResult::principalRequired($choice);
+
+        self::assertSame(SignInStatus::PRINCIPAL_REQUIRED, $result->status);
+        self::assertTrue($result->requiresPrincipal());
+        self::assertFalse($result->requiresFactor());
+        self::assertFalse($result->isSignedIn());
+        self::assertFalse($result->isFailed());
+        self::assertSame($choice, $result->choice);
+        self::assertNull($result->session);
+        self::assertNull($result->pending);
+        self::assertNull($result->reason);
+        self::assertNull($result->retryAfter);
+
+        self::assertSame('token', $choice->token);
+        self::assertSame('api', $choice->guard);
+        self::assertSame($identity, $choice->identity);
+        self::assertSame($principals, $choice->principals);
+        self::assertSame('password', $choice->method);
+        self::assertSame($expiresAt, $choice->expiresAt);
+
+        self::assertFalse(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->requiresPrincipal());
+        self::assertNull(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->choice);
+    }
+
+    /**
      * A failure carries its reason and, when given, the wait, and no session.
      *
      * @return void
@@ -138,6 +177,8 @@ final class SignInResultTest extends TestCase
      */
     public function testStatusValues(): void
     {
-        self::assertSame(['signed_in', 'factor_required', 'failed'], array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases()));
+        $values = array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases());
+
+        self::assertSame(['signed_in', 'factor_required', 'principal_required', 'failed'], $values);
     }
 }

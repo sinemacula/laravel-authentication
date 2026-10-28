@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 
 /**
- * Create the pending sign-ins table: sign-ins waiting for a further factor.
+ * Create the pending sign-ins table: sign-ins waiting for a further factor, and
+ * sign-ins waiting for a choice of principal, which record none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,11 +43,12 @@ return new class extends Migration {
             $blueprint->string('identifier_type')->nullable();
 
             // Plain string polymorphic columns, as on the devices table, so any
-            // key type fits.
+            // key type fits. A sign-in waiting for its identity to choose a
+            // principal records none yet.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
-            $blueprint->string('principal_type');
-            $blueprint->string('principal_id');
+            $blueprint->string('principal_type')->nullable();
+            $blueprint->string('principal_id')->nullable();
 
             $blueprint->string('client_name')->nullable();
             $blueprint->string('platform')->nullable();

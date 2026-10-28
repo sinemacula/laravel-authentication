@@ -12,7 +12,6 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -35,6 +34,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 
 /**
  * Refresh-token exchange service.
@@ -44,8 +44,11 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  * token is honoured only for a device of the guard exchanging it, and only
  * while the guard's audience policy still lets the method that started the
  * session start one and still admits the owner as the principal; none of these
- * failures revokes the device. The next idle deadline follows the lifetimes the
- * policy gives the principal's type.
+ * failures revokes the device. The principal the token names must be the one
+ * the device records: after the session switched principal, the refresh tokens
+ * of the principal it left fail as `device_principal_mismatch`, without
+ * revoking the device. The next idle deadline follows the lifetimes the policy
+ * gives the principal's type.
  *
  * Failed exchanges are counted against the token's device and the client's IP
  * address; once either count is full the exchange is refused as `rate_limited`
@@ -268,7 +271,7 @@ final class RefreshTokenExchange
     ): AuthenticationFailed|ExchangedRefresh {
         $guard   = WriteConnection::during($device, static fn (): ?string => $device->getGuard());
         $verdict = $guard === $this->guardName
-            ? $this->classify($device, $rotationId, $now)
+            ? RefreshJudgement::classify($device, $rotationId, $now, $this->tokens->lifetimes())
             : FailureReason::DEVICE_GUARD_MISMATCH;
 
         if ($verdict instanceof FailureReason) {
@@ -400,91 +403,9 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Judge the presented rotation id against the device at `$now`.
-     *
-     * In order: a revoked device fails as `device_revoked`; a session past
-     * either deadline, or without one, as `session_expired` (an ended session
-     * is not revoked: it simply cannot be refreshed); a device holding no
-     * refresh credential as `refresh_key_missing`. Only then is the rotation id
-     * compared, in constant time: the current one, with the absolute
-     * deadline the rotation keeps; the previous one inside the grace window;
-     * or anything else, which is a replay (`rotation_reuse`). Nothing is
-     * compared before the device is known to be live, so such a row cannot be
-     * used to time-probe the valid rotation-id space.
-     *
-     * The device's state is read inside `WriteConnection::during()` for the
-     * device, so a device that derives any of it from a relation or another
-     * table reads it from the writer as well.
-     *
-     * @formatter:off
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  string  $rotationId
-     * @param  \Carbon\CarbonImmutable  $now
-     * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: \Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
-     *
-     * @formatter:on
-     *
-     * @throws \LogicException
-     */
-    private function classify(EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): array|FailureReason
-    {
-        $lifetimes = $this->tokens->lifetimes();
-
-        return WriteConnection::during($device, static function () use ($device, $rotationId, $now, $lifetimes): array|FailureReason {
-
-            if ($device->getRevokedAt() !== null) {
-                return FailureReason::DEVICE_REVOKED;
-            }
-
-            $deadlines = TokenLifetimes::liveDeadlines($device, $now);
-            $current   = $device->getRefreshKey();
-
-            if ($deadlines === null || $current === null) {
-                return $deadlines === null ? FailureReason::SESSION_EXPIRED : FailureReason::REFRESH_KEY_MISSING;
-            }
-
-            $match = match (true) {
-                RefreshTokenHasher::verify($rotationId, $current)                    => RotationMatch::CURRENT,
-                self::isGraceRetry($device, $rotationId, $current, $lifetimes, $now) => RotationMatch::PREVIOUS,
-                default                                                              => null,
-            };
-
-            return $match === null ? FailureReason::ROTATION_REUSE : [$match, $deadlines[1]];
-        });
-    }
-
-    /**
-     * Whether the rotation id is the one the device's current id replaced,
-     * presented inside the grace window. The current id must also be its
-     * successor: a row whose digests were changed outside a rotation does not
-     * honour the previous id.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @param  string  $rotationId
-     * @param  string  $current
-     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
-     * @param  \Carbon\CarbonImmutable  $now
-     * @return bool
-     *
-     * @throws \LogicException
-     */
-    private static function isGraceRetry(Device $device, #[\SensitiveParameter] string $rotationId, string $current, TokenLifetimes $lifetimes, CarbonImmutable $now): bool
-    {
-        $previous  = $device->getPreviousRefreshKey();
-        $rotatedAt = $device->getRefreshRotatedAt();
-
-        if ($previous === null || $rotatedAt === null || !$lifetimes->isWithinGrace($rotatedAt, $now)) {
-            return false;
-        }
-
-        return RefreshTokenHasher::verify($rotationId, $previous)
-            && RefreshTokenHasher::verify(RefreshTokenHasher::successor($rotationId), $current);
-    }
-
-    /**
      * Hydrate identity + principal from a verified device row, and hold them to
-     * the guard's audience policy (see `RefreshAdmission`). Returns the
+     * the guard's audience policy (see `RefreshAdmission`); the principal must
+     * be the one the device records (`device_principal_mismatch`). Returns the
      * admitted session (the identity, the principal, the tenant its activity
      * check loaded, and the device), or the failure with as much of it as was
      * resolved.
@@ -502,6 +423,10 @@ final class RefreshTokenExchange
     private function hydrateRefreshContext(EloquentDevice&Model $device, mixed $principalHint, ClientContext $client): AdmittedSignIn|AuthenticationFailed
     {
         $admitted = (new RefreshAdmission($this->guardName, $this->provider, $this->resolver))->admit($device, $principalHint);
+
+        if ($admitted instanceof AdmittedSignIn && !PrincipalReference::isRecordedOn($device, $admitted->principal)) {
+            $admitted = RefusedSignIn::after(FailureReason::DEVICE_PRINCIPAL_MISMATCH, $admitted);
+        }
 
         return $admitted instanceof RefusedSignIn
             ? $this->refused($admitted->reason, $this->deviceContext($client, $device, $admitted->identity, $admitted->principal, $admitted->tenant))
@@ -616,13 +541,14 @@ final class RefreshTokenExchange
             return $this->refused(FailureReason::DEVICE_UNKNOWN, $context);
         }
 
-        $verdict = $this->classify($fresh, $rotationId, $now);
+        $verdict = RefreshJudgement::classify($fresh, $rotationId, $now, $this->tokens->lifetimes());
 
         if (is_array($verdict)) {
             $verdict = match (true) {
-                $verdict[0] === RotationMatch::CURRENT                => FailureReason::ROTATION_CONFLICT,
-                !DeviceOwnership::isOwner($fresh, $session->identity) => FailureReason::IDENTITY_UNKNOWN,
-                default                                               => null,
+                $verdict[0] === RotationMatch::CURRENT                         => FailureReason::ROTATION_CONFLICT,
+                !DeviceOwnership::isOwner($fresh, $session->identity)          => FailureReason::IDENTITY_UNKNOWN,
+                !PrincipalReference::isRecordedOn($fresh, $session->principal) => FailureReason::DEVICE_PRINCIPAL_MISMATCH,
+                default                                                        => null,
             };
         }
 

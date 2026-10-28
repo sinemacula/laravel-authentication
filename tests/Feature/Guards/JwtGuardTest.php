@@ -477,6 +477,8 @@ final class JwtGuardTest extends JwtGuardTestCase
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-18');
         $principal->shouldReceive('isActive')->andReturnTrue();
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $this->provider->shouldReceive('retrieveById')->once()->with('18')->andReturn($identity);
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-18')->andReturn($principal);
 

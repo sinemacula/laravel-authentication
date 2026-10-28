@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\TestCase;
 
 /**
@@ -88,6 +89,24 @@ final class RequestSequenceTest extends TestCase
             Auth::guard('api')->logout();
 
             return ['identity' => Auth::guard('api')->id()];
+        });
+
+        Route::get('/members/me', static function (): array {
+            $guard = Auth::manager()->guard('members');
+
+            assert($guard instanceof JwtGuard);
+
+            return ['principal' => $guard->principal()?->getPrincipalIdentifier()];
+        });
+
+        Route::post('/members/switch', static function (): array {
+            $target = ActivatableTenantMembership::query()->findOrFail(request()->integer('membership'));
+            $result = Auth::sessions('members')->switchPrincipal(request()->string('refresh')->value(), $target);
+            $guard  = Auth::manager()->guard('members');
+
+            assert($guard instanceof JwtGuard);
+
+            return ['access' => $result->session?->tokens->accessToken, 'principal' => $guard->principal()?->getPrincipalIdentifier()];
         });
     }
 
@@ -218,6 +237,45 @@ final class RequestSequenceTest extends TestCase
         $this->me($session)->assertJson(['identity' => null]);
 
         self::assertSame(FailureReason::DEVICE_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
+    }
+
+    /**
+     * A real switch of principal in one request, between requests with the old
+     * and the new access token: the request that switched is bound to the new
+     * principal, the old principal's token is refused on the next request, and
+     * the new one acts as the new principal.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchOfPrincipalThenTheOldAndNewTokens(): void
+    {
+        [$member, $first, $tenant] = $this->seedMember();
+
+        $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+        $session = Auth::sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+
+        $this->flushHeaders();
+        $this->withToken($session->tokens->accessToken)->getJson('/members/me')->assertExactJson(['principal' => $first->getKey()]);
+
+        $this->flushHeaders();
+
+        $switched = $this->postJson('/members/switch', ['refresh' => $session->tokens->refreshToken, 'membership' => $second->getKey()]);
+
+        $switched->assertJson(['principal' => $second->getKey()]);
+
+        $access = $switched->json('access');
+
+        self::assertIsString($access);
+
+        $this->flushHeaders();
+        $this->withToken($session->tokens->accessToken)->getJson('/members/me')->assertExactJson(['principal' => null]);
+
+        $this->flushHeaders();
+        $this->withToken($access)->getJson('/members/me')->assertExactJson(['principal' => $second->getKey()]);
     }
 
     /**

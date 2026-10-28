@@ -334,7 +334,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     {
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession($guard),
+            ...self::liveSession($guard, $identity),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

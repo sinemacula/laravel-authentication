@@ -261,6 +261,165 @@ final class PendingSignInsTest extends TestCase
     }
 
     /**
+     * A choice stores the sign-in like a factor does, but records no principal;
+     * it hands back its token and expiry.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testIssueChoiceStoresTheSignInWithoutAPrincipal(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity);
+        $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
+        $windows  = [['counter-key' => '2026-04-06 12:05:00']];
+
+        [$token, $expiresAt] = $this->pendings()->issueChoice('api', $identity, $device, 'password', 'email', $context, $this->now, $windows);
+
+        [$id, $secret] = explode('.', $token, 2);
+
+        $row = PendingSignIn::query()->whereKey($id)->firstOrFail();
+
+        self::assertTrue(RefreshTokenHasher::verify($secret, $row->token_digest));
+        self::assertSame(PendingSignIn::PRINCIPAL_CHOICE, $row->purpose);
+        self::assertSame('api', $row->guard);
+        self::assertSame('password', $row->sign_in_method);
+        self::assertSame('email', $row->identifier_type);
+        self::assertSame((string) $identity->id, $row->authenticatable_id);
+        self::assertNull($row->principal_type);
+        self::assertNull($row->principal_id);
+        self::assertSame('Phone', $row->client_name);
+        self::assertSame('192.0.2.1', $row->created_ip);
+        self::assertSame($device->getKey(), $row->device_id);
+        self::assertSame($device->getRefreshKey(), $row->device_refresh_key);
+        self::assertSame($windows, $row->attempt_windows);
+        self::assertSame($this->now->addMinutes(5)->getTimestamp(), $expiresAt->getTimestamp());
+        self::assertSame($expiresAt->getTimestamp(), $row->expires_at->getTimestamp());
+    }
+
+    /**
+     * A choice can only wait for an Eloquent identity.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testIssueChoiceRefusesAnIdentityThatIsNotAModel(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(sprintf('A sign-in can only wait for a choice of principal for an Eloquent identity; %s is not a model.', $identity::class));
+
+        $this->pendings()->issueChoice('api', $identity, null, 'password', null, $this->context(), $this->now, null);
+    }
+
+    /**
+     * A live pending sign-in is found by its purpose: a choice token finds no
+     * factor and a factor token no choice, while either is found when no
+     * purpose is asked for; a factor token is not found by `find()` as a choice
+     * would not be.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALivePendingSignInIsFoundOnlyForItsPurpose(): void
+    {
+        $identity = $this->seedIdentity();
+        $factor   = $this->issue($identity)->token;
+
+        [$choice] = $this->pendings()->issueChoice('api', $identity, null, 'password', null, $this->context(), $this->now, null);
+
+        self::assertNotNull(PendingSignIns::live('api', $factor, $this->now, PendingSignIn::ADDITIONAL_FACTOR));
+        self::assertNull(PendingSignIns::live('api', $factor, $this->now, PendingSignIn::PRINCIPAL_CHOICE));
+        self::assertNotNull(PendingSignIns::live('api', $choice, $this->now, PendingSignIn::PRINCIPAL_CHOICE));
+        self::assertNull(PendingSignIns::live('api', $choice, $this->now, PendingSignIn::ADDITIONAL_FACTOR));
+        self::assertNotNull(PendingSignIns::live('api', $choice, $this->now, null));
+        self::assertNotNull(PendingSignIns::live('api', $factor, $this->now, null));
+        self::assertNull(PendingSignIns::live('admin', $choice, $this->now, null));
+        self::assertNull($this->find($choice));
+
+        [$pending, $secret] = PendingSignIns::live('api', $choice, $this->now, null) ?? [null, ''];
+
+        self::assertInstanceOf(PendingSignIn::class, $pending);
+        self::assertSame(explode('.', $choice, 2)[1], $secret);
+    }
+
+    /**
+     * The device a choice proved is continued for a principal only while it is
+     * the identity's unchanged, unrevoked session of the guard that records
+     * that principal.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoicesProvenDeviceCountsOnlyForThePrincipalItRecords(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity);
+
+        $this->pendings()->issueChoice('api', $identity, $device, 'password', null, $this->context(), $this->now, null);
+
+        $pending = PendingSignIn::query()->firstOrFail();
+
+        self::assertSame($device->getKey(), PendingSignIns::provenDevice($pending, $identity, $identity)?->getKey());
+        self::assertNull(PendingSignIns::provenDevice($pending, $this->seedIdentity('grace@example.test'), $identity));
+
+        $changes = [
+            ['refresh_key' => RefreshTokenHasher::hash('rotated')],
+            ['refresh_key' => null],
+            ['revoked_at' => $this->now->format('Y-m-d H:i:s')],
+            ['guard' => 'admin'],
+            ['principal_id' => '999'],
+            ['authenticatable_id' => '999'],
+        ];
+
+        foreach ($changes as $change) {
+
+            $original = (array) DB::table('devices')->where('id', $device->getKey())->first();
+
+            DB::table('devices')->where('id', $device->getKey())->update($change);
+
+            self::assertNull(PendingSignIns::provenDevice($pending, $identity, $identity));
+
+            DB::table('devices')->where('id', $device->getKey())->update($original);
+        }
+
+        $device->delete();
+
+        self::assertNull(PendingSignIns::provenDevice($pending, $identity, $identity));
+
+        $pending->forceFill(['device_id' => null]);
+
+        self::assertNull(PendingSignIns::provenDevice($pending, $identity, $identity));
+    }
+
+    /**
+     * A pending sign-in is deleted only with its secret and before it expires,
+     * and only once.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testDeleteNeedsTheSecretBeforeTheExpiry(): void
+    {
+        [$token] = $this->pendings()->issueChoice('api', $this->seedIdentity(), null, 'password', null, $this->context(), $this->now, null);
+
+        [$pending, $secret] = PendingSignIns::live('api', $token, $this->now, null) ?? [null, ''];
+
+        self::assertInstanceOf(PendingSignIn::class, $pending);
+        self::assertFalse(PendingSignIns::delete($pending, 'wrong-secret', $this->now));
+        self::assertFalse(PendingSignIns::delete($pending, $secret, $this->now->addMinutes(5)));
+        self::assertTrue(PendingSignIns::delete($pending, $secret, $this->now->addMinutes(5)->subSecond()));
+        self::assertFalse(PendingSignIns::delete($pending, $secret, $this->now));
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
      * A live pending sign-in is found for its token with its identity and
      * principal reloaded, and finding it does not use it up.
      *

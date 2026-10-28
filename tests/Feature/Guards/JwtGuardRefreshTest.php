@@ -325,6 +325,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->with($identity)
             ->andReturn($principal);
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $token = $this->encodeRefreshToken([
             'did' => $device->id,
             'jti' => $plainRotationId,
@@ -381,6 +383,8 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->twice()
             ->with($identity, 'p-18')
             ->andReturn($principal);
+
+        $device->forceFill(self::recordedPrincipal($principal))->save();
 
         $oldToken = $this->encodeRefreshToken([
             'pid' => 'p-18',

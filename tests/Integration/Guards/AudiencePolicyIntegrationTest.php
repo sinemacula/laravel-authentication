@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use Tests\Concerns\InteractsWithTypedPrincipals;
 use Tests\Integration\Fixtures\TypedIdentity;
 use Tests\Integration\Fixtures\TypedMembership;
@@ -156,6 +157,8 @@ final class AudiencePolicyIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            'principal_type'       => PrincipalReference::type($membership),
+            'principal_id'         => PrincipalReference::id($membership),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'guard'                => self::GUARD,

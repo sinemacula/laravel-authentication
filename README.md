@@ -1097,6 +1097,14 @@ if ($result->requiresFactor()) {
     return ['pending_token' => $result->pending->token];
 }
 
+if ($result->requiresPrincipal()) {
+    // No principal named and none by default: the identity chooses one.
+    return [
+        'choice_token' => $result->choice->token,
+        'principals'   => array_map(fn ($principal) => $principal->getPrincipalIdentifier(), $result->choice->principals),
+    ];
+}
+
 return [
     'access_token'  => $result->session->tokens->accessToken,
     'refresh_token' => $result->session->tokens->refreshToken,
@@ -1307,6 +1315,52 @@ request's client. A token that completes nothing fails as `pending_invalid`, wit
 Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see
 [Rate limits](#rate-limits)).
 
+#### Choosing a principal
+
+A sign-in (`signIn()` or `start()`) that names no principal, for an identity whose resolver has no default principal,
+waits for the identity to choose one when it may sign in as any: the result `requiresPrincipal()`, and its `choice` is a
+`PrincipalChoice` with a single-use `token`, the guard, the identity, the method, the expiry
+(`sign_in.pending_ttl_seconds`, as for a factor) and the `principals` it may choose from. Those are the identity's
+`principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
+by the guard's audience policy; `Auth::sessions('api')->principals($identity)` lists them the same way for a switch
+screen (for an identity that is its own principal, the resolver's default). An identity with none fails as
+`principal_unresolved`, as before. `attempt()` never waits for a choice.
+
+The choice is stored like a pending factor, in `pending_sign_ins` with `purpose = principal_choice` and no principal,
+with the device the client proved it holds (whatever principal that device records) and the sign-in's attempt slots,
+which stay taken until a session starts. `PrincipalChoiceRequired` reports it once committed, with the identity, method,
+client and that device, never the token or the list.
+
+```php
+['choice_token' => $token, 'principal' => $id] = $request->validate([
+    'choice_token' => ['required', 'string'],
+    'principal'    => ['required', 'string'],
+]);
+
+$sessions = Auth::sessions('api');
+$choice   = $sessions->choice($token); // null: unknown, expired, used, or not this guard's
+
+$principal = collect($choice?->principals ?? [])
+    ->first(fn ($principal) => (string) $principal->getPrincipalIdentifier() === $id);
+
+if ($principal === null) {
+    abort(401);
+}
+
+$result = $sessions->choose($token, $principal);
+```
+
+`choice()` never uses the choice up. `choose()` uses it up whatever the outcome, with a delete only one call can make,
+then admits the chosen principal as any sign-in would: the method still allowed, the principal resolved through the
+resolver's hinted path as the very one named and the identity's own (`principal_mismatch`), active, in an active tenant,
+and admitted by the audience policy with the identifier type the sign-in used. The additional-factor policy is then
+asked: a required factor turns the choice into a pending factor for the chosen principal, carrying the same attempt
+slots (complete it as above). Otherwise the session starts, on the device the client proved when that device records the
+chosen principal and is unchanged, else on a new one, and the slots are given back once committed. A token that
+continues no live choice of this guard fails as `pending_invalid`; `pending()` and `complete()` refuse choice tokens,
+and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a discarded choice reports
+`AuthenticationFailed` with `principal_choice_abandoned`.
+
 `attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. A session lives on a
 device, so the session service signs in only identities that implement `HasDevices`: for any other identity `signIn()`,
 `start()` and `complete()` throw a `LogicException` naming its class, since the access token it would issue names a
@@ -1369,6 +1423,11 @@ started the session (the device's `sign_in_method`) must still be one the guard 
 that records none fails too), and the policy must still admit the owner as the principal (`principal_ineligible`).
 Neither revokes the device, so the session refreshes again once the policy allows it. Each rotation moves the idle
 deadline by the idle lifetime the policy gives the principal's type.
+
+A refresh token is accepted only for the principal its device records. After a switch (see [Switching
+principal](#switching-principal)), the refresh token of the principal switched from fails with
+`device_principal_mismatch`, even inside the grace window, and the device is left alone; a token presented after the
+grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is judged the same way.
 
 Failed refreshes are counted against the token's device and the request's IP address by the bound `AttemptLimiter`;
 successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
@@ -1512,6 +1571,69 @@ connection neither delays nor withdraws it. The transaction that Laravel's `Data
 testing traits wrap around each test does not count either, so a test sees `DeviceRevoked` when the application would.
 Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
 error, which surfaces as a server error for you to retry.
+
+### Switching principal
+
+An identity that may act as several principals (memberships of several tenants, say) switches the session it is signed
+in with to another one, on the same device, proven by the session's refresh token:
+
+```php
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+
+$presented = Auth::refreshTransport('api')->read($request);
+
+if (!$presented instanceof PresentedRefreshToken) {
+    abort(401);
+}
+
+$target = Membership::findOrFail($request->input('membership'));
+$result = Auth::sessions('api')->switchPrincipal($presented->token, $target);
+
+if ($result->isFailed()) {
+    // AuthenticationFailed was dispatched (flow principal_switch); $result->reason says why.
+    abort($result->reason === FailureReason::RATE_LIMITED ? 429 : 401);
+}
+
+return [
+    'access_token'  => $result->session->tokens->accessToken,
+    'refresh_token' => $result->session->tokens->refreshToken,
+];
+```
+
+The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
+refresh credential. Read it with the guard's refresh token transport, so a token from the refresh cookie gets the
+cookie's cross-site checks, and put the switch route under the cookie's path. A switch whose token came from the cookie
+answers with the new refresh token in the cookie, as a refresh does:
+`Auth::refreshTransport('api')->cookie($result->session->tokens->refreshToken, $result->session->device)` (when
+`$presented->source` is `RefreshTokenSource::COOKIE`).
+
+A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`), the token parsed for this
+guard, the device found, of this guard, live, and the rotation id current, or the previous one inside the grace window;
+any other id is a replay and revokes the device (`rotation_reuse`). On every path the device's owner must still be
+returned by the guard's provider and be active, the target must resolve through the resolver's hinted path as the very
+principal named, of its class, owned by that identity (read from the principal's own key, not trusted to the resolver),
+active, in an active tenant and admitted by the audience policy, the session's sign-in method must still be allowed, and
+the additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again as the
+target).
+
+With the current rotation id, the token's principal must be the one the device records (`device_principal_mismatch`).
+The switch keeps the session's absolute deadline, held to the target type's absolute lifetime counted from the sign-in
+(`session_expired` when that has passed), restarts the idle one under the target's lifetimes, issues both tokens for the
+target, then records the target, the switch time (`principal_switched_at`), the rotation and both deadlines in one
+compare-and-swap. The access tokens of the principal switched from stop at once, and switching back does not revive them
+(see [Device](#device)). A switch to the principal the device already records rotates the credential like a refresh and
+reports no switch.
+
+With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
+nothing, only when the device records the target and either its last rotation was the switch to it (a lost switch
+response, retried) or the token's own principal is the target; anything else is `rotation_conflict`, without revoking,
+and the client retries with its current token. When another request changes the device between the switch's read and its
+write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
+
+A switch binds the guard to the target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`) and
+dispatches `PrincipalSwitched` once committed on the device's connection, with the new principal and tenant in its
+context, and the previous principal as the device recorded it (`previousPrincipalType`, `previousPrincipalId`) and, when
+it still resolves for the identity, the principal itself (`previousPrincipal`).
 
 ### Listing devices
 
@@ -1738,6 +1860,8 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed      |
 | `SineMacula\...\Events\SignedIn`                 | A session started or was refreshed, once committed        |
 | `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed      |
+| `SineMacula\...\Events\PrincipalChoiceRequired`  | A sign-in waits for a choice of principal, once committed |
+| `SineMacula\...\Events\PrincipalSwitched`        | A session switched its principal, once committed          |
 | `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type   |
 | `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh or bearer token failed; with reason    |
 
@@ -1803,19 +1927,23 @@ after `attempt()` reports the sign-in once. `DeviceCreated` precedes `SignedIn` 
 (`SignedIn::$deviceCreated`). A sign-in the additional-factor policy holds for a further factor dispatches
 `AdditionalFactorRequired` instead, once committed: from `signIn()` it answers the sign-in's `Attempting`, and from
 `start()`, which dispatches no `Attempting`, it is the only event. Completing it dispatches `SignedIn`, and discarding
-it `AuthenticationFailed` with `additional_factor_failed`.
+it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits for a choice of principal dispatches
+`PrincipalChoiceRequired` the same way; choosing starts the session (or a pending factor) as above, and discarding the
+choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no sign-in: it
+dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`.
 
-`AuthenticationFailed` reports every failed sign-in, refresh and bearer token, after Laravel's `Failed` where that
-fires, with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`), a `FailureReason`, the identifier a
-sign-in's input named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the
-identity only once a sign-in method verified it, a refresh reloaded the device's owner or a token's subject was found (a
-wrong password or an unknown identifier carries none), the principal and tenant once resolved, and the device once
-found, else the `did` a token named. A bearer token is checked in this order, so its reason is the first that applies:
-`token_invalid`, `identity_unknown`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`,
-then for a token that names no device `issued_before_cutoff`, and for one that names a device `device_unknown`,
-`device_guard_mismatch`, `device_revoked`, `session_expired`, `device_principal_mismatch`. It says why a sign-in failed
-even where the client is not told: a refusal by the account's own limit is `account_rate_limited` on the event, while
-the sign-in's result says `invalid_credentials`:
+`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal and bearer token, after Laravel's
+`Failed` where that fires, with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`), a
+`FailureReason`, the identifier a sign-in's input named (as given), and the wait for `rate_limited` and
+`account_rate_limited`. Its context carries the identity only once a sign-in method verified it, a refresh reloaded the
+device's owner or a token's subject was found (a wrong password or an unknown identifier carries none), the principal
+and tenant once resolved, and the device once found, else the `did` a token named. A bearer token is checked in this
+order, so its reason is the first that applies: `token_invalid`, `identity_unknown`, `identity_inactive`,
+`principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token that names no device
+`issued_before_cutoff`, and for one that names a device `device_unknown`, `device_guard_mismatch`, `device_revoked`,
+`session_expired`, `device_principal_mismatch`. It says why a sign-in failed even where the client is not told: a
+refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
+`invalid_credentials`:
 
 | Reason                       | Meaning                                                                 |
 |------------------------------|-------------------------------------------------------------------------|
@@ -1834,6 +1962,7 @@ the sign-in's result says `invalid_credentials`:
 | `device_mismatch`            | The pinned device is not a live device of the identity and principal    |
 | `additional_factor_required` | A further factor is required, which only `signIn()` can ask             |
 | `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed              |
+| `principal_choice_abandoned` | A choice of principal was discarded                                     |
 | `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's      |
 | `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                     |
 | `issued_before_cutoff`       | Device-less token issued at or before a "tokens valid after" time       |
@@ -1847,8 +1976,8 @@ the sign-in's result says `invalid_credentials`:
 | `refresh_key_missing`        | Device holds no refresh credential                                      |
 
 A sign-in method may answer only `invalid_credentials`; every other reason is the session service's to give. The enum
-also names the reasons of flows that report through the same event as they arrive: `principal_choice_abandoned`,
-`refresh_token_conflict` and `cross_site_request`.
+also names the reasons of flows that report through the same event as they arrive: `refresh_token_conflict` and
+`cross_site_request`.
 
 ## Extensibility
 

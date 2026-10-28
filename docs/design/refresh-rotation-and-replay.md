@@ -71,6 +71,11 @@ other rotated token as a replay that revokes the device.
   successful ones are not. Once either count is full, the exchange stops before the device lookup.
 - Refresh preserves principal continuity by carrying `pid` forward into both the new refresh token and the new access
   token.
+- A refresh is accepted only for the principal its device records (`PrincipalReference::isRecordedOn()`), on the
+  current, the grace and the lost-rotation paths alike: after a switch of principal, the refresh token of the principal
+  switched from fails with `device_principal_mismatch` and is not a replay, so the device is left alone, while the same
+  token after the grace window is judged a replay as any rotated token is. The switch itself runs the same judgement
+  (`RefreshJudgement::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
 - The package opens no transaction around a refresh.
 
 ## Success Path
@@ -206,12 +211,14 @@ other rotated token as a replay that revokes the device.
 ## Implementation Anchors
 
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()`,
-  `exchangeOn()` (the guard check), `extractRefreshClaims()`, `classify()`, `isGraceRetry()`, `hydrateRefreshContext()`,
+  `exchangeOn()` (the guard check), `extractRefreshClaims()`, `hydrateRefreshContext()` (the recorded principal),
   `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeDevice()`.
+- `src/Jwt/RefreshJudgement.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch of principal
+  share.
 - `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
   audience policy).
-- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `revoke()` (the guarded revocation), and
-  `reload()` (the locking re-read on the writer).
+- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchPrincipal()` (the switch's
+  compare-and-swap), `revoke()` (the guarded revocation), and `reload()` (the locking re-read on the writer).
 - `src/Database/AfterCommit.php`: defers `DeviceRevoked` to the commit of the device's own connection.
 - `src/Jwt/DeviceLookup.php`: `find()`, the device lookup on the writer.
 - `src/Contracts/AudiencePolicy.php` and `src/Contracts/AttemptLimiter.php`: the policy and the limiter each exchange
@@ -238,6 +245,12 @@ other rotated token as a replay that revokes the device.
 
 ## Authoritative Tests
 
+- `tests/Feature/Jwt/RefreshJudgementTest.php` (every verdict, and the order the session's state is judged in)
+- `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
+  `testARefreshAsAPrincipalTheDeviceNoLongerRecordsIsRefused`, `testLostRotationFailsWithWhatTheRowNowSays`
+- `tests/Feature/Sessions/PrincipalSwitchTest.php`
+  `testTheOldRefreshTokenInsideTheGraceWindowFailsWithoutRevoking`,
+  `testTheOldRefreshTokenAfterTheGraceWindowRevokesTheDevice`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testExchangeRotatesTheCurrentRotationIdToItsSuccessor`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`

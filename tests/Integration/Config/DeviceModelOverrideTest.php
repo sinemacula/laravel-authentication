@@ -146,7 +146,7 @@ final class DeviceModelOverrideTest extends TestCase
         /** @var \SineMacula\Laravel\Authentication\Models\Device $device */
         $device = new $this->customModel;
         $device->forceFill([
-            ...self::liveSession('custom-jwt'),
+            ...self::liveSession('custom-jwt', $principal),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),

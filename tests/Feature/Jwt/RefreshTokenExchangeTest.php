@@ -49,6 +49,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubBareDevice;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -457,8 +458,8 @@ final class RefreshTokenExchangeTest extends TestCase
     public static function provideIssuingFailures(): iterable
     {
         yield from [
-            'issuing the access token'  => [1],
-            'issuing the refresh token' => [2],
+            'issuing the access token'  => [2],
+            'issuing the refresh token' => [3],
         ];
     }
 
@@ -515,6 +516,8 @@ final class RefreshTokenExchangeTest extends TestCase
         $working = \Mockery::mock(Principal::class);
         $working->shouldReceive('getTenant')->andReturnNull();
         $working->shouldReceive('getPrincipalIdentifier')->andReturn('p-31');
+
+        $device->forceFill(['principal_type' => $failing::class, 'principal_id' => 'p-31'])->save();
 
         $this->resolver->shouldReceive('resolve')
             ->twice()
@@ -603,11 +606,13 @@ final class RefreshTokenExchangeTest extends TestCase
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
-            ->times(3)
+            ->times(4)
             ->andReturn('p-12');
         $principal->shouldReceive('isActive')
             ->once()
             ->andReturnTrue();
+
+        $device->forceFill(['principal_type' => $principal::class, 'principal_id' => 'p-12'])->save();
 
         $this->resolver->shouldReceive('resolve')
             ->once()
@@ -1047,6 +1052,29 @@ final class RefreshTokenExchangeTest extends TestCase
     }
 
     /**
+     * A refresh for a principal the device no longer records (the session was
+     * switched to another one) fails as `device_principal_mismatch`, without
+     * revoking the device or writing to it.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    public function testARefreshAsAPrincipalTheDeviceNoLongerRecordsIsRefused(): void
+    {
+        $device = $this->seedDevice(44, ['refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID), 'principal_id' => 'p-switched']);
+        $before = $this->row($device);
+
+        $this->expectRefreshContext(44);
+        $this->recordEvents();
+
+        $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
+        self::assertSame([FailureReason::DEVICE_PRINCIPAL_MISMATCH], $this->failureReasons());
+        self::assertSame($before, $this->row($device));
+    }
+
+    /**
      * A device that holds no refresh credential and whose session has ended
      * fails as `session_expired`, not `refresh_key_missing`: the session is
      * judged before the credential, and nothing is written.
@@ -1227,6 +1255,7 @@ final class RefreshTokenExchangeTest extends TestCase
             'absolute deadline moved'  => ['shortened', FailureReason::ROTATION_CONFLICT],
             'idle deadline moved'      => ['extended', FailureReason::ROTATION_CONFLICT],
             'rotated to another owner' => ['reowned', FailureReason::IDENTITY_UNKNOWN],
+            'switched to another one'  => ['switched', FailureReason::DEVICE_PRINCIPAL_MISMATCH],
         ];
     }
 
@@ -1234,10 +1263,11 @@ final class RefreshTokenExchangeTest extends TestCase
      * When the swap misses for any other reason, the row judged again decides
      * the failure: a device revoked, deleted, ended, or stripped of its
      * credential in between fails for that reason; a token that is still
-     * current, because only a deadline moved, fails as `rotation_conflict`;
-     * and a grace retry whose row now has another owner fails as
-     * `identity_unknown`. None of them revokes the device, and the swap is
-     * never tried twice.
+     * current, because only a deadline moved, fails as `rotation_conflict`; and
+     * a grace retry whose row now has another owner fails as
+     * `identity_unknown`, or, when the row now records another principal,
+     * `device_principal_mismatch`. None of them revokes the device, and the
+     * swap is never tried twice.
      *
      * @param  string  $change
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -1260,15 +1290,7 @@ final class RefreshTokenExchangeTest extends TestCase
             $swaps += str_contains($query->sql, 'refresh_rotated_at') && str_contains($query->sql, 'is null') ? 1 : 0;
         });
 
-        $this->beforeTheSwap(fn () => match ($change) {
-            'revoked'   => DB::table('stub_devices')->where('id', $device->id)->update(['revoked_at' => $this->now, 'revoked_reason' => 'elsewhere']),
-            'deleted'   => DB::table('stub_devices')->where('id', $device->id)->delete(),
-            'ended'     => DB::table('stub_devices')->where('id', $device->id)->update(['idle_expires_at' => $this->now]),
-            'cleared'   => DB::table('stub_devices')->where('id', $device->id)->update(['refresh_key' => null]),
-            'shortened' => DB::table('stub_devices')->where('id', $device->id)->update(['absolute_expires_at' => $this->now->copy()->addDay()]),
-            'extended'  => DB::table('stub_devices')->where('id', $device->id)->update(['idle_expires_at' => $this->now->copy()->addDays(91)]),
-            default     => $this->rotateOnTheRow($device, self::ROTATION_ID, '43'),
-        });
+        $this->beforeTheSwap(fn () => $this->compete($change, $device));
 
         $this->refused($this->makeExchange()->exchange($this->tokenFor($device, self::ROTATION_ID), self::client()));
         self::assertSame([$reason], $this->failureReasons());
@@ -1758,7 +1780,7 @@ final class RefreshTokenExchangeTest extends TestCase
     {
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(self::GUARD_NAME),
+            ...self::liveSession(self::GUARD_NAME, new PlainPrincipalFixture("p-{$ownerId}")),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => (string) $ownerId,
             ...$state,
@@ -1788,21 +1810,47 @@ final class RefreshTokenExchangeTest extends TestCase
 
     /**
      * Rotate the device's row from the given rotation id to its successor, as a
-     * refresh that won a race would, optionally moving it to another owner.
+     * refresh that won a race would, optionally moving it to another owner, or
+     * to another principal as a switch that won would.
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
      * @param  string  $rotationId
      * @param  ?string  $ownerId
+     * @param  ?string  $principalId
      * @return void
      */
-    private function rotateOnTheRow(StubDevice $device, string $rotationId, ?string $ownerId = null): void
+    private function rotateOnTheRow(StubDevice $device, string $rotationId, ?string $ownerId = null, ?string $principalId = null): void
     {
         DB::table('stub_devices')->where('id', $device->id)->update([
             'refresh_key'          => RefreshTokenHasher::hash(RefreshTokenHasher::successor($rotationId)),
             'previous_refresh_key' => RefreshTokenHasher::hash($rotationId),
             'refresh_rotated_at'   => $this->now,
-            'authenticatable_id'   => $ownerId ?? $device->getAttribute('authenticatable_id'),
+            'authenticatable_id'   => $ownerId     ?? $device->getAttribute('authenticatable_id'),
+            'principal_id'         => $principalId ?? $device->getAttribute('principal_id'),
         ]);
+    }
+
+    /**
+     * Commit the named competing change to the device's row.
+     *
+     * @param  string  $change
+     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @return void
+     */
+    private function compete(string $change, StubDevice $device): void
+    {
+        $row = DB::table('stub_devices')->where('id', $device->id);
+
+        match ($change) {
+            'revoked'   => $row->update(['revoked_at' => $this->now, 'revoked_reason' => 'elsewhere']),
+            'deleted'   => $row->delete(),
+            'ended'     => $row->update(['idle_expires_at' => $this->now]),
+            'cleared'   => $row->update(['refresh_key' => null]),
+            'shortened' => $row->update(['absolute_expires_at' => $this->now->copy()->addDay()]),
+            'extended'  => $row->update(['idle_expires_at' => $this->now->copy()->addDays(91)]),
+            'switched'  => $this->rotateOnTheRow($device, self::ROTATION_ID, principalId: 'p-switched'),
+            default     => $this->rotateOnTheRow($device, self::ROTATION_ID, '43'),
+        };
     }
 
     /**
@@ -1845,9 +1893,7 @@ final class RefreshTokenExchangeTest extends TestCase
             ->with((string) $ownerId)
             ->andReturn($identity);
 
-        $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getTenant')->andReturnNull();
-        $principal->shouldReceive('getPrincipalIdentifier')->andReturn("p-{$ownerId}");
+        $principal = new PlainPrincipalFixture("p-{$ownerId}");
 
         $this->resolver->shouldReceive('resolve')
             ->times($times)

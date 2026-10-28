@@ -8,11 +8,12 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 
 /**
- * How a sign-in through the session service ended: a started session, a
- * pending sign-in waiting for a further factor, or a failure with its reason
- * (and, for `rate_limited`, the seconds until the next attempt may be made). A
- * failure is a result rather than an exception, so the caller answers it as it
- * chooses; exceptions are kept for misconfiguration and server errors.
+ * How a sign-in through the session service ended: a started session, a pending
+ * sign-in waiting for a further factor, a sign-in waiting for its identity to
+ * choose a principal, or a failure with its reason (and, for `rate_limited`,
+ * the seconds until the next attempt may be made). A failure is a result rather
+ * than an exception, so the caller answers it as it chooses; exceptions are
+ * kept for misconfiguration and server errors.
  *
  * @api
  *
@@ -29,6 +30,7 @@ final readonly class SignInResult
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingFactor  $pending
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
+     * @param  ?\SineMacula\Laravel\Authentication\Sessions\PrincipalChoice  $choice
      */
     private function __construct(
 
@@ -46,6 +48,9 @@ final readonly class SignInResult
 
         /** Seconds until another attempt may be made, for `rate_limited` only. */
         public ?int $retryAfter = null,
+
+        /** The choice of principal the identity must make, when one is required. */
+        public ?PrincipalChoice $choice = null,
     ) {}
 
     /**
@@ -68,6 +73,18 @@ final readonly class SignInResult
     public static function pendingFactor(PendingFactor $pending): self
     {
         return new self(SignInStatus::FACTOR_REQUIRED, pending: $pending);
+    }
+
+    /**
+     * A sign-in that waits for its identity to choose the principal its session
+     * acts as.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PrincipalChoice  $choice
+     * @return self
+     */
+    public static function principalRequired(PrincipalChoice $choice): self
+    {
+        return new self(SignInStatus::PRINCIPAL_REQUIRED, choice: $choice);
     }
 
     /**
@@ -107,6 +124,17 @@ final readonly class SignInResult
     public function requiresFactor(): bool
     {
         return $this->status === SignInStatus::FACTOR_REQUIRED;
+    }
+
+    /**
+     * Whether the identity must choose a principal before the session may
+     * start.
+     *
+     * @return bool
+     */
+    public function requiresPrincipal(): bool
+    {
+        return $this->status === SignInStatus::PRINCIPAL_REQUIRED;
     }
 
     /**
