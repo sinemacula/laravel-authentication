@@ -2621,9 +2621,9 @@ protects, so throttle the routes for that. A machine has no interactive sign-in:
 would authenticate, binding and dispatching nothing.
 
 Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
-absent, even one whose type or identifier the column's collation counts as equal (`alice` and `Alice` under MySQL's
-default `_ci` collations). These are privileged operations: authorise your caller to manage that principal's keys first,
-since the package decides no permission.
+absent, even one whose guard, type or identifier the column's collation counts as equal (`alice` and `Alice` under
+MySQL's default `_ci` collations). These are privileged operations: authorise your caller to manage that principal's
+keys first, since the package decides no permission.
 
 ```php
 $keys = Auth::apiKeys('machine');

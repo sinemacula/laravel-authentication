@@ -1160,6 +1160,33 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
+     * With the guard column under a collation that counts distinct guards as
+     * equal, a guard whose name differs from the key's only in case finds,
+     * lists, revokes and rotates none of its keys, which are left as they were
+     * with nothing reported, while the key's own guard still finds, lists and
+     * revokes it.
+     *
+     * @return void
+     */
+    public function testAnotherGuardTheCollationCountsAsEqualHasNoKeys(): void
+    {
+        self::foldColumns('api_keys', ['guard']);
+
+        config()->set('auth.guards.MACHINE', config('auth.guards.machine'));
+
+        $machine = $this->seedMachine();
+        $id      = $this->apiKeys()->issue($machine, $machine)->id;
+
+        self::assertColumnFolds('api_keys', 'guard', 'MACHINE');
+
+        $this->assertAbsentTo($machine, $id, 'MACHINE');
+
+        self::assertSame($id, $this->apiKeys()->find($machine, $id)?->id);
+        self::assertSame([$id], array_map(static fn (ApiKeySummary $summary): string => $summary->id, $this->apiKeys()->keys($machine)));
+        self::assertTrue($this->apiKeys()->revoke($machine, $id));
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -1212,21 +1239,23 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * Assert the principal finds, lists, revokes and rotates none of the keys,
-     * that the key is left as it was, and that nothing is reported.
+     * Assert the principal finds, lists, revokes and rotates none of the keys
+     * through the guard, that the key is left as it was, and that nothing is
+     * reported.
      *
-     * @param  \Tests\Integration\Fixtures\NamedIdentity  $principal
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $id
+     * @param  string  $guard
      * @return void
      */
-    private function assertAbsentTo(NamedIdentity $principal, string $id): void
+    private function assertAbsentTo(Principal $principal, string $id, string $guard = 'machine'): void
     {
         $this->recordMachineEvents([ApiKeyRevoked::class, ApiKeyRotated::class]);
 
-        self::assertNull($this->apiKeys()->find($principal, $id));
-        self::assertSame([], $this->apiKeys()->keys($principal));
-        self::assertFalse($this->apiKeys()->revoke($principal, $id));
-        self::assertNull($this->apiKeys()->rotate($principal, $id));
+        self::assertNull($this->apiKeys($guard)->find($principal, $id));
+        self::assertSame([], $this->apiKeys($guard)->keys($principal));
+        self::assertFalse($this->apiKeys($guard)->revoke($principal, $id));
+        self::assertNull($this->apiKeys($guard)->rotate($principal, $id));
 
         $row = DB::table('api_keys')->where('id', $id)->first();
 

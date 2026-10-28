@@ -48,9 +48,9 @@ authorization package decides what they allow.
 - Every write to a key is one conditional statement on its own connection (rotation: a conditional update of the
   replaced key, then the insert of its replacement, in one transaction), and its event is dispatched once committed
   there.
-- A keyed operation matches the principal's type and identifier in the statement and then compares the key's recorded
-  ones exactly, since a column's collation, such as MySQL's default `_ci`, can count distinct identifiers like `alice`
-  and `Alice` as equal.
+- A keyed operation matches the guard and the principal's type and identifier in the statement and then compares the
+  key's recorded ones exactly, since a column's collation, such as MySQL's default `_ci`, can count distinct values like
+  `alice` and `Alice`, or guards `api` and `API`, as equal.
 - A credential's scopes are fixed when it is issued, after normalisation and the `ScopeRegistry`'s check; a malformed
   or rejected scope is an `InvalidScopeException`, the caller's error rather than a failed authentication. Any answer
   from the registry but `[]` refuses, naming the given scopes it names, or every given scope when it names none as

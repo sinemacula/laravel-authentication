@@ -41,11 +41,11 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  * The guard is the one audience a key authenticates for: an `api_key` guard,
  * whose requests present the key, or a `jwt` guard, whose client credentials
  * exchange takes the key's public part and secret as an OAuth client's id and
- * secret. Every keyed operation names the principal the key must belong to,
- * matched exactly by type and identifier, whatever the columns' collation, and
- * a key of another principal or guard is treated as absent. Managing keys is
- * privileged: the application authorises its caller to manage the principal's
- * keys first; this package decides no permission.
+ * secret. Every keyed operation names the principal the key must belong to, and
+ * the key's guard and principal are matched exactly, whatever the columns'
+ * collation: a key of another principal or guard is treated as absent. Managing
+ * keys is privileged: the application authorises its caller to manage the
+ * principal's keys first; this package decides no permission.
  *
  * Issuing and rotating are trusted, programmatic actions, so a principal the
  * identity does not act as, one the guard's audience does not admit, a
@@ -256,14 +256,15 @@ final readonly class ApiKeyService
             return [];
         }
 
-        $type = PrincipalReference::type($principal);
+        $type  = PrincipalReference::type($principal);
+        $guard = $this->guard->getName();
 
         /** @var list<\SineMacula\Laravel\Authentication\ApiKeys\ApiKeySummary> */
         return $this->ofPrincipal($type, $id)
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
-            ->filter(static fn (ApiKey $key): bool => self::isOf($key, $type, $id))
+            ->filter(static fn (ApiKey $key): bool => self::isOf($key, $guard, $type, $id))
             ->map(ApiKeySummary::of(...))
             ->values()
             ->all();
@@ -428,22 +429,24 @@ final readonly class ApiKeyService
         $type = PrincipalReference::type($principal);
         $key  = $this->ofPrincipal($type, $id)->where('id', $keyId)->first();
 
-        return $key instanceof ApiKey && self::isOf($key, $type, $id) ? $key : null;
+        return $key instanceof ApiKey && self::isOf($key, $this->guard->getName(), $type, $id) ? $key : null;
     }
 
     /**
-     * Whether the key records exactly the principal's type and identifier. The
-     * statement that found it compares under the columns' collation, which may
-     * count distinct identifiers, such as `alice` and `Alice`, as equal.
+     * Whether the key records exactly the guard and the principal's type and
+     * identifier. The statement that found it compares under the columns'
+     * collation, which may count distinct values, such as `alice` and `Alice`
+     * or guards `api` and `API`, as equal.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
+     * @param  string  $guard
      * @param  string  $type
      * @param  string  $id
      * @return bool
      */
-    private static function isOf(ApiKey $key, string $type, string $id): bool
+    private static function isOf(ApiKey $key, string $guard, string $type, string $id): bool
     {
-        return $key->principal_type === $type && IdentifierCoercion::matches($key->principal_id, $id);
+        return $key->guard === $guard && $key->principal_type === $type && IdentifierCoercion::matches($key->principal_id, $id);
     }
 
     /**
