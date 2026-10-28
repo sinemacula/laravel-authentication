@@ -119,8 +119,8 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
     /**
      * Each refusal is the same result, `invalid_credentials` with no wait, and
-     * its sign-in alone takes at least the timebox, whether or not the owner
-     * was looked up.
+     * its sign-in alone takes at least the timebox, whether or not it looked
+     * the owner up.
      *
      * @param  bool  $looksUp
      * @param  \Closure(self): array<string, mixed>  $prepare
@@ -135,8 +135,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
         $this->useTimebox();
 
-        SlowModelProvider::$lookups = 0;
-
+        $lookups  = SlowModelProvider::$lookups;
         $sessions = $this->sessions();
         $started  = hrtime(true);
         $result   = $sessions->signIn('passkey', $input);
@@ -144,7 +143,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
         self::assertEquals(SignInResult::failed(FailureReason::INVALID_CREDENTIALS), $result);
         self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, $took);
-        self::assertSame($looksUp, SlowModelProvider::$lookups > 0);
+        self::assertSame($looksUp, SlowModelProvider::$lookups > $lookups);
     }
 
     /**
