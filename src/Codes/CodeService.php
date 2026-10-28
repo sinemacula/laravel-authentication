@@ -179,7 +179,8 @@ final readonly class CodeService
 
     /**
      * Take a code request from the identifier's and the IP address's limits,
-     * issue the code and queue its delivery.
+     * issue the code and queue its delivery; malformed settings fail closed
+     * before anything is counted.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -194,7 +195,10 @@ final readonly class CodeService
      */
     private function issue(CodeBinding $binding, EventContext $context, ?string $given, ?Identity $identity = null): CodeRequest
     {
-        $settings    = new CodeSettings($this->collaborator(Repository::class));
+        $settings = new CodeSettings($this->collaborator(Repository::class));
+
+        $settings->validate();
+
         $synchronous = $settings->deliversSynchronously();
         $reservation = $this->collaborator(AttemptLimiter::class)->acquire(
             new AttemptSubject($binding->guard, AttemptFlow::CODE_REQUEST, $binding->identifier, $binding->type, $context->client->ip),

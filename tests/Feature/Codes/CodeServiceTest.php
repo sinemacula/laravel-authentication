@@ -647,23 +647,40 @@ final class CodeServiceTest extends TestCase
     }
 
     /**
-     * A delivery connection that is not configured fails closed before any code
-     * is counted or issued.
+     * Rows of `[setting, value, message start]`: malformed code settings.
      *
+     * @return iterable<string, array{0: string, 1: mixed, 2: string}>
+     */
+    public static function provideMalformedSettings(): iterable
+    {
+        yield from [
+            'delivery connection not configured' => ['queue.connection', 'missing', 'authentication.codes.queue.connection must name a connection'],
+            'code length out of range'           => ['length', 5, 'authentication.codes.length must be an integer from 6 to 10.'],
+        ];
+    }
+
+    /**
+     * A malformed code setting fails closed before any code request is counted
+     * or any code issued.
+     *
+     * @param  string  $setting
+     * @param  mixed  $value
+     * @param  string  $message
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnUnconfiguredDeliveryConnectionFailsClosed(): void
+    #[DataProvider('provideMalformedSettings')]
+    public function testMalformedSettingsFailClosedBeforeAnythingIsCounted(string $setting, mixed $value, string $message): void
     {
-        config()->set('authentication.codes.queue.connection', 'missing');
+        config()->set('authentication.codes.' . $setting, $value);
 
         try {
             $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
 
-            self::fail('A code was sent with no delivery connection.');
+            self::fail('A code was sent with malformed settings.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertStringStartsWith('authentication.codes.queue.connection must name a connection', $exception->getMessage());
+            self::assertStringStartsWith($message, $exception->getMessage());
         }
 
         self::assertSame([0, 0], [DB::table('one_time_codes')->count(), DB::table('rate_limits')->count()]);
