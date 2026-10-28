@@ -236,8 +236,9 @@ other rotated token as a replay that revokes the device.
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
 - `src/Events/Enums/FailureReason.php` and `src/Events/Enums/RevocationReason.php`: failure and revocation
   taxonomies; `src/Events/AuthenticationFailed.php`, `src/Events/DeviceRevoked.php`.
-- `src/Guards/JwtGuard.php`: `refresh()` delegates to the live refresh exchange with the request's client, and turns a
-  `rate_limited` failure into the 429 (`refuseIfRateLimited()`).
+- `src/Guards/JwtGuard.php`: `refresh()` and `refreshFromRequest()` go through `exchangeRefresh()`, which runs the live
+  refresh exchange with the request's client, and `refuseRefresh()` reports a refusal and turns a `rate_limited` one
+  into the 429.
 - `src/Guards/OwnedDevice.php`: `refusal()`, which refuses a device of another guard on the bearer path
   (`device_guard_mismatch`) and for sign-in pins (`resolveDeviceFromHint()` in
   `src/Guards/Concerns/VerifiesPinnedContext.php`).

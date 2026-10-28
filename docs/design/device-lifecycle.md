@@ -11,13 +11,13 @@ deleted. Starting a session is in
 
 - A device is active while `revoked_at` is null and both `idle_expires_at` and `absolute_expires_at` are after now: a
   deadline has passed from the second it names, as on the bearer, refresh and sign-in pin paths
-  (`TokenLifetimes::hasEnded()`). `ActsAsDevice::scopeActive()` and the listing apply the same rule through
+  (`TokenLifetimes::hasEnded()`). The `active()` scope `ActsAsDevice` brings and the listing apply the same rule through
   `ActiveDevices::constrain()`, with the columns of the model's name accessors, so a model without the trait is listed
   the same way.
-- The listing (`SessionService::devices()`) reads the identity's `devices()` relation on the write connection (the
-  query itself through `WriteConnection::query()`, and anything the relation reads while it is built inside
-  `WriteConnection::during()` for the identity), so a revocation the primary holds is never listed as live. It covers
-  every guard: a device list shows every session the identity has.
+- The listing (`SessionService::devices()`, from `ManagesDevices`) reads the identity's `devices()` relation on the
+  write connection (the query itself through `WriteConnection::query()`, and anything the relation reads while it is
+  built inside `WriteConnection::during()` for the identity), so a revocation the primary holds is never listed as live.
+  It covers every guard: a device list shows every session the identity has.
 - The order is total on every database: last use, most recent first, with never-used devices last (an explicit
   `CASE ... IS NULL` term, because PostgreSQL sorts nulls first in a descending order and MySQL and SQLite last), then
   the key, newest first. Pages are therefore stable.
@@ -69,7 +69,6 @@ deleted. Starting a session is in
   afterwards: closing that window would need a lock every sign-in and revocation take on the identity row, which is not
   added. Revocation races with refresh, switch and re-sign-in are safe: each of their compare-and-swaps requires
   `revoked_at IS NULL`.
-
 - A page size outside 1 to 100 is an `InvalidArgumentException` before any read. An identity without `HasDevices`, or a
   `devices()` relation over a model that is not an `EloquentDevice`, is a `LogicException`.
 - A retention that is not an integer (or canonical digit string) from 0 to 3650 is an `InvalidArgumentException` when
@@ -83,8 +82,10 @@ deleted. Starting a session is in
 
 ## Implementation Anchors
 
-- `src/Sessions/ActiveDevices.php`, `src/Sessions/DeviceSummary.php`, `src/Sessions/SessionService.php` (`devices()`)
-- `src/Concerns/ActsAsDevice.php` (`scopeActive()`), `src/Concerns/PrunesDevices.php`, `src/Models/Device.php`
+- `src/Sessions/ActiveDevices.php`, `src/Sessions/DeviceSummary.php`, `src/Sessions/Concerns/ManagesDevices.php`
+  (`devices()`)
+- `src/Concerns/ScopesActiveDevices.php` (`scopeActive()`, composed by `ActsAsDevice`), `src/Concerns/PrunesDevices.php`,
+  `src/Models/Device.php`
 - `src/Sessions/Concerns/RevokesOnSecurityChanges.php`, `src/Listeners/RevokeDevicesOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`
 - `src/Sessions/Concerns/ManagesDevices.php`, `src/Sessions/DeviceRevocations.php`, `src/Sessions/RevocationScope.php`,

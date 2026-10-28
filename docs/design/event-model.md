@@ -35,9 +35,10 @@ to these events, so the shape and the timing are a contract.
   principal's tenant on the write connection and reports none when the tenant cannot be loaded
   (`TenantUnavailableException`), while a principal loaded without its tenant's key is a misconfiguration whose
   `LogicException` propagates.
-- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh and principal switch, with the flow
-  (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a rate-limited
-  failure. Where Laravel's `Failed` fires as well, it fires first and `AuthenticationFailed` second.
+- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, principal switch and bearer token,
+  with the flow (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a
+  rate-limited failure. Where Laravel's `Failed` fires as well, it fires first and `AuthenticationFailed` second; a
+  bearer token fires neither `Attempting` nor `Failed`, and its failure at most once per request.
 - A sign-in method may refuse only with `invalid_credentials` (`FailureReason::isSignInMethodReason()`); any other
   reason is the session service's to give, and a method that returns one is a misconfiguration (`LogicException`).
 - `RefreshTokenExchange::exchange()` returns its `AuthenticationFailed` undispatched and its caller (the guard)
@@ -56,6 +57,10 @@ to these events, so the shape and the timing are a contract.
 - Refresh: the guard binds the exchanged session, then dispatches `Refreshed` with the session's context, including the
   tenant the exchange's activity check loaded and the method the device records, after the rotation commits on the
   device's connection.
+- Revocation: each `DeviceRevoked` carries the revoked device, the device's own guard and the method its session
+  records, with the identity, principal and tenant the revocation knew; a bulk revocation then dispatches one
+  `SignedOutEverywhere` per scope with the acting guard, the scope's identity or principal, the kept device, the reason,
+  the count and the cutoff it set, all after the device transaction commits (see `device-lifecycle.md`).
 - Verification: `IdentifierVerified` carries the identity, the guard it was made for, and the client the caller passed,
   or the client of the request being served.
 
@@ -77,9 +82,11 @@ to these events, so the shape and the timing are a contract.
 - `src/Guards/Concerns/BindsContextualState.php`: `bindContext()`, `boundContext()`, `boundTenant()`, and the context
   `setPrincipal()` and `setDevice()` report.
 - `src/Guards/AbstractGuard.php`: `bindVerifiedContext()`, `authenticateAs()`, and the `attempt()` failure.
-- `src/Guards/JwtGuard.php`: `refresh()` and `reportRefresh()`.
+- `src/Guards/JwtGuard.php`: `refresh()`, `refuseRefresh()` and `reportRefresh()`; `src/Guards/BearerAuthentication.php`:
+  `failed()`, the bearer failure's context.
 - `src/Jwt/RefreshTokenExchange.php`: `refused()`, `deviceContext()`, and the `DeviceRevoked` dispatch.
-- `src/Sessions/SessionService.php`: `signedIn()`, `fail()`, `methodReason()`.
+- `src/Sessions/SessionService.php`: `signedIn()`, `fail()`; `src/Sessions/SessionPreconditions.php`: `methodReason()`.
+- `src/Sessions/Concerns/ManagesDevices.php`: `endSessions()`, the `DeviceRevoked` and `SignedOutEverywhere` contexts.
 - `src/Database/AfterCommit.php`: the commit-bound dispatch.
 
 ## Authoritative Tests

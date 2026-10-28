@@ -119,7 +119,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
   by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
   identity's own `HasDevices` devices, of the same class, of this guard (a device of another guard, or of none, counts
-  as missing), not revoked, and with a session that has not ended. The owner
+  as missing), not revoked, with a session that has not ended, and acting as the principal being bound. The owner
   is read from the principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is
   prevented, and an owner that cannot be read fails the check. The resolved instances are bound; a failed check fails
   the attempt. `login()`, `setPrincipal()`, and `setDevice()` stay trusted binds.
@@ -169,7 +169,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/Concerns/ValidatesGuardCredentials.php`: `fireAttemptingEvent()`, `fireValidatedEvent()`,
   `fireFailedEvent()`, `redactCredentials()`.
 - `src/Guards/AbstractGuard.php`: `user()`, `resolveUserFromRequest()`, `attempt()`, `validate()`, `login()`,
-  `authenticateAs()`, `logout()`, `setRequest()`, `bindAuthenticationLifecycle()`, `bindVerifiedContext()`,
+  `authenticateAs()`, `logout()`, `forgetUser()`, `bindAuthenticationLifecycle()`, `bindVerifiedContext()`;
+  `src/Guards/Concerns/RebindsCollaborators.php`: `setRequest()`; `src/Guards/Concerns/SignsInWithCredentials.php`:
   `signInWithCredentials()`, `admitVerifiedIdentity()`.
 - `src/Sessions/Methods/PasswordSignIn.php` and `src/Sessions/Admission/SignInAdmission.php`: the credential check and
   the activity, principal, tenant and audience checks every sign-in shares.
