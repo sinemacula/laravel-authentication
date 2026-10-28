@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -22,10 +23,11 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
  * (`identity`, `principal`, `device`, `tenant`, `type`, `scopes`), guard-scoped
- * `jwt()` issuance and each JWT guard's `sessions()` and `refreshTransport()`
- * directly on the manager. Each contextual accessor forwards to the active
- * guard when it implements `ContextualGuard`, otherwise returns `null`. Bound
- * to the `auth` container key by `AuthenticationServiceProvider`.
+ * `jwt()` issuance and each JWT guard's `sessions()`, `codes()` and
+ * `refreshTransport()` directly on the manager. Each contextual accessor
+ * forwards to the active guard when it implements `ContextualGuard`, otherwise
+ * returns `null`. Bound to the `auth` container key by
+ * `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,6 +93,21 @@ class AuthManager extends IlluminateAuthManager
     public function sessions(?string $guard = null): SessionService
     {
         return $this->jwtGuard($guard, 'session service')->sessions();
+    }
+
+    /**
+     * Return the one-time code service of the named JWT guard, or of the
+     * current default guard when the name is omitted, to send sign-in codes and
+     * to verify identifiers by code.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function codes(?string $guard = null): CodeService
+    {
+        return new CodeService($this->jwtGuard($guard, 'one-time code service'), $this->app);
     }
 
     /**

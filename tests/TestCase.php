@@ -99,6 +99,7 @@ abstract class TestCase extends OrchestraTestCase
             Schema::dropIfExists($config->string('authentication.device.table', 'devices'));
             Schema::dropIfExists($config->string('authentication.sign_in.pending_table', 'pending_sign_ins'));
             Schema::dropIfExists($config->string('authentication.rate_limits.table', 'rate_limits'));
+            Schema::dropIfExists($config->string('authentication.codes.table', 'one_time_codes'));
         });
     }
 

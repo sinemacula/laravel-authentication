@@ -85,16 +85,21 @@ device record live in the `devices` table so replay and stale credentials can be
   per principal type.
 - **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email by
   default), and a password rehash that never overwrites a concurrent change.
-- **Rate limits in the database**: sign-in and refresh limited per identifier and per IP address, counted atomically on
-  the write connection without a cache.
-- **Identifier verification**: signed verification links bound to their purpose and identifier, and an opt-in,
-  per-guard requirement that sign-in identifiers be verified.
+- **Rate limits in the database**: sign-in, code requests and refresh limited per identifier and per IP address, counted
+  atomically on the write connection without a cache.
+- **One-time codes**: passwordless sign-in with a numeric code sent to a verified phone number (`phone_code`), and
+  identifier verification by code, through a sender contract the application binds (no provider ships; a fake for
+  tests does). Codes are stored as keyed hashes bound to their purpose, guard and identifier, work once, expire, lock
+  after a few wrong guesses, resend after a cooldown, and are delivered by a queued job, so a request for a code looks
+  the same whether or not anyone has the number.
+- **Identifier verification**: signed verification links or one-time codes bound to their purpose and identifier, and
+  an opt-in, per-guard requirement that sign-in identifiers be verified.
 - **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` guard's settings and fails
   the deploy on a problem, listing all of them.
 - **Safe in long-running processes**: nothing one request or queued job binds reaches the next under Octane or a queue
   worker.
 - **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
-  policy, audience policy, attempt limiter, identifier normalisers, table names.
+  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, table names.
 
 ## Design Notes
 
@@ -112,6 +117,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/device-lifecycle.md`
 - `docs/design/principal-choice-and-switch.md`
 - `docs/design/audience-policy.md`
+- `docs/design/one-time-codes.md`
 
 ## Installation
 
@@ -518,10 +524,81 @@ when a password sign-in runs. A sign-in that needs a further factor waits in `pe
 (on the device model's connection) for at most `pending_ttl_seconds`, an integer from 30 to 3600 (see
 [Additional factors](#additional-factors)).
 
+### One-time codes
+
+```php
+'codes' => [
+    'table'                   => 'one_time_codes',
+    'key'                     => env('AUTHENTICATION_CODES_KEY'),
+    'length'                  => 6,
+    'ttl_seconds'             => 600,
+    'max_attempts'            => 5,
+    'resend_cooldown_seconds' => 60,
+    'queue'                   => ['connection' => null, 'name' => null],
+],
+```
+
+The `phone_code` sign-in method and verification by code (see
+[Signing in with a one-time code](#signing-in-with-a-one-time-code)) send a code of `length` digits (6 to 10), drawn
+uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts` checks (1
+to 20); after that it is locked until another is requested. Another code for the same number may be requested
+`resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and replaces it at once: the earlier code stops working.
+Each number is an integer, or a digit string as `env()` returns one; anything else fails closed with an
+`InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it. The
+settings are global, not per guard.
+
+Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the device model's connection, one row
+per binding: the purpose (a sign-in or a verification), the guard, the identifier's type and normal form and, for a
+verification, the identity. The row is stored under an HMAC-SHA256 of that binding and holds the code only as an
+HMAC-SHA256 of the binding, a random id for the issuance and the code, each with its own key derived from `key` (at
+least 32 bytes) or, when `key` is not set, from `app.key`. A code has a few million values at most, so a plain hash of it
+could be reversed by anyone who reads the table (from a backup or a replica, say); a keyed one cannot without the key,
+and the table holds neither a code nor an identifier. Rotating the key, or `app.key` when it is the source, only
+invalidates the codes outstanding. A shorter `key` fails closed.
+
+A code is delivered by a queued job, `ShouldBeEncrypted` so its payload (which carries the code and the number) is
+encrypted with `app.key` on the queue, pushed to `queue.connection` and `queue.name` (`null` for your defaults) once the
+code is committed on its connection. Delivery is never part of the request: on Laravel's `sync` driver, which would run
+the job during its dispatch, it is dispatched after the response instead, in the application's terminating callbacks
+(and in a console command, when it ends); if you turn after-response dispatching off
+(`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. Run a worker in production:
+`authentication:check` warns when a guard allows a code method and the delivery connection is `sync`. Bind your
+gateway as the sender, from a service provider (the package ships none, and fails the job with a
+`BindingResolutionException` without one; `authentication:check` reports a guard that allows a code method with no
+sender bound):
+
+```php
+use App\Auth\SmsCodeSender;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+
+$this->app->bind(OneTimeCodeSender::class, SmsCodeSender::class);
+```
+
+```php
+use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+
+final class SmsCodeSender implements OneTimeCodeSender
+{
+    public function __construct(private SmsGateway $sms) {}
+
+    public function send(OneTimeCodeMessage $message): void
+    {
+        // $message->identifier is the E.164 number; $message->code the code, in clear: never log it.
+        $this->sms->send($message->identifier, "Your sign-in code is {$message->code}.");
+    }
+}
+```
+
+A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
+that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see
+[Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned: schedule `model:prune` with
+`Models\OneTimeCode` beside the others (see [Pruning devices](#pruning-devices)).
+
 ### Rate limits
 
-Sign-in and refresh are limited per identifier and per IP address, counted in the database on the write connection, so
-the limits hold across servers and do not depend on a cache. Publish the migration with the others
+Sign-in, requests for one-time codes and refresh are limited per identifier and per IP address, counted in the database
+on the write connection, so the limits hold across servers and do not depend on a cache. Publish the migration with the others
 (`authentication-migrations` creates `rate_limits`), then set limits in the package `rate_limits` block or a guard's
 own `rate_limits` block:
 
@@ -540,12 +617,14 @@ own `rate_limits` block:
 ],
 ```
 
-| Flow      | Scope            | Default            | Counts                                                                                                         |
-|-----------|------------------|--------------------|----------------------------------------------------------------------------------------------------------------|
-| `sign_in` | `per_identifier` | 5 per 300 seconds  | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
-| `sign_in` | `per_ip`         | 50 per 300 seconds | Every attempt from the IP address; a success is given back                                                     |
-| `refresh` | `per_identifier` | 10 per 60 seconds  | Failed refreshes of the device                                                                                 |
-| `refresh` | `per_ip`         | 100 per 60 seconds | Failed refreshes from the IP address                                                                           |
+| Flow           | Scope            | Default             | Counts                                                                                                         |
+|----------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
+| `sign_in`      | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
+| `sign_in`      | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
+| `refresh`      | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
+| `refresh`      | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
+| `code_request` | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
+| `code_request` | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -581,7 +660,9 @@ not reveal that the account exists. Only your own listeners are told why: `Authe
 `account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
 refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
 device and per IP address, and a successful refresh costs one read. A refresh refused for its failures answers `429`
-with a `Retry-After` header.
+with a `Retry-After` header. A request for a one-time code costs a message whoever has the number, so every request for a
+valid number counts, whether a code is sent or the resend cooldown holds it back, and no slot is given back; the number
+is counted in its normal form, whether or not anyone has it.
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
@@ -875,6 +956,7 @@ underscores:
 'identifiers' => [
     'normalisers' => [
         'email'         => SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser::class,
+        'phone'         => SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser::class,
         'member_number' => App\Auth\MemberNumberNormaliser::class,
     ],
 ],
@@ -883,6 +965,45 @@ underscores:
 A normaliser must be deterministic and idempotent (normalising a normal form returns it unchanged), and return `null`
 for a value that cannot be an identifier of its type. A malformed map, or an abstract that does not resolve to a
 normaliser, fails closed with an `InvalidArgumentException`.
+
+The shipped `phone` normaliser accepts only a number already in E.164 form (`+`, a country code, at most 15 digits in
+all, surrounding whitespace removed) and refuses anything else: spaces, dashes, brackets, a national format or a leading
+`00`. It does not parse numbers, since turning what a person types into E.164 depends on their country and on numbering
+plans that change. To take mobile or free-form numbers, install `giggsey/libphonenumber-for-php` (the package suggests
+it but does not require it) and bind a normaliser of your own under `phone`:
+
+```php
+use libphonenumber\NumberParseException;
+use libphonenumber\PhoneNumberFormat;
+use libphonenumber\PhoneNumberType;
+use libphonenumber\PhoneNumberUtil;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+
+final readonly class MobileNumberNormaliser implements IdentifierNormaliser
+{
+    public function normalise(string $identifier): ?string
+    {
+        $numbers = PhoneNumberUtil::getInstance();
+
+        try {
+            $number = $numbers->parse($identifier, 'GB'); // the region a number without `+` belongs to
+        } catch (NumberParseException) {
+            return null;
+        }
+
+        $mobile = in_array($numbers->getNumberType($number), [PhoneNumberType::MOBILE, PhoneNumberType::FIXED_LINE_OR_MOBILE], true);
+
+        return $numbers->isValidNumber($number) && $mobile ? $numbers->format($number, PhoneNumberFormat::E164) : null;
+    }
+}
+```
+
+```php
+'identifiers' => ['normalisers' => ['email' => EmailNormaliser::class, 'phone' => App\Auth\MobileNumberNormaliser::class]],
+```
+
+It must return E.164 (so normalising its own output returns it unchanged), and existing rows must be normalised to it
+before a unique index is added, as below.
 
 Make the identifier unique on its normalised value, with a unique index on the stored column:
 
@@ -957,8 +1078,35 @@ lifetime in minutes (1 to 10080, a week, like the configured one). Consuming a l
 guard's identity provider from the write connection and verifies the identifier; it never signs anyone in. Following it
 again reports `already_verified`.
 
-`Verification\IdentifierVerifier::verify($guard, $identity, $type, $identifier, $client)` is the step a link (or, later,
-a one-time code) ends in: the proven identifier must be the identity's current one, compared in its normal form. Only
+Verify by one-time code with `Auth::codes($guard)`: `sendVerification()` sends a code to the identity's current
+identifier of the type, and `verify()` checks it and records the verification:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
+
+// Send it: a code to the signed-in identity's phone number, delivered by your OneTimeCodeSender.
+$request = Auth::codes('mobile')->sendVerification(Auth::identity(), 'phone');   // sent, rate_limited or identifier_invalid
+
+// Check it: verified or already_verified, or the FailureReason why not.
+$result = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['code']);
+
+abort_unless($result instanceof IdentifierVerification, 422);
+```
+
+A verification code is bound to its purpose, its guard, its identity and the identifier in its normal form, so it
+verifies nothing else, signs no one in, and stops working when the identifier changes: `sendVerification()` and
+`verify()` read the identifier from the identity they are given (load it from the write connection, as the guard does),
+and the delivery job reads the identity again from the write connection and sends nothing once its identifier is no
+longer the one the code is bound to. Requests are held to the `code_request` limits and the resend cooldown, and the
+code to the same lifetime, attempts and single use as a sign-in code (see [One-time codes](#one-time-codes)). A refused
+check returns `invalid_credentials`, `code_expired` or `code_exhausted` as it is (the caller already holds the
+identity), and reports it with `AuthenticationFailed` on the `identifier_verification` flow. An identity with no
+identifier of the type, or one its normaliser rejects, is `identifier_invalid`; an identity that cannot verify
+identifiers throws a `LogicException`, and a machine identity, which has none to verify, an `InvalidArgumentException`.
+
+`Verification\IdentifierVerifier::verify($guard, $identity, $type, $identifier, $client)` is the step a link or a
+one-time code ends in: the proven identifier must be the identity's current one, compared in its normal form. Only
 the call that records the verification dispatches `Events\IdentifierVerified` (guard, identity, type and client, never
 the identifier), once the record is committed on the identity's connection; a rolled-back verification is never
 reported.
@@ -1196,6 +1344,81 @@ device, so the session service signs in only identities that implement `HasDevic
 `start()` and `complete()` throw a `LogicException` naming its class, since the access token it would issue names a
 device the guard could never find again. Access-only guards (identities without `HasDevices`) sign in with `attempt()`
 and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
+
+#### Signing in with a one-time code
+
+The package registers `phone_code`: a numeric code sent to a verified phone number signs in with no password. Allow it
+in the guard's audience, bind a `OneTimeCodeSender` (see [One-time codes](#one-time-codes)), and give the identity a
+normalised `phone` column with `HasVerifiableIdentifiers` (see [Identifiers](#identifiers) and
+[Identifier verification](#identifier-verification)):
+
+```php
+'mobile' => [
+    'driver'   => 'jwt',
+    'provider' => 'staff',
+    'audience' => ['methods' => ['phone_code']],
+],
+```
+
+Two routes of your own ask for a code and sign in with it, through `Auth::codes()` and the session service:
+
+```php
+use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::post('/codes', function (Request $request) {
+    $input  = $request->validate(['phone' => ['required', 'string']]);
+    $result = Auth::codes('mobile')->send('phone_code', ['phone' => $input['phone']]);
+
+    // The same answer whether or not anyone has the number.
+    return match ($result->status) {
+        CodeRequestStatus::RATE_LIMITED       => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => $result->retryAfter]),
+        CodeRequestStatus::IDENTIFIER_INVALID => response()->json(['message' => 'Enter a number in international format.'], 422),
+        CodeRequestStatus::METHOD_NOT_ALLOWED => abort(403),
+        CodeRequestStatus::SENT               => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
+    };
+});
+
+Route::post('/sign-in/code', function (Request $request) {
+    $input  = $request->validate(['phone' => ['required', 'string'], 'code' => ['required', 'string']]);
+    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'code' => $input['code']]);
+
+    abort_unless($result->isSignedIn(), 401);
+
+    return ['access_token' => $result->session->tokens->accessToken, 'refresh_token' => $result->session->tokens->refreshToken];
+});
+```
+
+A code request does nothing that depends on whether anyone has the number. The guard must allow the method
+(`method_not_allowed`), the number must be one the `phone` normaliser accepts (`identifier_invalid`), the number and the
+IP address must have code requests left (`rate_limited`, with the wait), and no code may have been sent to the number
+within the resend cooldown (`rate_limited`, with the seconds left); then a code is issued, for anyone's number, and its
+delivery queued. The job alone finds the recipient, when it runs: the active identity the guard's provider returns for
+the number that reports it verified and is not a machine identity. For anyone else it sends nothing and says nothing,
+so the response, the statements run and the time taken are the same for a number no one has. Each refusal is reported
+with `AuthenticationFailed` on the `code_request` flow (an invalid number as `invalid_credentials`).
+
+Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits
+(`invalid_credentials` otherwise, nothing counted), looks the identity up, counts the check against the account's limit
+as the password method does, and checks the code against the one sent to the number on this guard. It checks it whether
+or not anyone has the number, so a guess at a number no one has counts against, and locks, its code exactly as one at a
+known number does. A wrong code, a code used before, a code for another guard, purpose or number, and the right code
+for a number no one has are `invalid_credentials`; an expired code and one that used up its attempts are refused as
+`code_expired` and `code_exhausted`, which only `AuthenticationFailed` says: the result says `invalid_credentials`. The
+right code for an identity whose number is not verified is `identifier_unverified` (the code proved the number is held,
+so this tells a guesser nothing). Then the session service does the rest, as for a password: activity, the principal,
+the audience policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its
+row, on the device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt
+back; the sign-in limits on `rate_limits.connection` still count it.
+
+Another identifier type signs in by code once it has a normaliser: register a code method for it, and allow it.
+
+```php
+use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+
+$this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+```
 
 #### Writing a sign-in method
 
@@ -2075,18 +2298,18 @@ it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits 
 choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no sign-in: it
 dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`.
 
-`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal and bearer token, after Laravel's
-`Failed` where that fires, with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`), a
-`FailureReason`, the identifier a sign-in's input named (as given), and the wait for `rate_limited` and
-`account_rate_limited`. Its context carries the identity only once a sign-in method verified it, a refresh reloaded the
-device's owner or a token's subject was found (a wrong password or an unknown identifier carries none), the principal
-and tenant once resolved, and the device once found, else the `did` a token named. A bearer token is checked in this
-order, so its reason is the first that applies: `token_invalid`, `identity_unknown`, `identity_inactive`,
-`principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token that names no device
-`issued_before_cutoff`, and for one that names a device `device_unknown`, `device_guard_mismatch`, `device_revoked`,
-`session_expired`, `device_principal_mismatch`. It says why a sign-in failed even where the client is not told: a
-refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
-`invalid_credentials`:
+`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, request for a one-time
+code and verification by code, after Laravel's `Failed` where that fires, with the flow (`AuthenticationFlow`:
+`sign_in`, `refresh`, `bearer`, `principal_switch`, `code_request`, `identifier_verification`), a `FailureReason`, the
+identifier a sign-in's input named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context
+carries the identity only once a sign-in method verified it, a refresh reloaded the device's owner or a token's subject
+was found (a wrong password or an unknown identifier carries none), the principal and tenant once resolved, and the
+device once found, else the `did` a token named. A bearer token is checked in this order, so its reason is the first
+that applies: `token_invalid`, `identity_unknown`, `identity_inactive`, `principal_mismatch`, `principal_inactive`,
+`tenant_inactive`, then for a token that names no device `issued_before_cutoff`, and for one that names a device
+`device_unknown`, `device_guard_mismatch`, `device_revoked`, `session_expired`, `device_principal_mismatch`. It says why
+a sign-in failed even where the client is not told: a refusal by the account's own limit is `account_rate_limited` on
+the event, while the sign-in's result says `invalid_credentials`:
 
 | Reason                       | Meaning                                                                 |
 |------------------------------|-------------------------------------------------------------------------|
@@ -2119,8 +2342,12 @@ refusal by the account's own limit is `account_rate_limited` on the event, while
 | `refresh_key_missing`        | Device holds no refresh credential                                      |
 | `refresh_token_conflict`     | The request carried a refresh token in more than one source             |
 | `cross_site_request`         | A cookie refresh token without an allowed origin and the custom header  |
+| `code_expired`               | The one-time code expired; event only, not on a sign-in's result        |
+| `code_exhausted`             | The code used up its attempts; event only, not on a sign-in's result    |
 
-A sign-in method may answer only `invalid_credentials`; every other reason is the session service's to give.
+A sign-in method may answer `invalid_credentials`, `identifier_unverified` once its input proved the identifier is held,
+and the code and passkey reasons; every other reason is the session service's to give. A code request refused because
+its number is not one is reported as `invalid_credentials`, while its result says `identifier_invalid`.
 
 ## Extensibility
 
@@ -2142,6 +2369,8 @@ inheritance:
 | Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                       |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                       |
 | Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                           |
+| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                    |
+| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                       |
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
@@ -2169,6 +2398,27 @@ twice), and each is given back.
 - Laravel ^12.40 || ^13.3
 
 ## Testing
+
+`Testing\FakeOneTimeCodeSender` stands in for your sender in tests: `FakeOneTimeCodeSender::fake()` binds a fresh one
+and returns it, and it keeps every message instead of delivering it, so a test reads the code a request sent and signs
+in with it:
+
+```php
+use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
+
+$sender = FakeOneTimeCodeSender::fake();
+
+$this->postJson('/codes', ['phone' => '+447700900123'])->assertAccepted();
+
+$code = $sender->lastCodeFor('+447700900123');   // the number as delivered, in E.164
+
+$this->postJson('/sign-in/code', ['phone' => '+447700900123', 'code' => $code])->assertOk();
+```
+
+The message arrives when the delivery job runs: on a `sync` queue connection once the response is sent (a test's HTTP
+request ends with it; call `$this->app->terminate()` after calling the service directly), on a faked queue when the test
+runs the pushed job. `sent()`, `hasSent()` and `count()` take an optional filter over the messages, and `forget()`
+clears them.
 
 ```bash
 composer test               # all suites in parallel (Paratest)

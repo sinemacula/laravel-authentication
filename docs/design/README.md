@@ -37,6 +37,8 @@ The current note set is:
 - `audience-policy.md`: what each guard decides about its sessions (methods, principal types, verified identifiers,
   lifetimes per principal type), where every path enforces it, and how the attempt limits and identifier normalisers
   meet it.
+- `one-time-codes.md`: how one-time codes are bound, stored, issued, checked and delivered, why a request for one looks
+  the same for an identifier no one has, and who a code is ever sent to.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
 the test should be treated as authoritative until the mismatch is resolved.

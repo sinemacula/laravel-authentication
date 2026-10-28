@@ -44,7 +44,7 @@ final class SignInTablesMigrationCollisionTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        foreach ([self::RENAMED, 'pending_sign_ins', 'rate_limits'] as $table) {
+        foreach ([self::RENAMED, 'pending_sign_ins', 'rate_limits', 'one_time_codes'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -61,6 +61,7 @@ final class SignInTablesMigrationCollisionTest extends TestCase
         yield from [
             'pending sign-ins' => ['2026_04_06_000001_create_pending_sign_ins_table.php', 'sign_in.pending_table', 'pending_sign_ins'],
             'rate limits'      => ['2026_04_06_000002_create_rate_limits_table.php', 'rate_limits.table', 'rate_limits'],
+            'one-time codes'   => ['2026_04_06_000003_create_one_time_codes_table.php', 'codes.table', 'one_time_codes'],
         ];
     }
 

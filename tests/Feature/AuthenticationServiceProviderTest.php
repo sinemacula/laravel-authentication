@@ -627,6 +627,7 @@ final class AuthenticationServiceProviderTest extends TestCase
             realpath($source . '2026_04_06_000000_create_devices_table.php')          => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
             realpath($source . '2026_04_06_000001_create_pending_sign_ins_table.php') => database_path('migrations/2026_04_06_000001_create_pending_sign_ins_table.php'),
             realpath($source . '2026_04_06_000002_create_rate_limits_table.php')      => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
+            realpath($source . '2026_04_06_000003_create_one_time_codes_table.php')   => database_path('migrations/2026_04_06_000003_create_one_time_codes_table.php'),
         ], $paths);
     }
 

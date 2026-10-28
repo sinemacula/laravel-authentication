@@ -9,8 +9,12 @@ use Illuminate\Console\Command;
 use Illuminate\Foundation\Application;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
+use SineMacula\Laravel\Authentication\Codes\CodeKeys;
+use SineMacula\Laravel\Authentication\Codes\CodeSettings;
+use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\DeviceRetention;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
@@ -32,9 +36,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * resolver override, the package audience policy's settings, every flow's rate
  * limits, the password identifier and the refresh token transport. The
  * package-wide settings are reported as `[device]` (the device model and the
- * pruning retention) and `[sign_in]` (the pending sign-in lifetime). The
- * command reads configuration only: it opens no database connection and prints
- * no secret.
+ * pruning retention), `[sign_in]` (the pending sign-in lifetime) and `[codes]`
+ * (the one-time code settings and key, and a sender bound when a guard allows
+ * one of the package's code sign-in methods, with a warning, not a problem,
+ * when their delivery runs on a `sync` queue connection). The command reads
+ * configuration only: it opens no database connection and prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -75,6 +81,8 @@ final class CheckConfigurationCommand extends Command
             $problems = [...$problems, ...$found];
         }
 
+        $this->warnAboutSynchronousCodeDelivery($config);
+
         foreach ($guards as $guard) {
             $problems = [...$problems, ...self::prefixed($guard, $this->guardProblems($guard, $config))];
         }
@@ -107,7 +115,108 @@ final class CheckConfigurationCommand extends Command
             'sign_in' => [
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
+            'codes' => $this->codeChecks($config),
         ];
+    }
+
+    /**
+     * The checks of the one-time code settings, each of which otherwise fails
+     * only when a code is first issued: the numbers and the queue settings, the
+     * key, and a sender bound when a guard allows a code sign-in method.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return list<\Closure(): mixed>
+     */
+    private function codeChecks(ConfigRepository $config): array
+    {
+        $guards = $this->codeGuards($config);
+        $bound  = $this->laravel->bound(OneTimeCodeSender::class);
+
+        return [
+            static function () use ($config): void {
+                (new CodeSettings($config))->validate();
+            },
+            static function () use ($config): void {
+                (new CodeKeys($config))->validate();
+            },
+            static function () use ($guards, $bound): void {
+                if ($guards !== [] && !$bound) {
+                    $message = sprintf('Guards [%s] allow a code sign-in method, but no %s is bound to deliver the codes.', implode(', ', $guards), OneTimeCodeSender::class);
+
+                    throw new \LogicException($message);
+                }
+            },
+        ];
+    }
+
+    /**
+     * Warn, without failing, when a guard allows a code sign-in method and the
+     * codes are delivered on a `sync` queue connection: delivery then runs in
+     * the web process after each response, where a worker is the production
+     * setting. Malformed queue settings are left to the `[codes]` checks.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return void
+     */
+    private function warnAboutSynchronousCodeDelivery(ConfigRepository $config): void
+    {
+        try {
+            $synchronous = (new CodeSettings($config))->deliversSynchronously();
+        } catch (\InvalidArgumentException) {
+            return;
+        }
+
+        if (!$synchronous || $this->codeGuards($config) === []) {
+            return;
+        }
+
+        $this->warn('[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
+            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.');
+    }
+
+    /**
+     * The `jwt` guards whose audience allows one of the package's code sign-in
+     * methods.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return list<string>
+     */
+    private function codeGuards(ConfigRepository $config): array
+    {
+        $policy = $this->laravel->make(AudiencePolicy::class);
+        $guards = $config->get('auth.guards');
+        $found  = [];
+
+        foreach (is_array($guards) ? $guards : [] as $name => $guard) {
+
+            $name = (string) $name;
+
+            if (!is_array($guard) || ($guard['driver'] ?? null) !== 'jwt' || !self::allowsCodes($policy, $name)) {
+                continue;
+            }
+
+            $found[] = $name;
+        }
+
+        return $found;
+    }
+
+    /**
+     * Whether the guard's audience allows one of the package's code sign-in
+     * methods; a malformed audience allows none here, since the guard's own
+     * checks report it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $policy
+     * @param  string  $guard
+     * @return bool
+     */
+    private static function allowsCodes(AudiencePolicy $policy, string $guard): bool
+    {
+        try {
+            return $policy->allowsMethod($guard, CodeSignIn::PHONE);
+        } catch (\InvalidArgumentException) {
+            return false;
+        }
     }
 
     /**

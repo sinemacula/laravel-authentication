@@ -30,6 +30,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService|null jwt(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Sessions\SessionService sessions(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport refreshTransport(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\Codes\CodeService codes(?string $guard = null)
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  */
 final class Auth extends IlluminateAuth

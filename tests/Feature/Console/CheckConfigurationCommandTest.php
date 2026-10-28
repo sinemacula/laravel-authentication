@@ -14,7 +14,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
@@ -54,7 +56,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[api] OK', '[admin] OK'], $output);
+        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK'], $output);
         self::assertSame(0, $queries);
     }
 
@@ -138,6 +140,26 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.sign_in.pending_ttl_seconds' => 5],
             '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600 seconds.',
         ];
+        yield 'a code length out of range' => [
+            ['authentication.codes.length' => 4],
+            '[codes] authentication.codes.length must be an integer from 6 to 10.',
+        ];
+        yield 'a resend cooldown longer than the code lifetime' => [
+            ['authentication.codes.ttl_seconds' => 60, 'authentication.codes.resend_cooldown_seconds' => 61],
+            '[codes] authentication.codes.resend_cooldown_seconds must be an integer from 0 to 60.',
+        ];
+        yield 'a codes key too short' => [
+            ['authentication.codes.key' => 'too-short-for-a-key'],
+            '[codes] authentication.codes.key must be a string of at least 32 bytes, or null to derive the key from `app.key`.',
+        ];
+        yield 'a code delivery connection not configured' => [
+            ['authentication.codes.queue.connection' => 'missing'],
+            '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
+        ];
+        yield 'a code method with no sender bound' => [
+            ['auth.guards.api.audience' => ['methods' => ['password', 'phone_code']]],
+            '[codes] Guards [api] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
+        ];
     }
 
     /**
@@ -183,6 +205,104 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
+     * A sender bound for guards that allow a code sign-in method passes, and
+     * delivery on a worker-backed connection raises no warning.
+     *
+     * @return void
+     */
+    public function testABoundSenderDeliversForTheCodeMethods(): void
+    {
+        config()->set([
+            'auth.guards.api.audience'   => ['methods' => ['phone_code']],
+            'auth.guards.admin.audience' => ['methods' => ['password', 'phone_code']],
+            'queue.default'              => 'database',
+            'queue.connections.database' => ['driver' => 'database'],
+        ]);
+
+        FakeOneTimeCodeSender::fake($this->app);
+
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $this->check());
+    }
+
+    /**
+     * Every `jwt` guard that allows a code method is named when no sender is
+     * bound, a guard named with digits included; a guard of another driver is
+     * not one, whatever its audience lists.
+     *
+     * @return void
+     */
+    public function testEveryGuardThatAllowsACodeMethodIsNamed(): void
+    {
+        config()->set([
+            'auth.guards.api.audience'   => ['methods' => ['phone_code']],
+            'auth.guards.2024'           => ['driver' => 'jwt', 'provider' => 'users', 'audience' => ['methods' => ['phone_code']]],
+            'auth.guards.web.audience'   => ['methods' => ['phone_code']],
+            'auth.guards.admin.audience' => ['methods' => ['password']],
+        ]);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertContains('[codes] Guards [api, 2024] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
+    }
+
+    /**
+     * Delivering codes on a `sync` connection is a warning, not a problem, and
+     * only when a guard allows a code sign-in method.
+     *
+     * @return void
+     */
+    public function testSynchronousCodeDeliveryIsAWarning(): void
+    {
+        config()->set([
+            'queue.default'                         => 'database',
+            'queue.connections.database'            => ['driver' => 'database'],
+            'queue.connections.sync'                => ['driver' => 'sync'],
+            'authentication.codes.queue.connection' => 'sync',
+        ]);
+
+        FakeOneTimeCodeSender::fake($this->app);
+
+        $warning = '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
+            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.';
+
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $this->check());
+
+        config()->set('auth.guards.admin.audience', ['methods' => ['phone_code']]);
+
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', $warning, '[api] OK', '[admin] OK']], $this->check());
+    }
+
+    /**
+     * A delivery connection that is not configured is a problem and raises no
+     * warning; a guard whose audience is malformed counts as allowing no code
+     * method here, since its own checks report it.
+     *
+     * @return void
+     */
+    public function testMalformedSettingsAreReportedOnceWhereTheyBelong(): void
+    {
+        config()->set([
+            'auth.guards.api.audience'              => ['methods' => []],
+            'auth.guards.admin.audience'            => ['methods' => ['phone_code']],
+            'authentication.codes.queue.connection' => 'missing',
+        ]);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertSame([
+            '[device] OK',
+            '[sign_in] OK',
+            '[admin] OK',
+            '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
+            '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
+            '[api] Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
+                . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.',
+        ], $output);
+    }
+
+    /**
      * A key too short is reported without the key.
      *
      * @return void
@@ -210,7 +330,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check(['--guard' => ['api', 'web', 'missing', 'api']]);
 
         self::assertSame(1, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[api] OK', '[web] Not a jwt guard.', '[missing] Not configured.'], $output);
+        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[web] Not a jwt guard.', '[missing] Not configured.'], $output);
     }
 
     /**
@@ -226,11 +346,11 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt guards are configured.', '[device] OK', '[sign_in] OK'], $output);
+        self::assertSame(['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK'], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt guards are configured.', '[device] OK', '[sign_in] OK']], $this->check());
+        self::assertSame([0, ['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK']], $this->check());
     }
 
     /**
@@ -243,7 +363,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[2024] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[2024] OK']], $this->check());
     }
 
     /**
@@ -256,7 +376,11 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards.api.audience', ['methods' => []]);
 
-        $this->app?->instance(AudiencePolicy::class, \Mockery::mock(AudiencePolicy::class));
+        $policy = \Mockery::mock(AudiencePolicy::class);
+
+        $policy->allows('allowsMethod')->andReturn(false);
+
+        $this->app?->instance(AudiencePolicy::class, $policy);
 
         self::assertSame(0, $this->check()[0]);
     }
@@ -281,7 +405,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         $failing = $this->check();
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[api] OK', '[admin] OK']], $passing);
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $passing);
         self::assertSame(1, $failing[0]);
     }
 
@@ -294,7 +418,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards.api.principal_resolver', StubReplacementPrincipalResolver::class);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $this->check());
     }
 
     /**
@@ -326,6 +450,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         $config = $app->make(ConfigRepository::class);
 
+        $config->set('app.key', 'base64:' . base64_encode('laravel-authentication test key!'));
         $config->set('database.default', 'unreachable');
         $config->set('database.connections.unreachable', ['driver' => 'sqlite', 'database' => '/nonexistent/directory/database.sqlite', 'prefix' => '']);
         $config->set('authentication.device.model', Device::class);

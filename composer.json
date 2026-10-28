@@ -44,6 +44,9 @@
         "slevomat/coding-standard": "^8.28",
         "squizlabs/php_codesniffer": "^3.13.6 || ^4.0.2"
     },
+    "suggest": {
+        "giggsey/libphonenumber-for-php": "Required to accept mobile or free-form phone numbers for one-time codes: back an identifier normaliser registered as `phone` with it (the shipped one accepts only E.164)."
+    },
     "autoload": {
         "psr-4": {
             "SineMacula\\Laravel\\Authentication\\": "src/"

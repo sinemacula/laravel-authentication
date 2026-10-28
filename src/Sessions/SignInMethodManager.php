@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Support\Manager;
 use Illuminate\Support\Str;
+use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
@@ -155,6 +156,18 @@ final class SignInMethodManager extends Manager
     protected function createPasswordDriver(): PasswordSignIn
     {
         return new PasswordSignIn($this->config);
+    }
+
+    /**
+     * Build the phone number one-time code sign-in method.
+     *
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeSignIn
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    protected function createPhoneCodeDriver(): CodeSignIn
+    {
+        return $this->container->make(CodeSignIn::class, ['type' => 'phone']);
     }
 
     /**

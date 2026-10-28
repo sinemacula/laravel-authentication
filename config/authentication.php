@@ -2,6 +2,7 @@
 
 declare(strict_types = 1);
 
+use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser;
 use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
 use SineMacula\Laravel\Authentication\Models\Device;
 
@@ -215,13 +216,18 @@ return [
     | normalised when it is set, the `model` provider normalises it before it
     | looks an identity up, and attempts are counted against its normal form.
     | Each value is a container abstract resolving to an
-    | `IdentifierNormaliser`; the email normaliser trims and lower-cases.
+    | `IdentifierNormaliser`; the email normaliser trims and lower-cases. The
+    | phone normaliser accepts only numbers already in E.164 form (`+` and up
+    | to 15 digits) and refuses anything else: an application that takes
+    | mobile or free-form numbers binds its own normaliser under `phone`,
+    | backed by `giggsey/libphonenumber-for-php` (see the README).
     |
     */
 
     'identifiers' => [
         'normalisers' => [
             'email' => EmailNormaliser::class,
+            'phone' => E164PhoneNormaliser::class,
         ],
     ],
 
@@ -347,5 +353,46 @@ return [
 
     'verification' => [
         'link_ttl_minutes' => env('AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES', 60),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | One-time codes
+    |---------------------------------------------------------------------------
+    |
+    | The `phone_code` and `email_code` sign-in methods, and verifying an
+    | identifier by code, send a code of `length` digits (6 to 10) that works
+    | once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts`
+    | checks (1 to 20), after which it is locked until another is requested.
+    | Another code for the same identifier may be requested
+    | `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and
+    | replaces it at once. Each number is an integer, or a digit string as
+    | `env()` returns one. Codes are stored in `table`, on the device model's
+    | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a
+    | key derived from `app.key` when `key` is not set; rotating either only
+    | invalidates the codes outstanding. Requests for codes are limited by the
+    | `code_request` rate limits. Delivery is a queued job, never part of the
+    | request, pushed to the `queue` connection and queue named (`null` for
+    | the defaults); on a `sync` connection it runs after the response is
+    | sent, and `authentication:check` warns, since a worker is the production
+    | setting. The application binds its `OneTimeCodeSender`. A malformed
+    | value fails closed when a code is first issued, and
+    | `authentication:check` reports it. Prune expired codes with
+    | `model:prune`.
+    |
+    */
+
+    'codes' => [
+        'table'                   => env('AUTHENTICATION_CODES_TABLE', 'one_time_codes'),
+        'key'                     => env('AUTHENTICATION_CODES_KEY'),
+        'length'                  => env('AUTHENTICATION_CODES_LENGTH', 6),
+        'ttl_seconds'             => env('AUTHENTICATION_CODES_TTL_SECONDS', 600),
+        'max_attempts'            => env('AUTHENTICATION_CODES_MAX_ATTEMPTS', 5),
+        'resend_cooldown_seconds' => env('AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS', 60),
+
+        'queue' => [
+            'connection' => env('AUTHENTICATION_CODES_QUEUE_CONNECTION'),
+            'name'       => env('AUTHENTICATION_CODES_QUEUE'),
+        ],
     ],
 ];

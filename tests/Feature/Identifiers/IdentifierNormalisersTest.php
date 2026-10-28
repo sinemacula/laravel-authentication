@@ -7,6 +7,7 @@ namespace Tests\Feature\Identifiers;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser;
 use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use Tests\TestCase;
@@ -25,19 +26,21 @@ final class IdentifierNormalisersTest extends TestCase
 {
     /**
      * The registry is one instance for the application, and out of the box it
-     * knows only the email normaliser.
+     * knows only the email and E.164 phone normalisers.
      *
      * @return void
      */
-    public function testShipsTheEmailNormaliserAsASingleton(): void
+    public function testShipsTheEmailAndPhoneNormalisersAsASingleton(): void
     {
         $registry = $this->registry();
 
         self::assertSame($registry, $this->registry());
         self::assertTrue($registry->has('email'));
-        self::assertFalse($registry->has('phone'));
+        self::assertTrue($registry->has('phone'));
+        self::assertFalse($registry->has('member_number'));
         self::assertFalse($registry->has('Email'));
         self::assertInstanceOf(EmailNormaliser::class, $registry->get('email'));
+        self::assertInstanceOf(E164PhoneNormaliser::class, $registry->get('phone'));
     }
 
     /**
@@ -81,9 +84,9 @@ final class IdentifierNormalisersTest extends TestCase
     public function testUnknownTypeIsReported(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('No identifier normaliser is registered for [phone]: add it to `authentication.identifiers.normalisers`.');
+        $this->expectExceptionMessage('No identifier normaliser is registered for [member_number]: add it to `authentication.identifiers.normalisers`.');
 
-        $this->registry()->get('phone');
+        $this->registry()->get('member_number');
     }
 
     /**
