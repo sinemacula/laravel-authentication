@@ -106,6 +106,14 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.refresh_token' => ['body_field' => 'auth.refresh']],
             '[api] Refresh token transport for guard [api]: `refresh_token.body_field` must be a field name without `.`, spaces or brackets.',
         ];
+        yield 'a refresh cookie path with a trailing newline' => [
+            ['auth.guards.api.refresh_token' => ['sources' => ['cookie'], 'cookie' => ['path' => "/auth\n"]]],
+            '[api] Refresh token transport for guard [api]: `refresh_token.cookie.path` must be the path of the refresh route',
+        ];
+        yield 'a refresh cookie name with a trailing newline' => [
+            ['authentication.refresh_token.cookie.name' => "refresh_token\n"],
+            '[api] Refresh token transport for guard [api]: `refresh_token.cookie.name` must be a header or cookie name without `.`.',
+        ];
         yield 'a device model that is not one' => [
             ['authentication.device.model' => \stdClass::class],
             '[device] authentication.device.model must be a non-empty class-string of an Eloquent model',

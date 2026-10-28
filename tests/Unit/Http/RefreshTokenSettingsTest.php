@@ -216,6 +216,12 @@ final class RefreshTokenSettingsTest extends TestCase
         yield 'an origin that is not a string' => [['cookie' => ['allowed_origins' => [443]]], $origins];
         yield 'an origin after other text' => [['cookie' => ['allowed_origins' => ['xhttps://app.example.test']]], $origins];
         yield 'an origin with an empty port' => [['cookie' => ['allowed_origins' => ['https://app.example.test:']]], $origins];
+        yield 'a body field with a trailing newline' => [['body_field' => "refresh_token\n"], $field];
+        yield 'a header with a trailing newline' => [['header' => "X-Refresh-Token\n"], '`refresh_token.header` ' . $name];
+        yield 'a cookie name with a trailing newline' => [['cookie' => ['name' => "refresh_token\n"]], '`refresh_token.cookie.name` ' . $name];
+        yield 'a path with a trailing newline' => [['sources' => ['cookie'], 'cookie' => ['path' => "/auth\n"]], $path];
+        yield 'a domain with a trailing newline' => [['cookie' => ['domain' => "example.test\n"]], '`refresh_token.cookie.domain` must be null or a host name.'];
+        yield 'an origin with a trailing newline' => [['cookie' => ['allowed_origins' => ["https://app.example.test\n"]]], $origins];
         yield 'a host cookie on another path' => [['sources' => ['cookie'], 'cookie' => ['name' => '__Host-refresh', 'path' => '/auth']], $host];
         yield 'a host cookie with a domain' => [['sources' => ['cookie'], 'cookie' => ['name' => '__Host-refresh', 'path' => '/', 'domain' => 'example.test']], $host];
     }

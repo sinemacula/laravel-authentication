@@ -30,19 +30,19 @@ final readonly class RefreshTokenSettings
     private const array COOKIE_KEYS = ['name', 'path', 'domain', 'allowed_origins', 'csrf_header'];
 
     /** @var string A header or cookie name: an HTTP token without `.`, which PHP files as `_`, so the name would never be found. */
-    private const string NAME_PATTERN = '/^[!#$%&\'*+^_`|~0-9A-Za-z-]+$/';
+    private const string NAME_PATTERN = '/^[!#$%&\'*+^_`|~0-9A-Za-z-]+$/D';
 
     /** @var string A body field: no `.` or space, which PHP files as `_` in a form body, and no bracket, which nests it. */
-    private const string FIELD_PATTERN = '/^[^\s.\[\]\x00-\x1F\x7F]+$/';
+    private const string FIELD_PATTERN = '/^[^\s.\[\]\x00-\x1F\x7F]+$/D';
 
     /** @var string A cookie path: starts with `/`, with no separator, space or control character. */
-    private const string PATH_PATTERN = '/^\/[^;,\s\x00-\x1F\x7F]*$/';
+    private const string PATH_PATTERN = '/^\/[^;,\s\x00-\x1F\x7F]*$/D';
 
     /** @var string A cookie domain: a host name, optionally with a leading dot. */
-    private const string DOMAIN_PATTERN = '/^\.?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/';
+    private const string DOMAIN_PATTERN = '/^\.?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/D';
 
     /** @var string An origin: `http` or `https`, a lower-case host name or bracketed IPv6 address, and an optional port. */
-    private const string ORIGIN_PATTERN = '/^https?:\/\/(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$/';
+    private const string ORIGIN_PATTERN = '/^https?:\/\/(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$/D';
 
     /** @var string The prefix of a cookie a browser keeps only with `Path=/` and no `Domain`. */
     private const string HOST_PREFIX = '__Host-';
