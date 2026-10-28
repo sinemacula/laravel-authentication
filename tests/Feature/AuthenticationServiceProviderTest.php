@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -378,9 +379,10 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The sign-in method registry is a container singleton, and the default
-     * additional-factor policy, which never asks for a factor, is bound as one
-     * so an application or an MFA package can rebind it.
+     * The sign-in method registry is a container singleton, as is the mark of
+     * an automatic password rehash it and the password-change listener share,
+     * and the default additional-factor policy, which never asks for a factor,
+     * is bound as one so an application or an MFA package can rebind it.
      *
      * @return void
      */
@@ -392,6 +394,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertTrue($app->isShared(SignInMethodManager::class));
         self::assertSame(app(SignInMethodManager::class), app(SignInMethodManager::class));
+        self::assertTrue($app->isShared(Rehashing::class));
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));

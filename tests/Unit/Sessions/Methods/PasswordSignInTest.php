@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Unit\Sessions\Methods;
 
 use Illuminate\Config\Repository;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Stringable;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -22,6 +23,7 @@ use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
+use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -492,6 +494,40 @@ final class PasswordSignInTest extends TestCase
         $this->provider->shouldReceive('rehashPasswordIfRequired')->times($asked ? 1 : 0)->with($identity, $credentials);
 
         (new PasswordSignIn(new Repository(['hashing' => ['rehash_on_login' => $setting]])))->rehash($this->provider, $identity, $credentials);
+    }
+
+    /**
+     * The rehash runs marked by the container's shared `Rehashing`, so a
+     * listener on a change of password can tell it from one, and the mark is
+     * cleared once it ends.
+     *
+     * @return void
+     */
+    public function testRehashRunsMarkedAsAnAutomaticRehash(): void
+    {
+        $identity  = $this->identity();
+        $rehashing = new Rehashing;
+        $previous  = Container::getInstance();
+        $container = new Container;
+
+        $container->instance(Rehashing::class, $rehashing);
+
+        Container::setInstance($container);
+
+        $marked = null;
+
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, &$marked): void {
+            $marked = $rehashing->isRunning();
+        });
+
+        try {
+            (new PasswordSignIn(new Repository))->rehash($this->provider, $identity, ['password' => 'secret']);
+        } finally {
+            Container::setInstance($previous);
+        }
+
+        self::assertTrue($marked);
+        self::assertFalse($rehashing->isRunning());
     }
 
     /**

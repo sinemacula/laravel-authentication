@@ -41,6 +41,16 @@ deleted. Starting a session is in
 - An identity's scope is every device its `devices()` relation returns, of every guard; a principal's is every device of
   the configured model whose principal columns record it. An identity without `HasDevices` has no devices but still has
   its cutoff moved and its pending sign-ins deleted; an unsaved principal has neither devices nor pending sign-ins.
+- The security-change methods (`RevokesOnSecurityChanges`: `passwordChanged()`, `passwordReset()`, `factorRemoved()`,
+  `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason.
+  `tenantDeactivated()` checks every listed principal acts within the tenant (`getTenant()` on the writer, same class
+  and identifier) before anything is written, de-duplicates by recorded type and id, and ends all of them in one device
+  transaction with one `SignedOutEverywhere` each.
+- The optional listeners (`RevokeDevicesOnPasswordReset`, `RevokeDevicesOnPasswordChange`,
+  `RevokeDevicesOnDeactivation`) run their revocation through `AfterCommit` on the changed model's connection, so a
+  rolled-back change revokes nothing. The password-change observer ignores saves made while the container's shared
+  `Sessions\Methods\Rehashing` mark is set, which `PasswordSignIn::rehash()` sets around the provider's rehash and
+  clears in `finally`.
 - Pruning (`PrunesDevices`, with Laravel's `model:prune`) deletes a device revoked, or past either deadline, at or
   before now less `authentication.device.prune_after_days`: counted from the end of the session, never from creation.
   Each chunk is one conditional `DELETE`; nothing is read first.
@@ -75,6 +85,8 @@ deleted. Starting a session is in
 
 - `src/Sessions/ActiveDevices.php`, `src/Sessions/DeviceSummary.php`, `src/Sessions/SessionService.php` (`devices()`)
 - `src/Concerns/ActsAsDevice.php` (`scopeActive()`), `src/Concerns/PrunesDevices.php`, `src/Models/Device.php`
+- `src/Sessions/Concerns/RevokesOnSecurityChanges.php`, `src/Listeners/RevokeDevicesOn*.php`,
+  `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`
 - `src/Sessions/Concerns/ManagesDevices.php`, `src/Sessions/DeviceRevocations.php`, `src/Sessions/RevocationScope.php`,
   `src/Sessions/IdentityDevices.php`, `src/Jwt/RefreshRotationStore.php` (`revoke()`), `src/Guards/JwtGuard.php`
   (`logout()`), `src/Guards/AbstractGuard.php` (`forgetUser()`)
@@ -87,6 +99,8 @@ deleted. Starting a session is in
 - `tests/Feature/Sessions/ManagesDevicesTest.php`: logout, sign out everywhere and a device list's revoke over HTTP
 - `tests/Feature/Sessions/DeviceRevocationsTest.php`, `tests/Integration/Sessions/DeviceRevocationsTest.php`
 - `tests/Performance/DeviceRevocationQueryBudgetTest.php`
+- `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`, `tests/Feature/Listeners/RevokeDevicesOn*Test.php`,
+  `tests/Unit/Sessions/Methods/RehashingTest.php`
 - `tests/Feature/Models/DevicePruningTest.php`, `tests/Integration/Models/DevicePruningIntegrationTest.php`
 - `tests/Performance/DeviceListingQueryBudgetTest.php`, `tests/Performance/DevicePruneQueryBudgetTest.php`
 
@@ -95,6 +109,7 @@ deleted. Starting a session is in
 Update this note when any of the following change:
 
 - what makes a device active, or which columns decide it
+- which security change ends which sessions, or what the optional listeners react to
 - what a revocation writes, which devices a scope covers, what a bulk revocation ends besides devices, or when and in
   which order it reports
 - what a device summary holds, the listing's order, page bounds or connection

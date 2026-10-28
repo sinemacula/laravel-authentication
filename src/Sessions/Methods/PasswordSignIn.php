@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Methods;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -214,12 +215,16 @@ final readonly class PasswordSignIn implements SignInMethod
      * no longer matches the hasher's current algorithm or cost, unless
      * Laravel's `hashing.rehash_on_login` setting turns that off. Called only
      * after a password sign-in is admitted, so a request authenticated by a
-     * bearer token or a refresh never writes a password.
+     * bearer token or a refresh never writes a password. The rehash runs marked
+     * by `Rehashing`, so a listener that ends sessions on a change of password
+     * does not take it for one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<array-key, mixed>  $credentials
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function rehash(IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): void
     {
@@ -227,7 +232,9 @@ final readonly class PasswordSignIn implements SignInMethod
             return;
         }
 
-        $provider->rehashPasswordIfRequired($identity, $credentials);
+        Container::getInstance()->make(Rehashing::class)->during(static function () use ($provider, $identity, $credentials): void {
+            $provider->rehashPasswordIfRequired($identity, $credentials);
+        });
     }
 
     /**

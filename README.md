@@ -1593,6 +1593,59 @@ never less, and calling again finishes the job. One window stays open: a sign-in
 check when a bulk revocation reads the devices can still create its device afterwards. Closing it would take a lock that
 every sign-in and every revocation take on the identity, which the package does not add.
 
+#### Revoking on security changes
+
+Call the session service from your own flows when something about an identity's security changes; each ends the
+affected sessions as a bulk revocation, with its own reason, moves the scope's cutoff, and ends its pending sign-ins:
+
+| Method                                              | Ends                                       | Reason                  |
+|-----------------------------------------------------|--------------------------------------------|-------------------------|
+| `passwordChanged($identity, ?Device $except)`       | The identity's sessions, but `$except`     | `password_changed`      |
+| `passwordReset($identity)`                          | Every session of the identity              | `password_reset`        |
+| `factorRemoved($identity, ?Device $except)`         | The identity's sessions, but `$except`     | `factor_removed`        |
+| `identityDeactivated($identity)`                    | Every session of the identity              | `identity_deactivated`  |
+| `principalDeactivated($principal)`                  | Every session acting as the principal      | `principal_deactivated` |
+| `tenantDeactivated($tenant, iterable $principals)`  | Every session acting as a listed principal | `tenant_deactivated`    |
+
+Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change.
+`factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. Devices record
+principals, not tenants, so `tenantDeactivated()` takes the tenant's principals from you: each must act within the
+tenant (read on the write connection), or an `InvalidArgumentException` is thrown before anything is written; a
+principal listed twice counts once, and every principal's sessions end in one device transaction, with one
+`SignedOutEverywhere` per principal. Deactivation already stops every token at once through the live activity checks
+(see [Active-state enforcement](#active-state-enforcement)); revoking makes the end outlast a reactivation and records
+why.
+
+Three optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
+triggered it is committed on the changed model's connection, so a change that is rolled back revokes nothing:
+
+```php
+use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Support\Facades\Event;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnDeactivation;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
+
+Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+User::observe(RevokeDevicesOnPasswordChange::class);
+User::observe(RevokeDevicesOnDeactivation::class);
+Membership::observe(RevokeDevicesOnDeactivation::class);
+```
+
+- `RevokeDevicesOnPasswordReset` answers Laravel's `PasswordReset` (the password broker's) with `passwordReset()`.
+- `RevokeDevicesOnPasswordChange` observes an identity model and answers a saved change of its password column with
+  `passwordChanged()`, revoking every device, the one the change was made from included; to keep that one, call
+  `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change: the
+  package runs it marked, and the observer ignores it. Only changes saved through Eloquent fire model events.
+- `RevokeDevicesOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
+  it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
+  identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
+  activity held in the model's own attributes (`ProvidesActiveState`); for activity derived from anything else, call
+  the method yourself.
+
+The listeners act through the default guard's session service, which must be a `jwt` guard; revocation covers every
+guard either way.
+
 #### Access tokens without a device
 
 An access token issued without a device (access-only mode, see
@@ -1616,14 +1669,14 @@ class User extends Model implements HasTokensValidAfter, Identity, Principal
 }
 ```
 
-Every bulk revocation of its sessions then moves its cutoff to the revocation's second first, and the bearer path
-rejects a device-less access token whose `iat` is at or before the identity's or the principal's cutoff
-(`issued_before_cutoff`). The whole second is cut off, because a token's whole-second `iat` cannot tell an earlier token
-from one issued after the call in the same second, so a device-less token issued in that second is rejected too. Tokens
-that name a device are not checked against the cutoff (revoking the device ends them, and the device a sign-out
-everywhere keeps must keep working). The cutoff only ever moves forward, with one conditional update on the model's own
-connection (`invalidateTokensIssuedBefore()`); the column must be loaded, or reading it throws a `LogicException`, and
-the column name comes from `getTokensValidAfterName()`.
+Every bulk revocation of its sessions (including the security-change methods above) then moves its cutoff to the
+revocation's second first, and the bearer path rejects a device-less access token whose `iat` is at or before the
+identity's or the principal's cutoff (`issued_before_cutoff`). The whole second is cut off, because a token's
+whole-second `iat` cannot tell an earlier token from one issued after the call in the same second, so a device-less
+token issued in that second is rejected too. Tokens that name a device are not checked against the cutoff (revoking the
+device ends them, and the device a sign-out everywhere keeps must keep working). The cutoff only ever moves forward,
+with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column must be loaded,
+or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
 
 ### Long-running processes
 

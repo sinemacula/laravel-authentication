@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
@@ -21,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -45,6 +47,7 @@ use Tests\TestCase;
 #[CoversClass(DeviceRevocations::class)]
 #[CoversClass(JwtGuard::class)]
 #[CoversClass(IdentityDevices::class)]
+#[CoversTrait(ManagesDevices::class)]
 final class ManagesDevicesTest extends TestCase
 {
     use InteractsWithSessions;

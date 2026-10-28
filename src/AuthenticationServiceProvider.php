@@ -42,6 +42,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
@@ -80,6 +81,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(IdentifierNormalisers::class);
         $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->singleton(SignInMethodManager::class);
+        $this->app->singleton(Rehashing::class);
         $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(

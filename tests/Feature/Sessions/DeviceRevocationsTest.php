@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
@@ -25,6 +26,7 @@ use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
@@ -54,6 +56,7 @@ use Tests\Unit\Stubs\PlainDeviceFixture;
 #[CoversClass(RevocationScope::class)]
 #[CoversClass(IdentityDevices::class)]
 #[CoversClass(AbstractGuard::class)]
+#[CoversTrait(ManagesDevices::class)]
 final class DeviceRevocationsTest extends TestCase
 {
     use InteractsWithSessions;
@@ -396,6 +399,29 @@ final class DeviceRevocationsTest extends TestCase
         $this->signIn();
 
         self::assertSame(1, $this->sessions()->revokeDevices($identity, RevocationReason::REVOKED, new PlainDeviceFixture('plain-device')));
+    }
+
+    /**
+     * A revocation of several scopes counts every scope's revoked devices, and
+     * reports each scope with its own count.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSeveralScopesCountEveryScopesDevices(): void
+    {
+        [, $first, $tenant] = $this->seedMember();
+        [, $second]         = $this->seedMember('other@example.test', $tenant);
+
+        $this->signIn('members', 'member@example.test');
+        $this->signIn('members', 'member@example.test');
+        $this->signIn('members', 'other@example.test');
+
+        $this->recordEvents([SignedOutEverywhere::class]);
+
+        self::assertSame(3, $this->sessions('members')->tenantDeactivated($tenant, [$first, $second]));
+        self::assertSame([2, 1], array_map(static fn (object $event): int => $event instanceof SignedOutEverywhere ? $event->revoked : -1, $this->recorded));
     }
 
     /**

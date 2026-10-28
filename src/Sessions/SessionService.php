@@ -40,6 +40,7 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
+use SineMacula\Laravel\Authentication\Sessions\Concerns\RevokesOnSecurityChanges;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -55,7 +56,8 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * session of this guard for the same identity and principal continues on that
  * device; otherwise a device is created.
  *
- * It also lists, signs out and revokes devices (`ManagesDevices`).
+ * It also lists, signs out and revokes devices (`ManagesDevices`), and ends
+ * sessions on security changes (`RevokesOnSecurityChanges`).
  *
  * Failures are results, not exceptions: Laravel's `Failed` and the package's
  * `AuthenticationFailed` report them. Exceptions are kept for misconfiguration
@@ -70,7 +72,7 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  */
 final readonly class SessionService
 {
-    use ManagesDevices;
+    use ManagesDevices, RevokesOnSecurityChanges;
 
     /** @var \SineMacula\Laravel\Authentication\Sessions\SessionWriter Writes the device and issues the pair. */
     private SessionWriter $writer;
