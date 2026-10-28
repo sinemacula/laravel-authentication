@@ -1435,6 +1435,22 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 $this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
 ```
 
+#### Enumeration resistance
+
+No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
+yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
+
+| Flow                 | Same outcome for an unknown identifier                                                                          | Delivery                       | Timing                                     |
+|----------------------|-----------------------------------------------------------------------------------------------------------------|--------------------------------|--------------------------------------------|
+| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                          | None                           | Padded to the credential timebox           |
+| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                       | Queued job, after the response | No identity work at all, so nothing to pad |
+| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account | None                           | Padded to the credential timebox           |
+| Verification by code | Not applicable: the caller holds the identity                                                                   | Queued job, after the response | Not applicable                             |
+
+The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
+looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity. Answer `sent` the same
+way whatever happens next, and do not tell the client whether a message went out.
+
 #### Writing a sign-in method
 
 A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why

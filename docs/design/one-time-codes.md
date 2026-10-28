@@ -99,6 +99,20 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - Expired rows are deleted by `model:prune` with `Models\OneTimeCode` (`expires_at <= now`); the cooldown, never longer
   than the lifetime, has ended with them.
 
+## Enumeration Criteria
+
+Each flow is held to the same criterion, and its tests prove it rather than assume it:
+
+- Code request: the result, the statements run (compared in order, known number against unknown, from clients whose
+  limits start alike) and the time taken are the same for a number no one has; against an identity store whose lookup
+  is slow and a gateway that is slow, a request is faster than either, since it does neither. Delivery is a queued job,
+  shown on Laravel's real `sync` and `database` drivers as well as a faked queue, and on `sync` it runs after the
+  response.
+- Code sign-in: an unknown number (with a wrong code, or with the code issued for it), a wrong, expired, exhausted or
+  used code, a locked account and a malformed code all answer `SignInResult::failed(invalid_credentials)` exactly, and
+  each waits out the real credential timebox against a slow store; a success returns before it.
+- Verification by code: the caller holds the identity, so the criterion is delivery only: queued, as above.
+
 ## Implementation Anchors
 
 - `src/Codes/OneTimeCodes.php` (engine), `src/Codes/CodeKeys.php`, `src/Codes/CodeBinding.php`,
@@ -120,7 +134,7 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - `tests/Integration/Codes/ReplicaOneTimeCodesTest.php`: write-connection reads.
 - `tests/Feature/Codes/CodeSignInTest.php`, `tests/Feature/Codes/EmailCodeSignInTest.php`,
   `tests/Feature/Codes/CodeServiceTest.php`, `tests/Feature/Codes/CodeRoutesTest.php`.
-- `tests/Performance/OneTimeCodeQueryBudgetTest.php`.
+- `tests/Performance/OneTimeCodeQueryBudgetTest.php` and `tests/Performance/OneTimeCodeEnumerationTest.php`.
 
 ## Change Triggers
 
