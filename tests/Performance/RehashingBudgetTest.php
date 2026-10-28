@@ -51,7 +51,6 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
         $hasher = \Mockery::mock(Hasher::class);
 
         $hasher->shouldReceive('make')->andReturnUsing(static fn (string $value): string => $bcrypt->make($value));
-        $hasher->shouldReceive('needsRehash')->andReturnUsing(static fn (string $hash): bool => $bcrypt->needsRehash($hash));
         $hasher->shouldReceive('check')->andReturnUsing(function (string $value, mixed $hash) use ($bcrypt): bool {
             $this->checks++;
 
@@ -166,6 +165,41 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
 
         self::assertLessThanOrEqual(2, $this->checksDuring(static fn () => $rehashing->unlessRehash($user, app(Hasher::class)->make(self::PASSWORD), static function (): void {})));
         self::assertCount(1, $this->attemptsOf($rehashing, 'web'));
+    }
+
+    /**
+     * Attempts for one account abandoned one after another, each after a save
+     * taken for its rehash whose change captures the instance saved, as the
+     * password-change observer's does, keep one held save and one attempt: a
+     * later held save replaces the earlier, which lets its instance go.
+     *
+     * @return void
+     */
+    public function testAbandonedAttemptsWithHeldSavesKeepOneForTheAccount(): void
+    {
+        $rehashing = app(Rehashing::class);
+
+        for ($attempt = 0; $attempt < 100; $attempt++) {
+
+            $user = self::user(5, self::PASSWORD);
+
+            Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
+            Event::dispatch(new Validated('web', $user));
+
+            $rehashing->unlessRehash($user, app(Hasher::class)->make(self::PASSWORD), static function () use ($user): void {
+                $user->getAuthIdentifier();
+            });
+        }
+
+        unset($user);
+
+        Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
+
+        $held = (new \ReflectionProperty(Rehashing::class, 'held'))->getValue($rehashing);
+
+        self::assertIsArray($held);
+        self::assertCount(1, $held);
+        self::assertCount(2, $this->attemptsOf($rehashing, 'web'));
     }
 
     /**

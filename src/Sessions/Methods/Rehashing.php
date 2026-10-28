@@ -15,8 +15,8 @@ use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
  * Marks the automatic rehash of a password on sign-in, so a listener that ends
  * an identity's sessions when its password changes can tell the stored hash
  * being upgraded from the password itself being changed. A save is a rehash
- * only as a user provider makes one: the previous hash needed rehashing, and
- * both it and the saved hash verify the password signed in with.
+ * only when it re-encodes the password signed in with: both the hash it
+ * replaces and the hash it saves verify that password.
  *
  * Two rehashes are marked. The package's own marks its identity and password
  * inside `during()`, and the mark is cleared in `finally`, so an exception
@@ -49,13 +49,13 @@ use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
  * instance (from a provider that caches its users) and is refused.
  *
  * The forced rehash of `logoutOtherDevices()` re-encodes the same password, so
- * a save taken for an attempt's rehash is held rather than dropped, one per
- * user (the latest), apart from the attempts, since the save's other listeners
- * may end or make attempts before `OtherDeviceLogout`. That event, which
- * follows the forced save, runs it; a new attempt that finds no open attempt
- * for the instance saved drops it, as the rehash of an attempt that ended. A
- * change of the user's password leaves it held, since that change may yet be
- * rolled back, so a sign-out after it may revoke twice. Users are told apart as
+ * a save taken for a rehash is held rather than dropped, one per user (the
+ * latest), for `OtherDeviceLogout`, which follows a forced save, to run. Any
+ * listener of the save may end or make attempts, or change the password and
+ * roll that back, before that event, so nothing else lets go of a save held for
+ * an attempt: it is kept until the request or job ends, and a sign-out later in
+ * the same request or job runs it too, revoking twice. The package's own rehash
+ * lets go of its save once it returns. Users are told apart as
  * `AccountAttempts::account()` tells accounts apart, so the same key in another
  * database is another user.
  *
@@ -75,15 +75,13 @@ final class Rehashing
     /** @var array<string, list<array{password: \SensitiveParameterValue, user: ?string, instance: ?\WeakReference<\Illuminate\Contracts\Auth\Authenticatable>, spent: bool}>> Per guard, its credential attempts that have started and not ended, innermost last: the password each was made with, the user and the instance it validated, and whether a change of that user's password has run since. */
     private array $attempts = [];
 
-    /** @var array<string, \Closure(): void> Per user, the latest change taken for an open attempt's rehash. */
+    /** @var array<string, \Closure(): void> Per user, the latest change taken for a rehash, held for the `OtherDeviceLogout` that would follow a forced one. */
     private array $held = [];
-
-    /** @var array<string, \Illuminate\Contracts\Auth\Authenticatable> Per user, the instance the change held for the user saved. */
-    private array $heldFor = [];
 
     /**
      * Run the callback marked as the automatic rehash of the user's password
-     * with the password.
+     * with the password. A save it takes for the rehash is let go of once the
+     * callback returns, unless a forced rehash inside it ran it.
      *
      * @template TReturn
      *
@@ -96,19 +94,25 @@ final class Rehashing
      */
     public function during(Authenticatable $user, #[\SensitiveParameter] mixed $password, \Closure $callback): mixed
     {
-        $this->rehashing[] = ['user' => self::key($user), 'password' => new \SensitiveParameterValue($password)];
+        $key    = self::key($user);
+        $before = $this->held[$key] ?? null;
+
+        $this->rehashing[] = ['user' => $key, 'password' => new \SensitiveParameterValue($password)];
 
         try {
             return $callback();
         } finally {
             array_pop($this->rehashing);
+
+            if (($this->held[$key] ?? null) !== $before) {
+                unset($this->held[$key]);
+            }
         }
     }
 
     /**
      * Record that the guard started a credential attempt with the credentials,
-     * letting go of the guard's attempts that cannot be running around it and
-     * of the saves held for instances no open attempt validated.
+     * letting go of the guard's attempts that cannot be running around it.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $credentials
@@ -121,8 +125,6 @@ final class Rehashing
         $attempts[] = ['password' => new \SensitiveParameterValue($credentials['password'] ?? null), 'user' => null, 'instance' => null, 'spent' => false];
 
         $this->attempts[$guard] = $attempts;
-
-        $this->dropHeldOutsideAttempts();
     }
 
     /**
@@ -180,15 +182,14 @@ final class Rehashing
     }
 
     /**
-     * Run the change of the user's password unless it is an automatic rehash. A
-     * save the package's own rehash of the user makes, with its password, is
-     * dropped. A save an open attempt may have made as its rehash (the attempt
-     * validated this very instance of this user, no change of the user's
-     * password has run since, and the attempt was made with its password) is
-     * held, in place of any change held for the user, until `forced()` runs it,
-     * or a new attempt finds no open attempt for the instance it saved. Either
-     * is a rehash only when the previous hash needed one and both it and the
-     * saved hash verify that password. Anything else runs at once, and from
+     * Run the change of the user's password unless it is an automatic rehash, a
+     * save that re-encodes the password signed in with (both the previous and
+     * the saved hash verify it): one the package's own rehash of the user
+     * makes, or one of the very instance an open attempt validated for this
+     * user, made with that password, with no change of the user's password run
+     * since. Such a save is held, in place of any change held for the user, for
+     * `forced()` to run, since `logoutOtherDevices()` re-encodes the same
+     * password; it is never run otherwise. Anything else runs at once, and from
      * then on no attempt open for the user takes a save for its rehash.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
@@ -202,14 +203,9 @@ final class Rehashing
     {
         $key = self::key($user);
 
-        if ($this->isPackageRehash($key, $user, $previous)) {
-            return;
-        }
+        if ($this->isPackageRehash($key, $user, $previous) || $this->isAttemptRehash($key, $user, $previous)) {
 
-        if ($this->isAttemptRehash($key, $user, $previous)) {
-
-            $this->held[$key]    = $change;
-            $this->heldFor[$key] = $user;
+            $this->held[$key] = $change;
 
             return;
         }
@@ -238,32 +234,11 @@ final class Rehashing
 
         $change = $this->held[$key];
 
-        unset($this->held[$key], $this->heldFor[$key]);
+        unset($this->held[$key]);
 
         $this->changed($key);
 
         $change();
-    }
-
-    /**
-     * Drop the changes held for instances no open attempt validated: such a
-     * save was an ended attempt's rehash, since `OtherDeviceLogout` would have
-     * followed a forced one before any new attempt.
-     *
-     * @return void
-     */
-    private function dropHeldOutsideAttempts(): void
-    {
-        $open = array_column(array_merge(...array_values($this->attempts)), 'instance');
-
-        foreach ($this->heldFor as $key => $instance) {
-
-            if (in_array(\WeakReference::create($instance), $open, true)) {
-                continue;
-            }
-
-            unset($this->held[$key], $this->heldFor[$key]);
-        }
     }
 
     /**
@@ -357,9 +332,8 @@ final class Rehashing
     }
 
     /**
-     * Whether a save of the saved hash over the previous one is a rehash of the
-     * password, as a user provider makes it: both hashes verify the password,
-     * and the previous one needed rehashing.
+     * Whether a save of the saved hash over the previous one re-encodes the
+     * password: both verify it.
      *
      * @param  mixed  $password
      * @param  mixed  $saved
@@ -370,7 +344,7 @@ final class Rehashing
      */
     private static function isRehashOf(#[\SensitiveParameter] mixed $password, mixed $saved, mixed $previous): bool
     {
-        return self::verifies($password, $saved) && self::verifies($password, $previous) && Container::getInstance()->make(Hasher::class)->needsRehash($previous);
+        return self::verifies($password, $saved) && self::verifies($password, $previous);
     }
 
     /**

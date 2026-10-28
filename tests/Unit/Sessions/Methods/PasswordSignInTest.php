@@ -527,13 +527,12 @@ final class PasswordSignInTest extends TestCase
             $rehashing->unlessRehash($identity, $outdated, static function () use (&$changes): void {
                 $changes[] = 'during';
             });
-
-            $rehashing->forced($identity);
         });
 
         try {
             (new PasswordSignIn(new Repository))->rehash($this->provider, $identity, ['password' => 'secret']);
 
+            $rehashing->forced($identity);
             $rehashing->unlessRehash($identity, $outdated, static function () use (&$changes): void {
                 $changes[] = 'after';
             });

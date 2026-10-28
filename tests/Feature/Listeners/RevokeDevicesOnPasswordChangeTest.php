@@ -4,10 +4,12 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Listeners;
 
+use Illuminate\Auth\EloquentUserProvider;
 use Illuminate\Auth\SessionGuard;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
+use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -129,6 +131,59 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
+     * `logoutOtherDevices()` called by a listener of the package's own
+     * automatic rehash's save, through the instance saved, still ends every
+     * package session: the forced save re-encodes the same password over the
+     * hash the rehash replaced, but it is held, not dropped, for the
+     * `OtherDeviceLogout` that follows it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLogoutOtherDevicesInsideTheAutomaticRehashRevokes(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signIn();
+
+        DB::table('integration_identities')->update(['password' => self::OUTDATED_HASH]);
+
+        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+
+        $listening = true;
+
+        IntegrationIdentity::updated(static function (IntegrationIdentity $saved) use (&$listening): void {
+
+            if (!$listening) {
+                return;
+            }
+
+            $listening = false;
+
+            $guard = Auth::guard('console');
+
+            self::assertInstanceOf(SessionGuard::class, $guard);
+
+            $guard->setUser($saved);
+            $guard->logoutOtherDevices(self::PASSWORD);
+        });
+
+        $identity->refresh();
+
+        app(Rehashing::class)->during($identity, self::PASSWORD, static function () use ($identity): void {
+            $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+        });
+
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+
+        self::assertNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+    }
+
+    /**
      * A new password saved while the package's own automatic rehash runs, by
      * another listener of the rehash's save say, is a change: the mark covers
      * only a save that rehashes the password signed in with.
@@ -170,6 +225,37 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
 
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * A user provider with a hasher of its own, configured apart from the
+     * application's, rehashes by its own cost on `attempt()`: still not a
+     * change of password, so nothing is revoked.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARehashByAProviderWithItsOwnHasherRevokesNothing(): void
+    {
+        $identity = $this->seedIdentity();
+
+        $this->signIn();
+
+        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+
+        Auth::provider('costlier', static fn (): EloquentUserProvider => new EloquentUserProvider(new BcryptHasher(['rounds' => 5]), IntegrationIdentity::class));
+
+        config()->set('auth.providers.costlier', ['driver' => 'costlier']);
+        config()->set('auth.guards.costlier', ['driver' => 'session', 'provider' => 'costlier']);
+
+        $hash  = $identity->getAuthPassword();
+        $guard = Auth::guard('costlier');
+
+        self::assertInstanceOf(SessionGuard::class, $guard);
+        self::assertTrue($guard->attempt(self::credentials()));
+        self::assertNotSame($hash, $identity->fresh()?->getAuthPassword());
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
     }
 
     /**
@@ -488,6 +574,8 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
             yield "{$name}, through the validated instance, with a nested attempt" => [$attempt, 'validated', 'attempt'];
             yield "{$name}, through the validated instance, binding it to a guard" => [$attempt, 'validated', 'bind'];
             yield "{$name}, through the validated instance, with a change rolled back" => [$attempt, 'validated', 'rollback'];
+            yield "{$name}, through the validated instance, binding it and attempting again" => [$attempt, 'validated', 'bind, attempt'];
+            yield "{$name}, through the validated instance, with a change rolled back and another attempt" => [$attempt, 'validated', 'rollback, attempt'];
         }
     }
 
@@ -499,8 +587,9 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
      * forced rehash runs inside its callback, and whatever another listener of
      * the forced save does first (attempt again on the same guard, bind the
      * instance to a guard, or change the password in a transaction it rolls
-     * back), the sign-out still ends every package session, so its tokens are
-     * refused at the `auth` middleware and its refresh token refreshes nothing.
+     * back, alone or then attempting again), the sign-out still ends every
+     * package session, so its tokens are refused at the `auth` middleware and
+     * its refresh token refreshes nothing.
      *
      * @param  string  $attempt
      * @param  string  $through
@@ -529,14 +618,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
             $listening = false;
 
-            match ($listener) {
-                'attempt'  => self::assertFalse($this->webGuard()->attempt(['email' => 'ada@example.test', 'password' => 'wrong'])),
-                'bind'     => $this->webGuard()->setUser($saved),
-                'rollback' => self::rollBack(static function () use ($saved): void {
-                    IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('rolled back')])->save();
-                }),
-                default => null,
-            };
+            array_map(fn (string $step) => $this->interfere($step, $saved), explode(', ', $listener));
         });
 
         $logout = static function (IntegrationIdentity $validated) use ($identity, $through): bool {
@@ -660,6 +742,29 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         $config->set('auth.guards.console', ['driver' => 'session', 'provider' => 'users']);
         $config->set('auth.timebox_duration', 1);
         $config->set('session.driver', 'array');
+    }
+
+    /**
+     * Do one thing a listener of a forced save may do before the sign-out's
+     * event: attempt again on the web guard, bind the saved instance to it, or
+     * change the password in a transaction it rolls back.
+     *
+     * @param  string  $step
+     * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $saved
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private function interfere(string $step, IntegrationIdentity $saved): void
+    {
+        match ($step) {
+            'attempt'  => self::assertFalse($this->webGuard()->attempt(['email' => 'ada@example.test', 'password' => 'wrong'])),
+            'bind'     => $this->webGuard()->setUser($saved),
+            'rollback' => self::rollBack(static function () use ($saved): void {
+                IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('rolled back')])->save();
+            }),
+            default => null,
+        };
     }
 
     /**
