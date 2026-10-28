@@ -179,6 +179,7 @@ final class PendingSignInsTest extends TestCase
         $pending = $this->issue($this->seedIdentity());
 
         self::assertSame($this->now->addSeconds($seconds)->getTimestamp(), $pending->expiresAt->getTimestamp());
+        self::assertSame($seconds, $this->pendings()->ttlSeconds());
     }
 
     /**

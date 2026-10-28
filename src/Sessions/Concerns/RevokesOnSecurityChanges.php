@@ -134,15 +134,23 @@ trait RevokesOnSecurityChanges
     public function tenantDeactivated(Tenant $tenant, iterable $principals): int
     {
         $scopes = [];
+        $listed = [];
 
         foreach ($principals as $principal) {
 
             self::assertActsWithin($principal, $tenant);
 
-            $scopes[PrincipalReference::type($principal) . "\0" . PrincipalReference::id($principal)] ??= RevocationScope::principal($principal, $tenant);
+            $recorded = [PrincipalReference::type($principal), PrincipalReference::id($principal)];
+
+            if (in_array($recorded, $listed, true)) {
+                continue;
+            }
+
+            $listed[] = $recorded;
+            $scopes[] = RevocationScope::principal($principal, $tenant);
         }
 
-        return $scopes === [] ? 0 : $this->endSessions(array_values($scopes), RevocationReason::TENANT_DEACTIVATED, null);
+        return $scopes === [] ? 0 : $this->endSessions($scopes, RevocationReason::TENANT_DEACTIVATED, null);
     }
 
     /**

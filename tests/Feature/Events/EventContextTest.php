@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\Events;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\TestCase;
@@ -61,7 +62,8 @@ final class EventContextTest extends TestCase
 
     /**
      * A device row that records no owner or principal, or a device that is not
-     * an Eloquent row, gives no snapshot.
+     * an Eloquent row (a device of another kind, or one that only declares the
+     * Eloquent contract), gives no snapshot.
      *
      * @return void
      */
@@ -76,10 +78,16 @@ final class EventContextTest extends TestCase
         self::assertNull($bare->principalType);
         self::assertNull($bare->principalId);
 
-        $plain = new EventContext('api', new ClientContext(null, null), device: new PlainDeviceFixture('plain'));
+        $declared = \Mockery::mock(EloquentDevice::class);
+        $declared->shouldReceive('getDeviceIdentifier')->andReturn('declared');
 
-        self::assertNull($plain->identityId);
-        self::assertNull($plain->principalType);
-        self::assertNull($plain->principalId);
+        foreach ([new PlainDeviceFixture('plain'), $declared] as $other) {
+
+            $context = new EventContext('api', new ClientContext(null, null), device: $other);
+
+            self::assertNull($context->identityId);
+            self::assertNull($context->principalType);
+            self::assertNull($context->principalId);
+        }
     }
 }

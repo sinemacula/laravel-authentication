@@ -101,40 +101,35 @@ final readonly class EventContext
         // A device id a token or pin named, kept when no device row was loaded.
         ?string $deviceId = null,
     ) {
-        $recorded = $identity === null || $principal === null ? self::recordedOn($device) : [null, null, null];
-
-        $this->identityId    = $identity  === null ? $recorded[0] : IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $this->principalType = $principal === null ? $recorded[1] : PrincipalReference::type($principal);
-        $this->principalId   = $principal === null ? $recorded[2] : PrincipalReference::id($principal);
+        $this->identityId    = $identity  === null ? self::recordedOn($device, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $this->principalType = $principal === null ? self::recordedOn($device, 'type') : PrincipalReference::type($principal);
+        $this->principalId   = $principal === null ? self::recordedOn($device, 'id') : PrincipalReference::id($principal);
         $this->tenantId      = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
         $this->deviceId      = $device === null ? $deviceId : IdentifierCoercion::stringify($device->getDeviceIdentifier());
     }
 
     /**
-     * The owner identifier, principal type and principal identifier an Eloquent
-     * device row records, read from its attributes without a query, each `null`
-     * when the row records none or there is no such row.
+     * What an Eloquent device row records, read from its attributes without a
+     * query: its owner's identifier (`owner`), or its principal's type (`type`)
+     * or identifier (`id`); `null` when the row records none or there is no
+     * such row.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @return array{0: ?string, 1: ?string, 2: ?string}
+     * @param  'id'|'owner'|'type'  $part
+     * @return ?string
      */
-    private static function recordedOn(?Device $device): array
+    private static function recordedOn(?Device $device, string $part): ?string
     {
         if (!$device instanceof EloquentDevice || !$device instanceof Model) {
-            return [null, null, null];
+            return null;
         }
 
         [$type, $id] = PrincipalReference::columns($device);
 
         /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $blank */
-        $blank      = $device->newInstance();
-        $owner      = $blank->authenticatable()->getForeignKeyName();
-        $attributes = $device->getAttributes();
+        $blank   = $device->newInstance();
+        $columns = ['owner' => $blank->authenticatable()->getForeignKeyName(), 'type' => $type, 'id' => $id];
 
-        return [
-            IdentifierCoercion::stringify($attributes[$owner] ?? null),
-            IdentifierCoercion::stringify($attributes[$type] ?? null),
-            IdentifierCoercion::stringify($attributes[$id] ?? null),
-        ];
+        return IdentifierCoercion::stringify($device->getAttributes()[$columns[$part]] ?? null);
     }
 }

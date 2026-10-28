@@ -218,7 +218,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
 
         $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class]);
 
-        self::assertSame(2, $this->sessions('members')->tenantDeactivated($tenant, [$first, $second, $first]));
+        self::assertSame(2, $this->sessions('members')->tenantDeactivated($tenant, [$first, $first, $second]));
 
         self::assertSame(
             [DeviceRevoked::class, SignedOutEverywhere::class, DeviceRevoked::class, SignedOutEverywhere::class],

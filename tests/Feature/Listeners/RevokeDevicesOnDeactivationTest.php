@@ -209,7 +209,10 @@ final class RevokeDevicesOnDeactivationTest extends TestCase
     public function testATenantsDeactivationIsReported(): void
     {
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('Model ' . ActivatableTenant::class . ' is neither an identity nor a principal, so deactivating it ends no sessions here.');
+        $this->expectExceptionMessage(
+            'Model ' . ActivatableTenant::class . ' is neither an identity nor a principal, so deactivating it ends no sessions here.'
+            . ' A tenant\'s deactivation calls tenantDeactivated() with its principals.',
+        );
 
         app(RevokeDevicesOnDeactivation::class)->updated($this->tenantChangingFrom(true, false));
     }

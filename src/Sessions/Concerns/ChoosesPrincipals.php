@@ -313,9 +313,11 @@ trait ChoosesPrincipals
 
             if ($reason === null) {
                 $principals[] = $principal;
+
+                continue;
             }
 
-            $refusal ??= $reason;
+            $refusal = $reason;
         }
 
         if ($principals === []) {

@@ -35,10 +35,10 @@ final class Rehashing
     /** @var int How many rehashes are running, so a nested one does not clear the mark early. */
     private int $depth = 0;
 
-    /** @var array<string, true> The guards whose credential attempt has started and not ended. */
+    /** @var array<string, bool> Per guard, whether its credential attempt has started and not ended. */
     private array $attempts = [];
 
-    /** @var array<string, string> Per guard, the user whose credentials its running attempt validated. */
+    /** @var array<string, array{0: class-string, 1: ?string}> Per guard, the user whose credentials its running attempt validated. */
     private array $validated = [];
 
     /**
@@ -85,7 +85,7 @@ final class Rehashing
      */
     public function validated(string $guard, Authenticatable $user): void
     {
-        if (!isset($this->attempts[$guard])) {
+        if (!($this->attempts[$guard] ?? false)) {
             return;
         }
 
@@ -127,13 +127,13 @@ final class Rehashing
     }
 
     /**
-     * The key telling users apart: their class and auth identifier.
+     * What tells users apart: their class and auth identifier.
      *
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
-     * @return string
+     * @return array{0: class-string, 1: ?string}
      */
-    private static function key(Authenticatable $user): string
+    private static function key(Authenticatable $user): array
     {
-        return $user::class . "\0" . IdentifierCoercion::stringify($user->getAuthIdentifier());
+        return [$user::class, IdentifierCoercion::stringify($user->getAuthIdentifier())];
     }
 }
