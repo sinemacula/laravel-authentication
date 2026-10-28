@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -34,13 +35,16 @@ final class SessionPreconditionsTest extends TestCase
 
     /**
      * An identity that owns devices may be signed in; one that does not is
-     * refused as a misconfiguration naming its class.
+     * refused as a misconfiguration naming its class. A non-human identity,
+     * which owns none, is let through, for the admission to refuse as the
+     * result it is.
      *
      * @return void
      */
     public function testOnlyAnIdentityThatOwnsDevicesMayStartASession(): void
     {
         SessionPreconditions::assertHoldsDevices(\Mockery::mock(Identity::class, HasDevices::class));
+        SessionPreconditions::assertHoldsDevices(\Mockery::mock(MachineIdentity::class));
 
         $identity = \Mockery::mock(Identity::class);
 

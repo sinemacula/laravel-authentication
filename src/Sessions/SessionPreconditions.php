@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -35,6 +36,9 @@ final class SessionPreconditions
      * device, and a bearer token names one the guard can only find through the
      * identity's `HasDevices` relation, so its access token would never
      * authenticate. Such a guard is access-only and signs in with `attempt()`.
+     * A non-human identity is let through: it has no session at all, and the
+     * sign-in's admission refuses it as `machine_identity`, a result rather
+     * than a misconfiguration.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return void
@@ -43,7 +47,7 @@ final class SessionPreconditions
      */
     public static function assertHoldsDevices(Identity $identity): void
     {
-        if ($identity instanceof HasDevices) {
+        if ($identity instanceof HasDevices || $identity instanceof MachineIdentity) {
             return;
         }
 

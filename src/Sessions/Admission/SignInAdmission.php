@@ -6,15 +6,18 @@ namespace SineMacula\Laravel\Authentication\Sessions\Admission;
 
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 
 /**
  * The checks every sign-in passes once its identity is known, whichever way it
- * was proven: the identity is active, the principal resolves and is active, the
- * tenant it acts within is active, and the guard's audience policy admits the
- * identity as that principal.
+ * was proven: the identity is a human one (a non-human identity has no
+ * interactive sign-in and no session, so it is refused as `machine_identity`
+ * whatever method proved it), the identity is active, the principal resolves
+ * and is active, the tenant it acts within is active, and the guard's audience
+ * policy admits the identity as that principal.
  *
  * Shared by `attempt()` and the session service, so a password sign-in, a
  * sign-in started for an externally verified identity, and the completion of a
@@ -46,9 +49,9 @@ final readonly class SignInAdmission
     /**
      * Admit the identity to the guard as the principal the callback resolves,
      * or say why not. The callback runs only once the identity is known to be
-     * active and the audience policy admits it with the identifier type
-     * (`admitIdentifier()`); when it resolves no principal, the sign-in fails
-     * with `$unresolved`.
+     * human and active and the audience policy admits it with the identifier
+     * type (`admitIdentifier()`); when it resolves no principal, the sign-in
+     * fails with `$unresolved`.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -63,14 +66,14 @@ final readonly class SignInAdmission
      */
     public function admit(string $guard, Identity $identity, \Closure $principal, FailureReason $unresolved, ?string $identifierType): AdmittedSignIn|RefusedSignIn
     {
-        if (!ActivationPolicy::isActive($identity)) {
-            return new RefusedSignIn(FailureReason::IDENTITY_INACTIVE, $identity);
-        }
+        $refusal = match (true) {
+            $identity instanceof MachineIdentity   => FailureReason::MACHINE_IDENTITY,
+            !ActivationPolicy::isActive($identity) => FailureReason::IDENTITY_INACTIVE,
+            default                                => $this->audience->admitIdentifier($guard, $identity, $identifierType),
+        };
 
-        $unverified = $this->audience->admitIdentifier($guard, $identity, $identifierType);
-
-        if ($unverified !== null) {
-            return new RefusedSignIn($unverified, $identity);
+        if ($refusal !== null) {
+            return new RefusedSignIn($refusal, $identity);
         }
 
         $resolved = $principal();

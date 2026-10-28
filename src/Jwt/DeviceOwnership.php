@@ -5,8 +5,10 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Jwt;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 
 /**
  * Read a device row's owner and decide whether an identity is that owner.
@@ -37,6 +39,26 @@ final class DeviceOwnership
     public static function ownerKey(EloquentDevice&Model $device): ?string
     {
         return IdentifierCoercion::stringify($device->getAttribute($device->authenticatable()->getForeignKeyName()));
+    }
+
+    /**
+     * Whether the device row records a non-human identity as its owner: its
+     * morph type names a class, through the morph map or directly, that
+     * implements `MachineIdentity`. The type column is read through the
+     * relation of a blank instance, so a recorded type that names no class is
+     * not instantiated.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @return bool
+     */
+    public static function isMachineOwned(EloquentDevice&Model $device): bool
+    {
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $blank */
+        $blank = $device->newInstance();
+        $type  = $device->getAttribute($blank->authenticatable()->getMorphType());
+        $class = is_string($type) ? Relation::getMorphedModel($type) ?? $type : null;
+
+        return $class !== null && is_a($class, MachineIdentity::class, true);
     }
 
     /**

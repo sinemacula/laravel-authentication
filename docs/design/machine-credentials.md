@@ -8,6 +8,12 @@ authorization package decides what they allow.
 
 ## Invariants
 
+- A non-human identity implements `MachineIdentity`. It has no password, no interactive sign-in, no device and no
+  refresh: `PasswordSignIn` refuses it as `invalid_credentials` before any hash or account count; `SignInAdmission`
+  refuses it first, as `machine_identity`, for every method and for `start()`, `complete()` and `choose()`;
+  `RefreshAdmission` refuses a device it owns (refresh and switch of principal); `BearerAuthentication` refuses a
+  session token naming it; `JwtTokenService` issues it no session token (`LogicException`). The trusted binds stay
+  trusted and bind it with `[]` scopes.
 - A scope is an opaque RFC 6749 scope token (printable ASCII other than space, `"` and `\`, at most 255 bytes). The
   package stores scopes as an ordered list without duplicates and never reads meaning into one.
 - Scopes are a ceiling, never a permission: an authorization package intersects them with the principal's permissions.
@@ -70,6 +76,9 @@ authorization package decides what they allow.
 
 ## Implementation Anchors
 
+- `src/Contracts/MachineIdentity.php`; `src/Sessions/Admission/SignInAdmission.php`,
+  `src/Sessions/Methods/PasswordSignIn.php`, `src/Sessions/SessionPreconditions.php`, `src/Jwt/RefreshAdmission.php`,
+  `src/Guards/BearerAuthentication.php`, `src/Jwt/JwtTokenService.php`, `src/Jwt/DeviceOwnership.php`.
 - `src/Scopes/Scopes.php`: `normalise()`, `parse()`, `format()`, `isSubset()`, `grantable()`.
 - `src/Contracts/ScopeRegistry.php`, `src/Scopes/AcceptAnyScope.php`, `src/Exceptions/InvalidScopeException.php`.
 - `src/Guards/Concerns/BindsContextualState.php`: `scopes()`, and the scopes a bind without a credential gets.
@@ -80,6 +89,7 @@ authorization package decides what they allow.
 
 ## Authoritative Tests
 
+- `tests/Feature/Sessions/MachineIdentitySignInTest.php`, `tests/Feature/Jwt/MachineJwtTokenServiceTest.php`
 - `tests/Unit/Scopes/ScopesTest.php`
 - `tests/Feature/Guards/BindsContextualStateTest.php`
 - `tests/Integration/Facade/AuthScopesIntegrationTest.php`

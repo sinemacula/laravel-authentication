@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -32,13 +33,13 @@ use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
  *
  * Checked in order, each failure with its own reason: the token itself
  * (`token_invalid`); the identity its `sub` names, reloaded through the guard's
- * provider (`identity_unknown`) and active (`identity_inactive`); the principal
- * its `pid` names, which must resolve to exactly that principal
- * (`principal_mismatch`) and be active in an active tenant
- * (`principal_inactive`, `tenant_inactive`); for a token that names no device,
- * an issue time after the identity's and the principal's "tokens valid after"
- * time (`issued_before_cutoff`); and, for a token that names a device, that
- * device among the identity's own (`device_unknown`), of this guard
+ * provider (`identity_unknown`), a human one (`machine_identity`) and active
+ * (`identity_inactive`); the principal its `pid` names, which must resolve to
+ * exactly that principal (`principal_mismatch`) and be active in an active
+ * tenant (`principal_inactive`, `tenant_inactive`); for a token that names no
+ * device, an issue time after the identity's and the principal's "tokens valid
+ * after" time (`issued_before_cutoff`); and, for a token that names a device,
+ * that device among the identity's own (`device_unknown`), of this guard
  * (`device_guard_mismatch`), not revoked (`device_revoked`), with a session
  * that has not ended (`session_expired`), and acting as the token's principal
  * with no principal switch after the token was issued
@@ -108,8 +109,10 @@ final readonly class BearerAuthentication
 
     /**
      * Admit the identity the claims name as the principal they name: the
-     * identity must be found and active, and the principal must resolve exactly
-     * and be active in an active tenant.
+     * identity must be found, a human one (a non-human identity's tokens come
+     * only from a client credentials exchange, so a device's token or a plain
+     * access token of one is refused as `machine_identity`) and active, and the
+     * principal must resolve exactly and be active in an active tenant.
      *
      * @param  array<string, mixed>  $claims
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
@@ -120,13 +123,17 @@ final readonly class BearerAuthentication
     {
         $identity = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
 
-        if (!$identity instanceof Identity || !ActivationPolicy::isActive($identity)) {
-            return $identity instanceof Identity
-                ? new RefusedSignIn(FailureReason::IDENTITY_INACTIVE, $identity)
-                : new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
+        if (!$identity instanceof Identity) {
+            return new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
         }
 
-        return $this->admitAs($identity, $claims[Claims::PRINCIPAL_ID->value]);
+        $refusal = match (true) {
+            $identity instanceof MachineIdentity   => FailureReason::MACHINE_IDENTITY,
+            !ActivationPolicy::isActive($identity) => FailureReason::IDENTITY_INACTIVE,
+            default                                => null,
+        };
+
+        return $refusal === null ? $this->admitAs($identity, $claims[Claims::PRINCIPAL_ID->value]) : new RefusedSignIn($refusal, $identity);
     }
 
     /**

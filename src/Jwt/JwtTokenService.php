@@ -8,11 +8,14 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Firebase\JWT\ExpiredException;
 use Firebase\JWT\JWT;
+use Illuminate\Database\Eloquent\Model;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -147,7 +150,8 @@ final class JwtTokenService
      * part of its context: the identity and principal, and the device when one
      * is given, must each have an identifier that can be written into its claim
      * (a saved model's scalar key). Refuses, too, a device whose session has
-     * ended or that has no deadlines.
+     * ended or that has no deadlines, and a non-human identity: a machine gets
+     * tokens only from a client credentials exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -162,6 +166,8 @@ final class JwtTokenService
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt = null): string
     {
+        self::refuseMachines($identity instanceof MachineIdentity);
+
         $issuedAt   = $this->issueTime($issuedAt);
         $sessionEnd = $device === null ? null : $this->sessionEnd($device, $issuedAt);
         $type       = PrincipalType::of($principal);
@@ -194,7 +200,9 @@ final class JwtTokenService
      * would reject or that would lose its principal: the device, and the
      * principal when one is given, must each have an identifier that can be
      * written into its claim, and the rotation id must not be empty. Refuses,
-     * too, a device whose session has ended or that has no deadlines.
+     * too, a device whose session has ended or that has no deadlines, and a
+     * device a non-human identity owns, or a non-human principal: a machine has
+     * no device and no refresh.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
@@ -207,6 +215,8 @@ final class JwtTokenService
      */
     public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null, ?CarbonInterface $issuedAt = null): string
     {
+        self::refuseMachines($principal instanceof MachineIdentity || ($device instanceof EloquentDevice && $device instanceof Model && DeviceOwnership::isMachineOwned($device)));
+
         $issuedAt = $this->issueTime($issuedAt);
 
         $payload = $this->baseClaims($issuedAt, $this->sessionEnd($device, $issuedAt)->getTimestamp(), TokenType::REFRESH);
@@ -293,6 +303,22 @@ final class JwtTokenService
     private function lifetimesOfType(?string $type): TokenLifetimes
     {
         return $type === null ? $this->lifetimes : $this->principalTypeLifetimes[$type] ?? $this->lifetimes;
+    }
+
+    /**
+     * Refuse to issue a session's token to a non-human identity, which has no
+     * device, no refresh and no interactive sign-in.
+     *
+     * @param  bool  $machine
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private static function refuseMachines(bool $machine): void
+    {
+        if ($machine) {
+            throw new \LogicException('A non-human identity has no session: it gets access tokens only from a client credentials exchange.');
+        }
     }
 
     /**

@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -104,6 +105,34 @@ final class SignInAdmissionTest extends TestCase
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertNull($refused->principal);
+    }
+
+    /**
+     * A non-human identity is refused as `machine_identity` first, active or
+     * not, before the policy is asked or any principal resolved: whatever
+     * method proved it, it has no interactive sign-in.
+     *
+     * @return void
+     */
+    public function testRefusesAMachineIdentityFirst(): void
+    {
+        $identity = \Mockery::mock(MachineIdentity::class, CanBeActive::class);
+        $identity->shouldNotReceive('isActive');
+        $resolved = false;
+
+        $this->audience->shouldNotReceive('admitIdentifier');
+        $this->audience->shouldNotReceive('admit');
+
+        $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
+            $resolved = true;
+
+            return null;
+        }, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
+
+        self::assertFalse($resolved);
+        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertSame(FailureReason::MACHINE_IDENTITY, $refused->reason);
+        self::assertSame($identity, $refused->identity);
     }
 
     /**

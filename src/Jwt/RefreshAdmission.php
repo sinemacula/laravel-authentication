@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -73,11 +74,17 @@ final readonly class RefreshAdmission
     {
         $identity = $this->owner($device);
 
-        if ($identity === null || !ActivationPolicy::isActive($identity)) {
-            return new RefusedSignIn($identity === null ? FailureReason::IDENTITY_UNKNOWN : FailureReason::IDENTITY_INACTIVE, $identity);
+        if ($identity === null) {
+            return new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
         }
 
-        return $this->admitAs($device, $identity, $principalHint);
+        $refusal = match (true) {
+            $identity instanceof MachineIdentity   => FailureReason::MACHINE_IDENTITY,
+            !ActivationPolicy::isActive($identity) => FailureReason::IDENTITY_INACTIVE,
+            default                                => null,
+        };
+
+        return $refusal === null ? $this->admitAs($device, $identity, $principalHint) : new RefusedSignIn($refusal, $identity);
     }
 
     /**
