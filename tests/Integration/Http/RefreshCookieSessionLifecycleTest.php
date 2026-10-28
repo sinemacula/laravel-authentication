@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
@@ -167,6 +170,32 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
+     * A switch the refresh limits refuse is answered as a refused refresh is,
+     * with a 429 carrying `Retry-After`, so the client waits; the session is
+     * left as it was.
+     *
+     * @return void
+     */
+    public function testARateLimitedSwitchIsAnsweredWithRetryAfter(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $cookie = self::refreshCookie($this->browser('POST', '/auth/sign-in')->assertOk());
+        $before = DB::table('devices')->first(['principal_id', 'refresh_key']);
+
+        $limiter = \Mockery::mock(AttemptLimiter::class);
+        $limiter->shouldReceive('blocked')->once()->andReturn(42);
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->browser('POST', '/auth/switch', $cookie, ['membership' => $second->getKey()])
+            ->assertTooManyRequests()
+            ->assertHeader('Retry-After', '42');
+
+        self::assertEquals($before, DB::table('devices')->first(['principal_id', 'refresh_key']));
+    }
+
+    /**
      * A sign-in posted from another site, or without the custom header, is
      * refused before any session starts and sets no cookie, so a cross-site
      * form cannot sign the browser into another account.
@@ -291,17 +320,22 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     /**
      * Switch the session proven by the refresh token the guard's transport
      * reads from the request to the membership named, answering a switch read
-     * from the cookie with the rotated cookie, or with the refusal's reason.
+     * from the cookie with the rotated cookie, a rate-limited one with a 429
+     * carrying `Retry-After`, or another refusal with its reason.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      *
-     * @throws \Throwable
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      */
     private static function switchRoute(Request $request): JsonResponse
     {
         $target = ActivatableTenantMembership::query()->findOrFail($request->integer('membership'));
         $result = Auth::sessions(self::GUARD)->switchPrincipalFromRequest($target);
+
+        if ($result?->reason === FailureReason::RATE_LIMITED) {
+            throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
+        }
 
         if ($result?->session === null) {
             return new JsonResponse(['reason' => $result?->reason?->value], 401);
