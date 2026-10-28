@@ -15,11 +15,11 @@ use Tests\TestCase;
 
 /**
  * Integration tests for the collision guard of the shipped pending sign-ins,
- * rate limits, passkeys and passkey challenges migrations: each refuses to run
- * over an existing table of its configured name, before changing the schema,
- * and names the configuration key that renames the table; under another name it
- * runs. The package test case has already run the shipped migrations, so the
- * default tables exist.
+ * rate limits, one-time codes, passkeys, passkey challenges and API keys
+ * migrations: each refuses to run over an existing table of its configured
+ * name, before changing the schema, and names the configuration key that
+ * renames the table; under another name it runs. The package test case has
+ * already run the shipped migrations, so the default tables exist.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -45,7 +45,7 @@ final class SignInTablesMigrationCollisionTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        foreach ([self::RENAMED, 'pending_sign_ins', 'rate_limits', 'one_time_codes', 'passkeys', 'passkey_challenges'] as $table) {
+        foreach ([self::RENAMED, 'pending_sign_ins', 'rate_limits', 'one_time_codes', 'passkeys', 'passkey_challenges', 'api_keys'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -65,6 +65,7 @@ final class SignInTablesMigrationCollisionTest extends TestCase
             'one-time codes'     => ['2026_04_06_000003_create_one_time_codes_table.php', 'codes.table', 'one_time_codes'],
             'passkeys'           => ['2026_04_06_000004_create_passkeys_table.php', 'passkeys.table', 'passkeys'],
             'passkey challenges' => ['2026_04_06_000005_create_passkey_challenges_table.php', 'passkeys.challenges_table', 'passkey_challenges'],
+            'api keys'           => ['2026_04_06_000006_create_api_keys_table.php', 'api_keys.table', 'api_keys'],
         ];
     }
 

@@ -18,14 +18,15 @@ use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\MachineClient;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
 /**
- * Feature tests for `authentication:check`: it resolves each `jwt` guard's
- * settings and the device model as the package would, lists every problem it
- * finds as `[<guard>] <message>`, exits `1` when there is one and `0` when
- * there is none, and reads configuration only.
+ * Feature tests for `authentication:check`: it resolves each `jwt` and
+ * `api_key` guard's settings and the device model as the package would, lists
+ * every problem it finds as `[<guard>] <message>`, exits `1` when there is one
+ * and `0` when there is none, and reads configuration only.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -56,7 +57,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK'], $output);
+        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK'], $output);
         self::assertSame(0, $queries);
     }
 
@@ -180,6 +181,46 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.passkeys' => 'example.test'],
             '[api] Passkey configuration for guard [api]: the guard\'s `passkeys` overrides must be an array.',
         ];
+        yield 'an API key prefix out of form' => [
+            ['authentication.api_keys.prefix' => 'Acme'],
+            '[api_keys] `authentication.api_keys.prefix` must be a lower-case letter',
+        ];
+        yield 'an API key rotation overlap beyond the maximum' => [
+            ['authentication.api_keys.rotation_overlap_seconds' => 700000],
+            '[api_keys] `authentication.api_keys.rotation_overlap_seconds` must be an integer from 0 to',
+        ];
+        yield 'an API key rotation overlap maximum out of range' => [
+            ['authentication.api_keys.max_rotation_overlap_seconds' => 2592001],
+            '[api_keys] `authentication.api_keys.max_rotation_overlap_seconds` must be an integer from 0 to 2592000 seconds.',
+        ];
+        yield 'an API key last-use throttle out of range' => [
+            ['authentication.api_keys.last_used_throttle_seconds' => -1],
+            '[api_keys] `authentication.api_keys.last_used_throttle_seconds` must be an integer from 0 to 86400 seconds.',
+        ];
+        yield 'an API key pruning retention out of range' => [
+            ['authentication.api_keys.prune_after_days' => 'month'],
+            '[api_keys] `authentication.api_keys.prune_after_days` must be an integer from 0 to 3650 days.',
+        ];
+        yield 'an api_key guard whose provider is not an identity provider' => [
+            ['auth.guards.machine.provider' => 'missing'],
+            '[machine] Auth guard [machine] provider must resolve to [SineMacula\Laravel\Authentication\Contracts\IdentityProvider]; got [null].',
+        ];
+        yield 'an api_key guard whose principal resolver is not one' => [
+            ['auth.guards.machine.principal_resolver' => \stdClass::class],
+            '[machine] Auth guard [machine] principal_resolver [stdClass] resolved to [stdClass]',
+        ];
+        yield 'an api_key guard whose audience is malformed' => [
+            ['auth.guards.machine.audience' => ['methods' => 'api_key']],
+            '[machine] Audience `methods` for guard [machine] must be a non-empty list',
+        ];
+        yield 'an api_key guard whose audience does not allow api keys' => [
+            ['auth.guards.machine.audience' => ['methods' => ['password']]],
+            '[machine] Audience `methods` of an api_key guard must list `api_key`, or every key it is presented is refused.',
+        ];
+        yield 'an api_key guard whose rate limits are malformed' => [
+            ['auth.guards.machine.rate_limits' => ['api_key' => null]],
+            '[machine] Rate limits for guard [machine]: the guard\'s `rate_limits` has an unknown key `api_key`.',
+        ];
     }
 
     /**
@@ -241,7 +282,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         FakeOneTimeCodeSender::fake($this->app);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
     }
 
     /**
@@ -286,11 +327,11 @@ final class CheckConfigurationCommandTest extends TestCase
         $warning = '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
             . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.';
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
 
         config()->set('auth.guards.admin.audience', ['methods' => ['phone_code']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', $warning, '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', $warning, '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
     }
 
     /**
@@ -315,7 +356,9 @@ final class CheckConfigurationCommandTest extends TestCase
             '[device] OK',
             '[sign_in] OK',
             '[passkeys] OK',
+            '[api_keys] OK',
             '[admin] OK',
+            '[machine] OK',
             '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
             '[api] Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
@@ -351,7 +394,16 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check(['--guard' => ['api', 'web', 'missing', 'api']]);
 
         self::assertSame(1, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[web] Not a jwt guard.', '[missing] Not configured.'], $output);
+        self::assertSame([
+            '[device] OK',
+            '[sign_in] OK',
+            '[codes] OK',
+            '[passkeys] OK',
+            '[api_keys] OK',
+            '[api] OK',
+            '[web] Not a jwt or api_key guard.',
+            '[missing] Not configured.',
+        ], $output);
     }
 
     /**
@@ -367,11 +419,11 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK'], $output);
+        self::assertSame(['No jwt or api_key guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK'], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK']], $this->check());
+        self::assertSame([0, ['No jwt or api_key guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK']], $this->check());
     }
 
     /**
@@ -384,7 +436,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[2024] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[2024] OK']], $this->check());
     }
 
     /**
@@ -426,7 +478,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         $failing = $this->check();
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $passing);
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $passing);
         self::assertSame(1, $failing[0]);
     }
 
@@ -439,7 +491,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards.api.principal_resolver', StubReplacementPrincipalResolver::class);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
     }
 
     /**
@@ -457,7 +509,26 @@ final class CheckConfigurationCommandTest extends TestCase
             'authentication.passkeys.relying_party.origins' => ['https://example.test'],
         ]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+    }
+
+    /**
+     * The audience of an api_key guard is not held to `api_key` under an
+     * application's own policy, which reads its own settings.
+     *
+     * @return void
+     */
+    public function testAnApiKeyGuardsAudienceIsNotCheckedForAnApplicationPolicy(): void
+    {
+        config()->set('auth.guards.machine.audience', ['methods' => ['password']]);
+
+        $policy = \Mockery::mock(AudiencePolicy::class);
+
+        $policy->allows('allowsMethod')->andReturnFalse();
+
+        $this->app?->instance(AudiencePolicy::class, $policy);
+
+        self::assertSame(0, $this->check()[0]);
     }
 
     /**
@@ -499,6 +570,8 @@ final class CheckConfigurationCommandTest extends TestCase
         $config->set('auth.guards.web', ['driver' => 'session', 'provider' => 'users']);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'users']);
         $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'users']);
+        $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
+        $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'audience' => ['methods' => ['api_key']]]);
     }
 
     /**

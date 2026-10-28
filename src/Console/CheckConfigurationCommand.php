@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Console;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Command;
 use Illuminate\Foundation\Application;
+use SineMacula\Laravel\Authentication\ApiKeys\ApiKeySettings;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeKeys;
@@ -17,6 +18,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\DeviceRetention;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
@@ -29,23 +31,27 @@ use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
- * `authentication:check`: resolves every setting of each `jwt` guard the way
- * the guard would, and the device model, and exits non-zero on a problem, for
- * deploy pipelines and readiness probes.
+ * `authentication:check`: resolves every setting of each `jwt` and `api_key`
+ * guard the way the guard would, and the device model, and exits non-zero on a
+ * problem, for deploy pipelines and readiness probes.
  *
  * Every check runs, so one run lists every problem, each as
- * `[<guard>] <message>`: the token service (keys, active kid, algorithm, key
- * lengths, lifetimes, leeway, issuer and audience), the identity provider, a
- * principal resolver override, the package audience policy's settings, every
- * flow's rate limits, the password identifier, the refresh token transport, and
- * the passkey relying party of a guard that allows passkeys or configures one.
- * The package-wide settings are reported as `[device]` (the device model and
- * the pruning retention), `[sign_in]` (the pending sign-in lifetime), `[codes]`
- * (the one-time code settings and key, and a sender bound when a guard allows
- * one of the package's code sign-in methods, with a warning, not a problem,
- * when their delivery runs on a `sync` queue connection) and `[passkeys]` (the
- * passkey challenge lifetime). The command reads configuration only: it opens
- * no database connection and prints no secret.
+ * `[<guard>] <message>`. For a `jwt` guard: the token service (keys, active
+ * kid, algorithm, key lengths, lifetimes, leeway, issuer and audience), the
+ * identity provider, a principal resolver override, the package audience
+ * policy's settings, every flow's rate limits, the password identifier, the
+ * refresh token transport, and the passkey relying party when the guard allows
+ * passkeys or configures one. For an `api_key` guard: the identity provider, a
+ * principal resolver override, the package audience policy's settings and that
+ * they allow `api_key`, and every flow's rate limits. The package-wide settings
+ * are reported as `[device]` (the device model and the pruning retention),
+ * `[sign_in]` (the pending sign-in lifetime), `[codes]` (the one-time code
+ * settings and key, and a sender bound when a guard allows one of the package's
+ * code sign-in methods, with a warning, not a problem, when their delivery runs
+ * on a `sync` queue connection), `[passkeys]` (the passkey challenge lifetime)
+ * and `[api_keys]` (the key prefix, the rotation overlaps, the last-use
+ * throttle and the pruning retention). The command reads configuration only: it
+ * opens no database connection and prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,11 +59,14 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'authentication:check')]
 final class CheckConfigurationCommand extends Command
 {
+    /** @var list<string> The guard drivers the command checks. */
+    private const array DRIVERS = ['jwt', 'api_key'];
+
     /** @var string The name and signature of the console command. */
     protected $signature = 'authentication:check {--guard=* : Check only these guards}';
 
     /** @var string The console command description. */
-    protected $description = 'Check the configuration of every jwt guard and the device model';
+    protected $description = 'Check the configuration of every jwt and api_key guard and the device model';
 
     /**
      * Check the configuration and report each problem, or that there is none.
@@ -70,7 +79,7 @@ final class CheckConfigurationCommand extends Command
         $guards = $this->guards($config);
 
         if ($guards === []) {
-            $this->line('No jwt guards are configured.');
+            $this->line('No jwt or api_key guards are configured.');
         }
 
         $problems = [];
@@ -101,9 +110,9 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The package-wide checks, by what they check: the device model and how
-     * long pruning keeps a device, and the lifetime of a pending sign-in (a
-     * further factor or a principal choice), each of which otherwise fails only
-     * when it is first used.
+     * long pruning keeps a device, the lifetime of a pending sign-in (a further
+     * factor or a principal choice), and the API key settings, each of which
+     * otherwise fails only when it is first used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return array<string, list<\Closure(): mixed>>
@@ -123,6 +132,12 @@ final class CheckConfigurationCommand extends Command
             'codes'    => $this->codeChecks($config),
             'passkeys' => [
                 static fn (): int => (new PasskeyChallenges($config))->ttlSeconds(),
+            ],
+            'api_keys' => [
+                static fn (): string => ApiKeySettings::prefix(),
+                static fn (): int => ApiKeySettings::rotationOverlapSeconds(),
+                static fn (): int => ApiKeySettings::lastUsedThrottleSeconds(),
+                static fn (): int => ApiKeySettings::pruneAfterDays(),
             ],
         ];
     }
@@ -229,7 +244,7 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The guards to check: those named with `--guard`, otherwise every guard
-     * that uses the `jwt` driver.
+     * that uses the `jwt` or the `api_key` driver.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return list<string>
@@ -243,19 +258,19 @@ final class CheckConfigurationCommand extends Command
             return array_keys(array_flip($named));
         }
 
-        $guards = $config->get('auth.guards');
-        $jwt    = [];
+        $guards  = $config->get('auth.guards');
+        $checked = [];
 
         foreach (is_array($guards) ? $guards : [] as $name => $guard) {
 
-            if (!is_array($guard) || ($guard['driver'] ?? null) !== 'jwt') {
+            if (!is_array($guard) || !in_array($guard['driver'] ?? null, self::DRIVERS, true)) {
                 continue;
             }
 
-            $jwt[] = (string) $name;
+            $checked[] = (string) $name;
         }
 
-        return $jwt;
+        return $checked;
     }
 
     /**
@@ -271,12 +286,14 @@ final class CheckConfigurationCommand extends Command
     private function guardProblems(string $guard, ConfigRepository $config): array
     {
         $guardConfig = $config->get("auth.guards.{$guard}");
+        $driver      = is_array($guardConfig) ? ($guardConfig['driver'] ?? null) : null;
 
-        if (!is_array($guardConfig) || ($guardConfig['driver'] ?? null) !== 'jwt') {
-            return [is_array($guardConfig) ? 'Not a jwt guard.' : 'Not configured.'];
+        if (!is_array($guardConfig) || !in_array($driver, self::DRIVERS, true)) {
+            return [is_array($guardConfig) ? 'Not a jwt or api_key guard.' : 'Not configured.'];
         }
 
-        $problems = array_map(self::problem(...), $this->checks($guard, $guardConfig, $config));
+        $checks   = $driver === 'jwt' ? $this->checks($guard, $guardConfig, $config) : $this->apiKeyGuardChecks($guard, $guardConfig, $config);
+        $problems = array_map(self::problem(...), $checks);
 
         if (array_filter($problems, is_string(...)) === []) {
             $this->info("[{$guard}] OK");
@@ -363,8 +380,60 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
+     * The checks of an `api_key` guard, each resolving one part of its
+     * configuration as the guard would.
+     *
+     * @param  string  $guard
+     * @param  array<array-key, mixed>  $guardConfig
+     * @param  \Illuminate\Config\Repository  $config
+     * @return list<\Closure(): mixed>
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function apiKeyGuardChecks(string $guard, array $guardConfig, ConfigRepository $config): array
+    {
+        $app = $this->laravel;
+
+        assert($app instanceof Application);
+
+        $auth     = $app->make('auth');
+        $provider = $guardConfig['provider'] ?? null;
+
+        return [
+            static fn (): mixed => self::identityProvider($guard, $auth->createUserProvider(is_string($provider) ? $provider : '')),
+            static fn (): mixed => AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, $guard, $guardConfig),
+            static function () use ($app, $guard): void {
+                self::validateApiKeyAudience($app->make(AudiencePolicy::class), $guard);
+            },
+            static fn (): mixed => array_map(static fn (AttemptFlow $flow): array => (new AttemptLimits($config))->for($guard, $flow), AttemptFlow::cases()),
+        ];
+    }
+
+    /**
+     * Validate an `api_key` guard's audience settings when the bound policy is
+     * the package's, and that they allow `api_key`: without it every key the
+     * guard is presented is refused.
+     *
+     * @param  mixed  $policy
+     * @param  string  $guard
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function validateApiKeyAudience(mixed $policy, string $guard): void
+    {
+        if (!$policy instanceof GuardAudiencePolicy) {
+            return;
+        }
+
+        if (!$policy->allowsMethod($guard, ApiKeyGuard::METHOD)) {
+            throw new \InvalidArgumentException(sprintf('Audience `methods` of an api_key guard must list `%s`, or every key it is presented is refused.', ApiKeyGuard::METHOD));
+        }
+    }
+
+    /**
      * The guard's provider, failing unless it is an `IdentityProvider`, as the
-     * `jwt` driver needs.
+     * package's drivers need.
      *
      * @param  string  $guard
      * @param  mixed  $provider

@@ -48,6 +48,10 @@ device record live in the `devices` table so replay and stale credentials can be
   through which a further-factor package verifies the same passkeys.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`, and `scopes()`, the ceiling a machine credential grants.
+- **API keys for non-human identities**: an `api_key` guard that authenticates `Authorization: Bearer <key>` with one
+  indexed lookup on the write connection and no password hashing; keys shown once, stored as a SHA-256 digest, bound
+  to one guard, one principal and its tenant, with scopes, optional expiry, throttled last use, rotation with a bounded
+  overlap, immediate revocation and lifecycle events.
 - **Credential scopes for the suite**: the package carries a credential's scopes and never interprets them; they are
   opaque RFC 6749 scope tokens, a ceiling an authorization package intersects with the principal's permissions, held at
   issue to an optional `ScopeRegistry` (default: accept any).
@@ -134,8 +138,8 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the migrations (the `devices`, `pending_sign_ins`, `rate_limits`, `passkeys` and
-`passkey_challenges` tables), then migrate:
+Publish the config and the migrations (the `devices`, `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
+`passkey_challenges` and `api_keys` tables), then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -145,7 +149,7 @@ php artisan migrate
 
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
 `TableAlreadyExistsException` that names the configuration key renaming its table (`device.table`,
-`sign_in.pending_table`, `rate_limits.table`, `passkeys.table`, `passkeys.challenges_table`).
+`sign_in.pending_table`, `rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`, `api_keys.table`).
 
 Generate a random JWT signing key into `.env`:
 
@@ -204,6 +208,19 @@ Register guards and providers in `config/auth.php` exactly as you would with any
     'users' => [
         'driver' => 'model',
         'model'  => App\Models\User::class,
+    ],
+],
+```
+
+Non-human identities authenticate with API keys on a guard of the `api_key` driver, whose audience lists `api_key`
+(see [API keys](#api-keys)):
+
+```php
+'guards' => [
+    'machine' => [
+        'driver'   => 'api_key',
+        'provider' => 'clients',
+        'audience' => ['methods' => ['api_key']],
     ],
 ],
 ```
@@ -757,6 +774,27 @@ Ended windows stay in the table until they are pruned, as do pending sign-ins th
 [Additional factors](#additional-factors)). Schedule Laravel's pruning command with both models, and the device model,
 as shown in [Pruning devices](#pruning-devices).
 
+### API keys
+
+```php
+'api_keys' => [
+    'table'                        => env('AUTHENTICATION_API_KEYS_TABLE', 'api_keys'),
+    'prefix'                       => env('AUTHENTICATION_API_KEYS_PREFIX', 'ak'),
+    'rotation_overlap_seconds'     => env('AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS', 86400),
+    'max_rotation_overlap_seconds' => env('AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS', 604800),
+    'last_used_throttle_seconds'   => env('AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS', 60),
+    'prune_after_days'             => env('AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS', 30),
+],
+```
+
+Keys live in `table`, on the device model's connection. `prefix` (a lower-case letter, then up to 15 lower-case letters
+or digits) starts every new key, so your keys are recognisable in logs and to secret scanners; changing it leaves
+existing keys working. A rotation keeps the replaced key working for `rotation_overlap_seconds` unless it names its own
+overlap, never beyond `max_rotation_overlap_seconds` (at most 30 days). A key's last use is recorded at most once per
+`last_used_throttle_seconds` (0 to 86400; 0 records every use), and `model:prune` deletes keys revoked or expired more
+than `prune_after_days` ago (0 to 3650). Each number is an integer, or a digit string as `env()` returns one; anything
+else fails closed when it is used, and `authentication:check` reports it.
+
 ### Credential validation timing
 
 `attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels, and the
@@ -807,22 +845,26 @@ $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal(
 
 ### Checking the configuration
 
-`php artisan authentication:check` resolves every `jwt` guard's settings the way the guard would and exits `1` when any
-is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each guard's token service (keys, active
-kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and audience), that its
-provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the package's
-`AudiencePolicy` is bound, the rate limits of every flow, the password identifier and the refresh token transport, and,
-for the whole package, the configured device model and pruning retention (`authentication.device.prune_after_days`,
-otherwise checked only when `model:prune` runs) and the pending sign-in lifetime
+`php artisan authentication:check` resolves every `jwt` and `api_key` guard's settings the way the guard would and exits
+`1` when any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each `jwt` guard's token
+service (keys, active kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and
+audience), that its provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings
+when the package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier, the refresh token
+transport and, when its audience allows `passkey` or it sets a `passkeys` block, its passkey relying party; each
+`api_key` guard's provider, `principal_resolver` override, audience settings (which must allow `api_key`) and rate
+limits; and, for the whole package, the configured device model and pruning retention
+(`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
 (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
-choice of principal) and the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`). It also
-resolves the passkey relying party of every guard whose audience allows `passkey` or that sets a `passkeys` block. Every
-check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for the device model and
-retention, `[sign_in]` for the pending lifetime, `[passkeys]` for the challenge lifetime), and a subject without one as
-`[<guard>] OK`.
-`--guard=api --guard=admin` checks only the named guards; a named guard that is not configured, or not a `jwt` guard, is
-a problem. The command reads configuration only: it opens no database connection and never prints a key. The package
-does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+choice of principal), the one-time code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when
+any guard allows a code sign-in method, the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`)
+and the API key settings (`authentication.api_keys`). Every check runs, so one run lists every problem, each as
+`[<guard>] <message>` (`[device]` for the device model and retention, `[sign_in]` for the pending lifetime, `[codes]`
+for the code settings and sender, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a
+subject without one as `[<guard>] OK`. Code delivery on a `sync` queue connection, while a guard allows a code method,
+is a warning that leaves the exit code alone. Only the named guards are checked with `--guard=api --guard=admin`; a
+named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads
+configuration only: it opens no database connection and never prints a key. The package does not run these checks at
+boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Identity Models
 
@@ -2431,6 +2473,95 @@ A malformed or rejected scope throws `Exceptions\InvalidScopeException` (an `Inv
 offending scopes in `$exception->scopes`: issuing a credential is a trusted, programmatic action, so this is the
 caller's error, not a failed authentication. A credential's scopes are fixed for its life.
 
+#### API keys
+
+An API key authenticates a non-human identity, a model that implements `Contracts\MachineIdentity`, as one of its
+principals on one guard. Issue keys through the guard's key service, `Auth::apiKeys($guard)`, for an `api_key` guard
+(whose requests present the key) or a `jwt` guard (whose client credentials exchange takes it):
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$issued = Auth::apiKeys('machine')->issue(
+    identity: $client,                 // a MachineIdentity
+    principal: $client,                // the principal the key acts as (the client itself in 2D)
+    scopes: ['invoices:read'],
+    name: 'Billing sync',
+    expiresAt: now()->addYear(),       // optional; never expires without it
+);
+
+$issued->key;      // ak_k3j9x0m2p8q4r7t1_9fJ2kL8mN3pQ7rS1tV5wX0yZ4aB6cD8eF2gH4iJ6 - show it once
+$issued->summary;  // ApiKeySummary: id, prefix, guard, name, scopes, expiry, last use, rotation, revocation
+```
+
+A key is `<prefix>_<public>_<secret>`: the configured prefix (`ak` by default), 16 random lower-case letters or digits,
+and a 40-character random secret. Only `<prefix>_<public>` (the summary's `prefix`) and the SHA-256 digest of the secret
+are stored, so the key is shown once and cannot be shown again; a secret of about 238 bits needs no password hash to
+resist guessing. The principal must be one the identity acts as on the guard (resolved through the guard's principal
+resolver, as a pinned principal is) and one the guard's audience admits; the key records the identity, the principal,
+the principal's tenant and the guard, and authenticates only as them, on that guard. A malformed or past expiry, a
+principal the identity does not act as or the audience does not admit, a name that is empty or longer than 255
+characters, and a malformed or rejected scope (see [Credential scopes](#credential-scopes)) are each an
+`InvalidArgumentException`: issuing is a trusted, programmatic action.
+
+A request presents the key as a bearer credential, `Authorization: Bearer <key>`, on a route the guard protects
+(`auth:machine`). The guard reads the key's public part with one indexed lookup on the write connection, compares the
+digest of the secret in constant time, and then requires, in order:
+
+| Check                                                                         | Failure reason              |
+|-------------------------------------------------------------------------------|-----------------------------|
+| the key is in form, its public part names a key, and the secret is that key's | `credential_invalid`        |
+| the key was issued for this guard                                             | `credential_guard_mismatch` |
+| it is not revoked                                                             | `credential_revoked`        |
+| it has not expired (from the second its expiry names)                         | `credential_expired`        |
+| the guard's audience lists `api_key` in `methods`                             | `method_not_allowed`        |
+| the provider returns exactly the owner the key records                        | `identity_unknown`          |
+| the owner is a `MachineIdentity`                                              | `credential_invalid`        |
+| the owner is active                                                           | `identity_inactive`         |
+| the principal resolves exactly to the one the key records                     | `principal_mismatch`        |
+| the principal is active                                                       | `principal_inactive`        |
+| its tenant, if any, is active                                                 | `tenant_inactive`           |
+| the principal and its tenant are, by type and identifier, the ones recorded   | `principal_mismatch`        |
+| the guard's audience admits the principal                                     | `principal_ineligible`      |
+
+A malformed key, an unknown public part and a wrong secret are refused alike, and an unknown public part is compared
+against a fixed digest so it costs the same as a wrong secret. A refused key dispatches one `AuthenticationFailed` (flow
+`api_key`, naming the key once one was found) and nothing else; an accepted key binds the owner and principal with the
+key's scopes (`Auth::scopes()`) as an authentication, not a sign-in: only `Authenticated` and `PrincipalAssigned` fire,
+with method `api_key`, the key's id in `credentialId` and its scopes. Keys carry no device and no refresh. The key's
+last use is recorded at most once per `last_used_throttle_seconds`, with one conditional update. The guard counts no
+attempts: a secret this long cannot be guessed, and a write per refused request would cost the hot path more than it
+protects, so throttle the routes for that. A machine has no interactive sign-in: the guard's `attempt()` always fails
+(`method_not_allowed`) and checks nothing. `Auth::guard('machine')->validate(['api_key' => $key])` says whether a key
+would authenticate, binding and dispatching nothing.
+
+Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
+absent. These are privileged operations: authorise your caller to manage that principal's keys first, since the
+package decides no permission.
+
+```php
+$keys = Auth::apiKeys('machine');
+
+$keys->keys($principal);                       // list<ApiKeySummary>, newest first, revoked and rotated included
+$keys->find($principal, $keyId);               // ?ApiKeySummary
+$keys->revoke($principal, $keyId);             // whether this call revoked it; it stops working at once
+$keys->rotate($principal, $keyId, overlapSeconds: 3600, expiresAt: now()->addYear()); // ?IssuedApiKey
+```
+
+Rotating issues a replacement with the same guard, owner, principal, tenant, name and scopes (held to the scope registry
+again), and ends the replaced key once the overlap passes (`rotation_overlap_seconds` by default, at most
+`max_rotation_overlap_seconds`), or at its own expiry when that comes sooner; both keys work during the overlap, and the
+replaced one then fails as `credential_expired`. Only a live key that has not been rotated rotates: `null` otherwise,
+and of two concurrent rotations only one replaces the key. A key's scopes are fixed for its life; to change them, issue
+a new key and revoke the old one. `ApiKeyIssued`, `ApiKeyRotated` (with `previousKeyId`) and `ApiKeyRevoked` report
+each change once it is committed on the key's own connection, never the key or its digest.
+
+Schedule pruning of keys revoked or expired more than `prune_after_days` ago:
+
+```php
+$schedule->command('model:prune', ['--model' => [\SineMacula\Laravel\Authentication\Models\ApiKey::class]])->daily();
+```
+
 ## Key Rotation
 
 Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
@@ -2485,7 +2616,10 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\PasskeyAdded`             | A passkey was registered, once committed                  |
 | `SineMacula\...\Events\PasskeyUsed`              | A passkey's assertion was verified, once committed        |
 | `SineMacula\...\Events\PasskeyRemoved`           | A passkey was removed, once committed                     |
-| `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh, switch or bearer token failed; reason |
+| `SineMacula\...\Events\ApiKeyIssued`             | An API key was issued, once committed                     |
+| `SineMacula\...\Events\ApiKeyRotated`            | An API key was rotated, once committed; previous key id   |
+| `SineMacula\...\Events\ApiKeyRevoked`            | An API key was revoked, once committed                    |
+| `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh, switch, bearer token or key failed    |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is

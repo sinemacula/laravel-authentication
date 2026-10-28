@@ -341,6 +341,39 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | API keys
+    |---------------------------------------------------------------------------
+    |
+    | Keys non-human identities authenticate with, on an `api_key` guard (as
+    | `Authorization: Bearer <key>`) or, as an OAuth client's id and secret, in
+    | a `jwt` guard's client credentials exchange. Stored in `table`, on the
+    | device model's connection. A key is `<prefix>_<public>_<secret>`:
+    | `prefix` (a lower-case letter, then up to 15 lower-case letters or
+    | digits) marks the keys an application issues, so they are recognisable
+    | in logs and secret scanners; changing it leaves existing keys working.
+    | Only the secret's SHA-256 digest is stored. A rotation keeps the replaced
+    | key working for `rotation_overlap_seconds` (0 to
+    | `max_rotation_overlap_seconds`, itself 0 to 2592000, 30 days) unless the
+    | rotation names its own overlap within the maximum. A key's last use is
+    | recorded at most once per `last_used_throttle_seconds` (0 to 86400; 0
+    | records every use). Laravel's `model:prune` deletes keys revoked or
+    | expired more than `prune_after_days` ago (0 to 3650). Each value is an
+    | integer, or a digit string as `env()` returns one; anything else fails
+    | closed when it is used, and `authentication:check` reports it.
+    |
+    */
+
+    'api_keys' => [
+        'table'                        => env('AUTHENTICATION_API_KEYS_TABLE', 'api_keys'),
+        'prefix'                       => env('AUTHENTICATION_API_KEYS_PREFIX', 'ak'),
+        'rotation_overlap_seconds'     => env('AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS', 86400),
+        'max_rotation_overlap_seconds' => env('AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS', 604800),
+        'last_used_throttle_seconds'   => env('AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS', 60),
+        'prune_after_days'             => env('AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS', 30),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Identifier verification
     |---------------------------------------------------------------------------
     |

@@ -17,6 +17,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Application as ConsoleApplication;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\DatabaseTransactionsManager;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobProcessing;
@@ -39,7 +40,9 @@ use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
@@ -115,6 +118,62 @@ final class AuthenticationServiceProviderTest extends TestCase
     public function testJwtGuardDriverCreatorIsRegistered(): void
     {
         self::assertInstanceOf(JwtGuard::class, app('auth')->guard('api'));
+    }
+
+    /**
+     * The `api_key` guard driver creator is registered too: such a guard is an
+     * `ApiKeyGuard` with the guard's provider and the resolver it tracks, and
+     * follows later rebinds of the request, the dispatcher and the global
+     * resolver; a guard-local resolver override is kept.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardDriverCreatorIsRegistered(): void
+    {
+        $guard = app('auth')->guard('keys');
+
+        self::assertInstanceOf(ApiKeyGuard::class, $guard);
+        self::assertSame('keys', $guard->getName());
+        self::assertInstanceOf(ModelProvider::class, $guard->getProvider());
+
+        assert($this->app !== null);
+
+        $replacement = new StubReplacementPrincipalResolver;
+        $request     = Request::create('/rebound');
+        $events      = new Dispatcher($this->app);
+
+        $this->app->instance(PrincipalResolver::class, $replacement);
+        $this->app->instance('request', $request);
+        $this->app->instance('events', $events);
+
+        self::assertSame($replacement, $guard->getPrincipalResolver());
+        self::assertSame($request, $guard->getRequest());
+        self::assertSame($events, $guard->getDispatcher());
+
+        $override = app('auth')->guard('keys_override');
+
+        self::assertInstanceOf(ApiKeyGuard::class, $override);
+        self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $override->getPrincipalResolver());
+
+        $this->app->instance(PrincipalResolver::class, new StubReplacementPrincipalResolver);
+
+        self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $override->getPrincipalResolver());
+    }
+
+    /**
+     * An `api_key` guard fails fast when the device model, whose connection its
+     * keys live on, is misconfigured.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardRejectsAMisconfiguredDeviceModel(): void
+    {
+        config()->set('authentication.device.model', '');
+
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
+        $this->expectExceptionMessage('authentication.device.model');
+
+        app('auth')->guard('keys');
     }
 
     /**
@@ -630,8 +689,9 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The migrations tag publishes every shipped migration (devices, pending
-     * sign-ins, rate limits, passkeys and passkey challenges), from the package
-     * to the application's migrations, under their own file names.
+     * sign-ins, rate limits, one-time codes, passkeys, passkey challenges and
+     * API keys), from the package to the application's migrations, under their
+     * own file names.
      *
      * @return void
      */
@@ -651,6 +711,7 @@ final class AuthenticationServiceProviderTest extends TestCase
             realpath($source . '2026_04_06_000003_create_one_time_codes_table.php')     => database_path('migrations/2026_04_06_000003_create_one_time_codes_table.php'),
             realpath($source . '2026_04_06_000004_create_passkeys_table.php')           => database_path('migrations/2026_04_06_000004_create_passkeys_table.php'),
             realpath($source . '2026_04_06_000005_create_passkey_challenges_table.php') => database_path('migrations/2026_04_06_000005_create_passkey_challenges_table.php'),
+            realpath($source . '2026_04_06_000006_create_api_keys_table.php')           => database_path('migrations/2026_04_06_000006_create_api_keys_table.php'),
         ], $paths);
     }
 
@@ -815,6 +876,17 @@ final class AuthenticationServiceProviderTest extends TestCase
         $config->set('auth.guards.api', [
             'driver'   => 'jwt',
             'provider' => 'identities',
+        ]);
+
+        $config->set('auth.guards.keys', [
+            'driver'   => 'api_key',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.guards.keys_override', [
+            'driver'             => 'api_key',
+            'provider'           => 'identities',
+            'principal_resolver' => StubGuardScopedPrincipalResolver::class,
         ]);
 
         $config->set('auth.guards.api_override', [

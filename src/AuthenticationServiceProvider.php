@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
@@ -58,8 +59,8 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
  * Package service provider: registers the package's configuration, auth
- * manager, guard and provider drivers, sign-in collaborators and policies,
- * middleware, listener, publishing tags and console command.
+ * manager, guard (`jwt`, `api_key`) and provider drivers, sign-in collaborators
+ * and policies, middleware, listener, publishing tags and console command.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -74,6 +75,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         '2026_04_06_000003_create_one_time_codes_table.php',
         '2026_04_06_000004_create_passkeys_table.php',
         '2026_04_06_000005_create_passkey_challenges_table.php',
+        '2026_04_06_000006_create_api_keys_table.php',
     ];
 
     /**
@@ -191,6 +193,45 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
+     * Construct an `ApiKeyGuard` from the supplied container, guard name, and
+     * Laravel guard config block.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  string  $name
+     * @param  array<string, mixed>  $config
+     * @return \SineMacula\Laravel\Authentication\Guards\ApiKeyGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    public static function createApiKeyGuard(Application $app, string $name, array $config): ApiKeyGuard
+    {
+        $providerName = $config['provider'] ?? '';
+
+        /** @var \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider */
+        $provider = IlluminateAuth::createUserProvider(is_string($providerName) ? $providerName : '');
+
+        $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
+
+        InvalidDeviceModelConfigurationException::validate(
+            $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
+        );
+
+        $guard = new ApiKeyGuard(
+            $name,
+            $provider,
+            $selection['resolver'],
+            $app->make(Dispatcher::class),
+            $app->make('request'),
+            $app->make(Timebox::class),
+        );
+
+        self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
+
+        return $guard;
+    }
+
+    /**
      * Resolve the effective principal resolver for the guard; the guard driver
      * and `authentication:check` both use it, which is the only reason it is
      * public: it is not part of the package's API.
@@ -281,7 +322,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `jwt` guard driver creator against Laravel's `Auth` factory.
+     * Register the `jwt` and `api_key` guard driver creators against Laravel's
+     * `Auth` factory.
      *
      * @return void
      */
@@ -290,6 +332,11 @@ final class AuthenticationServiceProvider extends ServiceProvider
         IlluminateAuth::extend(
             'jwt',
             static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createJwtGuard($app, $name, $config),
+        );
+
+        IlluminateAuth::extend(
+            'api_key',
+            static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createApiKeyGuard($app, $name, $config),
         );
     }
 
