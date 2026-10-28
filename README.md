@@ -421,10 +421,12 @@ The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticat
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
 the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
 and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
-every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()` and
-`getSignInMethod()` read the guard and method it recorded. The bearer path and refresh honour a device only for the
-guard it records, and refresh only while that guard still allows the method it records, so a device written outside the
-session service must record both.
+every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()`,
+`getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
+bearer path and refresh honour a device only for the guard it records, refresh only while that guard still allows the
+method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
+sign-in that used none, which is held to no type), so a device written outside the session service must record all
+three.
 
 Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
 device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
@@ -449,9 +451,10 @@ the ones issued before it. A device that records no principal accepts no token, 
 record the principal being bound. Both checks read the row already loaded, with no extra query. `ActsAsDevice` reads any
 stored timestamp as a value, with or without a `datetime` cast on the column, and throws a `LogicException` when the
 device was loaded without one of its refresh or revocation state columns (both digests, the rotation time, the session's
-start, the principal switch time, both deadlines, and the revocation time), for example through a `devices()` relation
-or a global scope that selects other columns, so a partial select is reported instead of being read as a device that is
-not revoked or has no deadline.
+start, the principal switch time, both deadlines, and the revocation time) or without the sign-in's identifier type
+(`sign_in_identifier_type`), for example through a `devices()` relation or a global scope that selects other columns,
+so a partial select is reported instead of being read as a device that is not revoked, has no deadline, or whose
+sign-in used no identifier.
 
 #### Pruning devices
 

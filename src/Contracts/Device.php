@@ -165,9 +165,12 @@ interface Device
      * Return the type of identifier the sign-in that started the device's
      * session (or last restarted it on the same client) used, such as `email`,
      * or `null` when it used none or none was recorded. A switch of principal
-     * admits its target with it, as that sign-in admitted its principal.
+     * admits its target with it, as that sign-in admitted its principal, so a
+     * value that cannot be read throws rather than reading as `null`.
      *
      * @return ?string
+     *
+     * @throws \LogicException
      */
     public function getSignInIdentifierType(): ?string;
 }

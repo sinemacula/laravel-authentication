@@ -50,6 +50,7 @@ use Tests\Fixtures\Sessions\InvitedTenantAudiencePolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMembership;
+use Tests\Integration\Fixtures\IdentifierTypeOmittingDevice;
 use Tests\Integration\Fixtures\UnscopedMembershipResolver;
 use Tests\TestCase;
 
@@ -654,6 +655,38 @@ final class PrincipalSwitchTest extends TestCase
         self::assertNotNull($started);
         self::assertNull(DB::table('devices')->value('sign_in_identifier_type'));
         self::assertTrue($this->sessions(self::GUARD)->switchPrincipal($started->tokens->refreshToken, $second)->isSwitched());
+    }
+
+    /**
+     * A device loaded without the type of identifier its session's sign-in used
+     * is reported rather than switched as if the sign-in used none, which would
+     * skip the policy's refusal of the target to that identifier, and the
+     * session stays as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeviceLoadedWithoutItsIdentifierTypeIsReported(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $second->tenant_id));
+
+        $session = $this->signIn();
+        $row     = (array) DB::table('devices')->sole();
+
+        config()->set('authentication.device.model', IdentifierTypeOmittingDevice::class);
+
+        try {
+            $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $second);
+
+            self::fail('The switch read a device without its identifier type.');
+        } catch (\LogicException $exception) {
+            self::assertStringContainsString('its `sign_in_identifier_type` attribute is not loaded', $exception->getMessage());
+        }
+
+        self::assertEquals($row, (array) DB::table('devices')->sole());
     }
 
     /**

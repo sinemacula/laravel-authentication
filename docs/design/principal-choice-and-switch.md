@@ -48,10 +48,11 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider
   and active (`RefreshAdmission`), the target resolved through the hinted path, of the target's class and owned by the
   owner as read from the principal's own key (`principal_mismatch`), active, its tenant active, admitted by the
-  audience policy, the session's method allowed, admitted again with the type of identifier the session's sign-in used
-  (the device's `sign_in_identifier_type`, written with `sign_in_method` at every sign-in; a session whose sign-in used
-  none is not held to one) so a principal a policy refuses to that identifier cannot be reached by switching, and no
-  further factor asked (`additional_factor_required`).
+  audience policy, the session's method allowed, the identity and then the target admitted again with the type of
+  identifier the session's sign-in used (the device's `sign_in_identifier_type`, written with `sign_in_method` at every
+  sign-in; a session whose sign-in used none is not held to one, and a device loaded without the column throws a
+  `LogicException` rather than reading as one that used none) so a principal a policy refuses to that identifier cannot
+  be reached by switching, and no further factor asked (`additional_factor_required`).
 - With the current rotation id, the token's `pid` must be the principal the device records
   (`device_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the target
   type's absolute lifetime (`session_expired` when that has passed); the idle deadline restarts under the target's
