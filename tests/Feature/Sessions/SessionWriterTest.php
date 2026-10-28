@@ -84,9 +84,10 @@ final class SessionWriterTest extends TestCase
     }
 
     /**
-     * A new device records the sign-in, as created from the origin's client and
-     * last used by the context's, and is issued a pair at `$now` whose refresh
-     * token carries the rotation id the device stores the digest of.
+     * A new device records the sign-in, its method and the type of identifier
+     * it used, as created from the origin's client and last used by the
+     * context's, and is issued a pair at `$now` whose refresh token carries the
+     * rotation id the device stores the digest of.
      *
      * @return void
      *
@@ -96,12 +97,14 @@ final class SessionWriterTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $origin   = new ClientContext('198.51.100.4', 'Origin/2.0');
-        $session  = $this->writer()->create('api', $this->admitted($identity), 'password', $this->context('Laptop', 'macOS'), $this->lifetimes(), $this->now, $origin);
+        $session  = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context('Laptop', 'macOS'), $this->lifetimes(), $this->now, $origin);
         $device   = Device::query()->whereKey($session->device->getKey())->firstOrFail();
         $claims   = Auth::manager()->jwt('api')->parse($session->tokens->refreshToken, TokenType::REFRESH);
 
         self::assertTrue($session->deviceCreated);
         self::assertSame('password', $session->method);
+        self::assertSame('password', $device->getSignInMethod());
+        self::assertSame('email', $device->getSignInIdentifierType());
         self::assertNotNull($claims);
         self::assertSame($this->now->getTimestamp(), $claims['iat']);
         self::assertTrue(RefreshTokenHasher::verify((string) $claims['jti'], (string) $device->getRefreshKey())); // @phpstan-ignore cast.string
@@ -129,7 +132,7 @@ final class SessionWriterTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         try {
-            $this->writer()->create('api', new AdmittedSignIn($identity, $principal, null), 'password', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+            $this->writer()->create(new AdmittedSignIn($identity, $principal, null), 'password', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
             self::fail('Expected an identity that is not a model to be refused.');
         } catch (\LogicException $exception) {
             self::assertSame(sprintf('The session service can only create a device for an Eloquent identity; %s is not a model.', $identity::class), $exception->getMessage());
@@ -141,7 +144,8 @@ final class SessionWriterTest extends TestCase
     /**
      * Continuing a proven device swaps in a new session and mirrors it on the
      * in-memory device as persisted; a client description the context does not
-     * give is kept.
+     * give is kept, while the method and the type of identifier are the new
+     * sign-in's, none included.
      *
      * @return void
      *
@@ -151,12 +155,12 @@ final class SessionWriterTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $context  = $this->context('Laptop', 'macOS');
-        $first    = $this->writer()->create('api', $this->admitted($identity), 'password', $context, $this->lifetimes(), $this->now, $context->client);
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $context, $this->lifetimes(), $this->now, $context->client);
         $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
 
         $later = $this->now->addHour();
 
-        $again = $this->writer()->continueOn($proven, $this->admitted($identity)->on($proven), 'sso', $this->context(null, 'Linux'), $this->lifetimes(), $later);
+        $again = $this->writer()->continueOn($proven, $this->admitted($identity)->on($proven), 'sso', null, $this->context(null, 'Linux'), $this->lifetimes(), $later);
 
         self::assertNotNull($again);
         self::assertSame($proven, $again->device);
@@ -167,6 +171,7 @@ final class SessionWriterTest extends TestCase
 
         foreach ([$proven, $row] as $device) {
             self::assertSame('sso', $device->getSignInMethod());
+            self::assertNull($device->getSignInIdentifierType());
             self::assertSame('Laptop', $device->client_name);
             self::assertSame('Linux', $device->platform);
             self::assertSame($later->getTimestamp(), $device->getLastUsedAt()?->getTimestamp());
@@ -203,18 +208,20 @@ final class SessionWriterTest extends TestCase
     public function testContinueOnMissesARowThatChangedSinceItWasProven(array $change): void
     {
         $identity = $this->seedIdentity();
-        $first    = $this->writer()->create('api', $this->admitted($identity), 'password', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+        $first    = $this->writer()->create($this->admitted($identity), 'password', 'email', $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
         $proven   = Device::query()->whereKey($first->device->getKey())->firstOrFail();
 
         Device::query()->whereKey($proven->getKey())->update($change);
 
-        $before = (array) Device::query()->whereKey($proven->getKey())->toBase()->first();
-        $digest = $proven->getRefreshKey();
+        $before   = (array) Device::query()->whereKey($proven->getKey())->toBase()->first();
+        $digest   = $proven->getRefreshKey();
+        $admitted = $this->admitted($identity)->on($proven);
 
-        self::assertNull($this->writer()->continueOn($proven, $this->admitted($identity)->on($proven), 'sso', $this->context('New'), $this->lifetimes(), $this->now->addHour()));
+        self::assertNull($this->writer()->continueOn($proven, $admitted, 'sso', null, $this->context('New'), $this->lifetimes(), $this->now->addHour()));
         self::assertSame($before, (array) Device::query()->whereKey($proven->getKey())->toBase()->first());
         self::assertSame($digest, $proven->getRefreshKey());
         self::assertSame('password', $proven->getSignInMethod());
+        self::assertSame('email', $proven->getSignInIdentifierType());
     }
 
     /**
@@ -242,7 +249,7 @@ final class SessionWriterTest extends TestCase
      */
     private function writer(): SessionWriter
     {
-        return new SessionWriter(Auth::manager()->jwt('api'), app(ConnectionResolverInterface::class));
+        return new SessionWriter('api', Auth::manager()->jwt('api'), app(ConnectionResolverInterface::class));
     }
 
     /**

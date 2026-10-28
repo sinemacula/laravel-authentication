@@ -15,11 +15,15 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   sign-in fails as `principal_unresolved`, as before. `attempt()` never offers one.
 - Eligible principals (`SessionService::principals()`) are the identity's `principals()` read on the write connection
   (the resolver's default for an identity that is its own principal or has no `principals()`), active, in an active
-  tenant or none, and admitted by the audience policy with no identifier type. The list is recomputed on every
-  `choice()` lookup. Offering a choice also admits each of them with the sign-in's identifier type: a principal the
-  policy then refuses is not offered, and when it refuses every one (`identifier_unverified` for a guard requiring a
-  verified identifier) the sign-in fails with that reason, storing and reporting nothing, so an unverified identity
-  never sees the principals it could act as.
+  tenant or none, and admitted by the audience policy with no identifier type. Offering a choice, and every later
+  `choice()` lookup, which recomputes the list, also admits each of them with the sign-in's identifier type (the one the
+  choice stores): a principal the policy then refuses is neither offered nor listed, and when it refuses every one the
+  sign-in fails with that reason, storing and reporting nothing.
+- With the package's policy, a guard requiring a verified identifier refuses an unverified one before any principal is
+  resolved or listed (`SignInAdmission`, through `GuardAudiencePolicy::admitIdentifier()`): `identifier_unverified`
+  whether the identity has principals or not, so the answer never tells someone holding an unverified identity's
+  password whether it has been invited anywhere. A custom policy that decides verification per principal is asked only
+  once a principal resolves, so for an identity with none the sign-in answers `principal_unresolved`.
 - A choice is a pending sign-in with `purpose = principal_choice` and no principal (the pending table's principal
   columns are nullable for this). It keeps the client, the identifier type, the attempt windows, and a device the
   client proved for the identity whatever principal it records. Only the digest of its secret is stored.
@@ -38,7 +42,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - Every path of a switch, the retry included, runs every live check: the owner reloaded through the guard's provider
   and active (`RefreshAdmission`), the target resolved through the hinted path, of the target's class and owned by the
   owner as read from the principal's own key (`principal_mismatch`), active, its tenant active, admitted by the
-  audience policy, the session's method allowed, and no further factor asked (`additional_factor_required`).
+  audience policy, the session's method allowed, admitted again with the type of identifier the session's sign-in used
+  (the device's `sign_in_identifier_type`, written with `sign_in_method` at every sign-in; a session whose sign-in used
+  none is not held to one) so a principal a policy refuses to that identifier cannot be reached by switching, and no
+  further factor asked (`additional_factor_required`).
 - With the current rotation id, the token's `pid` must be the principal the device records
   (`device_principal_mismatch`). The absolute deadline stays the session's, held to `signed_in_at` plus the target
   type's absolute lifetime (`session_expired` when that has passed); the idle deadline restarts under the target's

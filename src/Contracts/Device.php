@@ -160,4 +160,14 @@ interface Device
      * @return ?string
      */
     public function getSignInMethod(): ?string;
+
+    /**
+     * Return the type of identifier the sign-in that started the device's
+     * session (or last restarted it on the same client) used, such as `email`,
+     * or `null` when it used none or none was recorded. A switch of principal
+     * admits its target with it, as that sign-in admitted its principal.
+     *
+     * @return ?string
+     */
+    public function getSignInIdentifierType(): ?string;
 }

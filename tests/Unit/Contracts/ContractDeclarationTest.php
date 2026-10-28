@@ -103,6 +103,7 @@ final class ContractDeclarationTest extends TestCase
             'getRefreshRotatedAt',
             'getRevokedAt',
             'getRevokedReason',
+            'getSignInIdentifierType',
             'getSignInMethod',
             'getSignedInAt',
         ], self::declaredMethods(Device::class));
@@ -150,6 +151,7 @@ final class ContractDeclarationTest extends TestCase
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
+            'getSignInIdentifierTypeName',
             'getSignInMethodName',
             'getSignedInAtName',
             'principal',

@@ -111,6 +111,7 @@ trait InteractsWithDevices
             $blueprint->dateTime('principal_switched_at', 0)->nullable();
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
+            $blueprint->string('sign_in_identifier_type')->nullable();
             $blueprint->string('client_name')->nullable();
             $blueprint->string('platform')->nullable();
             $blueprint->string('created_ip', 45)->nullable();

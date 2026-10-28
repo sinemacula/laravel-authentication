@@ -40,6 +40,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\InvitedTenantAudiencePolicy;
 use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ChoosingMember;
@@ -352,6 +353,71 @@ final class ChoosesPrincipalsTest extends TestCase
         $member->markIdentifierAsVerified('email', $member->email);
 
         self::assertTrue($this->sessions('verified')->signIn('password', self::credentials('chooser@example.test'))->requiresPrincipal());
+    }
+
+    /**
+     * A guard that requires a verified identifier refuses an unverified one
+     * before any principal is looked at, so the answer does not tell whether
+     * the identity has a principal: `identifier_unverified` before it is
+     * invited anywhere and after.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUnverifiedIdentifierIsRefusedAlikeWithOrWithoutPrincipals(): void
+    {
+        Schema::table('activatable_tenant_members', static function (Blueprint $blueprint): void {
+            $blueprint->boolean('email_verified')->default(false);
+        });
+
+        $member = VerifiableChoosingMember::query()->create(['email' => 'chooser@example.test', 'password' => app(Hasher::class)->make(self::PASSWORD)]);
+
+        $alone = $this->sessions('verified')->signIn('password', self::credentials('chooser@example.test'));
+
+        $tenant = ActivatableTenant::query()->create(['name' => 'Invited', 'is_active' => true]);
+
+        ChoosingMembership::query()->create(['identity_id' => $member->id, 'tenant_id' => $tenant->getKey()]);
+
+        $invited = $this->sessions('verified')->signIn('password', self::credentials('chooser@example.test'));
+
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $alone->reason);
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $invited->reason);
+        self::assertSame(0, DB::table('pending_sign_ins')->count());
+    }
+
+    /**
+     * A policy that refuses some principals to the identifier a sign-in used
+     * (one inviting tenant's, say) keeps them out of the choice: the offer and
+     * a later look-up both list only the principals it admits with that
+     * identifier type, and choosing a refused one fails for its reason. A
+     * choice offered to a sign-in that used no identifier lists them all.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalRefusedToTheIdentifierIsNeitherOfferedNorListed(): void
+    {
+        [$member, $own, $invited] = $this->seedChooser();
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+
+        $offered = $this->sessions(self::GUARD)->signIn('password', self::credentials('chooser@example.test'))->choice;
+
+        self::assertNotNull($offered);
+        self::assertSame([$own->getKey()], self::keys($offered->principals));
+        self::assertSame([$own->getKey()], self::keys($this->sessions(self::GUARD)->choice($offered->token)->principals ?? []));
+
+        $refused = $this->sessions(self::GUARD)->choose($offered->token, $invited);
+
+        self::assertTrue($refused->isFailed());
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
+
+        $unnamed = $this->sessions(self::GUARD)->start($member, null, 'password')->choice;
+
+        self::assertNotNull($unnamed);
+        self::assertSame([$own->getKey(), $invited->getKey()], self::keys($this->sessions(self::GUARD)->choice($unnamed->token)->principals ?? []));
     }
 
     /**

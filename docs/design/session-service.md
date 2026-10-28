@@ -21,22 +21,24 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
   given.
 - `signIn()` order: the method is resolved (unknown throws); `Attempting`; the audience policy must allow the method
   (`method_not_allowed`, nothing counted, no timebox); the attempt limiter must grant a slot (`rate_limited`); then, in
-  the guard's credential timebox, cut short only for an admitted sign-in: the method verifies the input, the identity,
-  the principal (the context's pin, verified like an `attempt()` pin, else the resolver's default) and its tenant must
-  be active, and the audience policy must admit them with the method's identifier type; a password is rehashed; the
-  proof of a device is checked; the additional-factor policy is asked; the session is written, or a pending sign-in is
-  issued. Only a success gives the slots back, those the method took on the accounts it checked included; a pending
-  sign-in keeps them all, with their windows, until `complete()` starts its session. The slots are written on
-  `rate_limits.connection`, outside the session's own transaction but not outside a transaction the caller opened on
-  that connection: with the default (`null`, the default connection) a caller that rolls back around a sign-in rolls its
-  counts back too, so its attempts go uncounted. Only counters on a connection of their own survive such a rollback.
-  `complete()` therefore gives the slots back only once its delete of the pending sign-in commits on that row's
-  connection: a rollback restores the pending sign-in, and slots given back before it would be given back again when
-  the token is completed a second time. A release that fails then is reported to the exception handler, not thrown,
-  the one limiter error that does not propagate: the session already stands, and Laravel runs a commit's callbacks in
-  order without catching, so a throw would stop the later ones (another completion's events, the caller's own). The
-  release stops at the failure, and the slots not given back stay counted. A handler that throws while reporting is
-  not caught, as with Laravel's `rescue()`: an error that cannot be reported surfaces rather than vanishing.
+  the guard's credential timebox, cut short only for an admitted sign-in: the method verifies the input, the identity
+  must be active, the package's audience policy must find its identifier verified where the guard requires it (before
+  any principal is resolved), the principal (the context's pin, verified like an `attempt()` pin, else the resolver's
+  default) and its tenant must be active, and the audience policy must admit them with the method's identifier type; a
+  password is rehashed; the proof of a device is checked; the additional-factor policy is asked; the session is written,
+  recording the method and its identifier type on the device, or a pending sign-in is issued. Only a success gives the
+  slots back, those the method took on the accounts it checked included; a pending sign-in keeps them all, with their
+  windows, until `complete()` starts its session. The slots are written on `rate_limits.connection`, outside the
+  session's own transaction but not outside a transaction the caller opened on that connection: with the default
+  (`null`, the default connection) a caller that rolls back around a sign-in rolls its counts back too, so its attempts
+  go uncounted. Only counters on a connection of their own survive such a rollback. `complete()` therefore gives the
+  slots back only once its delete of the pending sign-in commits on that row's connection: a rollback restores the
+  pending sign-in, and slots given back before it would be given back again when the token is completed a second time. A
+  release that fails then is reported to the exception handler, not thrown, the one limiter error that does not
+  propagate: the session already stands, and Laravel runs a commit's callbacks in order without catching, so a throw
+  would stop the later ones (another completion's events, the caller's own). The release stops at the failure, and the
+  slots not given back stay counted. A handler that throws while reporting is not caught, as with Laravel's `rescue()`:
+  an error that cannot be reported surfaces rather than vanishing.
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the

@@ -37,7 +37,16 @@ interface AudiencePolicy
      * principal: `null` when it may, otherwise why not. The caller has already
      * checked that the identity, the principal and its tenant are active. An
      * identifier type of `null` (a sign-in that used no identifier, or a
-     * refresh) is not subject to the verified-identifier requirement.
+     * refresh) is not subject to the verified-identifier requirement. A
+     * principal choice lists, and a switch of principal reaches, only the
+     * principals admitted with the type the session's sign-in used.
+     *
+     * A policy may refuse some principals to an identifier of a type and admit
+     * others. It is asked only once a principal resolves, though, so an
+     * identity with none fails as `principal_unresolved` whatever its
+     * identifier: decide verification for the identity as a whole where the
+     * difference must not show (the package's policy refuses an unverified
+     * identifier before any principal is resolved).
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

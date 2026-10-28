@@ -6,10 +6,10 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 
 /**
  * The `ActsAsDevice` accessors for what a device's session started with: the
- * guard and sign-in method, the name and platform the client gave, and the IP
- * address and user agent it came from. These are informational, so a value that
- * was not loaded reads as `null`. Override the `*Name()` methods to remap
- * columns.
+ * guard, the sign-in method and the type of identifier it used, the name and
+ * platform the client gave, and the IP address and user agent it came from.
+ * These are informational, so a value that was not loaded reads as `null`.
+ * Override the `*Name()` methods to remap columns.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,6 +58,29 @@ trait RecordsDeviceOrigin
     public function getSignInMethodName(): string
     {
         return 'sign_in_method';
+    }
+
+    /**
+     * Return the type of identifier the sign-in that started the session used,
+     * or `null` when it used none, none was recorded, or the column is not
+     * loaded.
+     *
+     * @return ?string
+     */
+    public function getSignInIdentifierType(): ?string
+    {
+        return $this->toDeviceString($this->optionalDeviceAttribute($this->getSignInIdentifierTypeName()));
+    }
+
+    /**
+     * Column name holding the type of identifier the sign-in that started the
+     * session used.
+     *
+     * @return string
+     */
+    public function getSignInIdentifierTypeName(): string
+    {
+        return 'sign_in_identifier_type';
     }
 
     /**

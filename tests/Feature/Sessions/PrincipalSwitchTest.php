@@ -45,6 +45,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\InvitedTenantAudiencePolicy;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\ChoosingMembership;
@@ -616,6 +617,42 @@ final class PrincipalSwitchTest extends TestCase
 
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), $inactive->context->principalId);
         self::assertEquals($row, (array) DB::table('devices')->sole());
+    }
+
+    /**
+     * A switch admits its target with the type of identifier the session's
+     * sign-in used, as that sign-in admitted its own principal: a policy that
+     * refuses a principal to that identifier refuses the switch to it for its
+     * reason, leaving the session as it was, while a session started without an
+     * identifier may switch to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATargetRefusedToTheSessionsIdentifierIsRefused(): void
+    {
+        [, $second, $member] = $this->seedMemberships();
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $second->tenant_id));
+
+        $session = $this->signIn();
+        $row     = (array) DB::table('devices')->sole();
+
+        self::assertSame('email', $row['sign_in_identifier_type']);
+
+        $refused = $this->assertSwitchFails(FailureReason::IDENTIFIER_UNVERIFIED, $session, $second);
+
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), $refused->context->principalId);
+        self::assertEquals($row, (array) DB::table('devices')->sole());
+
+        DB::table('devices')->delete();
+
+        $started = $this->sessions(self::GUARD)->start($member, null, 'password')->session;
+
+        self::assertNotNull($started);
+        self::assertNull(DB::table('devices')->value('sign_in_identifier_type'));
+        self::assertTrue($this->sessions(self::GUARD)->switchPrincipal($started->tokens->refreshToken, $second)->isSwitched());
     }
 
     /**

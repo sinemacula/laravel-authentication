@@ -44,6 +44,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * @property ?\Carbon\CarbonInterface $principal_switched_at
  * @property ?string $guard
  * @property ?string $sign_in_method
+ * @property ?string $sign_in_identifier_type
  * @property ?string $client_name
  * @property ?string $platform
  * @property ?string $created_ip
@@ -140,28 +141,29 @@ class Device extends Model implements EloquentDevice
     protected function casts(): array
     {
         return [
-            'authenticatable_type'  => 'string',
-            'authenticatable_id'    => 'string',
-            'principal_type'        => 'string',
-            'principal_id'          => 'string',
-            'principal_switched_at' => 'datetime',
-            'guard'                 => 'string',
-            'sign_in_method'        => 'string',
-            'client_name'           => 'string',
-            'platform'              => 'string',
-            'created_ip'            => 'string',
-            'created_user_agent'    => 'string',
-            'last_used_at'          => 'datetime',
-            'last_used_ip'          => 'string',
-            'last_used_user_agent'  => 'string',
-            'refresh_key'           => 'string',
-            'previous_refresh_key'  => 'string',
-            'refresh_rotated_at'    => 'datetime',
-            'signed_in_at'          => 'datetime',
-            'idle_expires_at'       => 'datetime',
-            'absolute_expires_at'   => 'datetime',
-            'revoked_at'            => 'datetime',
-            'revoked_reason'        => 'string',
+            'authenticatable_type'    => 'string',
+            'authenticatable_id'      => 'string',
+            'principal_type'          => 'string',
+            'principal_id'            => 'string',
+            'principal_switched_at'   => 'datetime',
+            'guard'                   => 'string',
+            'sign_in_method'          => 'string',
+            'sign_in_identifier_type' => 'string',
+            'client_name'             => 'string',
+            'platform'                => 'string',
+            'created_ip'              => 'string',
+            'created_user_agent'      => 'string',
+            'last_used_at'            => 'datetime',
+            'last_used_ip'            => 'string',
+            'last_used_user_agent'    => 'string',
+            'refresh_key'             => 'string',
+            'previous_refresh_key'    => 'string',
+            'refresh_rotated_at'      => 'datetime',
+            'signed_in_at'            => 'datetime',
+            'idle_expires_at'         => 'datetime',
+            'absolute_expires_at'     => 'datetime',
+            'revoked_at'              => 'datetime',
+            'revoked_reason'          => 'string',
         ];
     }
 

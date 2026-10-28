@@ -175,6 +175,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         $device = Device::query()->whereKey($session->device->getKey())->firstOrFail();
 
         self::assertSame('password', $device->getSignInMethod());
+        self::assertSame('email', $device->getSignInIdentifierType());
         self::assertSame('Phone', $device->client_name);
         self::assertSame('iOS', $device->platform);
         self::assertSame(self::CLIENT_IP, $device->created_ip);
@@ -422,6 +423,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertFalse($session->deviceCreated);
         self::assertSame($first->device->getKey(), $session->device->getKey());
         self::assertSame(1, Device::query()->count());
+        self::assertSame('email', Device::query()->sole()->getSignInIdentifierType());
     }
 
     /**

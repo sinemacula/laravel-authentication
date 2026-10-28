@@ -180,4 +180,15 @@ final readonly class PlainDeviceFixture implements Device
     {
         return null;
     }
+
+    /**
+     * Return the identifier type the session's sign-in used, or null.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getSignInIdentifierType(): ?string
+    {
+        return null;
+    }
 }

@@ -187,6 +187,27 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
+     * The gate alone, for the identity before any principal: with the gate on,
+     * an identifier of a type is admitted only when the identity reports it
+     * verified, while a sign-in that used no identifier, or a guard without the
+     * gate, admits it without reading the identity.
+     *
+     * @return void
+     */
+    public function testTheGateAloneDecidesForTheIdentity(): void
+    {
+        $this->setGuardAudience(['require_verified_identifier' => true]);
+
+        $policy = $this->packagePolicy();
+
+        self::assertNull($policy->admitIdentifier(self::GUARD, $this->verifiable(true), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $policy->admitIdentifier(self::GUARD, $this->verifiable(false), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $policy->admitIdentifier(self::GUARD, $this->verifiable(true), 'phone'));
+        self::assertNull($policy->admitIdentifier(self::GUARD, $this->identity(), null));
+        self::assertNull($policy->admitIdentifier('other', $this->identity(), 'email'));
+    }
+
+    /**
      * An ineligible principal is refused as such before its identifier is
      * looked at.
      *

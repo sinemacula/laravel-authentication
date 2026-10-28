@@ -48,9 +48,10 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  * limits, and a replayed one revokes the device. Every live check runs on every
  * path: the owner, reloaded through the guard's provider and active; the
  * target, resolved through the hinted path as the very principal named, owned,
- * active, in an active tenant, and admitted by the audience policy; the
- * session's sign-in method still allowed; and the additional-factor policy,
- * which may not ask for a further factor (sign in again as the target then).
+ * active, in an active tenant, and admitted by the audience policy, also with
+ * the type of identifier the session's sign-in used; the session's sign-in
+ * method still allowed; and the additional-factor policy, which may not ask for
+ * a further factor (sign in again as the target then).
  *
  * With the current rotation id, the token's principal must be the one the
  * device records. The switch keeps the session's absolute clock, held to the
@@ -197,8 +198,8 @@ final readonly class PrincipalSwitch
      * Admit the target for the device's session: the device's owner, active, as
      * the target resolved through the hinted path (the very principal named,
      * owned, active, in an active tenant, admitted by the audience policy),
-     * with the session's sign-in method still allowed and no further factor
-     * asked.
+     * with the session's sign-in method still allowed, then as the target the
+     * session's sign-in could have chosen, with no further factor asked.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn
@@ -210,17 +211,44 @@ final readonly class PrincipalSwitch
         $admitted = (new RefreshAdmission($this->guard->getName(), $this->guard->getProvider(), $this->guard->getPrincipalResolver()))
             ->admit($device, $this->target->getPrincipalIdentifier() ?? '');
 
-        if ($admitted instanceof AdmittedSignIn && !$this->isTarget($admitted)) {
-            $admitted = new RefusedSignIn(FailureReason::PRINCIPAL_MISMATCH, $admitted->identity);
-        }
-
-        if ($admitted instanceof AdmittedSignIn && $this->requiresAdditionalFactor($admitted, $device)) {
-            $admitted = RefusedSignIn::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted);
+        if ($admitted instanceof AdmittedSignIn) {
+            $admitted = $this->admitAsTarget($admitted, $device);
         }
 
         return $admitted instanceof RefusedSignIn
             ? self::refused($admitted->reason, $this->context($device, $admitted))
             : $admitted;
+    }
+
+    /**
+     * Hold the admitted principal to what makes it the target the session may
+     * switch to: it must be the very target (`principal_mismatch`); the
+     * audience policy must admit it with the type of identifier the session's
+     * sign-in used, as that sign-in admitted its own principal, so a policy
+     * that refuses some principals to such an identifier (an unverified one,
+     * say) refuses the switch for its reason; and the additional-factor policy
+     * must not ask a further factor (`additional_factor_required`). A session
+     * whose sign-in used no identifier is not held to an identifier type. The
+     * type is read on the write connection.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     *
+     * @throws \Throwable
+     */
+    private function admitAsTarget(AdmittedSignIn $admitted, EloquentDevice&Model $device): AdmittedSignIn|RefusedSignIn
+    {
+        if (!$this->isTarget($admitted)) {
+            return new RefusedSignIn(FailureReason::PRINCIPAL_MISMATCH, $admitted->identity);
+        }
+
+        $type    = WriteConnection::during($device, static fn (): ?string => $device->getSignInIdentifierType());
+        $refusal = $type === null ? null : Container::getInstance()->make(AudiencePolicy::class)->admit($this->guard->getName(), $admitted->identity, $admitted->principal, $type);
+
+        $refusal ??= $this->requiresAdditionalFactor($admitted, $device) ? FailureReason::ADDITIONAL_FACTOR_REQUIRED : null;
+
+        return $refusal === null ? $admitted : RefusedSignIn::after($refusal, $admitted);
     }
 
     /**

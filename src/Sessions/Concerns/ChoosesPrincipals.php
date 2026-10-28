@@ -99,7 +99,9 @@ trait ChoosesPrincipals
     /**
      * Look up the choice the token continues, without using it up: `null` when
      * the token names no live choice of this guard, or its identity no longer
-     * resolves as recorded. The principals are the eligible ones now.
+     * resolves as recorded. The principals are the eligible ones now, admitted
+     * with the identifier type the sign-in used, as they were when the choice
+     * was offered.
      *
      * @param  string  $token
      * @return ?\SineMacula\Laravel\Authentication\Sessions\PrincipalChoice
@@ -116,7 +118,9 @@ trait ChoosesPrincipals
 
         [$pending, , $identity] = $live;
 
-        return new PrincipalChoice($token, $pending->guard, $identity, $this->principals($identity), $pending->sign_in_method, CarbonImmutable::instance($pending->expires_at));
+        [$principals] = $this->admissible($identity, $pending->identifier_type);
+
+        return new PrincipalChoice($token, $pending->guard, $identity, $principals, $pending->sign_in_method, CarbonImmutable::instance($pending->expires_at));
     }
 
     /**
@@ -302,6 +306,40 @@ trait ChoosesPrincipals
      */
     private function offerChoice(Identity $identity, string $method, ?string $identifierType, SignInContext $context, ?array $attemptWindows): RefusedSignIn|SignInResult
     {
+        $guard = $this->guard->getName();
+
+        [$principals, $refusal] = $this->admissible($identity, $identifierType);
+
+        if ($principals === []) {
+            return new RefusedSignIn($refusal ?? FailureReason::PRINCIPAL_UNRESOLVED, $identity);
+        }
+
+        $now    = CarbonImmutable::now()->startOfSecond();
+        $proven = $context->refreshToken === null ? null : $this->proof->provenDeviceOf($guard, $identity, null, $context->refreshToken);
+
+        [$token, $expiresAt] = $this->pendings->issueChoice($guard, $identity, $proven, $method, $identifierType, $context, $now, $attemptWindows);
+
+        $event = new PrincipalChoiceRequired(new EventContext($guard, $context->client, $identity, device: $proven, method: $method), $expiresAt);
+
+        $this->afterCommit->run(new PendingSignIn, fn () => $this->dispatch($event));
+
+        return SignInResult::principalRequired(new PrincipalChoice($token, $guard, $identity, $principals, $method, $expiresAt));
+    }
+
+    /**
+     * The eligible principals (`principals()`) the audience policy also admits
+     * with the identifier type a sign-in used, and its reason for the last one
+     * it refused, if any. A sign-in that used no identifier is not held to it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?string  $identifierType
+     * @return array{0: list<\SineMacula\Laravel\Authentication\Contracts\Principal>, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason}
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    private function admissible(Identity $identity, ?string $identifierType): array
+    {
         $guard      = $this->guard->getName();
         $audience   = $this->collaborator(AudiencePolicy::class);
         $principals = [];
@@ -320,20 +358,7 @@ trait ChoosesPrincipals
             $refusal = $reason;
         }
 
-        if ($principals === []) {
-            return new RefusedSignIn($refusal ?? FailureReason::PRINCIPAL_UNRESOLVED, $identity);
-        }
-
-        $now    = CarbonImmutable::now()->startOfSecond();
-        $proven = $context->refreshToken === null ? null : $this->proof->provenDeviceOf($guard, $identity, null, $context->refreshToken);
-
-        [$token, $expiresAt] = $this->pendings->issueChoice($guard, $identity, $proven, $method, $identifierType, $context, $now, $attemptWindows);
-
-        $event = new PrincipalChoiceRequired(new EventContext($guard, $context->client, $identity, device: $proven, method: $method), $expiresAt);
-
-        $this->afterCommit->run(new PendingSignIn, fn () => $this->dispatch($event));
-
-        return SignInResult::principalRequired(new PrincipalChoice($token, $guard, $identity, $principals, $method, $expiresAt));
+        return [$principals, $refusal];
     }
 
     /**

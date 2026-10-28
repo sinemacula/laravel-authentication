@@ -4,19 +4,23 @@ declare(strict_types = 1);
 
 namespace Tests\Unit\Sessions\Admission;
 
+use Illuminate\Config\Repository;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
+use Tests\Unit\Stubs\StubVerifiableIdentity;
 
 /**
  * Unit tests for the checks every sign-in passes once its identity is known:
@@ -96,6 +100,47 @@ final class SignInAdmissionTest extends TestCase
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertNull($refused->principal);
+    }
+
+    /**
+     * With the package's policy and a guard that requires a verified
+     * identifier, an identity whose identifier is unverified is refused as
+     * `identifier_unverified` before its principal is resolved, so the answer
+     * is the same whether it has a principal or not; a verified one goes on to
+     * its principal, and a sign-in that used no identifier is not held to it.
+     *
+     * @return void
+     */
+    public function testThePackagePolicyRefusesAnUnverifiedIdentifierWithoutResolvingAPrincipal(): void
+    {
+        $admission  = new SignInAdmission($this->packagePolicy());
+        $unverified = new StubVerifiableIdentity(1, ['email' => 'ben@example.com']);
+        $resolved   = false;
+
+        $refused = $admission->admit('api', $unverified, static function () use (&$resolved): ?Principal {
+            $resolved = true;
+
+            return null;
+        }, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
+
+        self::assertFalse($resolved);
+        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
+        self::assertSame($unverified, $refused->identity);
+        self::assertNull($refused->principal);
+
+        $unnamed = $admission->admit('api', $unverified, static fn (): ?Principal => null, FailureReason::PRINCIPAL_UNRESOLVED, null);
+
+        self::assertInstanceOf(RefusedSignIn::class, $unnamed);
+        self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $unnamed->reason);
+
+        $verified = new StubVerifiableIdentity(2, ['email' => 'ada@example.com']);
+        $verified->markIdentifierAsVerified('email', 'ada@example.com');
+
+        $afterGate = $admission->admit('api', $verified, static fn (): ?Principal => null, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
+
+        self::assertInstanceOf(RefusedSignIn::class, $afterGate);
+        self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $afterGate->reason);
     }
 
     /**
@@ -191,6 +236,22 @@ final class SignInAdmissionTest extends TestCase
         self::assertSame($tenant, $refused->tenant);
         self::assertNull($refused->device);
         self::assertNull($refused->retryAfter);
+    }
+
+    /**
+     * The package's audience policy over a configuration whose `api` guard
+     * requires a verified identifier; it needs no token service to admit.
+     *
+     * @return \SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy
+     */
+    private function packagePolicy(): GuardAudiencePolicy
+    {
+        $config = new Repository([
+            'auth'           => ['guards' => ['api' => ['driver' => 'jwt', 'audience' => ['require_verified_identifier' => true]]]],
+            'authentication' => ['audience' => ['methods' => ['password'], 'principal_types' => null, 'require_verified_identifier' => false]],
+        ]);
+
+        return new GuardAudiencePolicy($config, (new \ReflectionClass(JwtTokenServiceFactory::class))->newInstanceWithoutConstructor());
     }
 
     /**

@@ -321,9 +321,12 @@ a type is refused. The session layer asks the guard before it issues anything: a
 not list fails with `method_not_allowed`, and a principal whose type it does not admit with `principal_ineligible`, at
 sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a session in another.
 With `require_verified_identifier`, a sign-in that used an identifier (an email address for the password method) fails
-with `identifier_unverified` unless the identity reports that identifier verified (see
-[Identifier verification](#identifier-verification)); sign-ins that used no identifier, such as SSO through `start()`,
-and refreshes are not gated, since the external provider or the existing session vouches for them.
+with `identifier_unverified` unless the identity reports that identifier verified (see [Identifier
+verification](#identifier-verification)); sign-ins that used no identifier, such as SSO through `start()`, and refreshes
+are not gated, since the external provider or the existing session vouches for them. The check is made before any
+principal is resolved, so an unverified identifier gets `identifier_unverified` whether or not the identity has a
+principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of principal is held to the
+identifier type its session's sign-in used, which the device records.
 
 A guard key that is present wins, `null` included, so a guard can admit any principal although the package default
 lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
@@ -382,6 +385,7 @@ A device is one signed-in session. The shipped migration creates these columns:
 | `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
 | `principal_switched_at`                                | When the session last switched its principal           |
 | `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
+| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any       |
 | `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
 | `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
 | `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
@@ -1357,10 +1361,11 @@ waits for the identity to choose one when it may sign in as any: the result `req
 `principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
 by the guard's audience policy; `Auth::sessions('api')->principals($identity)` lists them the same way for a switch
 screen (for an identity that is its own principal, the resolver's default). An identity with none fails as
-`principal_unresolved`, as before. The choice itself is admitted with the identifier type the sign-in used, as a sign-in
-naming a principal would be, so a guard with `require_verified_identifier` offers no choice, and lists no principal, to
-an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing stored or
-reported. `attempt()` never waits for a choice.
+`principal_unresolved`, as before. The choice itself, and every later look-up of it, is admitted with the identifier
+type the sign-in used, as a sign-in naming a principal would be, so a principal your audience policy refuses to that
+identifier is neither offered nor listed, and a guard with `require_verified_identifier` offers no choice, and lists no
+principal, to an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing
+stored or reported. `attempt()` never waits for a choice.
 
 The choice is stored like a pending factor, in `pending_sign_ins` with `purpose = principal_choice` and no principal,
 with the device the client proved it holds (whatever principal that device records) and the sign-in's attempt slots,
@@ -1655,9 +1660,10 @@ guard, the device found, of this guard, live, and the rotation id current, or th
 any other id is a replay and revokes the device (`rotation_reuse`). On every path the device's owner must still be
 returned by the guard's provider and be active, the target must resolve through the resolver's hinted path as the very
 principal named, of its class, owned by that identity (read from the principal's own key, not trusted to the resolver),
-active, in an active tenant and admitted by the audience policy, the session's sign-in method must still be allowed, and
-the additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again as the
-target).
+active, in an active tenant and admitted by the audience policy, also with the type of identifier the session's sign-in
+used (which the device records), so a principal your policy refuses to that identifier cannot be reached by switching to
+it, the session's sign-in method must still be allowed, and the additional-factor policy must not ask for a further
+factor (`additional_factor_required`: sign in again as the target).
 
 With the current rotation id, the token's principal must be the one the device records (`device_principal_mismatch`).
 The switch keeps the session's absolute deadline, held to the target type's absolute lifetime counted from the sign-in

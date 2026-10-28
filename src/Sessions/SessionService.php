@@ -122,7 +122,7 @@ final readonly class SessionService
         // Returns the current transactions manager, if any, when called.
         \Closure $transactions,
     ) {
-        $this->writer       = new SessionWriter($tokens, $connections);
+        $this->writer       = new SessionWriter($guard->getName(), $tokens, $connections);
         $this->proof        = new DeviceProof($tokens);
         $this->afterCommit  = new AfterCommit($transactions);
         $this->pendings     = new PendingSignIns($container->make(Repository::class));
@@ -531,8 +531,9 @@ final readonly class SessionService
         }
 
         $origin  = PendingSignIns::origin($found->pending);
-        $session = $this->write($admitted->on($found->device), $found->device, $factor->method, $context, $now, $origin)
-            ?? $this->write($admitted, null, $factor->method, $context, $now, $origin);
+        $type    = $found->pending->identifier_type;
+        $session = $this->write($admitted->on($found->device), $found->device, $factor->method, $type, $context, $now, $origin)
+            ?? $this->write($admitted, null, $factor->method, $type, $context, $now, $origin);
 
         return [$admitted->on($session->device), $session];
     }
@@ -637,7 +638,7 @@ final readonly class SessionService
             return SignInResult::pendingFactor($pending);
         }
 
-        $session = $this->write($admitted, $proven, $method, $context, $now, $origin);
+        $session = $this->write($admitted, $proven, $method, $identifierType, $context, $now, $origin);
 
         return $session === null
             ? $this->establish($admitted, null, $method, $identifierType, $context, $now, $attemptWindows, $origin)
@@ -648,12 +649,15 @@ final readonly class SessionService
      * Write the session of an admitted sign-in, with the guard's lifetimes for
      * its principal: continue the proven device, or create one, recorded as
      * created from the origin's client when that differs from the context's (a
-     * completion records where its sign-in began). `null` when the proven
-     * device changed before it could be continued.
+     * completion records where its sign-in began). The device records the
+     * method and the type of identifier the sign-in used, which a later switch
+     * of principal admits its target with. `null` when the proven device
+     * changed before it could be continued.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
      * @param  string  $method
+     * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $origin
@@ -665,16 +669,16 @@ final readonly class SessionService
         AdmittedSignIn $admitted,
         (EloquentDevice&Model)|null $proven,
         string $method,
+        ?string $identifierType,
         SignInContext $context,
         CarbonImmutable $now,
         ?ClientContext $origin = null,
     ): ?SignedInSession {
-        $name      = $this->guard->getName();
-        $lifetimes = $this->collaborator(AudiencePolicy::class)->lifetimes($name, $admitted->principal);
+        $lifetimes = $this->collaborator(AudiencePolicy::class)->lifetimes($this->guard->getName(), $admitted->principal);
 
         return $proven === null
-            ? $this->writer->create($name, $admitted, $method, $context, $lifetimes, $now, $origin ?? $context->client)
-            : $this->writer->continueOn($proven, $admitted, $method, $context, $lifetimes, $now);
+            ? $this->writer->create($admitted, $method, $identifierType, $context, $lifetimes, $now, $origin ?? $context->client)
+            : $this->writer->continueOn($proven, $admitted, $method, $identifierType, $context, $lifetimes, $now);
     }
 
     /**

@@ -56,6 +56,14 @@ interface EloquentDevice extends Device
     public function getSignInMethodName(): string;
 
     /**
+     * Column name holding the type of identifier the sign-in that started the
+     * session used.
+     *
+     * @return string
+     */
+    public function getSignInIdentifierTypeName(): string;
+
+    /**
      * Column name holding the name the client gave itself.
      *
      * @return string

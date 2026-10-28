@@ -21,16 +21,18 @@ use Tests\Unit\Stubs\StubDevice;
 final class RecordsDeviceOriginTest extends TestCase
 {
     /**
-     * The guard and sign-in method read the recorded values as strings.
+     * The guard, the sign-in method and the type of identifier it used read the
+     * recorded values as strings.
      *
      * @return void
      */
     public function testReadsTheRecordedGuardAndMethod(): void
     {
-        $device = (new StubDevice)->forceFill(['guard' => 'api', 'sign_in_method' => 'password']);
+        $device = (new StubDevice)->forceFill(['guard' => 'api', 'sign_in_method' => 'password', 'sign_in_identifier_type' => 'email']);
 
         self::assertSame('api', $device->getGuard());
         self::assertSame('password', $device->getSignInMethod());
+        self::assertSame('email', $device->getSignInIdentifierType());
     }
 
     /**
@@ -41,13 +43,15 @@ final class RecordsDeviceOriginTest extends TestCase
      */
     public function testValuesNotRecordedOrNotLoadedReadAsNull(): void
     {
-        $recordedNull = (new StubDevice)->forceFill(['guard' => null, 'sign_in_method' => null]);
+        $recordedNull = (new StubDevice)->forceFill(['guard' => null, 'sign_in_method' => null, 'sign_in_identifier_type' => null]);
         $notLoaded    = new StubDevice;
 
         self::assertNull($recordedNull->getGuard());
         self::assertNull($recordedNull->getSignInMethod());
+        self::assertNull($recordedNull->getSignInIdentifierType());
         self::assertNull($notLoaded->getGuard());
         self::assertNull($notLoaded->getSignInMethod());
+        self::assertNull($notLoaded->getSignInIdentifierType());
     }
 
     /**
@@ -61,6 +65,7 @@ final class RecordsDeviceOriginTest extends TestCase
 
         self::assertSame('guard', $device->getGuardName());
         self::assertSame('sign_in_method', $device->getSignInMethodName());
+        self::assertSame('sign_in_identifier_type', $device->getSignInIdentifierTypeName());
         self::assertSame('client_name', $device->getClientNameName());
         self::assertSame('platform', $device->getPlatformName());
         self::assertSame('created_ip', $device->getCreatedIpName());

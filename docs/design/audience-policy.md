@@ -27,7 +27,11 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   in `attempt()` cannot skip it. The identity must then implement `HasVerifiableIdentifiers` (otherwise a
   `LogicException`: a misconfiguration) and report that identifier verified, read on the write connection; otherwise
   `identifier_unverified`. `start()`, `complete()` without a stored type, and refresh carry no identifier type and are
-  never gated: an external verifier or an existing session vouches for them.
+  never gated: an external verifier or an existing session vouches for them. A switch of principal is admitted with the
+  type the session's sign-in used (recorded on the device), as that sign-in was.
+- The gate depends on the identity alone (`GuardAudiencePolicy::admitIdentifier()`, which `admit()` also asks), so
+  with the package's policy every sign-in (`attempt()` included) asks it before resolving any principal: an unverified
+  identifier is refused alike whether the identity has principals or not.
 - `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks, and runs
   eligibility before the gate.
 - Lifetimes come from `jwt.by_principal_type.<type>` on the guard (any of `access_ttl_minutes`,

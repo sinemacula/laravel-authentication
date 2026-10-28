@@ -70,11 +70,8 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * `principal_ineligible`. A principal without a type is refused by a guard
      * that lists types.
      *
-     * Then, for a guard that sets `require_verified_identifier` and a sign-in
-     * that used an identifier of a type, refuse it as `identifier_unverified`
-     * unless the identity reports that identifier verified (read on the write
-     * connection). The identity must implement `HasVerifiableIdentifiers`
-     * then; one that does not is a misconfiguration (`LogicException`).
+     * Then hold the identity to the verified-identifier requirement
+     * (`admitIdentifier()`).
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -96,7 +93,33 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
             return FailureReason::PRINCIPAL_INELIGIBLE;
         }
 
-        if (!$settings['require_verified_identifier'] || $identifierType === null) {
+        return $this->admitIdentifier($guard, $identity, $identifierType);
+    }
+
+    /**
+     * For a guard that sets `require_verified_identifier` and a sign-in that
+     * used an identifier of a type, refuse the identity as
+     * `identifier_unverified` unless it reports that identifier verified (read
+     * on the write connection); otherwise admit it (`null`). The identity must
+     * implement `HasVerifiableIdentifiers` then; one that does not is a
+     * misconfiguration (`LogicException`).
+     *
+     * The answer depends on the identity alone, so a sign-in asks it before it
+     * resolves any principal: an unverified identifier is refused alike whether
+     * the identity has principals or not, and the refusal says nothing about
+     * which it has.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?string  $identifierType
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
+    {
+        if ($identifierType === null || !$this->settings($guard)['require_verified_identifier']) {
             return null;
         }
 

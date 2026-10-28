@@ -177,4 +177,15 @@ final class StubBareDevice extends Model implements Device
     {
         return null;
     }
+
+    /**
+     * Inert sign-in identifier type accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getSignInIdentifierType(): ?string
+    {
+        return null;
+    }
 }
