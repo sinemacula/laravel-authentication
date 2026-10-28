@@ -50,8 +50,9 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  * its key on every request, so revoking the key, or the end of its rotation's
  * overlap, ends it at once. Only failures to authenticate the client are
  * counted. Every failure dispatches `AuthenticationFailed` (flow
- * `client_credentials`) with the client id as given; a grant dispatches
- * `ClientCredentialsGranted`.
+ * `client_credentials`) with the client id when it is a key's public part in
+ * form, and none otherwise, so a secret sent as the id is never reported; a
+ * grant dispatches `ClientCredentialsGranted`.
  *
  * Reads the guard's provider, resolver, dispatcher and request each time it
  * runs, so it keeps nothing between calls.
