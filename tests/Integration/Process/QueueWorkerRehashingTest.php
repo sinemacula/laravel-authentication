@@ -81,22 +81,21 @@ final class QueueWorkerRehashingTest extends TestCase
     }
 
     /**
-     * With the mark shared for the life of the worker, the attempt the first
-     * job abandoned still marks its user when the second job saves a fresh hash
-     * of its password, and the sessions survive: the leak the scoped binding
-     * closes.
+     * Even with the mark shared for the life of the worker, the second job's
+     * save of a fresh hash of the password revokes: the attempt the first job
+     * abandoned validated an instance no later job saves.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAMarkSharedAcrossJobsLeaksIntoTheNext(): void
+    public function testASavedPasswordRevokesEvenWithTheMarkShared(): void
     {
         $this->shareOneMark();
 
         $this->runBothJobs(SavePasswordJob::class);
 
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
     }
 
     /**
@@ -116,8 +115,7 @@ final class QueueWorkerRehashingTest extends TestCase
 
     /**
      * A second job's `logoutOtherDevices()` is answered as the sign-out it is,
-     * even with the mark shared, so the first job's abandoned attempt still
-     * marks its user: `OtherDeviceLogout` follows its forced rehash.
+     * even with the mark shared.
      *
      * @return void
      *

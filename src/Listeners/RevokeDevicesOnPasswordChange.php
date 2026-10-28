@@ -21,16 +21,15 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * revokes nothing: the package's own, and the one Laravel's guards run in
  * `attempt()`, `attemptWhen()` and `once()`, which re-encodes the password the
  * attempt was made with (see `Rehashing`); another password saved before the
- * attempt ends, by an `attemptWhen()` callback say, is a change, and so is a
- * change back to the attempt's password, since the hash it replaces does not
- * verify that password. The forced rehash of `logoutOtherDevices()` is a
- * sign-out of the other sessions and is answered as a change, even while an
- * attempt for the user is open or was abandoned by an exception. Every device
- * is revoked, the one the change was made from included; an application that
- * keeps that device signed in calls
- * `Auth::sessions()->passwordChanged($identity, Auth::device())` itself instead
- * of registering the observer. Only changes saved through Eloquent are seen: a
- * query-builder update fires no model event.
+ * attempt ends, by an `attemptWhen()` callback say, is a change, and so is
+ * every save of the identity after it, a change back to the attempt's password
+ * included. The forced rehash of `logoutOtherDevices()` is a sign-out of the
+ * other sessions and is answered as a change, even while an attempt for the
+ * user is open or was abandoned by an exception. Every device is revoked, the
+ * one the change was made from included; an application that keeps that device
+ * signed in calls `Auth::sessions()->passwordChanged($identity,
+ * Auth::device())` itself instead of registering the observer. Only changes
+ * saved through Eloquent are seen: a query-builder update fires no model event.
  *
  * @api
  *

@@ -1856,11 +1856,14 @@ Membership::observe(RevokeDevicesOnDeactivation::class);
   `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change, and
   the observer ignores it: the package's own sign-ins run it marked, and so do Laravel's guards (`attempt()`,
   `attemptWhen()`, `once()`, as a web login over the same user model does), whose attempt the package follows through
-  Laravel's auth events: while an attempt is open, a save of the user it validated is the rehash only when both the
-  hash it replaces and the hash it saves verify the password the attempt was made with, so a new password saved before
-  the attempt ends (by an `attemptWhen()` callback, say) revokes, and so does a change back to that password. An
-  attempt made inside another attempt's callback leaves the outer attempt's rehash alone, and users are told apart by
-  the row they are stored in (connection, database, table and key), so the same key in another tenant's database is
+  Laravel's auth events: while an attempt is open, a save is the rehash only when it saves the very model instance the
+  attempt validated, both the hash it replaces and the hash it saves verify the password the attempt was made with, and
+  no change of the user's password has run since. So a new password saved before the attempt ends (by an
+  `attemptWhen()` callback, say) revokes, and so does any later save of the user, a change back to that password or a
+  fresh hash of it through another instance included. An attempt made inside another attempt's callback, or the
+  session's user resolved there, leaves the outer attempt's rehash alone (an `Auth::login()` of the very instance the
+  outer attempt validated, inside its callback, does end it early, so its rehash then revokes), and users are told apart
+  by the row they are stored in (connection, database, table and key), so the same key in another tenant's database is
   another user. Confirming the current password with `validate()` before changing it is not
   an attempt, so the change that follows revokes; so does Laravel's `logoutOtherDevices()`, whose forced rehash exists
   to sign the other sessions out, even while an attempt for the user is open (the package tells it apart by the

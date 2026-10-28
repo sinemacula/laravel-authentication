@@ -50,10 +50,9 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
-     * Two users of one class and key stored apart are told apart: a save of the
-     * one no attempt validated runs at once; each holds its own save; a forced
-     * rehash of one runs only its own, and the end of one's attempt drops only
-     * its own.
+     * Two users of one class and key stored apart are told apart: a change of
+     * the one leaves what an attempt for the other takes for its rehash alone,
+     * and a forced rehash of the one runs nothing the other's attempt holds.
      *
      * @param  \Closure(): (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)  $elsewhere
      * @return void
@@ -73,29 +72,20 @@ final class RehashingAccountsTest extends TestCase
         Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
         Event::dispatch(new Validated('web', $here));
 
-        self::save($there, $runs, 'there, unattempted');
-
-        Event::dispatch(new Attempting('admin', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
-        Event::dispatch(new Validated('admin', $there));
-
+        self::save($there->forceFill(['password' => Hash::make('another password')]), $runs, 'there, changed');
         self::save($here, $runs, 'here');
-        self::save($there, $runs, 'there');
 
+        Event::dispatch(new OtherDeviceLogout('admin', $there));
+        Event::dispatch(new Login('web', $here, false));
         Event::dispatch(new OtherDeviceLogout('web', $here));
 
-        self::save($here, $runs, 'here, dropped');
-
-        Event::dispatch(new Login('web', $here, false));
-        Event::dispatch(new OtherDeviceLogout('admin', $there));
-
-        self::assertSame(['there, unattempted', 'here', 'there'], $runs->getArrayCopy());
+        self::assertSame(['there, changed'], $runs->getArrayCopy());
     }
 
     /**
      * Once a tenant's connection is switched to another tenant's database, the
-     * same key there is another user: its save runs at once rather than being
-     * held for the first tenant's attempt, and a forced rehash of it runs
-     * nothing the first tenant's attempt held.
+     * same key there is another user: a forced rehash of it runs nothing the
+     * first tenant's attempt held, and its save runs at once.
      *
      * @return void
      */
@@ -103,13 +93,15 @@ final class RehashingAccountsTest extends TestCase
     {
         config()->set('database.connections.tenant', ['driver' => 'mysql', 'host' => '127.0.0.1', 'database' => 'tenant_a', 'prefix' => '']);
 
+        $here = self::user((new IntegrationIdentity)->setConnection('tenant'));
+
         /** @var \ArrayObject<int, string> $runs */
         $runs = new \ArrayObject;
 
         Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
-        Event::dispatch(new Validated('web', self::user((new IntegrationIdentity)->setConnection('tenant'))));
+        Event::dispatch(new Validated('web', $here));
 
-        self::save(self::user((new IntegrationIdentity)->setConnection('tenant')), $runs, 'tenant a, held');
+        self::save($here, $runs, 'tenant a, held');
 
         DB::purge('tenant');
 
@@ -125,26 +117,32 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
-     * Two model classes over one table are one user for the same row, so a save
-     * through the one is held for an attempt that validated the other.
+     * Two model classes over one table are one user for the same row: a forced
+     * rehash through the one runs the save held for an attempt that validated
+     * the other, and is a change of that user's password, so the attempt takes
+     * no save for its rehash from then on.
      *
      * @return void
      */
     public function testModelClassesOverOneTableAreOneUser(): void
     {
+        $staff = self::user(new VerifiableStaffIdentity);
+
         /** @var \ArrayObject<int, string> $runs */
         $runs = new \ArrayObject;
 
         Event::dispatch(new Attempting('admin', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
-        Event::dispatch(new Validated('admin', self::user(new VerifiableStaffIdentity)));
+        Event::dispatch(new Validated('admin', $staff));
 
-        self::save(self::user(new VerifiableIdentity), $runs, 'held');
+        self::save($staff, $runs, 'held');
 
         self::assertSame([], $runs->getArrayCopy());
 
         Event::dispatch(new OtherDeviceLogout('web', self::user(new VerifiableIdentity)));
 
-        self::assertSame(['held'], $runs->getArrayCopy());
+        self::save($staff, $runs, 'after the sign-out');
+
+        self::assertSame(['held', 'after the sign-out'], $runs->getArrayCopy());
     }
 
     /**

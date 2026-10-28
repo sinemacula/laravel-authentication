@@ -237,15 +237,16 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * An attempt that threw after validating its user never ended, yet a new
-     * password saved afterwards revokes; only a save of the password the
-     * attempt was made with is still taken for its rehash.
+     * An attempt that threw after validating its user never ended, yet a save
+     * of its user's password afterwards, a fresh hash of the same password
+     * included, revokes: only a save of the very instance the attempt validated
+     * is taken for its rehash.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testANewPasswordSavedAfterAnAttemptThatThrewRevokes(): void
+    public function testAPasswordSavedAfterAnAttemptThatThrewRevokes(): void
     {
         $identity = $this->seedOutdatedHash();
 
@@ -259,46 +260,49 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
 
-        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
-
-        $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
-
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
     }
 
     /**
-     * Rows of `[whether the changes run inside the attempt's callback, or
-     * after an attempt whose callback threw]`.
+     * Rows of `[whether the changes run inside the attempt's callback rather
+     * than after an attempt whose callback threw, the instance the change back
+     * is saved through]`.
      *
-     * @return iterable<string, array{0: bool}>
+     * @return iterable<string, array{0: bool, 1: string}>
      */
-    public static function provideAttemptsLeftOpen(): iterable
+    public static function provideChangesBack(): iterable
     {
-        yield 'after an attempt whose callback threw' => [false];
-        yield 'inside the attempt\'s own callback' => [true];
+        foreach (['after an attempt whose callback threw' => false, 'inside the attempt\'s own callback' => true] as $attempt => $inside) {
+            yield "{$attempt}, back through the instance that changed it" => [$inside, 'changer'];
+            yield "{$attempt}, back through the instance the attempt validated" => [$inside, 'validated'];
+            yield "{$attempt}, back through an instance loaded before the change" => [$inside, 'stale'];
+        }
     }
 
     /**
      * While an attempt made with the password is open, or was abandoned by an
      * exception, a change of password revokes, and so does a change back to
-     * that password: it is not the attempt's rehash, so the session started
-     * between the two changes is ended, its tokens are refused at the `auth`
-     * middleware and its refresh token refreshes nothing.
+     * that password through any instance of the identity, even one still
+     * holding the hash from before the change: it is not the attempt's rehash,
+     * so the session started between the two changes is ended, its tokens are
+     * refused at the `auth` middleware and its refresh token refreshes nothing.
      *
      * @param  bool  $inside
+     * @param  string  $back
      * @return void
      *
      * @throws \Throwable
      */
-    #[DataProvider('provideAttemptsLeftOpen')]
-    public function testAChangeBackToTheAttemptsPasswordRevokesTheSessionStartedBetween(bool $inside): void
+    #[DataProvider('provideChangesBack')]
+    public function testAChangeBackToTheAttemptsPasswordRevokesTheSessionStartedBetween(bool $inside, string $back): void
     {
         $identity = $this->seedIdentity();
         $first    = $this->signIn();
+        $stale    = IntegrationIdentity::query()->whereKey($identity->getKey())->firstOrFail();
 
         IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
 
-        $changes = function () use ($identity): SignedInSession {
+        $changes = function (IntegrationIdentity $validated) use ($identity, $stale, $back): SignedInSession {
 
             $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
 
@@ -306,7 +310,13 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
             $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class]);
 
-            $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+            $instance = match ($back) {
+                'changer'   => $identity,
+                'validated' => $validated,
+                default     => $stale,
+            };
+
+            $instance->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
 
             return $between;
         };
@@ -314,21 +324,27 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         $between = null;
 
         if ($inside) {
-            self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), static function () use ($changes, &$between): bool {
-                $between = $changes();
+            self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), static function (IntegrationIdentity $validated) use ($changes, &$between): bool {
+                $between = $changes($validated);
 
                 return true;
             }));
         } else {
+            $validated = null;
+
             try {
-                $this->webGuard()->attemptWhen(self::credentials(), static function (): never {
+                $this->webGuard()->attemptWhen(self::credentials(), static function (IntegrationIdentity $user) use (&$validated): never {
+                    $validated = $user;
+
                     throw new \RuntimeException('callback failed');
                 });
             } catch (\RuntimeException $exception) { // @phpstan-ignore catch.neverThrown
                 self::assertSame('callback failed', $exception->getMessage());
             }
 
-            $between = $changes();
+            self::assertInstanceOf(IntegrationIdentity::class, $validated);
+
+            $between = $changes($validated);
         }
 
         self::assertInstanceOf(SignedInSession::class, $between);
@@ -350,31 +366,33 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * Rows of `[the credentials of an attempt made inside another attempt's
-     * callback on the same guard]`.
+     * Rows of `[what runs inside another attempt's callback on the same
+     * guard]`.
      *
-     * @return iterable<string, array{0: array<string, string>}>
+     * @return iterable<string, array{0: string}>
      */
     public static function provideNestedAttempts(): iterable
     {
-        yield 'refused for the same user' => [['email' => 'ada@example.test', 'password' => 'wrong']];
-        yield 'for no user' => [['email' => 'nobody@example.test', 'password' => self::PASSWORD]];
-        yield 'admitted for another user' => [['email' => 'grace@example.test', 'password' => self::PASSWORD]];
+        yield 'an attempt refused for the same user' => ['refused'];
+        yield 'an attempt for no user' => ['nobody'];
+        yield 'an attempt admitted for another user' => ['another'];
+        yield 'an attempt admitted for the same user' => ['same'];
+        yield 'the resolution of the session\'s user' => ['session'];
     }
 
     /**
-     * An attempt made inside another attempt's callback on the same guard
-     * leaves the outer attempt open when it ends, so the outer attempt's own
-     * rehash revokes nothing: the session it would have ended still reaches the
-     * `auth` middleware and still refreshes.
+     * An attempt made inside another attempt's callback on the same guard, or
+     * the session's user resolved there, ends nothing of the outer attempt, so
+     * the outer attempt's own rehash revokes nothing: the session it would have
+     * ended still reaches the `auth` middleware and still refreshes.
      *
-     * @param  array<string, string>  $credentials
+     * @param  string  $nested
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideNestedAttempts')]
-    public function testAnAttemptInsideAnotherOnTheSameGuardLeavesItsRehashAlone(array $credentials): void
+    public function testAnAttemptInsideAnotherOnTheSameGuardLeavesItsRehashAlone(string $nested): void
     {
         $this->seedIdentity('grace@example.test');
 
@@ -385,10 +403,23 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
 
-        $admitted = $credentials['email'] === 'grace@example.test';
+        if ($nested === 'session') {
+            $this->webGuard()->login($identity);
 
-        self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), function () use ($credentials, $admitted): bool {
-            self::assertSame($admitted, $this->webGuard()->attempt($credentials));
+            Auth::forgetGuards();
+        }
+
+        self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), function () use ($nested, $identity): bool {
+
+            $guard = $this->webGuard();
+
+            match ($nested) {
+                'refused' => self::assertFalse($guard->attempt(['email' => 'ada@example.test', 'password' => 'wrong'])),
+                'nobody'  => self::assertFalse($guard->attempt(['email' => 'nobody@example.test', 'password' => self::PASSWORD])),
+                'another' => self::assertTrue($guard->attempt(self::credentials('grace@example.test'))),
+                'same'    => self::assertTrue($guard->attempt(self::credentials())),
+                default   => self::assertSame($identity->getKey(), $guard->user()?->getAuthIdentifier()),
+            };
 
             return true;
         }));

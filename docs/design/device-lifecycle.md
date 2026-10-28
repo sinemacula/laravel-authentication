@@ -64,23 +64,29 @@ deleted. Starting a session is in
   route guarded by another driver (`shouldUse()`) still revokes; no jwt guard at all is an `InvalidArgumentException`.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks:
   the identity whose rehash `PasswordSignIn::rehash()` runs through the provider (cleared in `finally`), and the user
-  a guard validated during a credential attempt, from Laravel's `Validated` until that guard's `Login`,
-  `Authenticated` or `Failed` for that user (`Listeners\TrackCredentialAttempts`, registered by the provider), which
-  brackets the rehash `SessionGuard::attempt()`, `attemptWhen()` and `once()` run through an Eloquent user provider.
-  No event separates `attemptWhen()`'s callbacks from that rehash, so a save inside the bracket counts as the rehash
-  only when both the previous hash (the model's original, which Eloquent has not yet synced in `updated`) and the
-  saved hash verify the attempt's `password` credential (the hasher's `check()`; a hash it refuses to check is a
-  change): a callback that saves another password revokes, and so does a change back to the attempt's password. Such a
-  save is held, not dropped: `OtherDeviceLogout`, which `SessionGuard::logoutOtherDevices()` dispatches after its
-  forced rehash, runs it, and the attempt's end drops it, so the forced rehash is answered as a change even inside an
+  instance a guard validated during a credential attempt, from Laravel's `Validated` until that guard's `Login`,
+  `Authenticated` or `Failed` carrying that instance (`Listeners\TrackCredentialAttempts`, registered by the
+  provider), which brackets the rehash `SessionGuard::attempt()`, `attemptWhen()` and `once()` run through an Eloquent
+  user provider on that same instance. No event separates `attemptWhen()`'s callbacks from that rehash, so a save
+  inside the bracket counts as the rehash only when it saves that instance (held weakly), both the previous hash (the
+  model's original, which Eloquent has not yet synced in `updated`) and the saved hash verify the attempt's `password`
+  credential (the hasher's `check()`; a hash it refuses to check is a change), and no change of the user's password
+  has run since: a callback that saves another password revokes, and from then on so does every save of the user, a
+  change back to the attempt's password through any instance included. Such a save is held, not dropped:
+  `OtherDeviceLogout`, which `SessionGuard::logoutOtherDevices()` dispatches after its forced rehash, runs it (a change
+  like any other), and the attempt's end drops it, so the forced rehash is answered as a change even inside an
   attempt's callback or after an attempt that threw after `Validated` and never ended. One save is held per user, the
   latest. A `Validated` outside an attempt (`validate()`), or a second one within it, marks nothing.
 - Each guard keeps its open attempts innermost last, since an `attemptWhen()` callback may attempt again on the same
-  guard: an attempt's end closes the innermost attempt that validated its user (or no one), so the outer attempt stays
-  open for its own rehash. An attempt that threw never ends, so a new attempt of the guard first closes the innermost
-  attempts that cannot be running around it (one that validated no one, was made without a password, or already holds
-  a save) and lets go of what they held. Users are keyed as `AccountAttempts::account()` keys accounts (connection,
-  database, prefixed table and key for a model), so the same key in another tenant's database is another user.
+  guard: an attempt's end closes the innermost attempt that validated the event's instance (or no one), so a nested
+  attempt's `Login` and `Authenticated`, or a session or remember-me user resolved inside the callback, leave the outer
+  attempt open for its own rehash; an `Auth::login()` of the outer attempt's own instance inside its callback still
+  ends it early, and its rehash then revokes. An attempt that threw never ends, so a new attempt of the guard first lets
+  go of every attempt that cannot be running around it (its instance is gone or its user's password changed, or it
+  validated no one, was made without a password, or already holds a save) and of what they held, which bounds what a
+  long-running command keeps by the instances it still holds. Users are keyed as `AccountAttempts::account()` keys
+  accounts (connection, database, prefixed table and key for a model), so the same key in another tenant's database is
+  another user.
   The deactivation observer throws a `LogicException` for a deactivated model that is neither identity nor principal:
   a tenant's deactivation is `tenantDeactivated()`. With both password listeners registered, a broker reset is
   recorded as `password_changed` (the observer sees the save before the application fires `PasswordReset`).
@@ -148,7 +154,7 @@ deleted. Starting a session is in
   `tests/Integration/Sessions/ReplicaRevokesOnSecurityChangesTest.php`,
   `tests/Feature/Listeners/RevokeDevicesOn*Test.php`, `tests/Unit/Sessions/Methods/RehashingTest.php`,
   `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`, `tests/Feature/Sessions/Methods/RehashingAccountsTest.php`,
-  `tests/Integration/Process/QueueWorkerRehashingTest.php`
+  `tests/Integration/Process/QueueWorkerRehashingTest.php`, `tests/Performance/RehashingBudgetTest.php`
 - `tests/Feature/Models/PrunesDevicesTest.php`, `tests/Feature/Database/DeviceRetentionTest.php`,
   `tests/Integration/Models/DevicePruningIntegrationTest.php`
 - `tests/Performance/DeviceListingQueryBudgetTest.php`, `tests/Performance/DevicePruneQueryBudgetTest.php`

@@ -87,38 +87,86 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
 
     /**
      * With an attempt open for the user, the mark costs no query and at most
-     * two hash checks per save: two for the rehash, one for a new password (the
-     * saved hash fails first), and two for a change back to the attempt's
-     * password.
+     * two hash checks per save of the instance the attempt validated: two for
+     * the rehash, one for a new password (the saved hash fails first), and two
+     * for a save back to the attempt's password over another; a save through
+     * another instance costs none.
      *
      * @return void
      */
     public function testWithAnAttemptForTheUserASaveCostsAtMostTwoHashChecks(): void
     {
-        $user      = self::user(5, self::PASSWORD);
         $rehashing = app(Rehashing::class);
         $checks    = [];
 
-        $this->assertQueryBudget(0, 0, function () use ($user, $rehashing, &$checks): void {
+        $this->assertQueryBudget(0, 0, function () use ($rehashing, &$checks): void {
 
-            Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
-            Event::dispatch(new Validated('web', $user));
+            foreach ([[self::PASSWORD, self::PASSWORD], [self::PASSWORD, 'a new password'], ['a new password', self::PASSWORD]] as $key => [$from, $to]) {
 
-            foreach ([[self::PASSWORD, self::PASSWORD], [self::PASSWORD, 'a new password'], ['a new password', self::PASSWORD]] as [$from, $to]) {
+                $user = self::user($key, self::PASSWORD);
+
+                Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
+                Event::dispatch(new Validated('web', $user));
 
                 $previous = app(Hasher::class)->make($from);
 
                 $user->forceFill(['password' => app(Hasher::class)->make($to)]);
 
-                $before = $this->checks;
-
-                $rehashing->unlessRehash($user, $previous, static function (): void {});
-
-                $checks[] = $this->checks - $before;
+                $checks[] = $this->checksDuring(static fn () => $rehashing->unlessRehash($user, $previous, static function (): void {}));
             }
+
+            $user = self::user(9, self::PASSWORD);
+
+            Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
+            Event::dispatch(new Validated('web', $user));
+
+            $checks[] = $this->checksDuring(static fn () => $rehashing->unlessRehash(self::user(9, self::PASSWORD), $user->getAuthPassword(), static function (): void {}));
         });
 
-        self::assertSame([2, 1, 2], $checks);
+        self::assertSame([2, 1, 2, 0], $checks);
+    }
+
+    /**
+     * Attempts abandoned one after another, each validating an instance nothing
+     * holds once the next attempt starts (an `attemptWhen()` whose callback
+     * threw, in a long-running command), are let go of rather than kept for the
+     * rest of the command: the guard keeps only the latest, so a later save
+     * costs no hash check for them.
+     *
+     * @return void
+     */
+    public function testAbandonedAttemptsAreNotKept(): void
+    {
+        $rehashing = app(Rehashing::class);
+
+        for ($attempt = 0; $attempt < 100; $attempt++) {
+            Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
+            Event::dispatch(new Validated('web', self::user(5, self::PASSWORD)));
+        }
+
+        $user = self::user(5, 'a new password');
+
+        self::assertSame(0, $this->checksDuring(static fn () => $rehashing->unlessRehash($user, app(Hasher::class)->make(self::PASSWORD), static function (): void {})));
+
+        $attempts = (new \ReflectionProperty(Rehashing::class, 'attempts'))->getValue($rehashing);
+
+        self::assertIsArray($attempts);
+        self::assertCount(1, $attempts['web']);
+    }
+
+    /**
+     * The hash checks made while the callback runs.
+     *
+     * @param  \Closure(): mixed  $callback
+     * @return int
+     */
+    private function checksDuring(\Closure $callback): int
+    {
+        $before = $this->checks;
+
+        $callback();
+
+        return $this->checks - $before;
     }
 
     /**
