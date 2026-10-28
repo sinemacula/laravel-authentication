@@ -125,9 +125,10 @@ final readonly class ClientCredentialsResult implements Responsable
 
     /**
      * The response body: RFC 6749 section 5.1 for a token, section 5.2 for an
-     * error.
+     * error. A token granting no scope has no `scope` member, since RFC 6749
+     * section 3.3 defines a scope value as one or more scope tokens.
      *
-     * @return array{access_token: string, token_type: string, expires_in: ?int, scope: string}|array{error: ?string}
+     * @return array{access_token: string, token_type: string, expires_in: ?int, scope?: string}|array{error: ?string}
      */
     public function toArray(): array
     {
@@ -135,12 +136,14 @@ final readonly class ClientCredentialsResult implements Responsable
             return ['error' => $this->error];
         }
 
-        return [
+        $scopes = $this->scopes ?? [];
+        $body   = [
             'access_token' => $this->accessToken,
             'token_type'   => 'Bearer',
             'expires_in'   => $this->expiresIn,
-            'scope'        => Scopes::format($this->scopes ?? []),
         ];
+
+        return $scopes === [] ? $body : [...$body, 'scope' => Scopes::format($scopes)];
     }
 
     /**

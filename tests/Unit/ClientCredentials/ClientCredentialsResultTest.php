@@ -44,7 +44,7 @@ final class ClientCredentialsResultTest extends TestCase
         self::assertSame('no-cache', $response->headers->get('Pragma'));
         self::assertFalse($response->headers->has('Retry-After'));
         self::assertFalse($response->headers->has('WWW-Authenticate'));
-        self::assertSame(['access_token' => 't', 'token_type' => 'Bearer', 'expires_in' => 1, 'scope' => ''], ClientCredentialsResult::granted('t', 1, [])->toArray());
+        self::assertSame(['access_token' => 't', 'token_type' => 'Bearer', 'expires_in' => 1], ClientCredentialsResult::granted('t', 1, [])->toArray());
     }
 
     /**

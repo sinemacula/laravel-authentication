@@ -510,6 +510,23 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
+     * A key that grants no scope gets a token whose response has no `scope`
+     * member, as RFC 6749 has no empty scope value; the token's own `scope`
+     * claim is empty.
+     *
+     * @return void
+     */
+    public function testATokenGrantingNoScopeHasNoScopeMember(): void
+    {
+        [, $issued] = $this->machineKey();
+
+        $response = $this->token('grant_type=client_credentials', $this->basic($issued))->assertOk();
+
+        self::assertSame(['access_token', 'token_type', 'expires_in'], array_keys((array) $response->json()));
+        self::assertSame('', $this->claims($response)['scope'] ?? null);
+    }
+
+    /**
      * An empty scope asks for every granted scope.
      *
      * @return void

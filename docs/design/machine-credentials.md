@@ -36,7 +36,9 @@ authorization package decides what they allow.
 - A client credentials exchange (RFC 6749 section 4.4) takes a key of a `jwt` guard, its public part as the client id
   and its secret as the client secret, and issues an access token of that guard with no device and no refresh token,
   carrying the key's id (`cid`) and the granted scopes (`scope`), living the access lifetime for the principal's type and
-  never past the key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it.
+  never past the key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it. The
+  RFC 6749 5.1 response carries `scope` only when the token grants at least one: RFC 6749 3.3 has no empty scope value,
+  while the claim is `""` for none.
 - A client token is held to its key on every request (decided: reject at once rather than at token expiry): the key,
   read by primary key on the writer, must be the token's guard's, not revoked and not expired, the subject a machine,
   and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a

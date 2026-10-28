@@ -2664,16 +2664,17 @@ and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, 
 | A scope that is malformed or not granted to the key                                      | 400 `invalid_scope`            |
 | The IP address (or, when you limit it, the client id) used up its failures               | 429 `slow_down`, `Retry-After` |
 
-A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`;
-`invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749 error
-but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to authenticate
-the client count against the `client_credentials` limits (100 per IP address a minute by default), and each is answered
-alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section 2.2), so a limit
-on it would let anyone who knows it hold the real client back from any address, while against a 40-character random
-secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks
-for every scope the key grants; otherwise the token grants exactly those asked for. Every failure dispatches
-`AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else none, so
-a whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
+A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`,
+without `scope` when the token grants none (RFC 6749 has no empty scope value; the token's own `scope` claim is then
+`""`); `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749
+error but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to
+authenticate the client count against the `client_credentials` limits (100 per IP address a minute by default), and each
+is answered alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section
+2.2), so a limit on it would let anyone who knows it hold the real client back from any address, while against a
+40-character random secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept
+that. No scope asks for every scope the key grants; otherwise the token grants exactly those asked for. Every failure
+dispatches `AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else
+none, so a whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
 `ClientCredentialsGranted`, with the key and the scopes granted.
 
 The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives
