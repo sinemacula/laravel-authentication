@@ -1900,8 +1900,10 @@ The sign counter guards against a cloned authenticator. With `s` the count store
 becomes `p`, with a compare-and-set on `s`, so of two assertions read against one count only one moves it; anything else
 (`p <= s` with `s > 0`) is refused as `passkey_counter_regressed`, which only `AuthenticationFailed` says (the result
 says `invalid_credentials`). Nothing is written then, so a clone cannot lock the genuine authenticator out; the owner
-can remove the passkey. A verified passkey records its count, backup state and last use and dispatches `PasskeyUsed`
-whether or not the session service then admits its owner: the passkey was used.
+can remove the passkey. A passkey removed while one of its sign-ins is in flight is refused the same way, with or
+without a counter, so no session starts once the removal is committed. A verified passkey records its count, backup
+state and last use and dispatches `PasskeyUsed` whether or not the session service then admits its owner: the passkey
+was used.
 
 A further-factor package verifies one of an identity's passkeys through the same checks:
 

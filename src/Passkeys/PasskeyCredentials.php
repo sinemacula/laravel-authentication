@@ -146,7 +146,7 @@ final class PasskeyCredentials
      * Record a verified use of the passkey: its new sign count, backup state
      * and last use, only while it still holds the count it was verified
      * against. Returns whether this call recorded it; when another use moved
-     * the count first it did not.
+     * the count first, or the passkey was removed meanwhile, it did not.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
      * @param  \Webauthn\CredentialRecord  $verified
@@ -171,10 +171,7 @@ final class PasskeyCredentials
             ->where('sign_count', $passkey->sign_count)
             ->update(array_intersect_key($used->getAttributes(), array_flip(self::USE_COLUMNS)));
 
-        // A count of 0 against a stored 0 moves nothing, so there is no race to
-        // lose; MySQL reports a row the update matched but did not change (a
-        // second use within the same second) as unaffected.
-        if ($updated !== 1 && ($passkey->sign_count !== 0 || $verified->counter !== 0)) {
+        if ($updated !== 1 && !self::matchedUnchanged($passkey, $verified)) {
             return false;
         }
 
@@ -262,6 +259,23 @@ final class PasskeyCredentials
     public static function descriptor(Passkey $passkey): array
     {
         return [self::decode($passkey->credential_id), $passkey->transports];
+    }
+
+    /**
+     * Whether an update of a use that reported no row matched one all the same.
+     * A count of 0 against a stored 0 moves nothing, so there is no race to
+     * lose, but MySQL reports a row the update matched without changing it (a
+     * second use within the same second) as unaffected. The passkey must still
+     * hold 0 on the writer: one removed meanwhile is not used.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
+     * @param  \Webauthn\CredentialRecord  $verified
+     * @return bool
+     */
+    private static function matchedUnchanged(Passkey $passkey, CredentialRecord $verified): bool
+    {
+        return $verified->counter === 0
+            && WriteConnection::query($passkey->newQueryWithoutScopes())->whereKey($passkey->getKey())->where('sign_count', 0)->exists();
     }
 
     /**

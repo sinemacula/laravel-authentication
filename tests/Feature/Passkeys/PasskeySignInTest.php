@@ -458,6 +458,50 @@ final class PasskeySignInTest extends TestCase
     }
 
     /**
+     * Rows of `[counter step, change]`: what happens to the passkey, made by
+     * the closure, after the sign-in found it and before it records the use.
+     *
+     * @return iterable<string, array{0: int, 1: \Closure(): mixed}>
+     */
+    public static function provideChangesBeforeTheUse(): iterable
+    {
+        yield from [
+            'a passkey without a counter is removed' => [0, static fn (): mixed => Passkey::query()->delete()],
+            'a counting passkey is removed'          => [1, static fn (): mixed => Passkey::query()->delete()],
+            'another use records the same count'     => [1, static fn (): mixed => Passkey::query()->update(['sign_count' => 1])],
+        ];
+    }
+
+    /**
+     * A passkey removed, or whose count another use recorded first, while its
+     * sign-in was between finding it and recording the use signs nobody in,
+     * whether or not its authenticator counts: `invalid_credentials`, with
+     * `passkey_counter_regressed` on the event, and no use reported.
+     *
+     * @param  int  $step
+     * @param  \Closure(): mixed  $change
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideChangesBeforeTheUse')]
+    public function testAPasskeyChangedBeforeItsUseIsRecordedSignsNobodyIn(int $step, \Closure $change): void
+    {
+        $this->authenticator()->counterStep = $step;
+
+        $this->registerPasskey($this->seedIdentity());
+
+        IntegrationIdentity::retrieved(static function () use ($change): void {
+            $change();
+        });
+
+        $this->recordEvents([AuthenticationFailed::class, PasskeyUsed::class, SignedIn::class]);
+
+        $this->assertFailed($this->signInWithPasskey(), FailureReason::INVALID_CREDENTIALS, FailureReason::PASSKEY_COUNTER_REGRESSED);
+        self::assertSame(0, Device::query()->count());
+    }
+
+    /**
      * Once the owner's account has used up its attempts, a passkey's assertion
      * is not checked: the result says `invalid_credentials`, the event
      * `account_rate_limited` with the wait, and the passkey is not touched.

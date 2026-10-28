@@ -193,15 +193,41 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
-     * A count of 0 against a stored 0 is accepted even when the update finds
-     * nothing to change, as MySQL reports a second use within the same second:
-     * there is no count to race for. A count above 0 is not.
+     * A count of 0 against a stored 0 is accepted when the update reports no
+     * row, as MySQL reports a second use within the same second: there is no
+     * count to race for. A count above 0 is not. SQLite is made to report it by
+     * a trigger that leaves every update of a passkey undone; MySQL needs none,
+     * and `PasskeySignInTest` signs in twice within a second there.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAZeroCountAgainstAZeroIsAcceptedWhateverTheUpdateFinds(): void
+    public function testAZeroCountAgainstAZeroIsAcceptedWhenTheUpdateReportsNoRow(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            self::markTestSkipped('The trigger that leaves an update undone is written for SQLite.');
+        }
+
+        $this->registerPasskey($this->seedIdentity());
+
+        $read = Passkey::query()->sole();
+
+        DB::unprepared('CREATE TRIGGER passkeys_unchanged BEFORE UPDATE ON passkeys BEGIN SELECT RAISE(IGNORE); END');
+
+        self::assertTrue(PasskeyCredentials::use($read, self::verified($read, 0), $this->now));
+        self::assertFalse(PasskeyCredentials::use($read, self::verified($read, 1), $this->now));
+    }
+
+    /**
+     * A passkey removed after it was read records no use, whatever the count:
+     * the sign-in that read it is refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARemovedPasskeyRecordsNoUse(): void
     {
         $this->registerPasskey($this->seedIdentity());
 
@@ -209,8 +235,8 @@ final class PasskeyCredentialsTest extends TestCase
 
         DB::table('passkeys')->delete();
 
+        self::assertFalse(PasskeyCredentials::use($read, self::verified($read, 0), $this->now));
         self::assertFalse(PasskeyCredentials::use($read, self::verified($read, 1), $this->now));
-        self::assertTrue(PasskeyCredentials::use($read, self::verified($read, 0), $this->now));
     }
 
     /**

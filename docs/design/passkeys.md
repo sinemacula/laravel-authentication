@@ -48,7 +48,9 @@ package's.
   assertions read against one count only one moves it; anything else refused as `passkey_counter_regressed`, with
   nothing written, so a clone cannot lock the genuine authenticator out. webauthn-lib's own counter check is replaced by
   `DeferredCounterCheck`, which accepts everything. On MySQL an update that matches but changes nothing reports no row,
-  so a `0`/`0` use is accepted whatever the update reports: it has no count to race for.
+  so a `0`/`0` use whose update reports none is accepted when the writer still holds the passkey at 0: it has no count
+  to race for, but a passkey removed while its sign-in was in flight is refused as a lost race is, so no session starts
+  after the removal (and after `RevokeDevicesOnPasskeyRemoval`) committed.
 - Every read that decides a ceremony (challenge, passkey, the identity's passkeys and handle) is on the write
   connection; every write is one conditional statement (registration an `insertOrIgnore` on the digest, so a duplicate
   is `already_registered` without a caught violation).

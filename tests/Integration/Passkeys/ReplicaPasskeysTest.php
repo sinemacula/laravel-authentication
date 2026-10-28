@@ -113,6 +113,29 @@ final class ReplicaPasskeysTest extends TestCase
     }
 
     /**
+     * A passkey without a counter that the primary removed while its sign-in
+     * was in flight signs nobody in, though the replica still holds it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasskeyThePrimaryRemovedIsNotUsed(): void
+    {
+        $this->authenticator()->counterStep = 0;
+
+        $this->registered();
+        $this->copyRowToReplica('passkeys', DB::connection(self::PRIMARY_CONNECTION)->table('passkeys')->value('id'));
+
+        IntegrationIdentity::retrieved(static function (): void {
+            DB::connection(self::PRIMARY_CONNECTION)->table('passkeys')->delete();
+        });
+
+        self::assertFalse($this->signInWithPasskey()->isSignedIn());
+        self::assertSame(1, DB::connection(self::REPLICA_CONNECTION)->table('passkeys')->count());
+    }
+
+    /**
      * Configure the guards and their relying party over a lagging read/write
      * split.
      *
