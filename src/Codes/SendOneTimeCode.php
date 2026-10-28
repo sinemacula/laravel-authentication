@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
@@ -40,19 +41,20 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * read again from the write connection, while its identifier of the type is
  * still the one the code is bound to, and never to a machine identity. An
  * exception from the sender fails the job, and the application's retry policy
- * applies; an unbound sender is a `BindingResolutionException`.
+ * applies; an unbound sender is a `BindingResolutionException`. A
+ * verification job whose identity was deleted before it ran is dropped, not
+ * failed; the class attribute, rather than a property, is what every supported
+ * Laravel version reads for that.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
+#[DeleteWhenMissingModels]
 final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
 {
     use InteractsWithQueue, Queueable, SerializesModels;
-
-    /** @var bool Drop the job, rather than fail it, when the identity it carries has been deleted. */
-    public readonly bool $deleteWhenMissingModels;
 
     /**
      * Constructor.
@@ -71,9 +73,7 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
 
         /** The identity a verification code is for; `null` for a sign-in code, whose recipient is found when the job runs. */
         public readonly ?Identity $identity = null,
-    ) {
-        $this->deleteWhenMissingModels = true;
-    }
+    ) {}
 
     /**
      * Send the code when it is still live and its recipient may receive it.
