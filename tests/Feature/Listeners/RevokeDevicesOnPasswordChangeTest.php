@@ -15,7 +15,10 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
@@ -264,6 +267,143 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
+     * Rows of `[whether the changes run inside the attempt's callback, or
+     * after an attempt whose callback threw]`.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function provideAttemptsLeftOpen(): iterable
+    {
+        yield 'after an attempt whose callback threw' => [false];
+        yield 'inside the attempt\'s own callback' => [true];
+    }
+
+    /**
+     * While an attempt made with the password is open, or was abandoned by an
+     * exception, a change of password revokes, and so does a change back to
+     * that password: it is not the attempt's rehash, so the session started
+     * between the two changes is ended, its tokens are refused at the `auth`
+     * middleware and its refresh token refreshes nothing.
+     *
+     * @param  bool  $inside
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideAttemptsLeftOpen')]
+    public function testAChangeBackToTheAttemptsPasswordRevokesTheSessionStartedBetween(bool $inside): void
+    {
+        $identity = $this->seedIdentity();
+        $first    = $this->signIn();
+
+        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+
+        $changes = function () use ($identity): SignedInSession {
+
+            $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+
+            $between = $this->signIn(['email' => 'ada@example.test', 'password' => 'a new password']);
+
+            $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class]);
+
+            $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+            return $between;
+        };
+
+        $between = null;
+
+        if ($inside) {
+            self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), static function () use ($changes, &$between): bool {
+                $between = $changes();
+
+                return true;
+            }));
+        } else {
+            try {
+                $this->webGuard()->attemptWhen(self::credentials(), static function (): never {
+                    throw new \RuntimeException('callback failed');
+                });
+            } catch (\RuntimeException $exception) { // @phpstan-ignore catch.neverThrown
+                self::assertSame('callback failed', $exception->getMessage());
+            }
+
+            $between = $changes();
+        }
+
+        self::assertInstanceOf(SignedInSession::class, $between);
+        self::assertSame('password_changed', DB::table('devices')->where('id', $first->device->getKey())->value('revoked_reason'));
+        self::assertSame('password_changed', DB::table('devices')->where('id', $between->device->getKey())->value('revoked_reason'));
+
+        $revoked = $this->recordedEvent(DeviceRevoked::class);
+
+        self::assertSame(RevocationReason::PASSWORD_CHANGED, $revoked->reason);
+        self::assertSame(IdentifierCoercion::stringify($between->device->getDeviceIdentifier()), $revoked->context->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($identity->getAuthIdentifier()), $revoked->context->identityId);
+        self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+
+        self::assertNull($this->freshGuard()->refresh($between->tokens->refreshToken));
+    }
+
+    /**
+     * Rows of `[the credentials of an attempt made inside another attempt's
+     * callback on the same guard]`.
+     *
+     * @return iterable<string, array{0: array<string, string>}>
+     */
+    public static function provideNestedAttempts(): iterable
+    {
+        yield 'refused for the same user' => [['email' => 'ada@example.test', 'password' => 'wrong']];
+        yield 'for no user' => [['email' => 'nobody@example.test', 'password' => self::PASSWORD]];
+        yield 'admitted for another user' => [['email' => 'grace@example.test', 'password' => self::PASSWORD]];
+    }
+
+    /**
+     * An attempt made inside another attempt's callback on the same guard
+     * leaves the outer attempt open when it ends, so the outer attempt's own
+     * rehash revokes nothing: the session it would have ended still reaches the
+     * `auth` middleware and still refreshes.
+     *
+     * @param  array<string, string>  $credentials
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideNestedAttempts')]
+    public function testAnAttemptInsideAnotherOnTheSameGuardLeavesItsRehashAlone(array $credentials): void
+    {
+        $this->seedIdentity('grace@example.test');
+
+        $identity = $this->seedIdentity();
+        $session  = $this->signIn();
+
+        DB::table('integration_identities')->where('id', $identity->getKey())->update(['password' => self::OUTDATED_HASH]);
+
+        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+
+        $admitted = $credentials['email'] === 'grace@example.test';
+
+        self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), function () use ($credentials, $admitted): bool {
+            self::assertSame($admitted, $this->webGuard()->attempt($credentials));
+
+            return true;
+        }));
+
+        self::assertNotSame(self::OUTDATED_HASH, $identity->fresh()?->getAuthPassword());
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->getJson('/me')->assertOk();
+
+        self::assertNotNull($this->freshGuard()->refresh($session->tokens->refreshToken));
+    }
+
+    /**
      * `logoutOtherDevices()` forces a rehash to sign the user's other sessions
      * out, so it ends the package sessions too.
      *
@@ -471,15 +611,17 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * Sign the seeded identity in.
+     * Sign the seeded identity in, with its credentials unless others are
+     * given.
      *
+     * @param  ?array<string, string>  $credentials
      * @return \SineMacula\Laravel\Authentication\Sessions\SignedInSession
      *
      * @throws \Throwable
      */
-    private function signIn(): SignedInSession
+    private function signIn(?array $credentials = null): SignedInSession
     {
-        $session = $this->sessions()->signIn('password', self::credentials())->session;
+        $session = $this->sessions()->signIn('password', $credentials ?? self::credentials())->session;
 
         self::assertNotNull($session);
 

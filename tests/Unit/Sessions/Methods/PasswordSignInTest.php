@@ -517,7 +517,7 @@ final class PasswordSignInTest extends TestCase
         $changes = [];
 
         $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, $identity, &$changes): void {
-            $rehashing->unlessRehash($identity, static function () use (&$changes): void {
+            $rehashing->unlessRehash($identity, 'previous hash', static function () use (&$changes): void {
                 $changes[] = 'during';
             });
 
@@ -530,7 +530,7 @@ final class PasswordSignInTest extends TestCase
             Container::setInstance($previous);
         }
 
-        $rehashing->unlessRehash($identity, static function () use (&$changes): void {
+        $rehashing->unlessRehash($identity, 'previous hash', static function () use (&$changes): void {
             $changes[] = 'after';
         });
 

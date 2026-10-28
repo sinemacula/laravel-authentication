@@ -30,6 +30,9 @@ final class RehashingTest extends TestCase
     /** @var string The password the attempts are made with. */
     private const string PASSWORD = 'secret';
 
+    /** @var string Another password. */
+    private const string OTHER = 'another password';
+
     /** @var string A change of password that ran at once. */
     private const string CHANGE = 'change';
 
@@ -42,11 +45,20 @@ final class RehashingTest extends TestCase
     /** @var \Illuminate\Container\Container|null The container before the test. */
     private ?Container $previous = null;
 
+    /** @var \Illuminate\Hashing\BcryptHasher The hasher the mark checks a hash with. */
+    private BcryptHasher $hasher;
+
     /** @var string A hash of the password. */
     private string $hash = '';
 
+    /** @var string Another hash of the password, as a rehash saves. */
+    private string $rehash = '';
+
+    /** @var string A hash of another password. */
+    private string $other = '';
+
     /**
-     * Bind the hasher the mark checks a stored hash with.
+     * Bind the hasher the mark checks a hash with.
      *
      * @return void
      */
@@ -57,14 +69,16 @@ final class RehashingTest extends TestCase
 
         $this->previous = Container::getInstance();
 
-        $hasher    = new BcryptHasher(['rounds' => 4]);
-        $container = new Container;
+        $this->hasher = new BcryptHasher(['rounds' => 4]);
+        $container    = new Container;
 
-        $container->instance(Hasher::class, $hasher);
+        $container->instance(Hasher::class, $this->hasher);
 
         Container::setInstance($container);
 
-        $this->hash = $hasher->make(self::PASSWORD);
+        $this->hash   = $this->hasher->make(self::PASSWORD);
+        $this->rehash = $this->hasher->make(self::PASSWORD);
+        $this->other  = $this->hasher->make(self::OTHER);
     }
 
     /**
@@ -89,19 +103,19 @@ final class RehashingTest extends TestCase
     public function testThePackagesRehashMarksItsUserWhileTheCallbackRuns(): void
     {
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 1, 'password' => $this->hash]);
+        $user      = new GenericUser(['id' => 1, 'password' => $this->rehash]);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
 
-        self::assertSame('rehashed', $rehashing->during($user, static function () use ($rehashing): string {
-            self::assertSame(self::REHASH, self::answer($rehashing, new GenericUser(['id' => '1', 'password' => 'another hash'])));
-            self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 2, 'password' => 'another hash'])));
-            self::assertSame(self::CHANGE, self::answer($rehashing, new PlainIdentityFixture(1)));
+        self::assertSame('rehashed', $rehashing->during($user, function () use ($rehashing): string {
+            self::assertSame(self::REHASH, $this->answer($rehashing, new GenericUser(['id' => '1', 'password' => 'another hash'])));
+            self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 2, 'password' => 'another hash'])));
+            self::assertSame(self::CHANGE, $this->answer($rehashing, new PlainIdentityFixture(1)));
 
             return 'rehashed';
         }));
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
     }
 
     /**
@@ -111,19 +125,19 @@ final class RehashingTest extends TestCase
      */
     public function testANestedRehashKeepsTheOuterMark(): void
     {
-        $outer     = new GenericUser(['id' => 1, 'password' => $this->hash]);
-        $inner     = new GenericUser(['id' => 2, 'password' => $this->hash]);
+        $outer     = new GenericUser(['id' => 1, 'password' => $this->rehash]);
+        $inner     = new GenericUser(['id' => 2, 'password' => $this->rehash]);
         $rehashing = new Rehashing;
 
-        $rehashing->during($outer, static function () use ($rehashing, $outer, $inner): void {
+        $rehashing->during($outer, function () use ($rehashing, $outer, $inner): void {
 
-            self::assertSame([self::REHASH, self::REHASH], $rehashing->during($inner, static fn (): array => [self::answer($rehashing, $outer), self::answer($rehashing, $inner)]));
+            self::assertSame([self::REHASH, self::REHASH], $rehashing->during($inner, fn (): array => [$this->answer($rehashing, $outer), $this->answer($rehashing, $inner)]));
 
-            self::assertSame(self::REHASH, self::answer($rehashing, $outer));
-            self::assertSame(self::CHANGE, self::answer($rehashing, $inner));
+            self::assertSame(self::REHASH, $this->answer($rehashing, $outer));
+            self::assertSame(self::CHANGE, $this->answer($rehashing, $inner));
         });
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $outer));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $outer));
     }
 
     /**
@@ -137,7 +151,7 @@ final class RehashingTest extends TestCase
     public function testAnExceptionClearsTheMark(): void
     {
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 1, 'password' => $this->hash]);
+        $user      = new GenericUser(['id' => 1, 'password' => $this->rehash]);
 
         try {
             $rehashing->during($user, static function (): never {
@@ -147,110 +161,322 @@ final class RehashingTest extends TestCase
             self::assertSame('rehash failed', $exception->getMessage());
         }
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
     }
 
     /**
      * A guard's attempt marks the user it validated, and no other, from the
-     * validation until the attempt ends.
+     * validation until the attempt ends for that user.
      *
      * @return void
      */
     public function testAnAttemptMarksTheUserItValidatedUntilItEnds(): void
     {
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 7, 'password' => $this->hash]);
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
 
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
 
         $rehashing->validated('web', $user);
 
-        self::assertSame(self::HELD, self::answer($rehashing, new GenericUser(['id' => '7', 'password' => $this->hash])));
-        self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 8, 'password' => $this->hash])));
-        self::assertSame(self::CHANGE, self::answer($rehashing, new PlainIdentityFixture(7, $this->hash)));
+        self::assertSame(self::HELD, $this->answer($rehashing, new GenericUser(['id' => '7', 'password' => $this->rehash])));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 8, 'password' => $this->rehash])));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new PlainIdentityFixture(7, $this->rehash)));
 
-        $rehashing->ended('admin');
+        $rehashing->ended('admin', $user);
+        $rehashing->ended('web', new GenericUser(['id' => 8]));
 
-        self::assertSame(self::HELD, self::answer($rehashing, $user));
+        self::assertSame(self::HELD, $this->answer($rehashing, $user));
 
-        $rehashing->ended('web');
+        $rehashing->ended('web', $user);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
 
         $rehashing->validated('web', $user);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
+    }
+
+    /**
+     * An attempt that found no one ends with no user, which closes the attempt
+     * of the guard that validated no one.
+     *
+     * @return void
+     */
+    public function testAnAttemptThatFoundNoOneEndsWithNoUser(): void
+    {
+        $rehashing = new Rehashing;
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->ended('web', null);
+        $rehashing->validated('web', $user);
+
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
     }
 
     /**
      * A validation outside an attempt, or by another guard than the one
-     * attempting, marks nothing; a new attempt of the guard forgets the user
-     * its previous one validated.
+     * attempting, marks nothing; nor does a second validation within an
+     * attempt, as a callback's `validate()` of another user makes.
      *
      * @return void
      */
-    public function testOnlyTheAttemptingGuardsValidationMarks(): void
+    public function testOnlyTheAttemptsOwnValidationMarks(): void
     {
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 7, 'password' => $this->hash]);
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+        $other     = new GenericUser(['id' => 8, 'password' => $this->rehash]);
 
         $rehashing->validated('web', $user);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
 
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
         $rehashing->validated('admin', $user);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
 
         $rehashing->validated('web', $user);
-        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $other);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::HELD, $this->answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $other));
     }
 
     /**
-     * Inside an attempt, the user is marked only while its stored hash verifies
-     * the password the attempt was made with: another password saved before the
-     * attempt ends is a change of password.
+     * Inside an attempt, a save of its user is taken for the rehash only when
+     * the hash before it and the hash it saved both verify the password the
+     * attempt was made with: a new password, a change back to the attempt's
+     * password, and a save over no hash are changes.
      *
      * @return void
      */
-    public function testAnAttemptMarksItsUserOnlyWhileTheStoredHashVerifiesItsPassword(): void
+    public function testAnAttemptTakesOnlyASaveThatKeepsItsPasswordForTheRehash(): void
     {
         $rehashing = new Rehashing;
 
         $rehashing->attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD]);
         $rehashing->validated('web', new GenericUser(['id' => 7, 'password' => $this->hash]));
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 7, 'password' => (new BcryptHasher(['rounds' => 4]))->make('a new password')])));
-        self::assertSame(self::CHANGE, self::answer($rehashing, new GenericUser(['id' => 7, 'password' => null])));
-        self::assertSame(self::HELD, self::answer($rehashing, new GenericUser(['id' => 7, 'password' => $this->hash])));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 7, 'password' => $this->other])));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 7, 'password' => $this->rehash]), $this->other));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 7, 'password' => $this->rehash]), null));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 7, 'password' => null])));
+        self::assertSame(self::HELD, $this->answer($rehashing, new GenericUser(['id' => 7, 'password' => $this->rehash])));
+    }
+
+    /**
+     * A change of password and a change back, with a session started between
+     * them, are both changes: neither is held, so neither waits on the attempt
+     * that stays open around them, nor is dropped when it ends.
+     *
+     * @return void
+     */
+    public function testAChangeAndAChangeBackWhileAnAttemptIsOpenBothRun(): void
+    {
+        $rehashing = new Rehashing;
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', new GenericUser(['id' => 7, 'password' => $this->hash]));
+
+        self::save($rehashing, new GenericUser(['id' => 7, 'password' => $this->other]), $this->hash, $runs, 'away');
+        self::save($rehashing, new GenericUser(['id' => 7, 'password' => $this->rehash]), $this->other, $runs, 'back');
+
+        self::assertSame(['away', 'back'], $runs->getArrayCopy());
+
+        $rehashing->ended('web', new GenericUser(['id' => 7]));
+
+        self::assertSame(['away', 'back'], $runs->getArrayCopy());
     }
 
     /**
      * Where two guards' attempts validated the same user, the user is marked
-     * when its stored hash verifies either attempt's password.
+     * when its hashes verify either attempt's password.
      *
      * @return void
      */
     public function testAUserValidatedByTwoAttemptsIsMarkedByEither(): void
     {
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 7, 'password' => $this->hash]);
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
 
-        $rehashing->attempting('admin', ['password' => 'another password']);
+        $rehashing->attempting('admin', ['password' => self::OTHER]);
         $rehashing->validated('admin', $user);
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
         $rehashing->validated('web', $user);
 
-        self::assertSame(self::HELD, self::answer($rehashing, $user));
+        self::assertSame(self::HELD, $this->answer($rehashing, $user));
 
-        $rehashing->ended('web');
+        $rehashing->ended('web', $user);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
+    }
+
+    /**
+     * An attempt made inside another attempt's callback on the same guard ends
+     * without ending the attempt around it, whether it validated another user,
+     * found no one, or was refused for the same user: the outer attempt's own
+     * rehash is still taken for one, until the outer attempt ends.
+     *
+     * @return void
+     */
+    public function testANestedAttemptOnTheSameGuardLeavesTheOuterOneOpen(): void
+    {
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+        $other     = new GenericUser(['id' => 8, 'password' => $this->other]);
+        $rehashing = new Rehashing;
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $user);
+
+        $rehashing->attempting('web', ['password' => self::OTHER]);
+        $rehashing->validated('web', $other);
+
+        self::assertSame(self::HELD, $this->answer($rehashing, $other, $this->other));
+
+        $rehashing->ended('web', $other);
+        $rehashing->ended('web', $other);
+
+        $rehashing->attempting('web', ['password' => 'wrong']);
+        $rehashing->ended('web', null);
+
+        $rehashing->attempting('web', ['password' => 'wrong']);
+        $rehashing->ended('web', $user);
+
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $other, $this->other));
+        self::assertSame(self::HELD, $this->answer($rehashing, $user));
+
+        $rehashing->ended('web', $user);
+
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
+    }
+
+    /**
+     * Where an attempt inside another validated the same user, the save is held
+     * for the inner attempt, so the inner attempt's end drops it; an attempt's
+     * end for a user leaves the attempts inside it for other users open.
+     *
+     * @return void
+     */
+    public function testAnAttemptsEndClosesTheInnermostAttemptForItsUser(): void
+    {
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+        $other     = new GenericUser(['id' => 8, 'password' => $this->rehash]);
+        $rehashing = new Rehashing;
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $user);
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $user);
+
+        self::save($rehashing, $user, $this->hash, $runs, 'inner rehash');
+
+        $rehashing->ended('web', $user);
+        $rehashing->forced($user);
+
+        self::assertSame([], $runs->getArrayCopy());
+        self::assertSame(self::HELD, $this->answer($rehashing, $user));
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $other);
+        $rehashing->ended('web', $user);
+
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
+        self::assertSame(self::HELD, $this->answer($rehashing, $other));
+    }
+
+    /**
+     * A new attempt of a guard closes every attempt left open at the top of the
+     * guard that cannot be running around it, and drops what they held: one
+     * that validated no one, one made without a password, and one that already
+     * held a save as its rehash. An attempt that may still be running around it
+     * stays open.
+     *
+     * @return void
+     */
+    public function testANewAttemptClosesTheAttemptsThatCannotEncloseIt(): void
+    {
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+        $other     = new GenericUser(['id' => 8, 'password' => $this->rehash]);
+        $rehashing = new Rehashing;
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $user);
+        $rehashing->ended('web', $user);
+        $rehashing->validated('web', $user);
+
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $user);
+        $rehashing->attempting('web', []);
+        $rehashing->validated('web', $user);
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $other);
+        $rehashing->ended('web', $other);
+        $rehashing->ended('web', $user);
+
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
+
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $other);
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', $user);
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->validated('web', new GenericUser(['id' => 9]));
+
+        self::save($rehashing, $other, $this->hash, $runs, 'other');
+        self::save($rehashing, $user, $this->hash, $runs, 'user');
+
+        $rehashing->ended('web', new GenericUser(['id' => 9]));
+        $rehashing->attempting('web', ['password' => self::PASSWORD]);
+        $rehashing->forced($user);
+        $rehashing->forced($other);
+
+        self::assertSame([], $runs->getArrayCopy());
+    }
+
+    /**
+     * A save held by an attempt that is then closed, by its end or by a new
+     * attempt it cannot enclose, is let go rather than kept for the rest of the
+     * request or job.
+     *
+     * @return void
+     */
+    public function testAClosedAttemptLetsGoOfTheSaveItHeld(): void
+    {
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+        $rehashing = new Rehashing;
+
+        foreach ([static fn () => $rehashing->ended('web', $user), static fn () => $rehashing->attempting('web', ['password' => self::PASSWORD])] as $close) {
+
+            $rehashing->attempting('web', ['password' => self::PASSWORD]);
+            $rehashing->validated('web', $user);
+
+            $change = static function (): void {};
+            $held   = \WeakReference::create($change);
+
+            $rehashing->unlessRehash($user, $this->hash, $change);
+
+            unset($change);
+
+            self::assertNotNull($held->get());
+
+            $close();
+
+            self::assertNull($held->get());
+        }
     }
 
     /**
@@ -264,8 +490,7 @@ final class RehashingTest extends TestCase
     public function testAHeldChangeRunsOnlyWhenTheUsersPasswordIsForced(): void
     {
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 7, 'password' => $this->hash]);
-
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
         /** @var \ArrayObject<int, string> $runs */
         $runs = new \ArrayObject;
 
@@ -274,41 +499,39 @@ final class RehashingTest extends TestCase
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
         $rehashing->validated('web', $user);
 
-        $rehashing->unlessRehash($user, static function () use ($runs): void {
-            $runs[] = 'first';
-        });
+        self::save($rehashing, $user, $this->hash, $runs, 'first');
 
-        $rehashing->forced(new GenericUser(['id' => 8, 'password' => $this->hash]));
+        $rehashing->forced(new GenericUser(['id' => 8, 'password' => $this->rehash]));
 
         self::assertSame([], $runs->getArrayCopy());
 
-        $rehashing->forced(new GenericUser(['id' => '7', 'password' => $this->hash]));
+        $rehashing->forced(new GenericUser(['id' => '7', 'password' => $this->rehash]));
         $rehashing->forced($user);
 
         self::assertSame(['first'], $runs->getArrayCopy());
 
-        $rehashing->unlessRehash($user, static function () use ($runs): void {
-            $runs[] = 'dropped';
-        });
+        self::save($rehashing, $user, $this->hash, $runs, 'dropped');
 
-        $rehashing->ended('web');
+        $rehashing->ended('web', $user);
         $rehashing->forced($user);
 
         self::assertSame(['first'], $runs->getArrayCopy());
     }
 
     /**
-     * Only the latest change held for a user runs, and a held change of one
-     * user neither replaces nor runs another's.
+     * Only the latest change held for a user runs, even when an earlier one is
+     * held by another attempt, and a held change of one user neither replaces
+     * nor runs another's.
      *
      * @return void
      */
     public function testOnlyTheLatestChangeHeldForAUserRuns(): void
     {
         $rehashing = new Rehashing;
-        $first     = new GenericUser(['id' => 7, 'password' => $this->hash]);
-        $second    = new GenericUser(['id' => 8, 'password' => $this->hash]);
-
+        $first     = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+        $second    = new GenericUser(['id' => 8, 'password' => $this->rehash]);
+        $new       = new GenericUser(['id' => 7, 'password' => $this->other]);
+        $changed   = new GenericUser(['id' => 7, 'password' => $this->hasher->make(self::OTHER)]);
         /** @var \ArrayObject<int, string> $runs */
         $runs = new \ArrayObject;
 
@@ -317,21 +540,26 @@ final class RehashingTest extends TestCase
         $rehashing->attempting('admin', ['password' => self::PASSWORD]);
         $rehashing->validated('admin', $second);
 
-        foreach (['first, earlier' => $first, 'second' => $second, 'first, latest' => $first] as $name => $user) {
-            $rehashing->unlessRehash($user, static function () use ($runs, $name): void {
-                $runs[] = $name;
-            });
-        }
+        self::save($rehashing, $first, $this->hash, $runs, 'first, earlier');
+        self::save($rehashing, $second, $this->hash, $runs, 'second');
+        self::save($rehashing, $first, $this->hash, $runs, 'first, later');
+        self::save($rehashing, $new, $this->rehash, $runs, 'first, changed');
+
+        $rehashing->attempting('console', ['password' => self::OTHER]);
+        $rehashing->validated('console', $new);
+
+        self::save($rehashing, $changed, $this->other, $runs, 'first, latest');
 
         $rehashing->forced($first);
         $rehashing->forced($second);
+        $rehashing->forced($first);
 
-        self::assertSame(['first, latest', 'second'], $runs->getArrayCopy());
+        self::assertSame(['first, changed', 'first, latest', 'second'], $runs->getArrayCopy());
     }
 
     /**
-     * Rows of `[the credentials of an attempt]` that carry no password the
-     * stored hash could verify.
+     * Rows of `[the credentials of an attempt]` that carry no password a hash
+     * could verify.
      *
      * @return iterable<string, array{0: array<string, mixed>}>
      */
@@ -352,18 +580,18 @@ final class RehashingTest extends TestCase
     public function testAnAttemptWithoutAPasswordMarksNothing(array $credentials): void
     {
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 7, 'password' => $this->hash]);
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
 
         $rehashing->attempting('web', $credentials);
         $rehashing->validated('web', $user);
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, $user));
     }
 
     /**
-     * A stored hash the application's hasher refuses to check, as a bcrypt
-     * hasher with `verify` refuses a hash of another algorithm, verifies
-     * nothing: the change is answered as one rather than failing the save.
+     * A hash the application's hasher refuses to check, as a bcrypt hasher with
+     * `verify` refuses a hash of another algorithm, verifies nothing: the
+     * change is answered as one rather than failing the save.
      *
      * @return void
      */
@@ -372,31 +600,32 @@ final class RehashingTest extends TestCase
         Container::getInstance()->instance(Hasher::class, new BcryptHasher(['rounds' => 4, 'verify' => true]));
 
         $rehashing = new Rehashing;
-        $user      = new GenericUser(['id' => 7, 'password' => '$argon2id$v=19$m=65536,t=4,p=1$c29tZXNhbHQ$cmVoYXNoZWQ']);
+        $argon     = '$argon2id$v=19$m=65536,t=4,p=1$c29tZXNhbHQ$cmVoYXNoZWQ';
 
         $rehashing->attempting('web', ['password' => self::PASSWORD]);
-        $rehashing->validated('web', $user);
+        $rehashing->validated('web', new GenericUser(['id' => 7]));
 
-        self::assertSame(self::CHANGE, self::answer($rehashing, $user));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 7, 'password' => $argon])));
+        self::assertSame(self::CHANGE, $this->answer($rehashing, new GenericUser(['id' => 7, 'password' => $this->rehash]), $argon));
     }
 
     /**
-     * How the mark answers a change of the user's password: run at once
-     * (`change`), held as an open attempt's rehash and run by a forced rehash
-     * of the user (`held`), or dropped as the package's own rehash (`rehash`).
+     * How the mark answers a save of the user's password over the previous hash
+     * (by default, a hash of the attempts' password): run at once (`change`),
+     * held as an open attempt's rehash and run by a forced rehash of the user
+     * (`held`), or dropped as the package's own rehash (`rehash`).
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing  $rehashing
      * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  mixed  $previous
      * @return string
      */
-    private static function answer(Rehashing $rehashing, Authenticatable $user): string
+    private function answer(Rehashing $rehashing, Authenticatable $user, mixed $previous = false): string
     {
         /** @var \ArrayObject<int, string> $runs */
         $runs = new \ArrayObject;
 
-        $rehashing->unlessRehash($user, static function () use ($runs): void {
-            $runs->append('run');
-        });
+        self::save($rehashing, $user, $previous === false ? $this->hash : $previous, $runs, 'run');
 
         $atOnce = $runs->getArrayCopy();
 
@@ -407,5 +636,23 @@ final class RehashingTest extends TestCase
             $runs->getArrayCopy() !== [] => self::HELD,
             default                      => self::REHASH,
         };
+    }
+
+    /**
+     * Save the user's password over the previous hash, recording the change
+     * under the name when it runs.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing  $rehashing
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  mixed  $previous
+     * @param  \ArrayObject<int, string>  $runs
+     * @param  string  $name
+     * @return void
+     */
+    private static function save(Rehashing $rehashing, Authenticatable $user, mixed $previous, \ArrayObject $runs, string $name): void
+    {
+        $rehashing->unlessRehash($user, $previous, static function () use ($runs, $name): void {
+            $runs->append($name);
+        });
     }
 }

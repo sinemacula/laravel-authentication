@@ -1856,9 +1856,12 @@ Membership::observe(RevokeDevicesOnDeactivation::class);
   `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change, and
   the observer ignores it: the package's own sign-ins run it marked, and so do Laravel's guards (`attempt()`,
   `attemptWhen()`, `once()`, as a web login over the same user model does), whose attempt the package follows through
-  Laravel's auth events: while an attempt is open, a save of the user it validated is the rehash only when the stored
-  hash still verifies the password the attempt was made with, so a new password saved before the attempt ends (by an
-  `attemptWhen()` callback, say) revokes. Confirming the current password with `validate()` before changing it is not
+  Laravel's auth events: while an attempt is open, a save of the user it validated is the rehash only when both the
+  hash it replaces and the hash it saves verify the password the attempt was made with, so a new password saved before
+  the attempt ends (by an `attemptWhen()` callback, say) revokes, and so does a change back to that password. An
+  attempt made inside another attempt's callback leaves the outer attempt's rehash alone, and users are told apart by
+  the row they are stored in (connection, database, table and key), so the same key in another tenant's database is
+  another user. Confirming the current password with `validate()` before changing it is not
   an attempt, so the change that follows revokes; so does Laravel's `logoutOtherDevices()`, whose forced rehash exists
   to sign the other sessions out, even while an attempt for the user is open (the package tells it apart by the
   `OtherDeviceLogout` event that follows it). Only changes saved through Eloquent fire model events.

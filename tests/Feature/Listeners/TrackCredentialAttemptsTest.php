@@ -31,9 +31,10 @@ final class TrackCredentialAttemptsTest extends TestCase
 {
     /**
      * An attempt's `Validated` marks its user on the shared mark, for the
-     * password the attempt was made with, so a change of its password is held
-     * as the attempt's rehash; each of `Login`, `Authenticated` and `Failed`
-     * ends the attempt and drops what it held.
+     * password the attempt was made with, so a save that keeps that password is
+     * held as the attempt's rehash; each of `Login`, `Authenticated` and
+     * `Failed` for that user ends the attempt and drops what it held, while an
+     * end for another user leaves it open.
      *
      * @return void
      *
@@ -43,18 +44,28 @@ final class TrackCredentialAttemptsTest extends TestCase
     {
         $rehashing = new Rehashing;
         $listener  = new TrackCredentialAttempts;
+        $hash      = Hash::make('secret');
         $user      = new GenericUser(['id' => 3, 'password' => Hash::make('secret')]);
-        $changes   = [];
+        $other     = new GenericUser(['id' => 4]);
+        $ends      = [
+            [new Login('web', $other, false), new Login('web', $user, false)],
+            [new Authenticated('web', $other), new Authenticated('web', $user)],
+            [new Failed('web', $other, []), new Failed('web', $user, [])],
+        ];
+
+        /** @var \ArrayObject<int, string> $changes */
+        $changes = new \ArrayObject;
 
         $this->app?->instance(Rehashing::class, $rehashing);
 
-        foreach ([new Login('web', $user, false), new Authenticated('web', $user), new Failed('web', $user, [])] as $end) {
+        foreach ($ends as [$elsewhere, $end]) {
 
             $listener(new Attempting('web', ['email' => 'ada@example.test', 'password' => 'secret'], false));
             $listener(new Validated('web', $user));
+            $listener($elsewhere);
 
-            $rehashing->unlessRehash($user, static function () use (&$changes, $end): void {
-                $changes[] = $end::class;
+            $rehashing->unlessRehash($user, $hash, static function () use ($changes, $end): void {
+                $changes->append($end::class);
             });
 
             $listener($end);
@@ -62,7 +73,17 @@ final class TrackCredentialAttemptsTest extends TestCase
             $rehashing->forced($user);
         }
 
-        self::assertSame([], $changes);
+        self::assertSame([], $changes->getArrayCopy());
+
+        $listener(new Attempting('web', ['email' => 'nobody@example.test', 'password' => 'secret'], false));
+        $listener(new Failed('web', null, []));
+        $listener(new Validated('web', $user));
+
+        $rehashing->unlessRehash($user, $hash, static function () use ($changes): void {
+            $changes->append('change');
+        });
+
+        self::assertSame(['change'], $changes->getArrayCopy());
     }
 
     /**
@@ -86,7 +107,7 @@ final class TrackCredentialAttemptsTest extends TestCase
         $listener(new Attempting('web', ['email' => 'ada@example.test', 'password' => 'secret'], false));
         $listener(new Validated('web', $user));
 
-        $rehashing->unlessRehash($user, static function () use ($changes): void {
+        $rehashing->unlessRehash($user, Hash::make('secret'), static function () use ($changes): void {
             $changes->append(true);
         });
 

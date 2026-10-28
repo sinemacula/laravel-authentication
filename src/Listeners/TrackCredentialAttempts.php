@@ -55,7 +55,7 @@ final readonly class TrackCredentialAttempts
         } elseif ($event instanceof OtherDeviceLogout) {
             $rehashing->forced($event->user);
         } else {
-            $rehashing->ended($event->guard);
+            $rehashing->ended($event->guard, $event->user);
         }
     }
 }
