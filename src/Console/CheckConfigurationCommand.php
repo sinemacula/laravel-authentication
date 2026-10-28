@@ -238,7 +238,8 @@ final class CheckConfigurationCommand extends Command
      * The names of the registered sign-in methods that sign in with one-time
      * codes: the package's `phone_code` and `email_code`, and any the
      * application registered as a `CodeSignIn` of its own. A method that cannot
-     * be built is left to the sign-ins that use it.
+     * be built, whatever its factory throws (an exception, or an error such as
+     * a `TypeError`), is left to the sign-ins that use it.
      *
      * @return array<int, string>
      */
@@ -249,7 +250,7 @@ final class CheckConfigurationCommand extends Command
         return array_filter($manager->names(), static function (string $name) use ($manager): bool {
             try {
                 return $manager->method($name) instanceof CodeSignIn;
-            } catch (\Exception) {
+            } catch (\Throwable) {
                 return false;
             }
         });

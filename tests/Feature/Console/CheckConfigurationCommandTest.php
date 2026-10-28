@@ -318,8 +318,9 @@ final class CheckConfigurationCommandTest extends TestCase
      * A code sign-in method the application registered for another identifier
      * type counts as a code method: a guard that allows only it is named when
      * no sender is bound, and warned about on a `sync` connection. A method of
-     * another kind, or one that does not build as a sign-in method, is not a
-     * code method.
+     * another kind, or one that does not build as a sign-in method (whether the
+     * manager refuses what its factory gives, or a typed factory throws a
+     * `TypeError`), is not a code method, and no guard needs to list it.
      *
      * @return void
      */
@@ -332,6 +333,7 @@ final class CheckConfigurationCommandTest extends TestCase
         $manager->extend('whatsapp_code', fn (Application $app): CodeSignIn => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
         $manager->extend('sso', fn (): SignInMethod => \Mockery::mock(SignInMethod::class));
         $manager->extend('broken', fn (): \stdClass => new \stdClass);
+        $manager->extend('typed', fn (): SignInMethod => new \stdClass); // @phpstan-ignore return.type
 
         config()->set([
             'auth.guards.api.audience'   => ['methods' => ['whatsapp_code']],
