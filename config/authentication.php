@@ -25,8 +25,9 @@ return [
     | idle or absolute deadline) more than `prune_after_days` ago (0 to 3650,
     | counted from that end, not from creation; 0 prunes them as soon as they
     | end; an integer, or a digit string as `env()` returns one; anything else
-    | fails closed when pruning runs). The shipped model opts in with the
-    | `PrunesDevices` trait, as a custom model does.
+    | fails closed when pruning runs, and `authentication:check` reports it).
+    | The shipped model opts in with the `PrunesDevices` trait, as a custom
+    | model does.
     |
     */
 
@@ -55,8 +56,9 @@ return [
     | waits for the identity to choose its principal, waits in `pending_table`
     | (on the device model's connection) for at most `pending_ttl_seconds` (30
     | to 3600; an integer, or a digit string as `env()` returns one); anything
-    | else fails closed when a pending sign-in is issued. Prune expired pending
-    | sign-ins with `model:prune`.
+    | else fails closed when a pending sign-in is issued, and
+    | `authentication:check` reports it. Prune expired pending sign-ins with
+    | `model:prune`.
     |
     */
 

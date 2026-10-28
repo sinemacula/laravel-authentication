@@ -11,12 +11,14 @@ use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Database\DeviceRetention;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
+use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
@@ -28,9 +30,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * <message>`: the token service (keys, active kid, algorithm, key lengths,
  * lifetimes, leeway, issuer and audience), the identity provider, a principal
  * resolver override, the package audience policy's settings, every flow's rate
- * limits, the password identifier and the refresh token transport. The command
- * reads configuration only: it opens no database connection and prints no
- * secret.
+ * limits, the password identifier and the refresh token transport. The
+ * package-wide settings are reported as `[device]` (the device model and the
+ * pruning retention) and `[sign_in]` (the pending sign-in lifetime). The
+ * command reads configuration only: it opens no database connection and prints
+ * no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -58,14 +62,17 @@ final class CheckConfigurationCommand extends Command
             $this->line('No jwt guards are configured.');
         }
 
-        $problems = self::prefixed('device', [
-            self::problem(static function () use ($config): void {
-                InvalidDeviceModelConfigurationException::validate($config->string('authentication.device.model', ''));
-            }),
-        ]);
+        $problems = [];
 
-        if ($problems === []) {
-            $this->info('[device] OK');
+        foreach ($this->packageChecks($config) as $subject => $checks) {
+
+            $found = self::prefixed($subject, array_map(static fn (\Closure $check): ?string => self::problem($check), $checks));
+
+            if ($found === []) {
+                $this->info("[{$subject}] OK");
+            }
+
+            $problems = [...$problems, ...$found];
         }
 
         foreach ($guards as $guard) {
@@ -77,6 +84,30 @@ final class CheckConfigurationCommand extends Command
         }
 
         return $problems === [] ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * The package-wide checks, by what they check: the device model and how
+     * long pruning keeps a device, and the lifetime of a pending sign-in (a
+     * further factor or a principal choice), each of which otherwise fails only
+     * when it is first used.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return array<string, list<\Closure(): mixed>>
+     */
+    private function packageChecks(ConfigRepository $config): array
+    {
+        return [
+            'device' => [
+                static function () use ($config): void {
+                    InvalidDeviceModelConfigurationException::validate($config->string('authentication.device.model', ''));
+                },
+                static fn (): int => DeviceRetention::days(),
+            ],
+            'sign_in' => [
+                static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
+            ],
+        ];
     }
 
     /**

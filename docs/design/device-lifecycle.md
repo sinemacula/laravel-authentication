@@ -101,7 +101,7 @@ deleted. Starting a session is in
 - `src/Sessions/ActiveDevices.php`, `src/Sessions/DeviceSummary.php`, `src/Sessions/Concerns/ManagesDevices.php`
   (`devices()`)
 - `src/Concerns/ScopesActiveDevices.php` (`scopeActive()`, composed by `ActsAsDevice`), `src/Concerns/PrunesDevices.php`,
-  `src/Models/Device.php`
+  `src/Database/DeviceRetention.php`, `src/Models/Device.php`
 - `src/Sessions/Concerns/RevokesOnSecurityChanges.php`, `src/Listeners/RevokeDevicesOn*.php`,
   `src/Listeners/Concerns/RevokesOnceCommitted.php`, `src/Sessions/Methods/Rehashing.php`,
   `src/Listeners/TrackCredentialAttempts.php`
@@ -121,7 +121,8 @@ deleted. Starting a session is in
 - `tests/Performance/DeviceRevocationQueryBudgetTest.php`
 - `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`, `tests/Feature/Listeners/RevokeDevicesOn*Test.php`,
   `tests/Unit/Sessions/Methods/RehashingTest.php`, `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`
-- `tests/Feature/Models/DevicePruningTest.php`, `tests/Integration/Models/DevicePruningIntegrationTest.php`
+- `tests/Feature/Models/PrunesDevicesTest.php`, `tests/Feature/Database/DeviceRetentionTest.php`,
+  `tests/Integration/Models/DevicePruningIntegrationTest.php`
 - `tests/Performance/DeviceListingQueryBudgetTest.php`, `tests/Performance/DevicePruneQueryBudgetTest.php`
 
 ## Change Triggers

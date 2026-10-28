@@ -183,7 +183,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
 
     /**
      * Resolve the effective principal resolver for the guard; the guard driver
-     * and `authentication:check` both use it.
+     * and `authentication:check` both use it, which is the only reason it is
+     * public: it is not part of the package's API.
      *
      * Guards without a `principal_resolver` override track the global
      * `PrincipalResolver::class` binding and should therefore receive future
@@ -196,6 +197,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
      * @return array{resolver: \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver, tracks_global: bool}
      *
      * @throws \InvalidArgumentException
+     *
+     * @internal
      */
     public static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
     {

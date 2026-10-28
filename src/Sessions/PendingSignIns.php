@@ -380,6 +380,29 @@ final readonly class PendingSignIns
     }
 
     /**
+     * The configured lifetime of a pending credential, in seconds, read as
+     * every issue reads it; `authentication:check` validates it the same way.
+     *
+     * @return int
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function ttlSeconds(): int
+    {
+        $ttl = $this->config->get(self::TTL_KEY, self::DEFAULT_TTL_SECONDS);
+
+        if (is_string($ttl) && preg_match('/^[1-9][0-9]{0,5}$/D', $ttl) === 1) {
+            $ttl = (int) $ttl;
+        }
+
+        if (!is_int($ttl) || $ttl < self::MIN_TTL_SECONDS || $ttl > self::MAX_TTL_SECONDS) {
+            throw new \InvalidArgumentException(sprintf('%s must be an integer from %d to %d seconds.', self::TTL_KEY, self::MIN_TTL_SECONDS, self::MAX_TTL_SECONDS));
+        }
+
+        return $ttl;
+    }
+
+    /**
      * The identity, which must be an Eloquent model to wait.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -464,28 +487,6 @@ final readonly class PendingSignIns
         ])->save();
 
         return [$pending->id . '.' . $secret, $expiresAt];
-    }
-
-    /**
-     * The configured lifetime of a pending credential, in seconds.
-     *
-     * @return int
-     *
-     * @throws \InvalidArgumentException
-     */
-    private function ttlSeconds(): int
-    {
-        $ttl = $this->config->get(self::TTL_KEY, self::DEFAULT_TTL_SECONDS);
-
-        if (is_string($ttl) && preg_match('/^[1-9][0-9]{0,5}$/D', $ttl) === 1) {
-            $ttl = (int) $ttl;
-        }
-
-        if (!is_int($ttl) || $ttl < self::MIN_TTL_SECONDS || $ttl > self::MAX_TTL_SECONDS) {
-            throw new \InvalidArgumentException(sprintf('%s must be an integer from %d to %d seconds.', self::TTL_KEY, self::MIN_TTL_SECONDS, self::MAX_TTL_SECONDS));
-        }
-
-        return $ttl;
     }
 
     /**

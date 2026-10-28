@@ -54,7 +54,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['[device] OK', '[api] OK', '[admin] OK'], $output);
+        self::assertSame(['[device] OK', '[sign_in] OK', '[api] OK', '[admin] OK'], $output);
         self::assertSame(0, $queries);
     }
 
@@ -102,6 +102,14 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.device.model' => \stdClass::class],
             '[device] authentication.device.model must be a non-empty class-string of an Eloquent model',
         ];
+        yield 'a pruning retention out of range' => [
+            ['authentication.device.prune_after_days' => 3651],
+            '[device] `authentication.device.prune_after_days` must be an integer from 0 to 3650 days.',
+        ];
+        yield 'a pending sign-in lifetime out of range' => [
+            ['authentication.sign_in.pending_ttl_seconds' => 5],
+            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600 seconds.',
+        ];
     }
 
     /**
@@ -131,16 +139,19 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testEveryProblemIsListedInOneRun(): void
     {
         config()->set([
-            'auth.guards.api.audience'      => ['methods' => []],
-            'auth.guards.api.refresh_token' => ['header' => ''],
-            'authentication.device.model'   => '',
+            'auth.guards.api.audience'                   => ['methods' => []],
+            'auth.guards.api.refresh_token'              => ['header' => ''],
+            'authentication.device.model'                => '',
+            'authentication.device.prune_after_days'     => -1,
+            'authentication.sign_in.pending_ttl_seconds' => 'soon',
         ]);
 
         [$code, $output] = $this->check();
 
         self::assertSame(1, $code);
         self::assertContains('[admin] OK', $output);
-        self::assertCount(3, array_filter($output, static fn (string $line): bool => str_starts_with($line, '[api] ') || str_starts_with($line, '[device] ')));
+        self::assertCount(4, array_filter($output, static fn (string $line): bool => str_starts_with($line, '[api] ') || str_starts_with($line, '[device] ')));
+        self::assertCount(1, array_filter($output, static fn (string $line): bool => str_starts_with($line, '[sign_in] ')));
     }
 
     /**
@@ -171,7 +182,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check(['--guard' => ['api', 'web', 'missing', 'api']]);
 
         self::assertSame(1, $code);
-        self::assertSame(['[device] OK', '[api] OK', '[web] Not a jwt guard.', '[missing] Not configured.'], $output);
+        self::assertSame(['[device] OK', '[sign_in] OK', '[api] OK', '[web] Not a jwt guard.', '[missing] Not configured.'], $output);
     }
 
     /**
@@ -187,11 +198,11 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt guards are configured.', '[device] OK'], $output);
+        self::assertSame(['No jwt guards are configured.', '[device] OK', '[sign_in] OK'], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt guards are configured.', '[device] OK']], $this->check());
+        self::assertSame([0, ['No jwt guards are configured.', '[device] OK', '[sign_in] OK']], $this->check());
     }
 
     /**
@@ -204,7 +215,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users']]);
 
-        self::assertSame([0, ['[device] OK', '[2024] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[2024] OK']], $this->check());
     }
 
     /**
@@ -231,7 +242,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards.api.principal_resolver', StubReplacementPrincipalResolver::class);
 
-        self::assertSame([0, ['[device] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[api] OK', '[admin] OK']], $this->check());
     }
 
     /**

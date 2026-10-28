@@ -649,16 +649,19 @@ $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal(
 
 ### Checking the configuration
 
-`php artisan authentication:check` resolves every `jwt` guard's settings the way the guard would and exits `1` when
-any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each guard's token service (keys,
-active kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and audience), that
-its provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the
-package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier and the refresh token
-transport, and the configured device model. Every check runs, so one run lists every problem, each as `[<guard>]
-<message>` (`[device]` for the device model), and a guard without one as `[<guard>] OK`. `--guard=api --guard=admin`
-checks only the named guards; a named guard that is not configured, or not a `jwt` guard, is a problem. The command
-reads configuration only: it opens no database connection and never prints a key. The package does not run these
-checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+`php artisan authentication:check` resolves every `jwt` guard's settings the way the guard would and exits `1` when any
+is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each guard's token service (keys, active
+kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and audience), that its
+provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the package's
+`AudiencePolicy` is bound, the rate limits of every flow, the password identifier and the refresh token transport, and,
+for the whole package, the configured device model and pruning retention (`authentication.device.prune_after_days`,
+otherwise checked only when `model:prune` runs) and the pending sign-in lifetime
+(`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
+choice of principal). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for
+the device model and retention, `[sign_in]` for the pending lifetime), and a subject without one as `[<guard>] OK`.
+`--guard=api --guard=admin` checks only the named guards; a named guard that is not configured, or not a `jwt` guard, is
+a problem. The command reads configuration only: it opens no database connection and never prints a key. The package
+does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Identity Models
 

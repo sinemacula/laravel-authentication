@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Concerns;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\MassPrunable;
-use Illuminate\Support\Facades\Config;
+use SineMacula\Laravel\Authentication\Database\DeviceRetention;
 
 /**
  * Lets Laravel's `model:prune` delete devices whose session is over: revoked,
@@ -47,35 +47,12 @@ trait PrunesDevices
      */
     public function prunable(): Builder
     {
-        $cutoff = $this->fromDateTime(CarbonImmutable::now()->subDays(self::deviceRetentionDays()));
+        $cutoff = $this->fromDateTime(CarbonImmutable::now()->subDays(DeviceRetention::days()));
 
         return $this->newQuery()->where(function (Builder $query) use ($cutoff): void {
             $query->where($this->getRevokedAtName(), '<=', $cutoff)
                 ->orWhere($this->getIdleExpiresAtName(), '<=', $cutoff)
                 ->orWhere($this->getAbsoluteExpiresAtName(), '<=', $cutoff);
         });
-    }
-
-    /**
-     * The configured retention, in days: an integer, or a digit string as
-     * `env()` returns one, from 0 to 3650.
-     *
-     * @return int
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function deviceRetentionDays(): int
-    {
-        $days = Config::get('authentication.device.prune_after_days', 30);
-
-        if (is_string($days) && preg_match('/^(0|[1-9]\d{0,3})$/D', $days) === 1) {
-            $days = (int) $days;
-        }
-
-        if (!is_int($days) || $days < 0 || $days > 3650) {
-            throw new \InvalidArgumentException('`authentication.device.prune_after_days` must be an integer from 0 to 3650 days.');
-        }
-
-        return $days;
     }
 }

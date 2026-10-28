@@ -6,9 +6,11 @@ namespace Tests\Feature\Models;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\MassPrunable;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Concerns\PrunesDevices;
+use SineMacula\Laravel\Authentication\Database\DeviceRetention;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\TestCase;
 
@@ -21,8 +23,9 @@ use Tests\TestCase;
  *
  * @internal
  */
+#[CoversClass(DeviceRetention::class)]
 #[CoversTrait(PrunesDevices::class)]
-final class DevicePruningTest extends TestCase
+final class PrunesDevicesTest extends TestCase
 {
     /**
      * Release the clock.
