@@ -188,6 +188,37 @@ final class ActiveDevicesTest extends TestCase
     }
 
     /**
+     * A device bound to the guard is the current one only when it is of the
+     * listed device's class as well as its identifier: a device of another
+     * class that shares the identifier marks none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABoundDeviceOfAnotherClassWithTheSameIdentifierIsNotCurrent(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signIn('api', 'Phone');
+        $guard    = $this->freshGuard();
+
+        $guard->authenticateAs($session->identity, $session->principal, $session->device);
+
+        self::assertTrue($guard->sessions()->devices($identity)->items()[0]->current);
+
+        $other = new class extends Device {};
+        $other->setRawAttributes($session->device->getAttributes(), true);
+        $other->exists = true;
+
+        $guard->authenticateAs($session->identity, $session->principal, $other);
+
+        $listed = $guard->sessions()->devices($identity)->items();
+
+        self::assertSame([self::idOf($session)], array_map(static fn (DeviceSummary $summary): string => $summary->id, $listed));
+        self::assertFalse($listed[0]->current);
+    }
+
+    /**
      * An explicit page wins over the request's, and the default page size is
      * 15.
      *

@@ -31,6 +31,7 @@ use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\Integration\Fixtures\EagerTenantMembership;
 use Tests\TestCase;
+use Tests\Unit\Stubs\StubTenant;
 
 /**
  * Feature tests of the session service's answers to security changes: each ends
@@ -281,6 +282,35 @@ final class RevokesOnSecurityChangesTest extends TestCase
             self::fail('A principal of another tenant was accepted.');
         } catch (\InvalidArgumentException $exception) {
             $expected = 'does not act within tenant ' . ActivatableTenant::class . ' ' . IdentifierCoercion::stringify($tenant->getKey());
+
+            self::assertStringContainsString($expected, $exception->getMessage());
+        }
+
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+    }
+
+    /**
+     * A principal acts within a tenant only of the tenant's class as well as
+     * its identifier: one whose tenant shares the deactivated tenant's key but
+     * is of another class is refused, and nothing is written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testATenantsDeactivationRefusesAPrincipalOfATenantOfAnotherClassWithTheSameKey(): void
+    {
+        [, $member, $tenant] = $this->seedMember();
+
+        $this->memberSignIn('member@example.test');
+
+        $foreign = (new StubTenant)->forceFill(['id' => $tenant->getKey()]);
+
+        try {
+            $this->sessions('members')->tenantDeactivated($foreign, [$member]);
+            self::fail('A principal of a tenant of another class was accepted.');
+        } catch (\InvalidArgumentException $exception) {
+            $expected = 'does not act within tenant ' . StubTenant::class . ' ' . IdentifierCoercion::stringify($tenant->getKey());
 
             self::assertStringContainsString($expected, $exception->getMessage());
         }
