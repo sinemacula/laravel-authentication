@@ -576,6 +576,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
             yield "{$name}, through the validated instance, with a change rolled back" => [$attempt, 'validated', 'rollback'];
             yield "{$name}, through the validated instance, binding it and attempting again" => [$attempt, 'validated', 'bind, attempt'];
             yield "{$name}, through the validated instance, with a change rolled back and another attempt" => [$attempt, 'validated', 'rollback, attempt'];
+            yield "{$name}, through the validated instance, with the package's own rehash" => [$attempt, 'validated', 'rehash'];
         }
     }
 
@@ -586,10 +587,10 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
      * that attempt threw after validating the user and never ended, or the
      * forced rehash runs inside its callback, and whatever another listener of
      * the forced save does first (attempt again on the same guard, bind the
-     * instance to a guard, or change the password in a transaction it rolls
-     * back, alone or then attempting again), the sign-out still ends every
-     * package session, so its tokens are refused at the `auth` middleware and
-     * its refresh token refreshes nothing.
+     * instance to a guard, change the password in a transaction it rolls back,
+     * alone or then attempting again, or run the package's own rehash of the
+     * user), the sign-out still ends every package session, so its tokens are
+     * refused at the `auth` middleware and its refresh token refreshes nothing.
      *
      * @param  string  $attempt
      * @param  string  $through
@@ -746,8 +747,9 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
     /**
      * Do one thing a listener of a forced save may do before the sign-out's
-     * event: attempt again on the web guard, bind the saved instance to it, or
-     * change the password in a transaction it rolls back.
+     * event: attempt again on the web guard, bind the saved instance to it,
+     * change the password in a transaction it rolls back, or run the package's
+     * own rehash of the user.
      *
      * @param  string  $step
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $saved
@@ -762,6 +764,9 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
             'bind'     => $this->webGuard()->setUser($saved),
             'rollback' => self::rollBack(static function () use ($saved): void {
                 IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('rolled back')])->save();
+            }),
+            'rehash' => app(Rehashing::class)->during($saved, self::PASSWORD, static function () use ($saved): void {
+                IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
             }),
             default => null,
         };

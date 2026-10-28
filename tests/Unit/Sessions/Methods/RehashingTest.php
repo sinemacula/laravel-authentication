@@ -133,7 +133,8 @@ final class RehashingTest extends TestCase
      * A forced rehash inside the package's own rehash, by a listener of the
      * rehash's save that signs the user's other devices out, runs the save it
      * held: the save the package's rehash takes is held, not dropped, until the
-     * rehash returns, and a save held before the rehash stays held.
+     * rehash returns, and a save held before the rehash, which a forced rehash
+     * around it may be waiting for, is held again.
      *
      * @return void
      */
@@ -158,10 +159,19 @@ final class RehashingTest extends TestCase
 
         self::save($rehashing, $user, $this->hash, $runs, 'held before');
 
-        $rehashing->during($user, self::PASSWORD, static fn (): null => null);
+        $rehashing->during($user, self::PASSWORD, function () use ($rehashing, $user, $runs): void {
+            self::save($rehashing, $user, $this->hash, $runs, 'dropped');
+        });
+
+        $rehashing->during($user, self::PASSWORD, function () use ($rehashing, $user, $runs): void {
+            self::save($rehashing, $user, $this->hash, $runs, 'forced inside');
+
+            $rehashing->forced($user);
+        });
+
         $rehashing->forced($user);
 
-        self::assertSame(['forced', 'held before'], $runs->getArrayCopy());
+        self::assertSame(['forced', 'forced inside', 'held before'], $runs->getArrayCopy());
     }
 
     /**

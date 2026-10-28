@@ -55,9 +55,9 @@ use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
  * roll that back, before that event, so nothing else lets go of a save held for
  * an attempt: it is kept until the request or job ends, and a sign-out later in
  * the same request or job runs it too, revoking twice. The package's own rehash
- * lets go of its save once it returns. Users are told apart as
- * `AccountAttempts::account()` tells accounts apart, so the same key in another
- * database is another user.
+ * lets go of its save once it returns, and holds again the save held before it.
+ * Users are told apart as `AccountAttempts::account()` tells accounts apart, so
+ * the same key in another database is another user.
  *
  * One instance is shared through the container, scoped, so whatever an attempt
  * that never ended left behind is gone for the next request or job.
@@ -75,13 +75,14 @@ final class Rehashing
     /** @var array<string, list<array{password: \SensitiveParameterValue, user: ?string, instance: ?\WeakReference<\Illuminate\Contracts\Auth\Authenticatable>, spent: bool}>> Per guard, its credential attempts that have started and not ended, innermost last: the password each was made with, the user and the instance it validated, and whether a change of that user's password has run since. */
     private array $attempts = [];
 
-    /** @var array<string, \Closure(): void> Per user, the latest change taken for a rehash, held for the `OtherDeviceLogout` that would follow a forced one. */
+    /** @var array<string, ?\Closure(): void> Per user, the latest change taken for a rehash, held for the `OtherDeviceLogout` that would follow a forced one. */
     private array $held = [];
 
     /**
      * Run the callback marked as the automatic rehash of the user's password
      * with the password. A save it takes for the rehash is let go of once the
-     * callback returns, unless a forced rehash inside it ran it.
+     * callback returns, unless a forced rehash inside it ran it, and the save
+     * held before it is held again: a forced rehash may be waiting for it.
      *
      * @template TReturn
      *
@@ -104,9 +105,7 @@ final class Rehashing
         } finally {
             array_pop($this->rehashing);
 
-            if (($this->held[$key] ?? null) !== $before) {
-                unset($this->held[$key]);
-            }
+            $this->held[$key] = $before;
         }
     }
 
@@ -228,13 +227,13 @@ final class Rehashing
     {
         $key = self::key($user);
 
-        if (!isset($this->held[$key])) {
+        $change = $this->held[$key] ?? null;
+
+        if ($change === null) {
             return;
         }
 
-        $change = $this->held[$key];
-
-        unset($this->held[$key]);
+        $this->held[$key] = null;
 
         $this->changed($key);
 
