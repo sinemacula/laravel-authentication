@@ -75,7 +75,7 @@ final class Rehashing
     /** @var array<string, list<array{password: \SensitiveParameterValue, user: ?string, instance: ?\WeakReference<\Illuminate\Contracts\Auth\Authenticatable>, spent: bool}>> Per guard, its credential attempts that have started and not ended, innermost last: the password each was made with, the user and the instance it validated, and whether a change of that user's password has run since. */
     private array $attempts = [];
 
-    /** @var array<string, ?\Closure(): void> Per user, the latest change taken for a rehash, held for the `OtherDeviceLogout` that would follow a forced one. */
+    /** @var array<string, \Closure(): void> Per user, the latest change taken for a rehash, held for the `OtherDeviceLogout` that would follow a forced one. */
     private array $held = [];
 
     /**
@@ -105,7 +105,11 @@ final class Rehashing
         } finally {
             array_pop($this->rehashing);
 
-            $this->held[$key] = $before;
+            unset($this->held[$key]);
+
+            if ($before !== null) {
+                $this->held[$key] = $before;
+            }
         }
     }
 
@@ -233,7 +237,7 @@ final class Rehashing
             return;
         }
 
-        $this->held[$key] = null;
+        unset($this->held[$key]);
 
         $this->changed($key);
 

@@ -203,6 +203,26 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * The package's own rehash, run for one account after another with nothing
+     * to rehash, as a long-running command signing users in does, keeps nothing
+     * for any of them.
+     *
+     * @return void
+     */
+    public function testThePackagesRehashKeepsNothingWhenNothingIsHeld(): void
+    {
+        $rehashing = app(Rehashing::class);
+
+        for ($key = 0; $key < 25; $key++) {
+            $rehashing->during(self::user($key, self::PASSWORD), self::PASSWORD, static fn (): null => null);
+        }
+
+        $held = (new \ReflectionProperty(Rehashing::class, 'held'))->getValue($rehashing);
+
+        self::assertSame([], $held);
+    }
+
+    /**
      * An attempt still closes at its end once a change of its user's password
      * has run inside it, as when an `attemptWhen()` callback saves a new
      * password and refuses the attempt.
