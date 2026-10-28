@@ -361,6 +361,8 @@ final class JwtGuardBenchHarness
                 ...BenchSchema::signedIn('device_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
+                'principal_type'       => $identity->getMorphClass(),
+                'principal_id'         => $identityId,
                 'client_name'          => 'bench-device-fresh',
                 'last_used_at'         => Carbon::now(),
             ])->save();
@@ -377,6 +379,8 @@ final class JwtGuardBenchHarness
             ...BenchSchema::signedIn('device_api'),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => $identityId,
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => $identityId,
             'client_name'          => 'bench-device-write-check',
             'last_used_at'         => null,
         ])->save();
@@ -390,6 +394,8 @@ final class JwtGuardBenchHarness
                 ...BenchSchema::signedIn('device_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
+                'principal_type'       => $identity->getMorphClass(),
+                'principal_id'         => $identityId,
                 'client_name'          => 'bench-device-write-' . $index,
                 'last_used_at'         => null,
             ])->save();
