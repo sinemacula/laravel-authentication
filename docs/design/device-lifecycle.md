@@ -63,11 +63,14 @@ deleted. Starting a session is in
   listener's `$guard`, else the current default guard when it is a jwt guard, else the first jwt guard configured, so a
   route guarded by another driver (`shouldUse()`) still revokes; no jwt guard at all is an `InvalidArgumentException`.
 - The password-change observer ignores a save of the user the container's scoped `Sessions\Methods\Rehashing` marks:
-  every user while `PasswordSignIn::rehash()` runs the provider's rehash (cleared in `finally`), and the user a guard
-  validated during a credential attempt, from Laravel's `Validated` until that guard's `Login`, `Authenticated` or
-  `Failed` (`Listeners\TrackCredentialAttempts`, registered by the provider), which brackets the rehash
-  `SessionGuard::attempt()`, `attemptWhen()` and `once()` run through an Eloquent user provider. A `Validated` outside
-  an attempt (`validate()`) marks nothing, and the forced rehash of `logoutOtherDevices()` is answered as a change.
+  the identity whose rehash `PasswordSignIn::rehash()` runs through the provider (cleared in `finally`), and the user
+  a guard validated during a credential attempt, from Laravel's `Validated` until that guard's `Login`,
+  `Authenticated` or `Failed` (`Listeners\TrackCredentialAttempts`, registered by the provider), which brackets the
+  rehash `SessionGuard::attempt()`, `attemptWhen()` and `once()` run through an Eloquent user provider. No event
+  separates `attemptWhen()`'s callbacks from that rehash, so a save inside the bracket counts as the rehash only when
+  the stored hash verifies the attempt's `password` credential (the hasher's `check()`; a hash it refuses to check is a
+  change): a callback that saves another password revokes. A `Validated` outside an attempt (`validate()`) marks
+  nothing, and the forced rehash of `logoutOtherDevices()` is answered as a change.
   The deactivation observer throws a `LogicException` for a deactivated model that is neither identity nor principal:
   a tenant's deactivation is `tenantDeactivated()`. With both password listeners registered, a broker reset is
   recorded as `password_changed` (the observer sees the save before the application fires `PasswordReset`).
@@ -130,7 +133,7 @@ deleted. Starting a session is in
 - `tests/Feature/Sessions/RevokesOnSecurityChangesTest.php`,
   `tests/Integration/Sessions/ReplicaRevokesOnSecurityChangesTest.php`,
   `tests/Feature/Listeners/RevokeDevicesOn*Test.php`, `tests/Unit/Sessions/Methods/RehashingTest.php`,
-  `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`
+  `tests/Feature/Listeners/TrackCredentialAttemptsTest.php`, `tests/Integration/Process/QueueWorkerRehashMarkTest.php`
 - `tests/Feature/Models/PrunesDevicesTest.php`, `tests/Feature/Database/DeviceRetentionTest.php`,
   `tests/Integration/Models/DevicePruningIntegrationTest.php`
 - `tests/Performance/DeviceListingQueryBudgetTest.php`, `tests/Performance/DevicePruneQueryBudgetTest.php`

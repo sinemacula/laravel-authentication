@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
@@ -111,12 +112,12 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
         IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
 
-        app(Rehashing::class)->during(static function () use ($identity): void {
+        app(Rehashing::class)->during($identity, static function () use ($identity): void {
             $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
         });
 
         self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
-        self::assertFalse(app(Rehashing::class)->isRunning());
+        self::assertFalse(app(Rehashing::class)->isRunningFor($identity));
     }
 
     /**
@@ -178,6 +179,72 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         self::assertFalse($guard->attempt(['email' => 'ada@example.test', 'password' => 'wrong']));
         self::assertFalse($guard->attemptWhen(self::credentials(), static fn (): bool => false));
         self::assertTrue($guard->validate(self::credentials()));
+
+        $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * Rows of `[whether the callback admits the attempt]`.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function provideCallbackAnswers(): iterable
+    {
+        yield 'a callback that admits the attempt' => [true];
+        yield 'a callback that refuses the attempt' => [false];
+    }
+
+    /**
+     * No event separates `attemptWhen()`'s callbacks from the guard's rehash,
+     * so a callback that saves a new password changes it, and revokes, whether
+     * it then admits the attempt or refuses it.
+     *
+     * @param  bool  $admits
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCallbackAnswers')]
+    public function testANewPasswordSavedByAnAttemptsCallbackRevokes(bool $admits): void
+    {
+        $this->seedOutdatedHash();
+
+        $attempted = $this->webGuard()->attemptWhen(self::credentials(), static function (IntegrationIdentity $user) use ($admits): bool {
+            $user->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+
+            return $admits;
+        });
+
+        self::assertSame($admits, $attempted);
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * An attempt that threw after validating its user never ended, yet a new
+     * password saved afterwards revokes; only a save of the password the
+     * attempt was made with is still taken for its rehash.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testANewPasswordSavedAfterAnAttemptThatThrewRevokes(): void
+    {
+        $identity = $this->seedOutdatedHash();
+
+        try {
+            $this->webGuard()->attemptWhen(self::credentials(), static function (): never {
+                throw new \RuntimeException('callback failed');
+            });
+        } catch (\RuntimeException $exception) { // @phpstan-ignore catch.neverThrown
+            self::assertSame('callback failed', $exception->getMessage());
+        }
+
+        $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
 
         $identity->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
 

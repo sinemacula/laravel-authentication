@@ -232,7 +232,7 @@ final readonly class PasswordSignIn implements SignInMethod
             return;
         }
 
-        Container::getInstance()->make(Rehashing::class)->during(static function () use ($provider, $identity, $credentials): void {
+        Container::getInstance()->make(Rehashing::class)->during($identity, static function () use ($provider, $identity, $credentials): void {
             $provider->rehashPasswordIfRequired($identity, $credentials);
         });
     }

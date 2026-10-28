@@ -19,11 +19,12 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * The automatic rehash of a password on sign-in is not a change of password and
  * revokes nothing: the package's own, and the one Laravel's guards run in
- * `attempt()`, `attemptWhen()` and `once()` between validating the
- * credentials and ending the attempt (see `Rehashing`). The forced rehash of
- * `logoutOtherDevices()` is a sign-out of the other sessions and is answered as
- * a change. Every device is revoked, the one the change was made from
- * included; an application that keeps that device signed in calls
+ * `attempt()`, `attemptWhen()` and `once()`, which re-encodes the password the
+ * attempt was made with (see `Rehashing`); another password saved before the
+ * attempt ends, by an `attemptWhen()` callback say, is a change. The forced
+ * rehash of `logoutOtherDevices()` is a sign-out of the other sessions and is
+ * answered as a change. Every device is revoked, the one the change was made
+ * from included; an application that keeps that device signed in calls
  * `Auth::sessions()->passwordChanged($identity, Auth::device())` itself instead
  * of registering the observer. Only changes saved through Eloquent are seen: a
  * query-builder update fires no model event.

@@ -47,7 +47,7 @@ final readonly class TrackCredentialAttempts
         $rehashing = Container::getInstance()->make(Rehashing::class);
 
         if ($event instanceof Attempting) {
-            $rehashing->attempting($event->guard);
+            $rehashing->attempting($event->guard, $event->credentials);
         } elseif ($event instanceof Validated) {
             $rehashing->validated($event->guard, $event->user);
         } else {

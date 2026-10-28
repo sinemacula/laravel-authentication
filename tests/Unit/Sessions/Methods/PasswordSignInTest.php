@@ -497,9 +497,9 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * The rehash runs marked by the container's shared `Rehashing`, so a
-     * listener on a change of password can tell it from one, and the mark is
-     * cleared once it ends.
+     * The rehash runs with its identity marked by the container's shared
+     * `Rehashing`, so a listener on a change of password can tell it from one,
+     * and the mark is cleared once it ends.
      *
      * @return void
      */
@@ -516,8 +516,8 @@ final class PasswordSignInTest extends TestCase
 
         $marked = null;
 
-        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, &$marked): void {
-            $marked = $rehashing->isRunning();
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, $identity, &$marked): void {
+            $marked = $rehashing->isRunningFor($identity);
         });
 
         try {
@@ -527,7 +527,7 @@ final class PasswordSignInTest extends TestCase
         }
 
         self::assertTrue($marked);
-        self::assertFalse($rehashing->isRunning());
+        self::assertFalse($rehashing->isRunningFor($identity));
     }
 
     /**

@@ -1855,10 +1855,11 @@ Membership::observe(RevokeDevicesOnDeactivation::class);
   `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change, and
   the observer ignores it: the package's own sign-ins run it marked, and so do Laravel's guards (`attempt()`,
   `attemptWhen()`, `once()`, as a web login over the same user model does), whose attempt the package follows through
-  Laravel's auth events, marking the user an attempt validated until that attempt ends. Confirming the current
-  password with `validate()` before changing it is not an attempt, so the change that follows revokes; so does
-  Laravel's `logoutOtherDevices()`, whose forced rehash exists to sign the other sessions out. Only changes saved
-  through Eloquent fire model events.
+  Laravel's auth events: while an attempt is open, a save of the user it validated is the rehash only when the stored
+  hash still verifies the password the attempt was made with, so a new password saved before the attempt ends (by an
+  `attemptWhen()` callback, say) revokes. Confirming the current password with `validate()` before changing it is not
+  an attempt, so the change that follows revokes; so does Laravel's `logoutOtherDevices()`, whose forced rehash exists
+  to sign the other sessions out. Only changes saved through Eloquent fire model events.
 - `RevokeDevicesOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
   it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
   identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
