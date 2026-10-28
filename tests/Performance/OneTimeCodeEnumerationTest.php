@@ -29,12 +29,13 @@ use Tests\Performance\Fixtures\SlowModelProvider;
 use Tests\Performance\Fixtures\SlowOneTimeCodeSender;
 
 /**
- * The enumeration criteria for one-time codes, held as contracts: a request for
- * a code runs the same statements, gives the same answer and takes the same
- * time whether or not anyone has the number, with its delivery never inside it,
- * against a slow identity store and a slow gateway; and a failed sign-in by
- * code answers `invalid_credentials` and waits out the real credential timebox
- * whatever failed, while a successful one returns early.
+ * The enumeration criteria for one-time codes, held as contracts for both phone
+ * and email codes: a request for a code runs the same statements, gives the
+ * same answer and takes the same time whether or not anyone has the number or
+ * address, with its delivery never inside it, against a slow identity store and
+ * a slow gateway; and a failed sign-in by code answers `invalid_credentials`
+ * and waits out the real credential timebox whatever failed, while a successful
+ * one returns early.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -53,8 +54,14 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     /** @var int Requests or sign-ins timed per case; the fastest is compared, so one scheduler pause cannot fail it. */
     private const int TIMING_SAMPLES = 3;
 
-    /** @var string The code the engine issues for the known number. */
+    /** @var string The code the engine issues for the known identifier. */
     private const string CODE = '135790';
+
+    /** @var string The email address of the seeded identity. */
+    private const string EMAIL = 'ada@example.test';
+
+    /** @var string An email address no identity has. */
+    private const string UNKNOWN_EMAIL = 'nobody@example.test';
 
     /** @var \Tests\Performance\Fixtures\SlowOneTimeCodeSender The slow gateway. */
     private SlowOneTimeCodeSender $sender;
@@ -113,31 +120,51 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * A request for a known number and one for a number no one has, each from a
-     * client of its own so their limits start alike, run the same statements,
-     * in the same order, with the same answer; so do the requests that follow
-     * within the cooldown.
+     * Rows of `[method, field, known, unknown]`: each code method, the field
+     * its identifier is entered in, the seeded identity's identifier and one no
+     * identity has.
      *
+     * @return iterable<string, array{0: string, 1: string, 2: string, 3: string}>
+     */
+    public static function provideMethods(): iterable
+    {
+        yield from [
+            'phone code' => ['phone_code', 'phone', self::PHONE, self::UNKNOWN_PHONE],
+            'email code' => ['email_code', 'email', self::EMAIL, self::UNKNOWN_EMAIL],
+        ];
+    }
+
+    /**
+     * A request for a known identifier and one for an identifier no one has,
+     * each from a client of its own so their limits start alike, run the same
+     * statements, in the same order, with the same answer; so do the requests
+     * that follow within the cooldown.
+     *
+     * @param  string  $method
+     * @param  string  $field
+     * @param  string  $knownIdentifier
+     * @param  string  $unknownIdentifier
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACodeRequestRunsTheSameStatementsForAnyNumber(): void
+    #[DataProvider('provideMethods')]
+    public function testACodeRequestRunsTheSameStatementsForAnyIdentifier(string $method, string $field, string $knownIdentifier, string $unknownIdentifier): void
     {
         self::seedCodeIdentity();
 
         $knownClient   = new ClientContext('198.51.100.1', 'Phone/1.0');
         $unknownClient = new ClientContext('198.51.100.2', 'Phone/1.0');
 
-        [$known, $knownSql]     = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send('phone_code', ['phone' => self::PHONE], $knownClient));
-        [$unknown, $unknownSql] = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send('phone_code', ['phone' => self::UNKNOWN_PHONE], $unknownClient));
+        [$known, $knownSql]     = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $knownIdentifier], $knownClient));
+        [$unknown, $unknownSql] = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $unknownIdentifier], $unknownClient));
 
         self::assertEquals($known, $unknown);
         self::assertSame($knownSql, $unknownSql);
         self::assertNotSame([], $knownSql);
 
-        [$knownAgain, $knownAgainSql]     = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send('phone_code', ['phone' => self::PHONE], $knownClient));
-        [$unknownAgain, $unknownAgainSql] = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send('phone_code', ['phone' => self::UNKNOWN_PHONE], $unknownClient));
+        [$knownAgain, $knownAgainSql]     = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $knownIdentifier], $knownClient));
+        [$unknownAgain, $unknownAgainSql] = $this->recorded(fn (): CodeRequest => $this->codeService('slow')->send($method, [$field => $unknownIdentifier], $unknownClient));
 
         self::assertEquals($knownAgain, $unknownAgain);
         self::assertSame($knownAgainSql, $unknownAgainSql);
@@ -146,22 +173,27 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
     /**
      * Against a slow identity store and a slow gateway, a request takes as
-     * little time for a known number as for one no one has: it never looks the
-     * number up, and the delivery runs only after the response, where the known
-     * number's code then goes out and the unknown's does not.
+     * little time for a known identifier as for one no one has: it never looks
+     * the identifier up, and the delivery runs only after the response, where
+     * the known identifier's code then goes out and the unknown's does not.
      *
+     * @param  string  $method
+     * @param  string  $field
+     * @param  string  $knownIdentifier
+     * @param  string  $unknownIdentifier
      * @return void
      *
      * @throws \Throwable
      */
-    public function testACodeRequestTakesNoLongerForAKnownNumber(): void
+    #[DataProvider('provideMethods')]
+    public function testACodeRequestTakesNoLongerForAKnownIdentifier(string $method, string $field, string $knownIdentifier, string $unknownIdentifier): void
     {
         config()->set('authentication.codes.resend_cooldown_seconds', 0);
 
         self::seedCodeIdentity();
 
-        $known   = $this->fastestRequest(self::PHONE);
-        $unknown = $this->fastestRequest(self::UNKNOWN_PHONE);
+        $known   = $this->fastestRequest($method, [$field => $knownIdentifier]);
+        $unknown = $this->fastestRequest($method, [$field => $unknownIdentifier]);
 
         self::assertSame([0, 0], [SlowModelProvider::$lookups, $this->sender->count()]);
         self::assertLessThan(SlowModelProvider::FOUND_MICROSECONDS * 1000, $known);
@@ -173,44 +205,54 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of how a sign-in by code fails, for a known number or one no one
-     * has.
+     * Rows of how a sign-in by each code method fails, for a known identifier
+     * or one no one has.
      *
-     * @return iterable<string, array{0: string}>
+     * @return iterable<string, array{0: string, 1: string, 2: string, 3: string, 4: string}>
      */
     public static function provideFailures(): iterable
     {
-        yield from [
-            'unknown number, wrong code' => ['unknown'],
-            'unknown number, its code'   => ['unknown_right'],
-            'wrong code'                 => ['wrong'],
-            'expired code'               => ['expired'],
-            'exhausted code'             => ['exhausted'],
-            'used code'                  => ['used'],
-            'account without attempts'   => ['account'],
-            'malformed code'             => ['malformed'],
+        $failures = [
+            'unknown identifier, wrong code' => 'unknown',
+            'unknown identifier, its code'   => 'unknown_right',
+            'wrong code'                     => 'wrong',
+            'expired code'                   => 'expired',
+            'exhausted code'                 => 'exhausted',
+            'used code'                      => 'used',
+            'account without attempts'       => 'account',
+            'malformed code'                 => 'malformed',
         ];
+
+        foreach (self::provideMethods() as $name => $method) {
+            foreach ($failures as $failure => $key) {
+                yield $name . ': ' . $failure => [...$method, $key];
+            }
+        }
     }
 
     /**
      * Every failed sign-in by code answers exactly as a wrong code does
      * (`invalid_credentials`, no wait) and waits out the real timebox, a slow
-     * lookup of a known number included; only the server-side event may say
-     * more.
+     * lookup of a known identifier included; only the server-side event may
+     * say more.
      *
+     * @param  string  $method
+     * @param  string  $field
+     * @param  string  $knownIdentifier
+     * @param  string  $unknownIdentifier
      * @param  string  $failure
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideFailures')]
-    public function testAFailedSignInByCodeLooksTheSameAndWaitsOutTheTimebox(string $failure): void
+    public function testAFailedSignInByCodeLooksTheSameAndWaitsOutTheTimebox(string $method, string $field, string $knownIdentifier, string $unknownIdentifier, string $failure): void
     {
         config()->set('authentication.codes.max_attempts', 1);
 
-        $identity = self::seedCodeIdentity();
-        $phone    = in_array($failure, ['unknown', 'unknown_right'], true) ? self::UNKNOWN_PHONE : self::PHONE;
-        $code     = $this->prepare($failure, $identity, $phone);
+        $identity   = self::seedCodeIdentity();
+        $identifier = [$field => in_array($failure, ['unknown', 'unknown_right'], true) ? $unknownIdentifier : $knownIdentifier];
+        $code       = $this->prepare($failure, $identity, $method, $identifier);
 
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -218,7 +260,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions('slow');
         $started  = hrtime(true);
-        $result   = $sessions->signIn('phone_code', ['phone' => $phone, 'code' => $code]);
+        $result   = $sessions->signIn($method, $identifier + ['code' => $code]);
         $elapsed  = hrtime(true) - $started;
 
         self::assertEquals(SignInResult::failed(FailureReason::INVALID_CREDENTIALS), $result);
@@ -227,14 +269,31 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
+     * Rows of `[method, field, known]`: each code method, the field its
+     * identifier is entered in, and the seeded identity's identifier.
+     *
+     * @return iterable<string, array{0: string, 1: string, 2: string}>
+     */
+    public static function provideKnownIdentifiers(): iterable
+    {
+        foreach (self::provideMethods() as $name => [$method, $field, $known]) {
+            yield $name => [$method, $field, $known];
+        }
+    }
+
+    /**
      * A successful sign-in by code returns as soon as it is done, the slow
      * lookup included, instead of waiting out the timebox.
      *
+     * @param  string  $method
+     * @param  string  $field
+     * @param  string  $knownIdentifier
      * @return void
      *
      * @throws \Throwable
      */
-    public function testASuccessfulSignInByCodeReturnsBeforeTheTimebox(): void
+    #[DataProvider('provideKnownIdentifiers')]
+    public function testASuccessfulSignInByCodeReturnsBeforeTheTimebox(string $method, string $field, string $knownIdentifier): void
     {
         config()->set('authentication.codes.resend_cooldown_seconds', 0);
 
@@ -248,12 +307,12 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
             self::issueCodes([self::CODE]);
 
-            $this->codeService('slow')->send('phone_code', ['phone' => self::PHONE]);
+            $this->codeService('slow')->send($method, [$field => $knownIdentifier]);
 
             $sessions = $this->sessions('slow');
             $started  = hrtime(true);
 
-            self::assertTrue($sessions->signIn('phone_code', ['phone' => self::PHONE, 'code' => self::CODE])->isSignedIn());
+            self::assertTrue($sessions->signIn($method, [$field => $knownIdentifier, 'code' => self::CODE])->isSignedIn());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }
@@ -264,7 +323,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
 
     /**
      * Configure the guards, and a `slow` guard over the slow provider that
-     * allows phone codes.
+     * allows phone and email codes.
      *
      * @param  mixed  $app
      * @return void
@@ -283,25 +342,26 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
         self::configureCodeGuards($config);
 
         $config->set('auth.providers.slow_identities', ['driver' => 'slow_model', 'model' => CodeIdentity::class]);
-        $config->set('auth.guards.slow', ['driver' => 'jwt', 'provider' => 'slow_identities', 'audience' => ['methods' => ['phone_code']]]);
+        $config->set('auth.guards.slow', ['driver' => 'jwt', 'provider' => 'slow_identities', 'audience' => ['methods' => ['phone_code', 'email_code']]]);
     }
 
     /**
-     * Bring the code sent to the number into the state the failure needs, and
-     * return the code the sign-in enters.
+     * Bring the code the method sent to the identifier into the state the
+     * failure needs, and return the code the sign-in enters.
      *
      * @param  string  $failure
      * @param  \Tests\Integration\Fixtures\CodeIdentity  $identity
-     * @param  string  $phone
+     * @param  string  $method
+     * @param  array<string, string>  $identifier
      * @return string
      *
      * @throws \Throwable
      */
-    private function prepare(string $failure, CodeIdentity $identity, string $phone): string
+    private function prepare(string $failure, CodeIdentity $identity, string $method, array $identifier): string
     {
         self::issueCodes([self::CODE]);
 
-        $this->codeService('slow')->send('phone_code', ['phone' => $phone]);
+        $this->codeService('slow')->send($method, $identifier);
 
         match ($failure) {
             'expired'   => CarbonImmutable::setTestNow(CarbonImmutable::instance($this->now)->addSeconds(600)),
@@ -323,14 +383,16 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * The fastest of a few requests for a code to the number, in nanoseconds.
+     * The fastest of a few requests for a code by the method to the
+     * identifier, in nanoseconds.
      *
-     * @param  string  $phone
+     * @param  string  $method
+     * @param  array<string, string>  $identifier
      * @return int
      *
      * @throws \Throwable
      */
-    private function fastestRequest(string $phone): int
+    private function fastestRequest(string $method, array $identifier): int
     {
         $fastest = PHP_INT_MAX;
 
@@ -339,7 +401,7 @@ final class OneTimeCodeEnumerationTest extends PerformanceContractTestCase
             $codes   = $this->codeService('slow');
             $started = hrtime(true);
 
-            self::assertTrue($codes->send('phone_code', ['phone' => $phone])->isSent());
+            self::assertTrue($codes->send($method, $identifier)->isSent());
 
             $fastest = min($fastest, hrtime(true) - $started);
         }
