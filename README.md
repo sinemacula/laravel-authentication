@@ -1644,12 +1644,16 @@ identifier a guard that requires verified identifiers checks. Return `null` for 
 assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
 never to look anyone up. `authenticate()` returns the identity, or `FailureReason::INVALID_CREDENTIALS` for anything the
-input did not prove (every other reason is the session service's to give, and a method that returns one throws a
-`LogicException`); it must not bind a guard, issue tokens or write session state, and must hold no state between calls,
-since the manager keeps one instance per name for the life of the process. The credential timebox pads every refused
-sign-in, the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an unknown
-identifier at once, as the example does; keep the method's worst case under that budget, and only a method whose work
-can take longer needs to do the same work whether or not the identifier exists.
+input did not prove. A method may also answer `identifier_unverified`, but only once its input proved possession of the
+identifier (as a one-time code does), and `code_expired`, `code_exhausted`, `passkey_challenge_invalid` or
+`passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
+the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
+returns one throws a `LogicException` (see [Events](#events)). A method must not bind a guard, issue tokens or write
+session state, and must hold no state between calls, since the manager keeps one instance per name for the life of the
+process. The credential timebox pads every refused sign-in, the method's own work included, to
+`timebox.credentials_microseconds`, so a method may answer an unknown identifier at once, as the example does; keep the
+method's worst case under that budget, and only a method whose work can take longer needs to do the same work whether or
+not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -1669,7 +1673,9 @@ account check; a fifth argument decides them instead, so `fn (Identity $identity
 whose accounts have used up their attempts, to test the `invalid_credentials` answer.
 
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
-refuses anything else, and `password`), from a service provider, and allow that exact name in each guard's audience:
+refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
+credential kinds `api_key` and `client_credentials`; see [Extensibility](#extensibility)), from a service provider, and
+allow that exact name in each guard's audience:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
