@@ -13,7 +13,7 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 enum AuthenticationFlow: string
 {
     // A sign-in: attempt(), and the session service's signIn(), start(),
-    // complete() and discard()
+    // complete(), choose() and discard()
     case SIGN_IN = 'sign_in';
 
     // A request's access token

@@ -68,13 +68,13 @@ device record live in the `devices` table so replay and stale credentials can be
   reason. Refresh digests are hidden from serialisation. An identity's active devices list as safe, paginated
   summaries with the current device marked, and ended devices are pruned with `model:prune`.
 - **Signing out and revoking sessions**: `logout()` revokes the session's device, so its tokens stop at once; the
-  session service signs an identity out everywhere, optionally keeping the current device, revokes one of its devices
-  or every session of a principal, and ends the affected sessions when a password changes or is reset, a factor is
-  removed, or an identity, principal or tenant is deactivated, with optional listeners for those changes. Access tokens
-  issued without a device end at a "tokens valid after" time the identity or principal records.
-- **Choosing and switching principal**: a sign-in that names no principal for an identity with several waits for it
-  to choose one, and a session switches to another principal on its device, proven by its refresh token, ending the
-  previous principal's access tokens at once.
+  session service signs an identity out everywhere, optionally keeping the current device, revokes one of its devices or
+  every session of a principal, and ends the affected sessions when a password changes or is reset, a factor is removed,
+  or an identity, principal or tenant is deactivated, with optional listeners for identities and principals. Access
+  tokens issued without a device end at a "tokens valid after" time the identity or principal records.
+- **Choosing and switching principal**: a sign-in that names no principal, for an identity that has no default
+  principal, waits for it to choose one of those it may act as, and a session switches to another principal on its
+  device, proven by its refresh token, ending the previous principal's access tokens at once.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed` /
   `Logout` alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
   `AdditionalFactorRequired` / `PrincipalChoiceRequired` / `PrincipalSwitched` / `Refreshed` / `DeviceRevoked` /
