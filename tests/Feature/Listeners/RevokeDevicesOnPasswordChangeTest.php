@@ -368,6 +368,48 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
+     * After an attempt that threw, the instance it validated saves a new
+     * password quietly, firing no event, and then the attempt's password: the
+     * hash that save replaces is the quiet one, not the one the attempt
+     * validated, so it is a change rather than the attempt's rehash, and
+     * revokes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeBackAfterAQuietChangeRevokes(): void
+    {
+        $this->seedIdentity();
+
+        $first = $this->signIn();
+
+        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
+
+        $validated = null;
+
+        try {
+            $this->webGuard()->attemptWhen(self::credentials(), static function (IntegrationIdentity $user) use (&$validated): never {
+                $validated = $user;
+
+                throw new \RuntimeException('callback failed');
+            });
+        } catch (\RuntimeException $exception) { // @phpstan-ignore catch.neverThrown
+            self::assertSame('callback failed', $exception->getMessage());
+        }
+
+        self::assertInstanceOf(IntegrationIdentity::class, $validated);
+
+        $validated->forceFill(['password' => app(Hasher::class)->make('a new password')])->saveQuietly();
+
+        self::assertNull(DB::table('devices')->where('id', $first->device->getKey())->value('revoked_at'));
+
+        $validated->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+        self::assertSame('password_changed', DB::table('devices')->where('id', $first->device->getKey())->value('revoked_reason'));
+    }
+
+    /**
      * Rows of `[whether the changes run inside the attempt's callback rather
      * than after an attempt whose callback threw, the instance the change back
      * is saved through]`.
