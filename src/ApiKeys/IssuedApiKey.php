@@ -33,7 +33,7 @@ final readonly class IssuedApiKey
         /** The key's id. */
         public string $id,
 
-        // The key a client presents, held out of every dump.
+        // The key a client presents.
         #[\SensitiveParameter]
         string $key,
 

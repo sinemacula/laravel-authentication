@@ -17,9 +17,9 @@ use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
  *
  * `FakeOneTimeCodeSender::fake()` binds a fresh instance as the application's
  * sender and returns it. Delivery runs in the queued job, so the message
- * arrives when the job runs: at once on a `sync` connection once the response
- * is sent (`$this->app->terminate()` in a test), or when the test runs the
- * queued job. Assert on what it holds with the test framework's own assertions.
+ * arrives when the job runs: on a `sync` connection, once the response is sent
+ * (`$this->app->terminate()` in a test), or when the test runs the queued job.
+ * Assert on what it holds with the test framework's own assertions.
  *
  * @api
  *

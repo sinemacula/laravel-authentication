@@ -45,16 +45,16 @@ final class OneTimeCode extends Model
 {
     use MassPrunable;
 
-    /** @var bool Indicates if the model should be timestamped. */
+    /** @var bool Whether the model keeps `created_at` and `updated_at`: it keeps neither. */
     public $timestamps = false;
 
-    /** @var bool Indicates if the IDs are auto-incrementing. */
+    /** @var bool Whether the primary key auto-increments. */
     public $incrementing = false;
 
-    /** @var string The "type" of the primary key ID. */
+    /** @var string The type of the primary key. */
     protected $keyType = 'string';
 
-    /** @var array<string> The attributes that aren't mass assignable. */
+    /** @var array<string> The attributes that are not mass assignable: every one, as every column is written by the code engine. */
     protected $guarded = ['*'];
 
     /** @var list<string> The attributes hidden from serialisation: the binding digest, the issuance and the code's hash. */

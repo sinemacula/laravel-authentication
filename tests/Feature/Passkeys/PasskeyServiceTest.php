@@ -42,11 +42,11 @@ use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 
 /**
- * Feature tests for the passkey service `Auth::passkeys()` returns, and for
- * registering a passkey through it: the options a registration is handed, which
- * challenges it may answer, what it stores and reports, and what it refuses.
- * Its other ceremonies have tests of their own: `PasskeySignInTest`,
- * `PasskeySignInOptionsTest`, `PasskeyFactorTest` and `PasskeyManagementTest`.
+ * Feature tests for the passkey service `Auth::passkeys()` returns: the options
+ * a registration is handed, which challenges it may answer, what it stores and
+ * reports, and what it refuses; sign-in options; the factor ceremony; and
+ * listing and removing passkeys. Signing in with a passkey is tested in
+ * `PasskeySignInTest`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

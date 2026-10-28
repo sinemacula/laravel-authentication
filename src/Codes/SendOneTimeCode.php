@@ -35,17 +35,16 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * sends nothing otherwise; a retry checks again, so a code that stopped working
  * is never sent. Then it finds the recipient. A sign-in code goes only to an
  * identity the guard's provider finds by the identifier that is active, can
- * report its identifiers verified, holds exactly this one (its own, in its
- * normal form, not a look-alike the lookup's collation matched) and reports it
- * verified, and is not a machine identity; for anyone else, or no one, nothing
- * is sent and nothing says so. A verification code goes only to the identity it
- * was issued for, read again from the write connection, while its identifier of
- * the type is still the one the code is bound to, and never to a machine
- * identity. An exception from the sender fails the job, and the application's
- * retry policy applies; an unbound sender is a `BindingResolutionException`. A
- * verification job whose identity was deleted before it ran is dropped, not
- * failed; the class attribute, rather than a property, is what every supported
- * Laravel version reads for that.
+ * report its identifiers verified, holds exactly this one (see
+ * `CodeIdentifiers`) and reports it verified, and is not a machine identity;
+ * for anyone else, or no one, nothing is sent and nothing says so. A
+ * verification code goes only to the identity it was issued for, read again
+ * from the write connection, while its identifier of the type is still the one
+ * the code is bound to, and never to a machine identity. An exception from the
+ * sender fails the job, and the application's retry policy applies; an unbound
+ * sender is a `BindingResolutionException`. A verification job whose identity
+ * was deleted before it ran is dropped, not failed; the class attribute, rather
+ * than a property, is what every supported Laravel version reads for that.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

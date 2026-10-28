@@ -271,9 +271,9 @@ final class ClientCredentialsExchangeTest extends TestCase
 
     /**
      * Every failure to authenticate the client answers `invalid_client` (401, a
-     * Basic challenge for a Basic client), alike, is counted against the client
-     * id, and is reported with its own reason and, once a key was found, the
-     * key.
+     * Basic challenge for a Basic client), alike, is counted against the IP
+     * address, and is reported with its own reason and, once a key was found,
+     * the key.
      *
      * @param  string  $case
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason

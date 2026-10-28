@@ -35,10 +35,9 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * that code exactly as one at a known identifier does; for a known identity the
  * check also counts against the account's own limit first. An identity the
  * guard's provider finds holds the identifier only when its own identifier of
- * the type, in its normal form, is exactly the one the code is bound to: a
- * lookup matches whatever the column's collation does, which on some engines
- * ignores case and accents, so an identity found by a look-alike is treated as
- * no identity at all. A code that expired or used up its attempts is refused as
+ * the type, in its normal form, is exactly the one the code is bound to (see
+ * `CodeIdentifiers`), so an identity found by a look-alike is treated as no
+ * identity at all. A code that expired or used up its attempts is refused as
  * `code_expired` or `code_exhausted`, which the sign-in's result conceals as
  * `invalid_credentials`. A correct code for an identity whose identifier of the
  * type is not verified is `identifier_unverified`: the code proved the

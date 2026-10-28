@@ -157,8 +157,8 @@ final class RefreshAdmissionTest extends TestCase
 
     /**
      * An owner that is a non-human identity is refused as `machine_identity`,
-     * active or not, carrying the owner: a machine has no device refresh and no
-     * switch of principal.
+     * carrying the owner, even when it is inactive too: a machine has no device
+     * refresh and no switch of principal, and that reason comes first.
      *
      * @return void
      */
@@ -167,8 +167,8 @@ final class RefreshAdmissionTest extends TestCase
         $device  = $this->seedDevice();
         $machine = new class extends StubIdentity implements CanBeActive, MachineIdentity {
             /**
-             * A machine that reports inactive, so only its being one refuses
-             * it.
+             * Inactive as well, so the machine reason must come before the
+             * activity check.
              *
              * @return bool
              */

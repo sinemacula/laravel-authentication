@@ -77,7 +77,7 @@ final readonly class PasskeySignIn implements SignInMethod
     }
 
     /**
-     * The method uses no identifier: the sign-in is usernameless.
+     * No identifier: the sign-in is usernameless.
      *
      * @param  string  $guard
      * @param  array<array-key, mixed>  $input

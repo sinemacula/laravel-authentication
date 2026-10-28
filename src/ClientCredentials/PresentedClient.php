@@ -33,7 +33,7 @@ final readonly class PresentedClient
         /** The client id: an API key's public part. */
         public string $clientId,
 
-        // The client secret: the API key's secret, held out of every dump.
+        // The client secret: the API key's secret.
         #[\SensitiveParameter]
         string $clientSecret,
 
