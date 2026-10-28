@@ -52,6 +52,9 @@ device record live in the `devices` table so replay and stale credentials can be
   indexed lookup on the write connection and no password hashing; keys shown once, stored as a SHA-256 digest, bound
   to one guard, one principal and its tenant, with scopes, optional expiry, throttled last use, rotation with a bounded
   overlap, immediate revocation and lifecycle events.
+- **OAuth 2.0 client credentials** (RFC 6749 section 4.4): an API key, as a client id and secret, exchanged for a
+  short-lived access token of a `jwt` guard, with no device and no refresh, answered in RFC 6749's shapes; the token
+  carries its key and scopes and is held to its key on every request, so revoking the key ends it at once.
 - **Credential scopes for the suite**: the package carries a credential's scopes and never interprets them; they are
   opaque RFC 6749 scope tokens, a ceiling an authorization package intersects with the principal's permissions, held at
   issue to an optional `ScopeRegistry` (default: accept any).
@@ -2497,7 +2500,8 @@ caller's error, not a failed authentication. A credential's scopes are fixed for
 
 An API key authenticates a non-human identity, a model that implements `Contracts\MachineIdentity`, as one of its
 principals on one guard. Issue keys through the guard's key service, `Auth::apiKeys($guard)`, for an `api_key` guard
-(whose requests present the key) or a `jwt` guard (whose client credentials exchange takes it):
+(whose requests present the key) or a `jwt` guard (whose client credentials exchange takes it, see
+[Client credentials](#client-credentials)):
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -2582,6 +2586,66 @@ Schedule pruning of keys revoked or expired more than `prune_after_days` ago:
 $schedule->command('model:prune', ['--model' => [\SineMacula\Laravel\Authentication\Models\ApiKey::class]])->daily();
 ```
 
+#### Client credentials
+
+The OAuth 2.0 client credentials grant (RFC 6749 section 4.4) exchanges a machine's API key for a short-lived access
+token of a `jwt` guard. The key is issued on that guard (`Auth::apiKeys('m2m')->issue(...)`): its public part is the
+OAuth `client_id` and its secret the `client_secret`, so a key is either presented to an `api_key` guard or exchanged on
+a `jwt` guard, never both, and rotating a key gives its client a new id. The guard's audience lists the grant:
+
+```php
+'m2m' => [
+    'driver'   => 'jwt',
+    'provider' => 'clients',
+    'audience' => ['methods' => ['client_credentials']],
+],
+```
+
+Routes stay yours; the exchange reads the request and answers in RFC 6749's shapes:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::post('/oauth/token', fn () => Auth::clientCredentials('m2m')->fromRequest());
+```
+
+`fromRequest()` reads a form-encoded POST: `grant_type=client_credentials`, an optional `scope` (space-separated), and
+the client authenticated with HTTP Basic (`client_id:client_secret`, each form-url-encoded) or with `client_id` and
+`client_secret` in the body, never both. A parameter in the query string, given twice or not a string is refused
+rather than ignored, so a credential in a URL never works. `exchange($clientId, $clientSecret, $scope)` does the same
+for a client id and secret your code read itself. The result is `Responsable`, answered with `Cache-Control: no-store`
+and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, `scopes`, `error` and `reason`:
+
+| Outcome                                                                                  | Response                       |
+|------------------------------------------------------------------------------------------|--------------------------------|
+| Granted                                                                                  | 200, the token (below)         |
+| Not a POST or not form-encoded; a parameter in the query, repeated or not a string       | 400 `invalid_request`          |
+| No `grant_type`; Basic and body credentials together                                     | 400 `invalid_request`          |
+| A `grant_type` other than `client_credentials`                                           | 400 `unsupported_grant_type`   |
+| No client authentication, malformed Basic, an unknown client or a wrong secret           | 401 `invalid_client`           |
+| A revoked, expired or another guard's key; its owner unknown, not a machine or inactive  | 401 `invalid_client`           |
+| Its principal or tenant no longer the key's, or inactive                                 | 401 `invalid_client`           |
+| The guard's audience does not list `client_credentials`, or does not admit the principal | 400 `unauthorized_client`      |
+| A scope that is malformed or not granted to the key                                      | 400 `invalid_scope`            |
+| The client id or the IP address used up its failures                                     | 429 `slow_down`, `Retry-After` |
+
+A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`;
+`invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749 error
+but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to authenticate
+the client count against the `client_credentials` limits (10 per client id and 100 per IP address a minute by default),
+and each is answered alike. No scope asks for every scope the key grants; otherwise the token grants exactly those
+asked for. Every failure dispatches `AuthenticationFailed` (flow `client_credentials`, the client id as given, the key
+once found) and a grant `ClientCredentialsGranted`, with the key and the scopes granted.
+
+The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives
+the guard's access lifetime for the principal's type, never past the key's expiry, and no refresh token is issued. On
+every request the bearer path reads its key by primary key (one query more than any device-less token) and requires it
+to be the guard's (`credential_invalid`), not revoked (`credential_revoked`) and not expired (`credential_expired`);
+the subject must be a machine (`credential_invalid`), and the key's owner, principal and tenant must still be what
+loaded (`principal_mismatch`, `credential_invalid`). Revoking the key, or the end of its rotation's overlap, so ends
+its tokens at the next request. A request with such a token binds with method `client_credentials`, the key in
+`credentialId` and `Auth::scopes()` the token's scopes.
+
 ## Key Rotation
 
 Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
@@ -2639,6 +2703,7 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\ApiKeyIssued`             | An API key was issued, once committed                     |
 | `SineMacula\...\Events\ApiKeyRotated`            | An API key was rotated, once committed; previous key id   |
 | `SineMacula\...\Events\ApiKeyRevoked`            | An API key was revoked, once committed                    |
+| `SineMacula\...\Events\ClientCredentialsGranted` | A client credentials exchange issued an access token      |
 | `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh, switch, bearer token or key failed    |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
@@ -2717,14 +2782,15 @@ it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits 
 choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no sign-in: it
 dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`.
 
-`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, API key, request for a
-one-time code and verification by code, after Laravel's `Failed` where that fires, with the flow (`AuthenticationFlow`:
-`sign_in`, `refresh`, `bearer`, `principal_switch`, `api_key`, `client_credentials`, `code_request`,
-`identifier_verification`), a `FailureReason`, the identifier a sign-in's input named (as given), and the wait for
-`rate_limited` and `account_rate_limited`. Its context carries the identity only once a sign-in method verified it, a
-refresh reloaded the device's owner or a token's subject was found (a wrong password or an unknown identifier carries
-none), the principal and tenant once resolved, and the device once found, else the `did` a token named. A bearer token
-is checked in this order, so its reason is the first that applies: `token_invalid`, `identity_unknown`,
+`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, API key, client
+credentials exchange, request for a one-time code and verification by code, after Laravel's `Failed` where that fires,
+with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`, `api_key`,
+`client_credentials`, `code_request`, `identifier_verification`), a `FailureReason`, the identifier a sign-in's input
+named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once
+a sign-in method verified it, a refresh reloaded the device's owner or a token's subject was found (a wrong password or
+an unknown identifier carries none), the principal and tenant once resolved, and the device once found, else the `did` a
+token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
+client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
 `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token
 that names no device `issued_before_cutoff`, and for one that names a device `device_unknown`, `device_guard_mismatch`,
 `device_revoked`, `session_expired`, `device_principal_mismatch`. It says why a sign-in failed even where the client is

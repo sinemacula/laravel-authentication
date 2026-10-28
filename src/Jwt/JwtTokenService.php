@@ -166,25 +166,45 @@ final class JwtTokenService
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt = null): string
     {
-        self::refuseMachines($identity instanceof MachineIdentity);
+        MachineTokens::refuseSession($identity instanceof MachineIdentity);
 
-        $issuedAt   = $this->issueTime($issuedAt);
-        $sessionEnd = $device === null ? null : $this->sessionEnd($device, $issuedAt);
-        $type       = PrincipalType::of($principal);
-        $expiresAt  = $this->lifetimesOfType($type)->accessExpiry($issuedAt, $sessionEnd);
+        return $this->issueAccess($identity, $principal, $device, $issuedAt, null, []);
+    }
 
-        $payload = $this->baseClaims($issuedAt, $expiresAt->getTimestamp(), TokenType::ACCESS);
-
-        $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
-        $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
-        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
-        $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
-
-        if ($type !== null) {
-            $payload[Claims::PRINCIPAL_TYPE->value] = $type;
-        }
-
-        return $this->encode($payload);
+    /**
+     * Encode the access token a client credentials exchange hands a non-human
+     * identity, acting as the principal, for the API key it was exchanged for:
+     * no device and no refresh, the key's id in `cid` and the granted scopes,
+     * space-separated, in `scope` (`""` for none). The token lives the access
+     * lifetime for the principal's type, never past `$notAfter` (the key's
+     * expiry); `$issuedAt` (default now, cut to the whole second) sets `iat`.
+     * Every other claim is an access token's, so the bearer path admits the
+     * identity and principal as it would any other, and then holds the token to
+     * its key.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $credentialId
+     * @param  list<string>  $scopes
+     * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @param  ?\Carbon\CarbonInterface  $issuedAt
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     */
+    public function issueClientAccessToken(
+        MachineIdentity $identity,
+        Principal $principal,
+        #[\SensitiveParameter]
+        string $credentialId,
+        array $scopes,
+        ?CarbonInterface $notAfter = null,
+        ?CarbonInterface $issuedAt = null,
+    ): string {
+        return $this->issueAccess($identity, $principal, null, $issuedAt, $notAfter, MachineTokens::claims($credentialId, $scopes));
     }
 
     /**
@@ -215,9 +235,11 @@ final class JwtTokenService
      */
     public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null, ?CarbonInterface $issuedAt = null): string
     {
-        self::refuseMachines($principal instanceof MachineIdentity || ($device instanceof EloquentDevice && $device instanceof Model && DeviceOwnership::isMachineOwned($device)));
+        $machineOwned = $device instanceof EloquentDevice && $device instanceof Model && DeviceOwnership::isMachineOwned($device);
 
-        $issuedAt = $this->issueTime($issuedAt);
+        MachineTokens::refuseSession($principal instanceof MachineIdentity || $machineOwned);
+
+        $issuedAt = TokenLifetimes::issueTime($issuedAt);
 
         $payload = $this->baseClaims($issuedAt, $this->sessionEnd($device, $issuedAt)->getTimestamp(), TokenType::REFRESH);
 
@@ -306,30 +328,43 @@ final class JwtTokenService
     }
 
     /**
-     * Refuse to issue a session's token to a non-human identity, which has no
-     * device, no refresh and no interactive sign-in.
+     * Encode an access token for the context, with any further claims: its
+     * lifetime is the access lifetime for the principal's type, never past the
+     * end of the device's session or, without a device, `$notAfter`, which must
+     * be after the issue time.
      *
-     * @param  bool  $machine
-     * @return void
-     *
-     * @throws \LogicException
-     */
-    private static function refuseMachines(bool $machine): void
-    {
-        if ($machine) {
-            throw new \LogicException('A non-human identity has no session: it gets access tokens only from a client credentials exchange.');
-        }
-    }
-
-    /**
-     * The whole second a token is issued at: the given time, or now.
-     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  ?\Carbon\CarbonInterface  $issuedAt
-     * @return \Carbon\CarbonImmutable
+     * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @param  array<string, string>  $claims
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
-    private function issueTime(?CarbonInterface $issuedAt): CarbonImmutable
+    private function issueAccess(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt, ?CarbonInterface $notAfter, array $claims): string
     {
-        return ($issuedAt === null ? CarbonImmutable::now() : CarbonImmutable::instance($issuedAt))->startOfSecond();
+        $issuedAt  = TokenLifetimes::issueTime($issuedAt);
+        $ends      = $device === null ? TokenLifetimes::notAfter($notAfter, $issuedAt) : $this->sessionEnd($device, $issuedAt);
+        $type      = PrincipalType::of($principal);
+        $expiresAt = $this->lifetimesOfType($type)->accessExpiry($issuedAt, $ends);
+
+        $payload = $this->baseClaims($issuedAt, $expiresAt->getTimestamp(), TokenType::ACCESS);
+
+        $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
+        $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
+        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
+        $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
+
+        if ($type !== null) {
+            $payload[Claims::PRINCIPAL_TYPE->value] = $type;
+        }
+
+        return $this->encode(array_merge($payload, $claims));
     }
 
     /**
@@ -496,7 +531,10 @@ final class JwtTokenService
      */
     private function matchesExpectedClaims(array $claims, ?TokenType $expectedType): bool
     {
-        $failure = $this->firstClaimMismatch($claims, $expectedType) ?? $this->firstMissingClaim($claims);
+        $failure = $this->firstClaimMismatch($claims, $expectedType) ?? $this->firstMissingClaim($claims) ?? (MachineTokens::credential($claims) === false ? [
+            'message' => 'JWT credential claims malformed',
+            'context' => ['claims' => [Claims::CREDENTIAL_ID->value, Claims::SCOPE->value, Claims::DEVICE_ID->value]],
+        ] : null);
 
         if ($failure === null) {
             return true;

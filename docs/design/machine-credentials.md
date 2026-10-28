@@ -28,6 +28,14 @@ authorization package decides what they allow.
   principal or guard is absent.
 - A presented key costs one indexed lookup of its public part on the write connection and a constant-time digest
   comparison, against a fixed digest when no key matched; never a password hash.
+- A client credentials exchange (RFC 6749 section 4.4) takes a key of a `jwt` guard, its public part as the client id
+  and its secret as the client secret, and issues an access token of that guard with no device and no refresh token,
+  carrying the key's id (`cid`) and the granted scopes (`scope`), living the access lifetime for the principal's type and
+  never past the key's expiry. A token with `cid` must carry `scope` and name no device, or `parse()` rejects it.
+- A client token is held to its key on every request (decided: reject at once rather than at token expiry): the key,
+  read by primary key on the writer, must be the token's guard's, not revoked and not expired, the subject a machine,
+  and `CredentialBinding` must hold for the loaded identity, principal and tenant. Revoking the key, or the end of a
+  rotation's overlap, ends its tokens at the next request.
 - Every write to a key is one conditional statement on its own connection (rotation: a conditional update of the
   replaced key, then the insert of its replacement, in one transaction), and its event is dispatched once committed
   there.
@@ -55,6 +63,14 @@ authorization package decides what they allow.
 
 ## Failure / Edge Cases
 
+- The exchange's request is read only from a form-encoded POST body; a parameter in the query string, repeated or not
+  a string is `invalid_request`, as are Basic and body credentials together. No client authentication or malformed
+  Basic is `invalid_client`. Request failures are reported as `invalid_credentials` and not counted.
+- Every failure to authenticate the client (unknown, wrong secret, revoked, expired, another guard's key, owner or
+  principal problems) is `invalid_client` (401, with a Basic challenge for a Basic client), counted per client id and
+  IP address; only a principal the audience does not admit is `unauthorized_client`. A guard whose audience does not
+  list `client_credentials` answers `unauthorized_client` before looking at the key. A scope not granted is
+  `invalid_scope`, not counted. Past its limit a client id gets 429 `slow_down` (RFC 8628's registered error).
 - A malformed key, an unknown public part and a wrong secret are all `credential_invalid`; the malformed key costs no
   query. Another guard's key is `credential_guard_mismatch`, a revoked one `credential_revoked`, an expired one (a
   rotated key past its overlap included, from the second its expiry names) `credential_expired`.
@@ -85,6 +101,9 @@ authorization package decides what they allow.
 - `src/Events/EventContext.php`: `credentialId`, `scopes`.
 - `src/ApiKeys/ApiKeyService.php`, `ApiKeyToken.php`, `ApiKeyLookup.php`, `ApiKeyAuthentication.php`,
   `ApiKeyAdmission.php`, `CredentialBinding.php`, `ApiKeyRules.php`, `ApiKeySettings.php`.
+- `src/ClientCredentials/ClientCredentialsExchange.php`, `ClientCredentialsRequest.php`, `ClientCredentialsResult.php`;
+  `src/Jwt/MachineTokens.php`, `JwtTokenService::issueClientAccessToken()`, `src/Guards/BearerAuthentication.php`
+  (`admitForKey()`), `src/Guards/AuthenticatedBearer.php`.
 - `src/Guards/ApiKeyGuard.php`, `src/Models/ApiKey.php`, `database/migrations/2026_04_06_000006_create_api_keys_table.php`.
 
 ## Authoritative Tests
@@ -94,6 +113,8 @@ authorization package decides what they allow.
 - `tests/Feature/Guards/BindsContextualStateTest.php`
 - `tests/Integration/Facade/AuthScopesIntegrationTest.php`
 - `tests/Integration/ApiKeys/ApiKeyServiceTest.php`, `tests/Integration/ApiKeys/ConcurrentApiKeyRotationTest.php`
+- `tests/Feature/ClientCredentials/ClientCredentialsExchangeTest.php`,
+  `tests/Feature/Guards/ClientTokenBearerAuthenticationTest.php`, `tests/Performance/ClientCredentialsQueryBudgetTest.php`
 - `tests/Feature/Guards/ApiKeyGuardTest.php`, `tests/Performance/ApiKeyGuardQueryBudgetTest.php`
 
 ## Change Triggers

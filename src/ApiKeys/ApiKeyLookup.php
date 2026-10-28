@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
@@ -46,6 +47,21 @@ final class ApiKeyLookup
     {
         /** @var ?\SineMacula\Laravel\Authentication\Models\ApiKey */
         return WriteConnection::query((new ApiKey)->newQuery())->where('prefix', $public)->first();
+    }
+
+    /**
+     * The key with the id, read on the write connection by its primary key, or
+     * `null`; an id that is not a UUID names no key and costs no query.
+     *
+     * @param  string  $id
+     * @return ?\SineMacula\Laravel\Authentication\Models\ApiKey
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    public static function findById(string $id): ?ApiKey
+    {
+        /** @var ?\SineMacula\Laravel\Authentication\Models\ApiKey */
+        return Str::isUuid($id) ? WriteConnection::query((new ApiKey)->newQuery())->whereKey($id)->first() : null;
     }
 
     /**

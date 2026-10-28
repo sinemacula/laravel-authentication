@@ -140,6 +140,37 @@ final readonly class TokenLifetimes
     }
 
     /**
+     * The time a token is issued at: the one given, or now, cut to the whole
+     * second.
+     *
+     * @param  ?\Carbon\CarbonInterface  $issuedAt
+     * @return \Carbon\CarbonImmutable
+     */
+    public static function issueTime(?CarbonInterface $issuedAt): CarbonImmutable
+    {
+        return ($issuedAt === null ? CarbonImmutable::now() : CarbonImmutable::instance($issuedAt))->startOfSecond();
+    }
+
+    /**
+     * The latest a token without a session may live until, if anything bounds
+     * it: a time that must be after the token's issue time.
+     *
+     * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @param  \Carbon\CarbonImmutable  $issuedAt
+     * @return ?\Carbon\CarbonImmutable
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function notAfter(?CarbonInterface $notAfter, CarbonImmutable $issuedAt): ?CarbonImmutable
+    {
+        if ($notAfter !== null && $notAfter->getTimestamp() <= $issuedAt->getTimestamp()) {
+            throw new \InvalidArgumentException('Cannot issue a token whose latest expiry is not after its issue time.');
+        }
+
+        return $notAfter === null ? null : CarbonImmutable::instance($notAfter);
+    }
+
+    /**
      * When an access token issued at the given time expires: the access
      * lifetime from then, but never past the end of the session it belongs to,
      * when it belongs to one (the earlier of the session's idle and absolute

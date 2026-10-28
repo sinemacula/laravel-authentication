@@ -33,6 +33,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Codes\CodeService codes(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Passkeys\PasskeyService passkeys(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService apiKeys(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange clientCredentials(?string $guard = null)
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  */
 final class Auth extends IlluminateAuth

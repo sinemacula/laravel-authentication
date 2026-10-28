@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
@@ -26,11 +27,12 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
  * (`identity`, `principal`, `device`, `tenant`, `type`, `scopes`), guard-scoped
- * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passkeys()` and
- * `refreshTransport()`, and the API keys of an `api_key` or JWT guard
- * (`apiKeys()`) directly on the manager. Each contextual accessor forwards to
- * the active guard when it implements `ContextualGuard`, otherwise returns
- * `null`. Bound to the `auth` container key by `AuthenticationServiceProvider`.
+ * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passkeys()`,
+ * `refreshTransport()` and `clientCredentials()`, and the API keys of an
+ * `api_key` or JWT guard (`apiKeys()`) directly on the manager. Each contextual
+ * accessor forwards to the active guard when it implements `ContextualGuard`,
+ * otherwise returns `null`. Bound to the `auth` container key by
+ * `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -163,6 +165,22 @@ class AuthManager extends IlluminateAuthManager
         }
 
         return new ApiKeyService($resolved, $this->app);
+    }
+
+    /**
+     * Return the client credentials exchange of the named JWT guard, or of the
+     * current default guard when the name is omitted, which exchanges an API
+     * key, as an OAuth client's id and secret, for an access token of the
+     * guard.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function clientCredentials(?string $guard = null): ClientCredentialsExchange
+    {
+        return new ClientCredentialsExchange($this->jwtGuard($guard, 'client credentials exchange'), $this->app);
     }
 
     /**

@@ -24,8 +24,9 @@ use Tests\Integration\Fixtures\MachineMembership;
  * Shared set-up for tests of machine credentials: an `api_key` guard
  * (`machine`) over `MachineClient`, which acts as its own principal; an
  * `api_key` guard (`accounts`) over `MachineAccount`, whose principals are
- * typed memberships of activatable tenants; a `jwt` guard (`m2m`) over
- * `MachineClient` for client credentials; a `jwt` guard (`api`) over the human
+ * typed memberships of activatable tenants; `jwt` guards for client credentials
+ * over `MachineClient` (`m2m`) and over `MachineAccount` (`m2m_accounts`,
+ * admitting `service` memberships only); a `jwt` guard (`api`) over the human
  * `IntegrationIdentity`; the tables behind them; seeded identities; the request
  * a call comes from; and a record of the events dispatched.
  *
@@ -120,6 +121,11 @@ trait InteractsWithMachineCredentials
         $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'audience' => ['methods' => ['api_key']]]);
         $config->set('auth.guards.accounts', ['driver' => 'api_key', 'provider' => 'accounts', 'audience' => ['methods' => ['api_key'], 'principal_types' => ['service']]]);
         $config->set('auth.guards.m2m', ['driver' => 'jwt', 'provider' => 'machines', 'audience' => ['methods' => ['client_credentials']]]);
+        $config->set('auth.guards.m2m_accounts', [
+            'driver'   => 'jwt',
+            'provider' => 'accounts',
+            'audience' => ['methods' => ['client_credentials'], 'principal_types' => ['service']],
+        ]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'identities', 'audience' => ['methods' => ['password']]]);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
@@ -239,6 +245,16 @@ trait InteractsWithMachineCredentials
         Event::listen($classes, function (object $event): void {
             $this->machineEvents[] = $event;
         });
+    }
+
+    /**
+     * The classes of the recorded events, in order.
+     *
+     * @return list<class-string>
+     */
+    protected function machineEventClasses(): array
+    {
+        return array_map(static fn (object $event): string => $event::class, $this->machineEvents);
     }
 
     /**
