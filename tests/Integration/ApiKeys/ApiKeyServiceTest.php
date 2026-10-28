@@ -26,10 +26,12 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Scopes\Scopes;
+use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithMachineCredentials;
 use Tests\Integration\Fixtures\MachineAccount;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\MachineMembership;
+use Tests\Integration\Fixtures\NamedIdentity;
 use Tests\TestCase;
 
 /**
@@ -51,7 +53,10 @@ use Tests\TestCase;
 #[CoversClass(AuthManager::class)]
 final class ApiKeyServiceTest extends TestCase
 {
-    use InteractsWithMachineCredentials;
+    use InteractsWithFoldingCollations, InteractsWithMachineCredentials;
+
+    /** @var string The identifier of a principal keyed by name. */
+    private const string NAMED = 'alice';
 
     /**
      * Create the tables and freeze the clock.
@@ -1087,6 +1092,74 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
+     * With the principal columns under a collation that counts distinct
+     * identifiers as equal, a principal whose identifier differs from the key's
+     * only in case or accent finds, lists, revokes and rotates none of its
+     * keys, which are left as they were with nothing reported, while the exact
+     * principal still finds and lists the key, and rotates it.
+     *
+     * @param  string  $folded
+     * @return void
+     */
+    #[DataProvider('provideFoldedKeys')]
+    public function testAnotherIdentifierTheCollationCountsAsEqualHasNoKeys(string $folded): void
+    {
+        self::foldColumns('api_keys', ['principal_type', 'principal_id']);
+
+        $id = $this->issueKeyRecording(NamedIdentity::class, self::NAMED);
+
+        self::assertColumnFolds('api_keys', 'principal_id', $folded);
+
+        $this->assertAbsentTo(self::namedIdentity($folded), $id);
+
+        $owner = self::namedIdentity(self::NAMED);
+
+        self::assertSame($id, $this->apiKeys()->find($owner, $id)?->id);
+        self::assertSame([$id], array_map(static fn (ApiKeySummary $summary): string => $summary->id, $this->apiKeys()->keys($owner)));
+        self::assertNotNull($this->apiKeys()->rotate($owner, $id));
+    }
+
+    /**
+     * With the principal columns under a collation that counts distinct types
+     * as equal, a principal whose type differs from the key's only in case
+     * finds, lists, revokes and rotates none of its keys, which are left as
+     * they were with nothing reported.
+     *
+     * @return void
+     */
+    public function testAnotherTypeTheCollationCountsAsEqualHasNoKeys(): void
+    {
+        self::foldColumns('api_keys', ['principal_type', 'principal_id']);
+
+        $id = $this->issueKeyRecording(strtolower(NamedIdentity::class), self::NAMED);
+
+        self::assertColumnFolds('api_keys', 'principal_type', NamedIdentity::class);
+
+        $this->assertAbsentTo(self::namedIdentity(self::NAMED), $id);
+    }
+
+    /**
+     * With the principal columns under a collation that counts distinct
+     * identifiers as equal, the exact principal revokes its key once one whose
+     * identifier differs only in case or accent could not.
+     *
+     * @param  string  $folded
+     * @return void
+     */
+    #[DataProvider('provideFoldedKeys')]
+    public function testTheExactPrincipalStillRevokesItsKey(string $folded): void
+    {
+        self::foldColumns('api_keys', ['principal_type', 'principal_id']);
+
+        $id = $this->issueKeyRecording(NamedIdentity::class, self::NAMED);
+
+        self::assertColumnFolds('api_keys', 'principal_id', $folded);
+        self::assertFalse($this->apiKeys()->revoke(self::namedIdentity($folded), $id));
+        self::assertTrue($this->apiKeys()->revoke(self::namedIdentity(self::NAMED), $id));
+        self::assertNotNull(DB::table('api_keys')->where('id', $id)->value('revoked_at'));
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -1117,5 +1190,51 @@ final class ApiKeyServiceTest extends TestCase
         self::assertNotNull($this->app);
 
         return new ApiKeyService($guard, $this->app, $draw);
+    }
+
+    /**
+     * Issue a key to a machine and record it as held for the principal with the
+     * type and identifier, as an application whose principals are keyed by name
+     * would hold it, and return its id.
+     *
+     * @param  string  $type
+     * @param  string  $id
+     * @return string
+     */
+    private function issueKeyRecording(string $type, string $id): string
+    {
+        $machine = $this->seedMachine();
+        $issued  = $this->apiKeys()->issue($machine, $machine);
+
+        DB::table('api_keys')->where('id', $issued->id)->update(['principal_type' => $type, 'principal_id' => $id]);
+
+        return $issued->id;
+    }
+
+    /**
+     * Assert the principal finds, lists, revokes and rotates none of the keys,
+     * that the key is left as it was, and that nothing is reported.
+     *
+     * @param  \Tests\Integration\Fixtures\NamedIdentity  $principal
+     * @param  string  $id
+     * @return void
+     */
+    private function assertAbsentTo(NamedIdentity $principal, string $id): void
+    {
+        $this->recordMachineEvents([ApiKeyRevoked::class, ApiKeyRotated::class]);
+
+        self::assertNull($this->apiKeys()->find($principal, $id));
+        self::assertSame([], $this->apiKeys()->keys($principal));
+        self::assertFalse($this->apiKeys()->revoke($principal, $id));
+        self::assertNull($this->apiKeys()->rotate($principal, $id));
+
+        $row = DB::table('api_keys')->where('id', $id)->first();
+
+        self::assertNotNull($row);
+        self::assertNull($row->revoked_at);
+        self::assertNull($row->rotated_at);
+        self::assertNull($row->expires_at);
+        self::assertSame(1, DB::table('api_keys')->count());
+        self::assertSame([], $this->machineEvents);
     }
 }

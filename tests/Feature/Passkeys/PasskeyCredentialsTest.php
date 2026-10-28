@@ -9,10 +9,16 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
+use Tests\Concerns\InteractsWithFoldingCollations;
 use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
@@ -21,8 +27,9 @@ use Webauthn\CredentialRecord;
 
 /**
  * Feature tests for the passkey store: what a registration stores, the
- * compare-and-set a verified use is written with, and the library's record a
- * stored passkey becomes.
+ * compare-and-set a verified use is written with, the library's record a stored
+ * passkey becomes, and the exact owner listing and removal hold to whatever the
+ * collation counts as equal.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -32,7 +39,10 @@ use Webauthn\CredentialRecord;
 #[CoversClass(PasskeyCredentials::class)]
 final class PasskeyCredentialsTest extends TestCase
 {
-    use InteractsWithPasskeys, InteractsWithSessions;
+    use InteractsWithFoldingCollations, InteractsWithPasskeys, InteractsWithSessions;
+
+    /** @var string The key of an identity keyed by name. */
+    private const string NAMED = 'alice';
 
     /** @var \Carbon\CarbonImmutable Frozen clock reference. */
     private CarbonImmutable $now;
@@ -288,6 +298,47 @@ final class PasskeyCredentialsTest extends TestCase
         $constructor->invoke($instance);
 
         self::assertInstanceOf(PasskeyCredentials::class, $instance);
+    }
+
+    /**
+     * With the owner columns under a collation that counts distinct keys as
+     * equal, an identity whose key differs from the owner's only in case or
+     * accent is offered none of the owner's passkeys to exclude from a
+     * registration or to answer a factor ceremony with, lists none, and removes
+     * none, which is left with nothing reported; the owner still lists and
+     * removes it.
+     *
+     * @param  string  $folded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideFoldedKeys')]
+    public function testAnotherKeyTheCollationCountsAsEqualHoldsNoPasskeys(string $folded): void
+    {
+        self::foldColumns('passkeys', ['authenticatable_type', 'authenticatable_id']);
+
+        $owner   = self::namedIdentity(self::NAMED);
+        $passkey = $this->registerPasskey($owner);
+        $other   = self::namedIdentity($folded);
+
+        self::assertColumnFolds('passkeys', 'authenticatable_id', $folded);
+
+        Event::fake([PasskeyRemoved::class]);
+
+        $passkeys = Auth::passkeys('api');
+
+        self::assertSame([], $passkeys->passkeys($other));
+        self::assertSame([], $passkeys->registrationOptions($other, self::USER_NAME)->options['excludeCredentials']);
+        self::assertSame([], $passkeys->factorOptions($other)->options['allowCredentials']);
+        self::assertFalse($passkeys->remove($other, $passkey->id));
+        self::assertSame(1, DB::table('passkeys')->where('id', $passkey->id)->count());
+
+        Event::assertNotDispatched(PasskeyRemoved::class);
+
+        self::assertSame([$passkey->id], array_map(static fn (PasskeySummary $summary): string => $summary->id, $passkeys->passkeys($owner)));
+        self::assertTrue($passkeys->remove($owner, $passkey->id));
+        self::assertSame(0, DB::table('passkeys')->count());
     }
 
     /**
