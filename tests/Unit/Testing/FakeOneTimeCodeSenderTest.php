@@ -52,8 +52,11 @@ final class FakeOneTimeCodeSenderTest extends TestCase
 
         self::assertSame($fake, $given->make(OneTimeCodeSender::class));
 
-        $global = Container::setInstance(new Container);
-        $other  = FakeOneTimeCodeSender::fake();
+        $global = new Container;
+
+        Container::setInstance($global);
+
+        $other = FakeOneTimeCodeSender::fake();
 
         self::assertSame($other, $global->make(OneTimeCodeSender::class));
         self::assertNotSame($fake, $other);
