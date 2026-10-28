@@ -179,8 +179,5 @@ final class RevocationScopeTest extends TestCase
      * @return void
      */
     #[\Override]
-    protected function defineDatabaseMigrations(): void
-    {
-        // An access-only deployment has none of the package's tables.
-    }
+    protected function defineDatabaseMigrations(): void {}
 }
