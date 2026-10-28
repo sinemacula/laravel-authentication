@@ -84,56 +84,63 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Rows of `[looks the owner up, refusal]`: every way a passkey sign-in is
-     * refused after its challenge was used, made by the closure.
+     * Rows of `[looks the owner up, preparation]`: every way a passkey sign-in
+     * is refused after its challenge was used. The closure brings the state
+     * about and returns the sign-in's input, all before the timed sign-in.
      *
-     * @return iterable<string, array{0: bool, 1: \Closure(self): \SineMacula\Laravel\Authentication\Sessions\SignInResult}>
+     * @return iterable<string, array{0: bool, 1: \Closure(self): array<string, mixed>}>
      */
     public static function provideRefusals(): iterable
     {
         yield from [
-            'an unknown passkey'       => [false, static fn (self $test): SignInResult => $test->signInWith(self::stranger())],
-            'another relying party\'s' => [false, static fn (self $test): SignInResult => $test->signInFromAnotherRelyingParty()],
-            'one whose owner is gone'  => [true, static function (self $test): SignInResult {
+            'an unknown passkey'       => [false, static fn (self $test): array => $test->answerWith(self::stranger())],
+            'another relying party\'s' => [false, static fn (self $test): array => $test->answerFromAnotherRelyingParty()],
+            'one whose owner is gone'  => [true, static function (self $test): array {
                 IntegrationIdentity::query()->delete();
 
-                return $test->signInWithPasskey();
+                return $test->answerWith($test->authenticator());
             }],
-            'a forged signature'              => [true, static fn (self $test): SignInResult => $test->signInWithPasskey(tamper: self::tamper('signature', 'Zm9yZ2Vk'))],
-            'another user handle'             => [true, static fn (self $test): SignInResult => $test->signInWithPasskey(tamper: self::tamper('userHandle', 'b3RoZXI'))],
-            'a counter that does not advance' => [true, static function (self $test): SignInResult {
+            'a forged signature'              => [true, static fn (self $test): array => $test->answerWith($test->authenticator(), self::tamper('signature', 'Zm9yZ2Vk'))],
+            'another user handle'             => [true, static fn (self $test): array => $test->answerWith($test->authenticator(), self::tamper('userHandle', 'b3RoZXI'))],
+            'a counter that does not advance' => [true, static function (self $test): array {
                 DB::table('passkeys')->update(['sign_count' => 50]);
 
-                return $test->signInWithPasskey();
+                return $test->answerWith($test->authenticator());
             }],
-            'an account with no attempts' => [true, static function (self $test): SignInResult {
+            'an account with no attempts' => [true, static function (self $test): array {
                 config()->set('authentication.rate_limits.sign_in.per_identifier', ['max' => 1, 'decay_seconds' => 300]);
 
-                $test->signInWithPasskey(tamper: self::tamper('signature', 'Zm9yZ2Vk'));
+                self::assertTrue($test->sessions()->signIn('passkey', $test->answerWith($test->authenticator(), self::tamper('signature', 'Zm9yZ2Vk')))->isFailed());
 
-                return $test->signInWithPasskey();
+                return $test->answerWith($test->authenticator());
             }],
         ];
     }
 
     /**
      * Each refusal is the same result, `invalid_credentials` with no wait, and
-     * takes at least the timebox, whether or not the owner was looked up.
+     * its sign-in alone takes at least the timebox, whether or not the owner
+     * was looked up.
      *
      * @param  bool  $looksUp
-     * @param  \Closure(self): \SineMacula\Laravel\Authentication\Sessions\SignInResult  $refusal
+     * @param  \Closure(self): array<string, mixed>  $prepare
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideRefusals')]
-    public function testEveryRefusalLooksTheSameAndTakesTheTimebox(bool $looksUp, \Closure $refusal): void
+    public function testEveryRefusalLooksTheSameAndTakesTheTimebox(bool $looksUp, \Closure $prepare): void
     {
+        $input = $prepare($this);
+
         $this->useTimebox();
 
-        $started = hrtime(true);
-        $result  = $refusal($this);
-        $took    = hrtime(true) - $started;
+        SlowModelProvider::$lookups = 0;
+
+        $sessions = $this->sessions();
+        $started  = hrtime(true);
+        $result   = $sessions->signIn('passkey', $input);
+        $took     = hrtime(true) - $started;
 
         self::assertEquals(SignInResult::failed(FailureReason::INVALID_CREDENTIALS), $result);
         self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, $took);
@@ -210,41 +217,40 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
-     * Sign in through `api` with the authenticator's answer to fresh options.
+     * The input of a sign-in through `api` with the authenticator's answer to
+     * fresh options, after letting the test change it.
      *
      * @param  \Tests\Fixtures\Passkeys\VirtualAuthenticator  $authenticator
-     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     * @param  ?\Closure(array<string, mixed>): array<string, mixed>  $tamper
+     * @return array<string, mixed>
      *
      * @throws \Throwable
      */
-    private function signInWith(VirtualAuthenticator $authenticator): SignInResult
+    private function answerWith(VirtualAuthenticator $authenticator, ?\Closure $tamper = null): array
     {
-        $options = $this->signInOptions();
+        $options    = $this->signInOptions();
+        $credential = $authenticator->get($options->options);
 
-        return $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $authenticator->get($options->options)]);
+        return ['challenge' => $options->challengeId, 'credential' => $tamper === null ? $credential : $tamper($credential)];
     }
 
     /**
-     * Sign in through `api` with a passkey registered for another relying
-     * party, from an origin both accept.
+     * The input of a sign-in through `api` with a passkey registered for
+     * another relying party, from an origin both accept.
      *
-     * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
+     * @return array<string, mixed>
      *
      * @throws \Throwable
      */
-    private function signInFromAnotherRelyingParty(): SignInResult
+    private function answerFromAnotherRelyingParty(): array
     {
         config()->set('auth.guards.admin.passkeys', ['id' => 'app.example.test']);
 
         $this->registerPasskey(IntegrationIdentity::query()->firstOrFail(), 'admin');
 
-        SlowModelProvider::$lookups = 0;
-
         $options = $this->signInOptions();
 
-        $answer = $this->authenticator()->get(['rpId' => 'app.example.test'] + $options->options);
-
-        return $this->sessions()->signIn('passkey', ['challenge' => $options->challengeId, 'credential' => $answer]);
+        return ['challenge' => $options->challengeId, 'credential' => $this->authenticator()->get(['rpId' => 'app.example.test'] + $options->options)];
     }
 
     /**
