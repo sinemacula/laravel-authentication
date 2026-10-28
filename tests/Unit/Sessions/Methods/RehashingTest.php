@@ -223,6 +223,42 @@ final class RehashingTest extends TestCase
     }
 
     /**
+     * Once a change of the user's password has run inside the package's own
+     * rehash, that rehash takes no save of the user: a change back to the
+     * password it was given, through the instance it saved, still holding the
+     * hash it replaced, is a change too. A rehash of another user running
+     * around it, or one of the user started after the change, still takes its
+     * save.
+     *
+     * @return void
+     */
+    public function testAChangeInsideThePackagesRehashEndsWhatItTakes(): void
+    {
+        $rehashing = new Rehashing;
+        $user      = new GenericUser(['id' => 7, 'password' => $this->rehash]);
+        $other     = new GenericUser(['id' => 8, 'password' => $this->rehash]);
+
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        $rehashing->during($other, self::PASSWORD, function () use ($rehashing, $user, $other, $runs): void {
+            $rehashing->during($user, self::PASSWORD, function () use ($rehashing, $user, $other, $runs): void {
+                self::save($rehashing, $user, $this->hash, $runs, 'rehash');
+                self::save($rehashing, new GenericUser(['id' => 7, 'password' => $this->other]), $this->hash, $runs, 'away');
+                self::save($rehashing, $user, $this->hash, $runs, 'back');
+
+                $rehashing->during($user, self::PASSWORD, function () use ($rehashing, $user, $runs): void {
+                    self::save($rehashing, $user, $this->hash, $runs, 'a later rehash');
+                });
+
+                self::save($rehashing, $other, $this->hash, $runs, 'another user\'s rehash');
+            });
+        });
+
+        self::assertSame(['away', 'back'], $runs->getArrayCopy());
+    }
+
+    /**
      * A guard's attempt marks the very instance it validated, from the
      * validation until an end for that instance: a save of another user, or of
      * the same key of another class, is a change, and an end for another

@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\EloquentIdentityProvider;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubModel;
@@ -201,6 +202,72 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         });
 
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * A sign-in through a user provider whose rehash fires model events, with a
+     * listener of the rehash's save that changes the password through another
+     * instance, signs in with the new one, then saves the sign-in password back
+     * through the instance the rehash saved (whose original is still the
+     * outdated hash it replaced): the change back is not the package's rehash,
+     * so the session started between the two changes is ended, its tokens are
+     * refused at the `auth` middleware and its refresh token refreshes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeBackInsideTheAutomaticRehashRevokesTheSessionStartedBetween(): void
+    {
+        $identity = $this->seedOutdatedHash();
+        $first    = DB::table('devices')->value('id');
+
+        $this->useEventedProvider();
+
+        $listening = true;
+        $between   = null;
+
+        IntegrationIdentity::updated(function (IntegrationIdentity $saved) use (&$listening, &$between): void {
+
+            if (!$listening) {
+                return;
+            }
+
+            $listening = false;
+
+            IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+
+            $between = $this->signIn(['email' => 'ada@example.test', 'password' => 'a new password']);
+
+            $this->recordEvents([DeviceRevoked::class, SignedOutEverywhere::class]);
+
+            $saved->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+        });
+
+        $outer = $this->signIn();
+
+        self::assertFalse($listening);
+        self::assertInstanceOf(SignedInSession::class, $between);
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->getAuthPassword()));
+        self::assertSame('password_changed', DB::table('devices')->where('id', $first)->value('revoked_reason'));
+        self::assertSame('password_changed', DB::table('devices')->where('id', $between->device->getKey())->value('revoked_reason'));
+
+        $revoked = $this->recordedEvent(DeviceRevoked::class);
+
+        self::assertSame(RevocationReason::PASSWORD_CHANGED, $revoked->reason);
+        self::assertSame(IdentifierCoercion::stringify($between->device->getDeviceIdentifier()), $revoked->context->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($identity->getAuthIdentifier()), $revoked->context->identityId);
+        self::assertSame(1, $this->recordedEvent(SignedOutEverywhere::class)->revoked);
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $between->tokens->accessToken])->getJson('/me')->assertUnauthorized();
+
+        self::assertNull($this->freshGuard()->refresh($between->tokens->refreshToken));
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $outer->tokens->accessToken])->getJson('/me')->assertOk();
     }
 
     /**
@@ -852,6 +919,21 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
 
         return $identity;
+    }
+
+    /**
+     * Have the jwt guards sign in through Laravel's Eloquent user provider,
+     * whose rehash saves the model with its events, in place of the package's.
+     *
+     * @return void
+     */
+    private function useEventedProvider(): void
+    {
+        Auth::provider('evented', static fn (Application $app): EloquentIdentityProvider => new EloquentIdentityProvider($app->make(Hasher::class), IntegrationIdentity::class));
+
+        config()->set('auth.providers.identities.driver', 'evented');
+
+        Auth::forgetGuards();
     }
 
     /**

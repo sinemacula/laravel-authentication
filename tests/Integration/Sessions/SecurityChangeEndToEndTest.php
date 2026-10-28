@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
+use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,7 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\EloquentIdentityProvider;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 
@@ -121,6 +123,60 @@ final class SecurityChangeEndToEndTest extends TestCase
         $this->assertSessionEnded($session);
 
         self::assertTrue($this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'])->isSignedIn());
+    }
+
+    /**
+     * A sign-in through a user provider whose rehash of an outdated hash fires
+     * model events, with a listener of the rehash's save that changes the
+     * password through another instance, signs in with the new one, then saves
+     * the sign-in password back through the instance the rehash saved: the
+     * change back ends the session started between the two changes, as the
+     * first change ended the one before, while the sign-in around them works.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeBackInsideTheAutomaticRehashEndsTheSessionStartedBetween(): void
+    {
+        $identity = $this->seedIdentity();
+        $before   = $this->signIn();
+
+        DB::table('integration_identities')->update(['password' => (new BcryptHasher(['rounds' => 5]))->make(self::PASSWORD)]);
+
+        Auth::provider('evented', static fn (Application $app): EloquentIdentityProvider => new EloquentIdentityProvider($app->make(Hasher::class), IntegrationIdentity::class));
+
+        config()->set('auth.providers.identities.driver', 'evented');
+
+        Auth::forgetGuards();
+
+        $listening = true;
+        $between   = null;
+
+        IntegrationIdentity::updated(function (IntegrationIdentity $saved) use (&$listening, &$between): void {
+
+            if (!$listening) {
+                return;
+            }
+
+            $listening = false;
+
+            IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+
+            $between = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'a new password'])->session;
+
+            $saved->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+        });
+
+        $after = $this->signIn();
+
+        self::assertInstanceOf(SignedInSession::class, $between);
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->getAuthPassword()));
+
+        $this->assertSessionEnded($before);
+        $this->assertSessionEnded($between);
+
+        $this->bearer($after->tokens->accessToken)->assertOk();
     }
 
     /**
