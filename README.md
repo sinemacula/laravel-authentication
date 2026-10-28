@@ -1861,8 +1861,10 @@ user verification and no attestation, exclude the identity's passkeys, and hand 
 WebAuthn JSON form: pass `options` to `PublicKeyCredential.parseCreationOptionsFromJSON()` and
 `navigator.credentials.create()`, and post the credential's `toJSON()` back with the `challenge`. Choose the user name
 and display name from the identity's own record, never from the request: the browser shows them. Every passkey an
-identity registers for a relying party carries one random user handle, the one its first passkey got, so it carries no
-personal data and does not depend on `app.key`. `register()` answers a `PasskeySummary`, or a
+identity registers for a relying party carries the random user handle its passkeys already had when the options were
+handed out, or a new random one when it had none, so registrations whose options were handed out before the first one
+completed (on two devices, say) may each get their own; every passkey is checked against its own handle. A handle
+carries no personal data and does not depend on `app.key`. `register()` answers a `PasskeySummary`, or a
 `PasskeyRegistrationFailure`: `challenge_invalid` (not a live registration challenge of this guard for the identity),
 `response_invalid` (malformed, or it does not verify: origin, relying party, user presence and verification, challenge,
 algorithm, attestation statement) or `already_registered`. The name is stored cleaned and cut to 255 characters. Under

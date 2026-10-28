@@ -34,8 +34,9 @@ package's.
   `android-key`, `tpm`, `apple`), since under `none` a browser may pass an authenticator's statement through; no trust
   path or metadata is evaluated and every passkey is recorded as unattested.
 - An identity's passkeys for a relying party share one user handle: 32 random bytes the first one was registered under,
-  read back (on the writer) for every later registration. It carries no personal data and does not depend on `app.key`.
-  Two concurrent first registrations may store two handles; each passkey is checked against its own.
+  read back (on the writer) when the options of every later registration are handed out. It carries no personal data
+  and does not depend on `app.key`. Registrations whose options were handed out before the first completed (on two
+  devices or in two tabs) may store two handles; each passkey is checked against its own.
 - A registration and an assertion must come from one of the relying party's origins, unframed: client data with
   `crossOrigin: true` is refused by `WebAuthn` itself, with or without `topOrigin`, since webauthn-lib's
   `CheckTopOrigin` only acts when the browser names a `topOrigin`, which WebAuthn Level 2 browsers do not.

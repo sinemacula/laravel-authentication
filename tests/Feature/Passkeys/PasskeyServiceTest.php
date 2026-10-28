@@ -371,6 +371,40 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
+     * Registrations whose options were handed out before the identity's first
+     * passkey was registered each keep the handle their options gave, and each
+     * passkey then signs in and verifies as a factor under its own.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRegistrationsStartedBeforeTheFirstCompletesKeepTheirOwnHandles(): void
+    {
+        $identity = $this->seedIdentity();
+        $tablet   = new VirtualAuthenticator(self::ORIGIN);
+        $laptop   = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
+        $other    = Auth::passkeys('api')->registrationOptions($identity, self::USER_NAME);
+
+        Auth::passkeys('api')->register($identity, $laptop->challengeId, $this->authenticator()->create($laptop->options));
+        Auth::passkeys('api')->register($identity, $other->challengeId, $tablet->create($other->options));
+
+        $handles = [((array) $laptop->options['user'])['id'], ((array) $other->options['user'])['id']];
+
+        self::assertNotSame($handles[0], $handles[1]);
+        self::assertEqualsCanonicalizing($handles, Passkey::query()->pluck('user_handle')->all());
+
+        foreach ([$this->authenticator(), $tablet] as $authenticator) {
+            $signIn = Auth::passkeys('api')->signInOptions();
+            $result = $this->sessions('api')->signIn('passkey', ['challenge' => $signIn->challengeId, 'credential' => $authenticator->get($signIn->options)]);
+            $factor = Auth::passkeys('api')->factorOptions($identity);
+
+            self::assertTrue($result->isSignedIn());
+            self::assertNull(Auth::passkeys('api')->verifyFactor($identity, $factor->challengeId, $authenticator->get($factor->options)));
+        }
+    }
+
+    /**
      * Rows of `[challenge]`: challenges a registration of `ada` through `api`
      * cannot answer, each made by the closure.
      *
