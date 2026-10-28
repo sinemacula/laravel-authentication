@@ -59,7 +59,12 @@ request may carry the token in only one place; and the cookie that carries a bro
   of encryption, or set and read it on routes that both encrypt.
 - A refusal by the exchange returns the exchange's reason after the same events as `refresh()`; `rate_limited` throws
   the 429 there as well.
-- A `__Host-` cookie name requires `cookie.path` `/` and no `cookie.domain`, as a browser keeps it only so.
+- A `__Host-` cookie name requires `cookie.path` `/` and no `cookie.domain` on a guard that reads the cookie, as a
+  browser keeps it only so. A guard that does not read the cookie never sets it, so a package-wide `__Host-` name does
+  not bind it.
+- Names PHP renames when it parses a request are refused, since the token would never be found under them: a `.` in the
+  cookie or a header name (PHP files it as `_`), and a `.`, a space or a bracket in `body_field` (renamed, or nested,
+  in a form body).
 - `cookie.path` is required while the cookie is a source; `allowed_origins` are exact lower-case `scheme://host[:port]`
   values, with no path.
 
@@ -80,6 +85,7 @@ request may carry the token in only one place; and the cookie that carries a bro
   `testRefreshFromARequestWithoutATokenAttemptsNothing`, `testATokenTheTransportRefusesIsAFailedRefresh`,
   `testARefreshFromTheRequestSaysWhereTheTokenWasRead`
 - `tests/Integration/Http/RefreshTokenTransportIntegrationTest.php`
+  `testAHostCookieNameLeavesTheGuardsThatDoNotReadTheCookieAlone`
 - `tests/Integration/Http/RefreshTokenCookieIntegrationTest.php`
   `testABrowserKeepsItsSessionInTheCookie`, `testTheCookieExpiresWithTheRefreshToken`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`
@@ -95,6 +101,7 @@ Update this note when any of the following change:
 
 - the sources a guard may read, or where the body is read from
 - how a token carried more than once is treated
+- the names the settings accept
 - the cookie's origin and custom header checks
 - the events and return value of a refusal by the transport
 - how the guard and package settings merge

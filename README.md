@@ -1543,8 +1543,11 @@ The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, named `__Secure-refres
 configured `path` and `domain` (`null`, the default, keeps it to the API's host), and expires when the device's session
 does, as the refresh token in it does. `forgetCookie()` returns the same cookie already expired; any route may send it,
 a logout route outside the cookie's path included, since a path limits where the browser sends a cookie, not which
-response may set it. A `__Host-` name is accepted only with the path `/` and no domain, as browsers require. Setting or
-clearing the cookie on a guard that does not list `cookie` throws a `LogicException`.
+response may set it. On a guard that reads the cookie, a `__Host-` name is accepted only with the path `/` and no
+domain, as browsers require; a guard that reads only the body or a header never sets the cookie, so a package-wide
+`__Host-` name does not bind it. Setting or clearing the cookie on a guard that does not list `cookie` throws a
+`LogicException`. Names PHP renames when it parses a request are refused, as the token would never be found under
+them: a `.` in the cookie or a header name, and a `.`, a space or a bracket in `body_field`.
 
 A browser attaches the cookie by itself, to any request for its path, so a refresh read from it is held to two checks a
 cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of

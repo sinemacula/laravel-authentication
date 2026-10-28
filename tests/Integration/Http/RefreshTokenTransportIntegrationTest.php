@@ -221,6 +221,39 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
+     * A package-wide `__Host-` cookie name binds only the guard that reads the
+     * cookie: that guard refreshes from it on the root path, and a guard that
+     * reads the body or a header refreshes as before.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAHostCookieNameLeavesTheGuardsThatDoNotReadTheCookieAlone(): void
+    {
+        config()->set([
+            'authentication.refresh_token.cookie.name' => '__Host-refresh_token',
+            'auth.guards.admin.refresh_token'          => ['sources' => ['cookie'], 'cookie' => ['path' => '/']],
+        ]);
+
+        $api = $this->signIn('api');
+
+        $this->refresh('api', '', ['refresh_token' => $api])->assertOk()->assertJson(['source' => 'body']);
+
+        $admin = $this->sessions('admin')->signIn('password', self::credentials())->session;
+
+        self::assertNotNull($admin);
+
+        Auth::forgetGuards();
+
+        $headers = $this->transformHeadersToServerVars(['Origin' => 'http://localhost', 'X-Requested-With' => 'XMLHttpRequest']);
+
+        $this->call('POST', '/auth/admin/refresh', [], ['__Host-refresh_token' => $admin->tokens->refreshToken], [], $headers)
+            ->assertOk()
+            ->assertJson(['source' => 'cookie']);
+    }
+
+    /**
      * A cookie refresh from the request's own origin with the custom header is
      * exchanged and the result says it came from the cookie.
      *

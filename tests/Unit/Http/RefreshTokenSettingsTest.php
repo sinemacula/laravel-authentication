@@ -118,6 +118,51 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
+     * A body field, header or cookie name PHP keeps as it is in a request is
+     * accepted, symbols included.
+     *
+     * @return void
+     */
+    public function testNamesPhpKeepsAreAccepted(): void
+    {
+        $settings = RefreshTokenSettings::forGuard('api', self::config([
+            'body_field' => 'auth-refresh_token:1',
+            'header'     => 'X_Refresh~Token',
+            'cookie'     => ['name' => '$refresh+token%1', 'csrf_header' => 'X-CSRF!'],
+        ]));
+
+        self::assertSame('auth-refresh_token:1', $settings->bodyField);
+        self::assertSame('X_Refresh~Token', $settings->header);
+        self::assertSame('$refresh+token%1', $settings->cookieName);
+        self::assertSame('X-CSRF!', $settings->csrfHeader);
+    }
+
+    /**
+     * A `__Host-` name is held to the root path only on a guard that reads the
+     * cookie: one that reads the body or a header never sets the cookie, so a
+     * package-wide `__Host-` name scoped to `/` on the browser's guard leaves
+     * its path unset and is accepted.
+     *
+     * @return void
+     */
+    public function testAHostCookieNameBindsOnlyAGuardThatReadsTheCookie(): void
+    {
+        $config = self::config(null);
+        $config->set('authentication.refresh_token.cookie.name', '__Host-refresh_token');
+        $config->set('authentication.refresh_token.cookie.domain', 'example.test');
+        $config->set('auth.guards.browser', ['driver' => 'jwt', 'refresh_token' => ['sources' => ['cookie'], 'cookie' => ['path' => '/', 'domain' => null]]]);
+
+        $api     = RefreshTokenSettings::forGuard('api', $config);
+        $browser = RefreshTokenSettings::forGuard('browser', $config);
+
+        self::assertSame('__Host-refresh_token', $api->cookieName);
+        self::assertNull($api->cookiePath);
+        self::assertSame([RefreshTokenSource::BODY, RefreshTokenSource::HEADER], $api->sources);
+        self::assertSame('/', $browser->cookiePath);
+        self::assertNull($browser->cookieDomain);
+    }
+
+    /**
      * Rows of `[the guard's block, the message]`: each way a value is wrong.
      *
      * @return iterable<string, array{0: mixed, 1: string}>
@@ -128,6 +173,8 @@ final class RefreshTokenSettingsTest extends TestCase
         $path    = '`refresh_token.cookie.path` must be the path of the refresh route, starting with `/`, when the cookie is a source.';
         $origins = '`refresh_token.cookie.allowed_origins` must be a list of origins, each `scheme://host[:port]` in lower case.';
         $host    = '`refresh_token.cookie.name` may start with `__Host-` only with `cookie.path` set to `/` and no `cookie.domain`.';
+        $field   = '`refresh_token.body_field` must be a field name without `.`, spaces or brackets.';
+        $name    = 'must be a header or cookie name without `.`.';
 
         yield 'a block that is not an array' => ['cookie', 'the guard\'s `refresh_token` must be an array.'];
         yield 'an unknown key' => [['source' => ['body']], 'the guard\'s `refresh_token` has an unknown key `source`.'];
@@ -139,12 +186,20 @@ final class RefreshTokenSettingsTest extends TestCase
         yield 'an unknown source' => [['sources' => ['query']], $sources];
         yield 'a source that is not a string' => [['sources' => [1]], $sources];
         yield 'a source named twice' => [['sources' => ['body', 'body']], $sources];
-        yield 'an empty body field' => [['body_field' => ''], '`refresh_token.body_field` must be a non-empty string.'];
-        yield 'a body field that is not a string' => [['body_field' => ['token']], '`refresh_token.body_field` must be a non-empty string.'];
-        yield 'a header that is not a name' => [['header' => 'X Refresh'], '`refresh_token.header` must be a header or cookie name.'];
-        yield 'a header that is not a string' => [['header' => null], '`refresh_token.header` must be a header or cookie name.'];
-        yield 'a cookie name that is not a name' => [['cookie' => ['name' => 'refresh;token']], '`refresh_token.cookie.name` must be a header or cookie name.'];
-        yield 'a CSRF header that is not a name' => [['cookie' => ['csrf_header' => '']], '`refresh_token.cookie.csrf_header` must be a header or cookie name.'];
+        yield 'an empty body field' => [['body_field' => ''], $field];
+        yield 'a body field that is not a string' => [['body_field' => ['token']], $field];
+        yield 'a body field with a dot' => [['body_field' => 'auth.refresh'], $field];
+        yield 'a body field with a space' => [['body_field' => 'refresh token'], $field];
+        yield 'a body field with a bracket' => [['body_field' => 'auth[refresh]'], $field];
+        yield 'a body field with a closing bracket' => [['body_field' => 'refresh]'], $field];
+        yield 'a body field with a control character' => [['body_field' => "refresh\x7F"], $field];
+        yield 'a header that is not a name' => [['header' => 'X Refresh'], '`refresh_token.header` ' . $name];
+        yield 'a header that is not a string' => [['header' => null], '`refresh_token.header` ' . $name];
+        yield 'a header with a dot' => [['header' => 'X.Refresh-Token'], '`refresh_token.header` ' . $name];
+        yield 'a cookie name that is not a name' => [['cookie' => ['name' => 'refresh;token']], '`refresh_token.cookie.name` ' . $name];
+        yield 'a cookie name with a dot' => [['cookie' => ['name' => 'app.refresh']], '`refresh_token.cookie.name` ' . $name];
+        yield 'a CSRF header that is not a name' => [['cookie' => ['csrf_header' => '']], '`refresh_token.cookie.csrf_header` ' . $name];
+        yield 'a CSRF header with a dot' => [['cookie' => ['csrf_header' => 'X.CSRF']], '`refresh_token.cookie.csrf_header` ' . $name];
         yield 'a cookie source without a path' => [['sources' => ['cookie']], $path];
         yield 'a path that is not absolute' => [['sources' => ['cookie'], 'cookie' => ['path' => 'auth']], $path];
         yield 'a path with a separator' => [['sources' => ['cookie'], 'cookie' => ['path' => '/auth;x']], $path];

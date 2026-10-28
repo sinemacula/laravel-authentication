@@ -98,6 +98,14 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.refresh_token' => ['sources' => ['cookie']]],
             '[api] Refresh token transport for guard [api]: `refresh_token.cookie.path` must be the path of the refresh route',
         ];
+        yield 'a refresh cookie name PHP renames' => [
+            ['authentication.refresh_token.cookie.name' => 'app.refresh'],
+            '[api] Refresh token transport for guard [api]: `refresh_token.cookie.name` must be a header or cookie name without `.`.',
+        ];
+        yield 'a refresh body field PHP renames' => [
+            ['auth.guards.api.refresh_token' => ['body_field' => 'auth.refresh']],
+            '[api] Refresh token transport for guard [api]: `refresh_token.body_field` must be a field name without `.`, spaces or brackets.',
+        ];
         yield 'a device model that is not one' => [
             ['authentication.device.model' => \stdClass::class],
             '[device] authentication.device.model must be a non-empty class-string of an Eloquent model',
@@ -231,6 +239,30 @@ final class CheckConfigurationCommandTest extends TestCase
         $this->app?->instance(AudiencePolicy::class, \Mockery::mock(AudiencePolicy::class));
 
         self::assertSame(0, $this->check()[0]);
+    }
+
+    /**
+     * A package-wide `__Host-` cookie name, on the root path for the guard that
+     * reads the cookie, passes for that guard and for the guards that read the
+     * body or a header and never set the cookie.
+     *
+     * @return void
+     */
+    public function testAHostCookieNameBindsOnlyTheGuardThatReadsTheCookie(): void
+    {
+        config()->set([
+            'authentication.refresh_token.cookie.name' => '__Host-refresh_token',
+            'auth.guards.admin.refresh_token'          => ['sources' => ['cookie'], 'cookie' => ['path' => '/']],
+        ]);
+
+        $passing = $this->check();
+
+        config()->set('auth.guards.admin.refresh_token.cookie.path', '/auth');
+
+        $failing = $this->check();
+
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[api] OK', '[admin] OK']], $passing);
+        self::assertSame(1, $failing[0]);
     }
 
     /**

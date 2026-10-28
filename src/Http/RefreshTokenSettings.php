@@ -29,8 +29,11 @@ final readonly class RefreshTokenSettings
     /** @var list<string> Keys of a `refresh_token` block's `cookie` block. */
     private const array COOKIE_KEYS = ['name', 'path', 'domain', 'allowed_origins', 'csrf_header'];
 
-    /** @var string A header or cookie name: an HTTP token. */
-    private const string NAME_PATTERN = '/^[!#$%&\'*+.^_`|~0-9A-Za-z-]+$/';
+    /** @var string A header or cookie name: an HTTP token without `.`, which PHP files as `_`, so the name would never be found. */
+    private const string NAME_PATTERN = '/^[!#$%&\'*+^_`|~0-9A-Za-z-]+$/';
+
+    /** @var string A body field: no `.` or space, which PHP files as `_` in a form body, and no bracket, which nests it. */
+    private const string FIELD_PATTERN = '/^[^\s.\[\]\x00-\x1F\x7F]+$/';
 
     /** @var string A cookie path: starts with `/`, with no separator, space or control character. */
     private const string PATH_PATTERN = '/^\/[^;,\s\x00-\x1F\x7F]*$/';
@@ -99,12 +102,13 @@ final readonly class RefreshTokenSettings
         /** @var array<array-key, mixed> $cookie */
         $cookie = $settings['cookie'] ?? [];
 
-        $sources = self::sources($guard, $settings['sources'] ?? null);
-        $name    = self::name($guard, 'cookie.name', $cookie['name'] ?? null);
-        $path    = self::path($guard, $cookie['path'] ?? null, in_array(RefreshTokenSource::COOKIE, $sources, true));
-        $domain  = self::domain($guard, $cookie['domain'] ?? null);
+        $sources     = self::sources($guard, $settings['sources'] ?? null);
+        $readsCookie = in_array(RefreshTokenSource::COOKIE, $sources, true);
+        $name        = self::name($guard, 'cookie.name', $cookie['name'] ?? null);
+        $path        = self::path($guard, $cookie['path'] ?? null, $readsCookie);
+        $domain      = self::domain($guard, $cookie['domain'] ?? null);
 
-        self::assertHostCookie($guard, $name, $path, $domain);
+        self::assertHostCookie($guard, $readsCookie, $name, $path, $domain);
 
         return new self(
             $sources,
@@ -120,9 +124,11 @@ final readonly class RefreshTokenSettings
 
     /**
      * Reject a `__Host-` cookie a browser would not keep: one with a path other
-     * than `/`, or a domain.
+     * than `/`, or a domain. Only a guard that reads the cookie sets it, so a
+     * guard that does not is never held to this.
      *
      * @param  string  $guard
+     * @param  bool  $readsCookie
      * @param  string  $name
      * @param  ?string  $path
      * @param  ?string  $domain
@@ -130,9 +136,9 @@ final readonly class RefreshTokenSettings
      *
      * @throws \InvalidArgumentException
      */
-    private static function assertHostCookie(string $guard, string $name, ?string $path, ?string $domain): void
+    private static function assertHostCookie(string $guard, bool $readsCookie, string $name, ?string $path, ?string $domain): void
     {
-        if (str_starts_with($name, self::HOST_PREFIX) && ($path !== '/' || $domain !== null)) {
+        if ($readsCookie && str_starts_with($name, self::HOST_PREFIX) && ($path !== '/' || $domain !== null)) {
             throw new \InvalidArgumentException(self::message($guard, 'cookie.name', 'may start with `__Host-` only with `cookie.path` set to `/` and no `cookie.domain`'));
         }
     }
@@ -215,7 +221,7 @@ final readonly class RefreshTokenSettings
     }
 
     /**
-     * The body field: a non-empty string.
+     * The body field: a name PHP keeps as it is in a form body.
      *
      * @param  string  $guard
      * @param  mixed  $value
@@ -225,15 +231,15 @@ final readonly class RefreshTokenSettings
      */
     private static function bodyField(string $guard, mixed $value): string
     {
-        if (!is_string($value) || $value === '') {
-            throw new \InvalidArgumentException(self::message($guard, 'body_field', 'must be a non-empty string'));
+        if (!is_string($value) || preg_match(self::FIELD_PATTERN, $value) !== 1) {
+            throw new \InvalidArgumentException(self::message($guard, 'body_field', 'must be a field name without `.`, spaces or brackets'));
         }
 
         return $value;
     }
 
     /**
-     * A header or cookie name.
+     * A header or cookie name PHP keeps as it is.
      *
      * @param  string  $guard
      * @param  string  $key
@@ -245,7 +251,7 @@ final readonly class RefreshTokenSettings
     private static function name(string $guard, string $key, mixed $value): string
     {
         if (!is_string($value) || preg_match(self::NAME_PATTERN, $value) !== 1) {
-            throw new \InvalidArgumentException(self::message($guard, $key, 'must be a header or cookie name'));
+            throw new \InvalidArgumentException(self::message($guard, $key, 'must be a header or cookie name without `.`'));
         }
 
         return $value;
