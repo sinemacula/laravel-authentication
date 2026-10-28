@@ -55,6 +55,20 @@ final readonly class InvitedTenantAudiencePolicy implements AudiencePolicy
     }
 
     /**
+     * The wrapped policy's answer.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?string  $identifierType
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     */
+    #[\Override]
+    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
+    {
+        return $this->inner->admitIdentifier($guard, $identity, $identifierType);
+    }
+
+    /**
      * Refuse a principal of the inviting tenant to a sign-in that used an
      * identifier, otherwise answer as the wrapped policy.
      *

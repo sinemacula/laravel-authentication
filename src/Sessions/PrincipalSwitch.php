@@ -223,13 +223,14 @@ final readonly class PrincipalSwitch
     /**
      * Hold the admitted principal to what makes it the target the session may
      * switch to: it must be the very target (`principal_mismatch`); the
-     * audience policy must admit it with the type of identifier the session's
-     * sign-in used, as that sign-in admitted its own principal, so a policy
-     * that refuses some principals to such an identifier (an unverified one,
-     * say) refuses the switch for its reason; and the additional-factor policy
-     * must not ask a further factor (`additional_factor_required`). A session
-     * whose sign-in used no identifier is not held to an identifier type. The
-     * type is read on the write connection.
+     * audience policy must admit the identity and then the target with the type
+     * of identifier the session's sign-in used, as that sign-in was admitted,
+     * so a policy that refuses such an identifier (an unverified one, say), or
+     * some principals to it, refuses the switch for its reason; and the
+     * additional-factor policy must not ask a further factor
+     * (`additional_factor_required`). A session whose sign-in used no
+     * identifier is not held to an identifier type. The type is read on the
+     * write connection.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
@@ -244,11 +245,33 @@ final readonly class PrincipalSwitch
         }
 
         $type    = WriteConnection::during($device, static fn (): ?string => $device->getSignInIdentifierType());
-        $refusal = $type === null ? null : Container::getInstance()->make(AudiencePolicy::class)->admit($this->guard->getName(), $admitted->identity, $admitted->principal, $type);
+        $refusal = $type === null ? null : $this->admitWithType($admitted, $type);
 
         $refusal ??= $this->requiresAdditionalFactor($admitted, $device) ? FailureReason::ADDITIONAL_FACTOR_REQUIRED : null;
 
         return $refusal === null ? $admitted : RefusedSignIn::after($refusal, $admitted);
+    }
+
+    /**
+     * The audience policy's reason to refuse the target to the session's
+     * identifier type, if any: first for the identity as a whole, as its
+     * sign-in was asked, then for the target.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  string  $type
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    private function admitWithType(AdmittedSignIn $admitted, string $type): ?FailureReason
+    {
+        $audience = Container::getInstance()->make(AudiencePolicy::class);
+        $guard    = $this->guard->getName();
+
+        return $audience->admitIdentifier($guard, $admitted->identity, $type)
+            ?? $audience->admit($guard, $admitted->identity, $admitted->principal, $type);
     }
 
     /**

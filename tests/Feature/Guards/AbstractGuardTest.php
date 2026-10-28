@@ -82,6 +82,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->factors  = \Mockery::mock(AdditionalFactorPolicy::class);
 
         $this->audience->shouldReceive('allowsMethod')->byDefault()->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
+        $this->audience->shouldReceive('admitIdentifier')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
         $this->audience->shouldReceive('admit')->byDefault()->andReturnUsing(fn (): mixed => $this->record('admit', null));
         $this->limiter->shouldReceive('acquire')
             ->byDefault()
@@ -103,9 +104,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     /**
      * A successful attempt asks the audience policy for the method first, then
      * reserves an attempt, finds the account, reserves an attempt on the
-     * account, checks the password, admits the identity, rehashes the password
-     * with the credentials it signed in with, asks the factor policy, and only
-     * then gives both reservations back, the attempt's and the account's.
+     * account, checks the password, admits the identity with its identifier and
+     * then as its principal, rehashes the password with the credentials it
+     * signed in with, asks the factor policy, and only then gives both
+     * reservations back, the attempt's and the account's.
      *
      * @return void
      *
@@ -126,6 +128,10 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
 
         $this->audience->shouldReceive('allowsMethod')->once()->with(self::GUARD_NAME, 'password')->andReturnUsing(fn (): bool => $this->record('allowsMethod', true));
+        $this->audience->shouldReceive('admitIdentifier')
+            ->once()
+            ->with(self::GUARD_NAME, $identity, 'email')
+            ->andReturnUsing(fn (): mixed => $this->record('admitIdentifier', null));
         $this->audience->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'email')->andReturnUsing(fn (): mixed => $this->record('admit', null));
 
         $reservations = [];
@@ -170,6 +176,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
                 'retrieveByCredentials',
                 'acquire account',
                 'validateCredentials',
+                'admitIdentifier',
                 'admit',
                 'rehashPasswordIfRequired',
                 'requiresAdditionalFactor',
@@ -282,6 +289,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $this->resolver->shouldReceive('resolve')->once()->andReturn($principal);
 
+        $this->audience->shouldReceive('admitIdentifier')->once()->with(self::GUARD_NAME, $identity, 'username')->andReturnNull();
         $this->audience->shouldReceive('admit')->once()->with(self::GUARD_NAME, $identity, $principal, 'username')->andReturnNull();
 
         $subjects = [];
@@ -698,6 +706,7 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         $this->expectPasswordAccepted($identity);
 
         $this->audience->shouldNotReceive('allowsMethod');
+        $this->audience->shouldNotReceive('admitIdentifier');
         $this->audience->shouldNotReceive('admit');
         $this->limiter->shouldNotReceive('acquire');
         $this->factors->shouldNotReceive('requiresAdditionalFactor');

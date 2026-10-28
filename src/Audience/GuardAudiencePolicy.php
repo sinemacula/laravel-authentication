@@ -107,7 +107,8 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * The answer depends on the identity alone, so a sign-in asks it before it
      * resolves any principal: an unverified identifier is refused alike whether
      * the identity has principals or not, and the refusal says nothing about
-     * which it has.
+     * which it has. `admit()` asks it too, so the answer holds wherever a
+     * principal is admitted with a type.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -117,6 +118,7 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
+    #[\Override]
     public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
     {
         if ($identifierType === null || !$this->settings($guard)['require_verified_identifier']) {

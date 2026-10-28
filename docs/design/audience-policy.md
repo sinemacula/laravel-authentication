@@ -29,9 +29,12 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   `identifier_unverified`. `start()`, `complete()` without a stored type, and refresh carry no identifier type and are
   never gated: an external verifier or an existing session vouches for them. A switch of principal is admitted with the
   type the session's sign-in used (recorded on the device), as that sign-in was.
-- The gate depends on the identity alone (`GuardAudiencePolicy::admitIdentifier()`, which `admit()` also asks), so
-  with the package's policy every sign-in (`attempt()` included) asks it before resolving any principal: an unverified
-  identifier is refused alike whether the identity has principals or not.
+- The gate depends on the identity alone, so it is the contract's `admitIdentifier($guard, $identity,
+  $identifierType)`, which every sign-in (`attempt()` included) asks of whatever policy is bound after the identity's
+  activity check and before resolving any principal: an unverified identifier is refused alike whether the identity
+  has principals or not. A switch of principal asks it with the session's identifier type before `admit()`. The
+  package's `admit()` also asks its own `admitIdentifier()`; a policy that wraps another asks the wrapped one's, and a
+  policy with no identity-level rule returns `null`.
 - `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks, and runs
   eligibility before the gate.
 - Lifetimes come from `jwt.by_principal_type.<type>` on the guard (any of `access_ttl_minutes`,
@@ -48,11 +51,13 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 ## Success Path
 
 - `signIn()` and `attempt()`: `Attempting`; `allowsMethod()` (nothing counted when it refuses); the attempt limiter's
-  reservation; inside the credential timebox, the method's verification, activity, the principal, then
-  `admit($guard, $identity, $principal, $identifierType)`; the session's device takes its deadlines from
+  reservation; inside the credential timebox, the method's verification, activity, `admitIdentifier($guard,
+  $identity, $identifierType)`, the principal, then `admit($guard, $identity, $principal, $identifierType)`; the
+  session's device takes its deadlines from
   `lifetimes($guard, $principal)`.
 - `start()`: `allowsMethod()` and `admit()` with no identifier type; no limiter, no timebox.
-- `complete()`: `allowsMethod()` for the stored method and `admit()` with the stored identifier type, rechecked when
+- `complete()`: `allowsMethod()` for the stored method, and `admitIdentifier()` and `admit()` with the stored
+  identifier type, rechecked when
   the pending sign-in is used, so a policy change while a factor is verified still applies.
 - Refresh: right after the device lookup, the device must record this guard (`device_guard_mismatch`); after the owner
   and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the device
@@ -97,8 +102,9 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   configuration does not describe therefore shortens or lengthens sessions, not access tokens.
 - The policy is resolved from the container on every call, on every path, so a binding an application makes at any
   time is the one used.
-- Principal switching (not in the package yet) is designed to ask `admit()` and `lifetimes()` for the new principal and
-  to keep the session's absolute deadline.
+- A switch of principal asks `admitIdentifier()` and `admit()` with the identifier type its session's sign-in used
+  (recorded on the device), besides the refresh's own `admit()` with none, and `lifetimes()` for the target, and never
+  extends the session's absolute deadline (see `principal-choice-and-switch.md`).
 
 ## Implementation Anchors
 
@@ -117,6 +123,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 ## Authoritative Tests
 
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (every piece above, through the shipped bindings)
+- `tests/Unit/Sessions/Admission/SignInAdmissionTest.php` `testAnyPolicysRefusalOfTheIdentityComesBeforeItsPrincipal`
 - `tests/Feature/Audience/GuardAudiencePolicyTest.php`, `tests/Integration/Guards/AudiencePolicyIntegrationTest.php`
 - `tests/Unit/Audience/PrincipalTypeTest.php`
 - `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`

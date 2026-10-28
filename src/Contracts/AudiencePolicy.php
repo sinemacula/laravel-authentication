@@ -33,6 +33,29 @@ interface AudiencePolicy
     public function allowsMethod(string $guard, string $method): bool;
 
     /**
+     * Decide whether the identity may sign in to the guard with an identifier
+     * of the type, whichever principal it then acts as: `null` when it may,
+     * otherwise why not (`identifier_unverified` for an identifier the guard
+     * requires verified). Every sign-in asks it once the identity is known to
+     * be active and before any principal is resolved or listed, and a switch of
+     * principal asks it with the type the session's sign-in used before
+     * `admit()`, so a refusal here is the same whether the identity has
+     * principals or not and says nothing about which it has. An identifier type
+     * of `null` (a sign-in that used no identifier) is not subject to the
+     * verified-identifier requirement. A policy with no rule about the identity
+     * as a whole returns `null`; one that wraps another asks it.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?string  $identifierType
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason;
+
+    /**
      * Decide whether the identity may hold a session of the guard as the
      * principal: `null` when it may, otherwise why not. The caller has already
      * checked that the identity, the principal and its tenant are active. An
@@ -44,9 +67,8 @@ interface AudiencePolicy
      * A policy may refuse some principals to an identifier of a type and admit
      * others. It is asked only once a principal resolves, though, so an
      * identity with none fails as `principal_unresolved` whatever its
-     * identifier: decide verification for the identity as a whole where the
-     * difference must not show (the package's policy refuses an unverified
-     * identifier before any principal is resolved).
+     * identifier: decide verification for the identity as a whole in
+     * `admitIdentifier()` where the difference must not show.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

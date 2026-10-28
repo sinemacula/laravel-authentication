@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -356,17 +357,36 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
+     * Rows of `[whether the package's policy is wrapped by one that delegates
+     * to it]`.
+     *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function providePolicies(): iterable
+    {
+        yield 'the package policy' => [false];
+        yield 'a policy wrapping the package policy' => [true];
+    }
+
+    /**
      * A guard that requires a verified identifier refuses an unverified one
      * before any principal is looked at, so the answer does not tell whether
      * the identity has a principal: `identifier_unverified` before it is
-     * invited anywhere and after.
+     * invited anywhere and after. A policy that wraps the package's keeps that
+     * by asking it, as the contract asks of any policy.
      *
+     * @param  bool  $wrapped
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnUnverifiedIdentifierIsRefusedAlikeWithOrWithoutPrincipals(): void
+    #[DataProvider('providePolicies')]
+    public function testAnUnverifiedIdentifierIsRefusedAlikeWithOrWithoutPrincipals(bool $wrapped): void
     {
+        if ($wrapped) {
+            app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), 0));
+        }
+
         Schema::table('activatable_tenant_members', static function (Blueprint $blueprint): void {
             $blueprint->boolean('email_verified')->default(false);
         });

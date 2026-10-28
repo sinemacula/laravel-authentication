@@ -257,15 +257,16 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `AudiencePolicy` declares exactly the three questions the session layer
+     * `AudiencePolicy` declares exactly the four questions the session layer
      * asks a guard's audience: may this method start a session, may this
-     * principal hold one, and for how long.
+     * identity sign in with this identifier, may this principal hold one, and
+     * for how long.
      *
      * @return void
      */
     public function testAudiencePolicyDeclaresExactlyItsChecks(): void
     {
-        self::assertSame(['admit', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
+        self::assertSame(['admit', 'admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
     }
 
     /**

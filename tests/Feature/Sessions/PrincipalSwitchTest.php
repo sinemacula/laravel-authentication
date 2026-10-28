@@ -20,6 +20,7 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
@@ -656,6 +657,41 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
+     * A switch asks the audience policy about the identity with the session's
+     * identifier type before the target, as its sign-in was asked, so a policy
+     * that now refuses that identifier for the identity as a whole refuses the
+     * switch for its reason without being asked about the target, and leaves
+     * the session as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentifierThePolicyRefusesTheIdentityRefusesTheSwitch(): void
+    {
+        [, $second, $member] = $this->seedMemberships();
+
+        $session = $this->signIn();
+        $row     = (array) DB::table('devices')->sole();
+        $package = app(AudiencePolicy::class);
+
+        $audience = \Mockery::mock(AudiencePolicy::class);
+        $audience->shouldReceive('allowsMethod')->andReturnUsing($package->allowsMethod(...));
+        $audience->shouldReceive('lifetimes')->andReturnUsing($package->lifetimes(...));
+        $audience->shouldReceive('admit')->with(self::GUARD, \Mockery::any(), \Mockery::any(), null)->andReturnNull();
+        $audience->shouldReceive('admitIdentifier')
+            ->once()
+            ->with(self::GUARD, \Mockery::on(static fn (Identity $identity): bool => $identity->getAuthIdentifier() === $member->getKey()), 'email')
+            ->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+
+        app()->instance(AudiencePolicy::class, $audience);
+
+        $this->assertSwitchFails(FailureReason::IDENTIFIER_UNVERIFIED, $session, $second);
+
+        self::assertEquals($row, (array) DB::table('devices')->sole());
+    }
+
+    /**
      * Another identity's principal is refused even when the guard's resolver is
      * not scoped to the identity and hands it back: its owner is read from its
      * own stored key.
@@ -770,6 +806,7 @@ final class PrincipalSwitchTest extends TestCase
         $short    = new TokenLifetimes(5, 60, 10, 30);
         $audience = \Mockery::mock(AudiencePolicy::class);
         $audience->shouldReceive('allowsMethod')->andReturnTrue();
+        $audience->shouldReceive('admitIdentifier')->andReturnNull();
         $audience->shouldReceive('admit')->andReturnNull();
         $audience->shouldReceive('lifetimes')
             ->andReturnUsing(static fn (string $name, Principal $principal): TokenLifetimes => $principal->is($second) ? $short : $guard); // @phpstan-ignore method.notFound

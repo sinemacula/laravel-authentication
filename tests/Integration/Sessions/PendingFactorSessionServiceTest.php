@@ -1012,6 +1012,7 @@ final class PendingFactorSessionServiceTest extends TestCase
     {
         $audience = \Mockery::mock(AudiencePolicy::class);
         $audience->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
+        $audience->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
         $audience->shouldReceive('admit')->byDefault()->andReturnNull();
         $audience->shouldReceive('lifetimes')
             ->byDefault()

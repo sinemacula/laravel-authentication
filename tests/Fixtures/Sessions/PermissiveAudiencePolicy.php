@@ -49,6 +49,22 @@ final readonly class PermissiveAudiencePolicy implements AudiencePolicy
     }
 
     /**
+     * Admit every identity, whatever identifier it signed in with.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?string  $identifierType
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     */
+    #[\Override]
+    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
+    {
+        unset($guard, $identity, $identifierType);
+
+        return null;
+    }
+
+    /**
      * Admit every principal.
      *
      * @param  string  $guard

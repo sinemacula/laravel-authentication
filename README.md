@@ -332,10 +332,14 @@ A guard key that is present wins, `null` included, so a guard can admit any prin
 lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
 both blocks, a value of the wrong shape, an empty list, or a key the policy does not know fails closed with an
 `InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
-`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide
-differently. A policy of your own decides the session's deadlines through `lifetimes()`, while an access token's
-lifetime still comes from the guard's `jwt.by_principal_type` configuration (capped at the session's end). See
-`docs/design/audience-policy.md` for every point where the policy is enforced.
+`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide differently.
+Its `admitIdentifier()` is the check every sign-in makes before any principal is resolved, so a policy of your own keeps
+the guarantee above only by deciding verification there, for the identity as a whole; one that wraps the package's
+policy delegates `admitIdentifier()` to it like the other methods. A refusal from `admit()` comes only once a principal
+resolves, so an identity with none would get `principal_unresolved` instead. A policy of your own decides the session's
+deadlines through `lifetimes()`, while an access token's lifetime still comes from the guard's `jwt.by_principal_type`
+configuration (capped at the session's end). See `docs/design/audience-policy.md` for every point where the policy is
+enforced.
 
 Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
 `access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the

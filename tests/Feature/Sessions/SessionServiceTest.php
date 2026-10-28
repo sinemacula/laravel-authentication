@@ -1142,6 +1142,7 @@ final class SessionServiceTest extends TestCase
     {
         $audience = $this->bindMock(AudiencePolicy::class);
         $audience->shouldReceive('allowsMethod')->byDefault()->andReturnTrue();
+        $audience->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
         $audience->shouldReceive('admit')->byDefault()->andReturnNull();
         $audience->shouldReceive('lifetimes')
             ->byDefault()

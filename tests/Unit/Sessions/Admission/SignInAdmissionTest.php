@@ -51,6 +51,8 @@ final class SignInAdmissionTest extends TestCase
         parent::setUp();
 
         $this->audience = \Mockery::mock(AudiencePolicy::class);
+
+        $this->audience->shouldReceive('admitIdentifier')->byDefault()->andReturnNull();
     }
 
     /**
@@ -66,6 +68,7 @@ final class SignInAdmissionTest extends TestCase
         $tenant    = $this->tenant(true);
         $principal = $this->principal(true, $tenant);
 
+        $this->audience->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'email')->andReturnNull();
         $this->audience->shouldReceive('admit')->once()->with('api', $identity, $principal, 'email')->andReturnNull();
 
         $admitted = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
@@ -87,6 +90,7 @@ final class SignInAdmissionTest extends TestCase
         $identity = $this->inactiveIdentity();
         $resolved = false;
 
+        $this->audience->shouldNotReceive('admitIdentifier');
         $this->audience->shouldNotReceive('admit');
 
         $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
@@ -98,6 +102,35 @@ final class SignInAdmissionTest extends TestCase
         self::assertFalse($resolved);
         self::assertInstanceOf(RefusedSignIn::class, $refused);
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
+        self::assertSame($identity, $refused->identity);
+        self::assertNull($refused->principal);
+    }
+
+    /**
+     * Whatever policy is bound, its refusal of the identity with the identifier
+     * type comes before any principal is resolved, so the answer is the same
+     * whether the identity has a principal or not, and the policy is never
+     * asked about one.
+     *
+     * @return void
+     */
+    public function testAnyPolicysRefusalOfTheIdentityComesBeforeItsPrincipal(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $resolved = false;
+
+        $this->audience->shouldReceive('admitIdentifier')->once()->with('api', $identity, 'phone')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $this->audience->shouldNotReceive('admit');
+
+        $refused = $this->admission()->admit('api', $identity, static function () use (&$resolved): ?Principal {
+            $resolved = true;
+
+            return null;
+        }, FailureReason::PRINCIPAL_UNRESOLVED, 'phone');
+
+        self::assertFalse($resolved);
+        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertNull($refused->principal);
     }

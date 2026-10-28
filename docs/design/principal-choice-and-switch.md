@@ -19,11 +19,12 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `choice()` lookup, which recomputes the list, also admits each of them with the sign-in's identifier type (the one the
   choice stores): a principal the policy then refuses is neither offered nor listed, and when it refuses every one the
   sign-in fails with that reason, storing and reporting nothing.
-- With the package's policy, a guard requiring a verified identifier refuses an unverified one before any principal is
-  resolved or listed (`SignInAdmission`, through `GuardAudiencePolicy::admitIdentifier()`): `identifier_unverified`
-  whether the identity has principals or not, so the answer never tells someone holding an unverified identity's
-  password whether it has been invited anywhere. A custom policy that decides verification per principal is asked only
-  once a principal resolves, so for an identity with none the sign-in answers `principal_unresolved`.
+- Every sign-in asks the audience policy's `admitIdentifier()` before any principal is resolved or listed
+  (`SignInAdmission`), so with the package's policy a guard requiring a verified identifier refuses an unverified one
+  as `identifier_unverified` whether the identity has principals or not, and the answer never tells someone holding an
+  unverified identity's password whether it has been invited anywhere. A policy that wraps the package's keeps this by
+  asking the wrapped `admitIdentifier()`. A policy that refuses only some principals in `admit()` is asked only once a
+  principal resolves, so for an identity with none the sign-in answers `principal_unresolved`.
 - A choice is a pending sign-in with `purpose = principal_choice` and no principal (the pending table's principal
   columns are nullable for this). It keeps the client, the identifier type, the attempt windows, and a device the
   client proved for the identity whatever principal it records. Only the digest of its secret is stored.

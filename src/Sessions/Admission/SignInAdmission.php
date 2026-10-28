@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Admission;
 
-use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -21,9 +20,10 @@ use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
  * sign-in started for an externally verified identity, and the completion of a
  * pending one are held to the same rules in the same order.
  *
- * With the package's own audience policy, an identity whose identifier the
- * guard requires verified and is not is refused before any principal is
- * resolved, so the refusal is the same whether it has principals or not.
+ * The audience policy's identity-level answer (`admitIdentifier()`: with the
+ * package's policy, an identifier the guard requires verified and is not) is
+ * asked before any principal is resolved, so its refusal is the same whether
+ * the identity has principals or not.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -46,9 +46,9 @@ final readonly class SignInAdmission
     /**
      * Admit the identity to the guard as the principal the callback resolves,
      * or say why not. The callback runs only once the identity is known to be
-     * active and, with the package's audience policy, its identifier verified
-     * where the guard requires it; when it resolves no principal, the sign-in
-     * fails with `$unresolved`.
+     * active and the audience policy admits it with the identifier type
+     * (`admitIdentifier()`); when it resolves no principal, the sign-in fails
+     * with `$unresolved`.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -67,7 +67,7 @@ final readonly class SignInAdmission
             return new RefusedSignIn(FailureReason::IDENTITY_INACTIVE, $identity);
         }
 
-        $unverified = $this->audience instanceof GuardAudiencePolicy ? $this->audience->admitIdentifier($guard, $identity, $identifierType) : null;
+        $unverified = $this->audience->admitIdentifier($guard, $identity, $identifierType);
 
         if ($unverified !== null) {
             return new RefusedSignIn($unverified, $identity);
