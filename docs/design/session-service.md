@@ -46,7 +46,9 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `start()` reloads the identity through the guard's provider and requires the same class and key (`identity_unknown`),
   then runs the method check, the admission with no identifier type, the device proof, the factor policy and the write.
   It takes no slot and runs in no timebox: nothing is guessed. The principal is given as the argument or on the
-  context, never both.
+  context, never both. A machine credential kind (`SignInMethodManager::CREDENTIAL_METHODS`) as the method is an
+  `InvalidArgumentException` before anything else: a session recorded under `client_credentials` would pass for a
+  client credentials token to every listener that reads the method.
 - One `$now` per call, cut to the second, is used for the deadlines, the last use and every token's `iat`. The
   deadlines come from the audience policy's lifetimes for the principal (`AudiencePolicy::lifetimes()`), which with the
   shipped policy are the guard's `jwt.by_principal_type` entry for the principal's type, or the guard's own; the access

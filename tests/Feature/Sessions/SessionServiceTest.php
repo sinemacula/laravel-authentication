@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -882,6 +883,48 @@ final class SessionServiceTest extends TestCase
 
         self::assertTrue($pending->requiresFactor());
         self::assertSame('otp', $pending->pending?->method);
+        self::assertSame(0, Device::query()->count());
+    }
+
+    /**
+     * Rows of `[credential kind]`: what an audience may list that is not a
+     * sign-in method.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideCredentialKinds(): iterable
+    {
+        yield from [
+            'an API key'         => ['api_key'],
+            'client credentials' => ['client_credentials'],
+        ];
+    }
+
+    /**
+     * `start()` refuses a machine credential kind as the method, even on a
+     * guard whose audience lists it: no session is recorded under it, so none
+     * passes for a machine credential.
+     *
+     * @param  string  $kind
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideCredentialKinds')]
+    public function testStartRefusesAMachineCredentialKindAsTheMethod(string $kind): void
+    {
+        $identity = $this->seedIdentity();
+
+        config()->set('auth.guards.api.audience', ['methods' => ['password', $kind]]);
+
+        try {
+            $this->sessions()->start($identity, null, $kind);
+
+            self::fail('A session was started under a machine credential kind.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame("[{$kind}] names a machine credential, not a sign-in method; no session can be started with it.", $exception->getMessage());
+        }
+
         self::assertSame(0, Device::query()->count());
     }
 

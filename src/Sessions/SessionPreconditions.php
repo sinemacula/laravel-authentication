@@ -16,8 +16,9 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
  * Checks the session service makes of what a caller hands it, before anything
  * is signed in: that a session can be started for the identity at all, which
  * principal a session for an externally verified identity is pinned to, whether
- * the guard's provider returned the very identity that was verified, and that a
- * sign-in method refused only as a method may.
+ * the guard's provider returned the very identity that was verified, that a
+ * session is never started under a machine credential kind, and that a sign-in
+ * method refused only as a method may.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -83,6 +84,24 @@ final class SessionPreconditions
         }
 
         return $principal;
+    }
+
+    /**
+     * Refuse a machine credential kind (`api_key`, `client_credentials`) as the
+     * method a session is started under: an audience may list one to allow the
+     * credential, but it never signs a session in, and a session recorded under
+     * one would pass for that credential.
+     *
+     * @param  string  $method
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function assertSessionMethod(string $method): void
+    {
+        if (in_array($method, SignInMethodManager::CREDENTIAL_METHODS, true)) {
+            throw new \InvalidArgumentException(sprintf('[%s] names a machine credential, not a sign-in method; no session can be started with it.', $method));
+        }
     }
 
     /**

@@ -1591,7 +1591,9 @@ further factor, the device and the tokens). Use a method for input the package v
 your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead
 when something outside the session service has already proven the identity, such as an SSO callback your identity
 provider's package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or
-timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three.
+timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the
+machine credential kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when
+the guard's audience lists them: they authenticate requests and exchanges, never sessions.
 
 ```php
 use Illuminate\Contracts\Hashing\Hasher;

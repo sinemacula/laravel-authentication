@@ -93,6 +93,28 @@ final class SessionPreconditionsTest extends TestCase
     }
 
     /**
+     * A session may be started under any sign-in method's name, but under no
+     * machine credential kind.
+     *
+     * @return void
+     */
+    public function testASessionIsNeverStartedUnderACredentialKind(): void
+    {
+        SessionPreconditions::assertSessionMethod('sso');
+        SessionPreconditions::assertSessionMethod('password');
+
+        foreach (['api_key', 'client_credentials'] as $kind) {
+            try {
+                SessionPreconditions::assertSessionMethod($kind);
+
+                self::fail("A session was allowed under [{$kind}].");
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame("[{$kind}] names a machine credential, not a sign-in method; no session can be started with it.", $exception->getMessage());
+            }
+        }
+    }
+
+    /**
      * A reloaded identity is the verified one only when it is of the same class
      * and has the same auth identifier, compared as identifiers are.
      *
