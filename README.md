@@ -47,7 +47,10 @@ device record live in the `devices` table so replay and stale credentials can be
   refuses a cloned authenticator, `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` events, and a factor ceremony
   through which a further-factor package verifies the same passkeys.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
-  `type()`.
+  `type()`, and `scopes()`, the ceiling a machine credential grants.
+- **Credential scopes for the suite**: the package carries a credential's scopes and never interprets them; they are
+  opaque RFC 6749 scope tokens, a ceiling an authorization package intersects with the principal's permissions, held at
+  issue to an optional `ScopeRegistry` (default: accept any).
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
   issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, required claims per token type (`exp`, `iat`,
   `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), the principal's
@@ -123,6 +126,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/audience-policy.md`
 - `docs/design/one-time-codes.md`
 - `docs/design/passkeys.md`
+- `docs/design/machine-credentials.md`
 
 ## Installation
 
@@ -2379,6 +2383,54 @@ property. The sign-in methods you register are kept for the life of the process 
 between calls (see [Writing a sign-in method](#writing-a-sign-in-method)), and so must a factor or audience policy you
 bind as a singleton.
 
+### Machine credentials
+
+#### Credential scopes
+
+A credential issued to a machine (an API key, or the access token a client credentials exchange hands out) carries
+scopes: the most its bearer may do. The package carries them and never interprets them. A scope is an opaque string
+(`invoices:read`, `https://api.example.test/reports`), an RFC 6749 scope token: printable ASCII other than space, `"`
+and `\`, at most 255 bytes, kept as an ordered list without duplicates and written as one space-separated string in a
+token's `scope` claim. Scopes are a ceiling, never a permission: authorization computes the principal's permissions and
+intersects them with the credential's scopes, so a scope grants nothing the principal could not already do.
+
+`Auth::scopes()` (and `scopes()` on a package guard) reports them for the request:
+
+| The request authenticated with                                   | `Auth::scopes()`         |
+|------------------------------------------------------------------|--------------------------|
+| A human identity's session token, or a trusted bind of a human   | `null`: no ceiling       |
+| An API key, or a client credentials access token                 | the granted list         |
+| A non-human identity bound without a credential (`login()`, ...) | `[]`: limited to nothing |
+| Nothing, or a guard that is not the package's                    | `null`                   |
+
+`[]` and `null` differ: `[]` is a credential that grants no scope, `null` is no credential limit at all. A
+`MachineIdentity` is never left without a ceiling, so binding one through the trusted `login()`, `setUser()` or
+`authenticateAs()` (Laravel's `actingAs()` in tests, say) gives it `[]`. The scopes are also in every event's context
+(`$event->context->scopes`), with the credential's id in `credentialId`.
+
+Scopes are checked when a credential is issued: each must be a well-formed scope token, and the bound
+`ScopeRegistry` may reject any of them for the principal on the guard. The default, `AcceptAnyScope`, accepts every
+well-formed scope; an authorization package binds its own so keys can only carry scopes that name real permissions:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+
+final class PermissionScopes implements ScopeRegistry
+{
+    public function rejected(string $guard, Principal $principal, array $scopes): array
+    {
+        return array_values(array_diff($scopes, Permission::names()));
+    }
+}
+
+$this->app->singleton(ScopeRegistry::class, PermissionScopes::class);
+```
+
+A malformed or rejected scope throws `Exceptions\InvalidScopeException` (an `InvalidArgumentException`) naming the
+offending scopes in `$exception->scopes`: issuing a credential is a trusted, programmatic action, so this is the
+caller's error, not a failed authentication. A credential's scopes are fixed for its life.
+
 ## Key Rotation
 
 Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
@@ -2464,6 +2516,8 @@ Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event):
         tenant: $context->tenantId,
         device: $context->deviceId,
         method: $context->method,
+        credential: $context->credentialId,
+        scopes: $context->scopes,
         ip: $context->client->ip,
         userAgent: $context->client->userAgent,
     );
@@ -2472,22 +2526,24 @@ Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event):
 
 The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the device
 columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
-device and the sign-in method (for a device's events, the method its session records); what was not established is
-`null`. It also snapshots, when the event is built, the identity's auth identifier (`identityId`), the principal's
-recorded type and identifier (`principalType`, `principalId`), and the tenant's and the device's identifiers
-(`tenantId`, `deviceId`, which keeps the device id a token named even when no device was found). An event about a device
-row itself (every `DeviceRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
-such as a revoked or ended device or a replay) names the owner and principal the row records in `identityId`,
-`principalType` and `principalId` when the flow did not load them; a device records no tenant, so a revocation's
-`tenantId` is known only when the tenant's deactivation or the request's own session is why. Other events name only what
-they hold, even when they carry a device: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch
-refused for its target have no principal. The snapshots, the client, the method and the other values are fixed facts
-that survive a queue unchanged. The models are live references: a synchronous listener gets the package's own instances,
-and a queued listener gets them re-fetched in their state when it runs, as Laravel's `SerializesModels` does, or a
-`ModelNotFoundException` when one was deleted meanwhile (a pruned device, say). Audit sinks should record the snapshots.
-No event carries a token, a digest, a password or any other secret. An event that reports a write is dispatched once the
-write is committed on the written row's own connection: at once when it has no open transaction, on its commit
-otherwise, and never when it is rolled back; a transaction on another connection neither delays nor withdraws it.
+device and the sign-in method (for a device's events, the method its session records), and the credential (an API key or
+a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human identity's session, which no
+credential limits); what was not established is `null`. It also snapshots, when the event is built, the identity's auth
+identifier (`identityId`), the principal's recorded type and identifier (`principalType`, `principalId`), and the
+tenant's and the device's identifiers (`tenantId`, `deviceId`, which keeps the device id a token named even when no
+device was found). An event about a device row itself (every `DeviceRevoked`, and a refresh or switch refused on the
+row's own state before its owner was read, such as a revoked or ended device or a replay) names the owner and principal
+the row records in `identityId`, `principalType` and `principalId` when the flow did not load them; a device records no
+tenant, so a revocation's `tenantId` is known only when the tenant's deactivation or the request's own session is why.
+Other events name only what they hold, even when they carry a device: an identity's `SignedOutEverywhere`,
+`PrincipalChoiceRequired` and a switch refused for its target have no principal. The snapshots, the client, the method
+and the other values are fixed facts that survive a queue unchanged. The models are live references: a synchronous
+listener gets the package's own instances, and a queued listener gets them re-fetched in their state when it runs, as
+Laravel's `SerializesModels` does, or a `ModelNotFoundException` when one was deleted meanwhile (a pruned device, say).
+Audit sinks should record the snapshots. No event carries a token, a digest, a password or any other secret. An event
+that reports a write is dispatched once the write is committed on the written row's own connection: at once when it has
+no open transaction, on its commit otherwise, and never when it is rolled back; a transaction on another connection
+neither delays nor withdraws it.
 
 A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
 package's `PrincipalAssigned` and `DeviceAuthenticated`, and a rejected token only `AuthenticationFailed`, once per
@@ -2583,6 +2639,7 @@ inheritance:
 | Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                           |
 | One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                    |
 | Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                       |
+| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                        |
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a

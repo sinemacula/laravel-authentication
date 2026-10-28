@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -51,6 +52,7 @@ use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
@@ -429,6 +431,24 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));
+    }
+
+    /**
+     * The default scope registry, which accepts every well-formed scope, is
+     * bound as a singleton so an authorization package or the application can
+     * rebind it.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultScopeRegistry(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(ScopeRegistry::class));
+        self::assertInstanceOf(AcceptAnyScope::class, app(ScopeRegistry::class));
+        self::assertSame(app(ScopeRegistry::class), app(ScopeRegistry::class));
     }
 
     /**

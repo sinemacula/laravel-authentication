@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
@@ -50,6 +51,7 @@ use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -95,6 +97,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->scoped(Rehashing::class);
         $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->singleton(WebAuthn::class);
+        $this->app->singleton(ScopeRegistry::class, AcceptAnyScope::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,

@@ -41,6 +41,8 @@ The current note set is:
   the same for an identifier no one has, and who a code is ever sent to.
 - `passkeys.md`: how a guard's passkeys are registered, used to sign in usernameless and verified as a further factor,
   the single-use challenges, the relying party they are scoped to, and the sign counter rule.
+- `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
+  carried, never interpreted, and held to an optional registry when a credential is issued.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
 the test should be treated as authoritative until the mismatch is resolved.
