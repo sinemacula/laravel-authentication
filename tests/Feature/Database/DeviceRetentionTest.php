@@ -64,4 +64,21 @@ final class DeviceRetentionTest extends TestCase
 
         DeviceRetention::days();
     }
+
+    /**
+     * The class is a utility container only: its constructor is private.
+     *
+     * @return void
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(DeviceRetention::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+    }
 }
