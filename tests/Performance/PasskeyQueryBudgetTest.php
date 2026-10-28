@@ -152,20 +152,21 @@ final class PasskeyQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Listing reads once; removing writes once.
+     * Listing reads once; removing reads the passkey to check its owner, then
+     * writes once.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testListingReadsOnceAndRemovingWritesOnce(): void
+    public function testListingReadsOnceAndRemovingReadsAndWritesOnce(): void
     {
         $identity = $this->seedIdentity();
         $passkey  = $this->registerPasskey($identity);
         $passkeys = Auth::passkeys('api');
 
         self::assertCount(1, $this->assertQueryBudget(1, 0, static fn (): array => $passkeys->passkeys($identity)));
-        self::assertTrue($this->assertQueryBudget(0, 1, static fn (): bool => $passkeys->remove($identity, $passkey->id)));
+        self::assertTrue($this->assertQueryBudget(1, 1, static fn (): bool => $passkeys->remove($identity, $passkey->id)));
     }
 
     /**

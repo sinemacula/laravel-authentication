@@ -42,10 +42,10 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  * whose requests present the key, or a `jwt` guard, whose client credentials
  * exchange takes the key's public part and secret as an OAuth client's id and
  * secret. Every keyed operation names the principal the key must belong to,
- * matched by type and identifier in the statement itself, and a key of another
- * principal or guard is treated as absent. Managing keys is privileged: the
- * application authorises its caller to manage the principal's keys first; this
- * package decides no permission.
+ * matched exactly by type and identifier, whatever the columns' collation, and
+ * a key of another principal or guard is treated as absent. Managing keys is
+ * privileged: the application authorises its caller to manage the principal's
+ * keys first; this package decides no permission.
  *
  * Issuing and rotating are trusted, programmatic actions, so a principal the
  * identity does not act as, one the guard's audience does not admit, a
@@ -156,7 +156,7 @@ final readonly class ApiKeyService
         $now      = CarbonImmutable::now()->startOfSecond();
         $deadline = $now->addSeconds(ApiKeyRules::overlap($overlapSeconds));
         $expiry   = ApiKeyRules::expiry($expiresAt, $now);
-        $previous = $this->owned($principal, $keyId)?->first();
+        $previous = $this->owned($principal, $keyId);
 
         if ($previous === null || ApiKeyLookup::refusal($previous, $this->guard->getName(), $now) !== null || $previous->rotated_at !== null) {
             return null;
@@ -203,16 +203,19 @@ final readonly class ApiKeyService
      */
     public function revoke(Principal $principal, string $keyId): bool
     {
-        $now   = CarbonImmutable::now()->startOfSecond();
-        $owned = $this->owned($principal, $keyId);
-        $key   = $owned?->clone()->first();
+        $now = CarbonImmutable::now()->startOfSecond();
+        $key = $this->owned($principal, $keyId);
 
-        if ($owned === null || $key === null) {
+        if ($key === null) {
             return false;
         }
 
         $at      = $key->fromDateTime($now);
-        $revoked = $owned->toBase()->whereNull('revoked_at')->update(['revoked_at' => $at, 'updated_at' => $at]);
+        $revoked = $this->ofPrincipal($key->principal_type, $key->principal_id)
+            ->where('id', $key->id)
+            ->toBase()
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => $at, 'updated_at' => $at]);
 
         if ($revoked === 0) {
             return false;
@@ -233,7 +236,7 @@ final readonly class ApiKeyService
      */
     public function find(Principal $principal, string $keyId): ?ApiKeySummary
     {
-        $key = $this->owned($principal, $keyId)?->first();
+        $key = $this->owned($principal, $keyId);
 
         return $key === null ? null : ApiKeySummary::of($key);
     }
@@ -253,10 +256,17 @@ final readonly class ApiKeyService
             return [];
         }
 
-        /** @var list<\SineMacula\Laravel\Authentication\Models\ApiKey> $keys */
-        $keys = $this->ofPrincipal(PrincipalReference::type($principal), $id)->orderByDesc('created_at')->orderByDesc('id')->get()->all();
+        $type = PrincipalReference::type($principal);
 
-        return array_map(ApiKeySummary::of(...), $keys);
+        /** @var list<\SineMacula\Laravel\Authentication\ApiKeys\ApiKeySummary> */
+        return $this->ofPrincipal($type, $id)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get()
+            ->filter(static fn (ApiKey $key): bool => self::isOf($key, $type, $id))
+            ->map(ApiKeySummary::of(...))
+            ->values()
+            ->all();
     }
 
     /**
@@ -399,19 +409,41 @@ final readonly class ApiKeyService
     }
 
     /**
-     * The query for the principal's key with the id on the guard, or `null`
-     * when the id cannot name a key (not a UUID) or the principal has no
-     * identifier, so neither costs a query.
+     * The principal's key with the id on the guard, or `null` when it has no
+     * such key. An id that cannot name a key (not a UUID), or a principal with
+     * no identifier, costs no query.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $keyId
-     * @return ?\Illuminate\Database\Eloquent\Builder<\SineMacula\Laravel\Authentication\Models\ApiKey>
+     * @return ?\SineMacula\Laravel\Authentication\Models\ApiKey
      */
-    private function owned(Principal $principal, string $keyId): ?Builder
+    private function owned(Principal $principal, string $keyId): ?ApiKey
     {
         $id = PrincipalReference::id($principal);
 
-        return $id === null || !Str::isUuid($keyId) ? null : $this->ofPrincipal(PrincipalReference::type($principal), $id)->where('id', $keyId);
+        if ($id === null || !Str::isUuid($keyId)) {
+            return null;
+        }
+
+        $type = PrincipalReference::type($principal);
+        $key  = $this->ofPrincipal($type, $id)->where('id', $keyId)->first();
+
+        return $key instanceof ApiKey && self::isOf($key, $type, $id) ? $key : null;
+    }
+
+    /**
+     * Whether the key records exactly the principal's type and identifier. The
+     * statement that found it compares under the columns' collation, which may
+     * count distinct identifiers, such as `alice` and `Alice`, as equal.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
+     * @param  string  $type
+     * @param  string  $id
+     * @return bool
+     */
+    private static function isOf(ApiKey $key, string $type, string $id): bool
+    {
+        return $key->principal_type === $type && IdentifierCoercion::matches($key->principal_id, $id);
     }
 
     /**

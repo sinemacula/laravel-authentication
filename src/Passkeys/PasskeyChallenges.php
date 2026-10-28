@@ -97,8 +97,9 @@ final readonly class PasskeyChallenges
      * Use up the live challenge of the ceremony, guard, relying party and owner
      * (none for a sign-in) the id names, and return the options it was issued
      * with; `null` for an id that names no such challenge, which a malformed
-     * one cannot (no query is made for it). Only one call can use a challenge
-     * up.
+     * one cannot (no query is made for it), or for a challenge whose recorded
+     * owner is not exactly the owner, whatever the columns' collation counts as
+     * equal. Only one call can use a challenge up.
      *
      * @param  string  $id
      * @param  \SineMacula\Laravel\Authentication\Passkeys\Enums\ChallengePurpose  $purpose
@@ -126,6 +127,10 @@ final readonly class PasskeyChallenges
         }
 
         [$type, $key] = $owner === null ? [null, null] : PasskeyOwner::columns($owner);
+
+        if ($challenge->authenticatable_type !== $type || $challenge->authenticatable_id !== $key) {
+            return null;
+        }
 
         $consumed = $model->newQueryWithoutScopes()
             ->toBase()

@@ -1928,8 +1928,10 @@ failure: the factor's outcome is the further-factor package's to limit and repor
 `Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
 `PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
 key, user handle or count. `remove($identity, $passkeyId)` removes the identity's passkey of the relying party and
-reports `PasskeyRemoved` once committed; it answers whether this call removed it. Removing a passkey removes a way to
-sign in, but ends no session unless you register the optional listener:
+reports `PasskeyRemoved` once committed; it answers whether this call removed it. Listing, removal and every ceremony's
+challenge hold to the identity's exact type and key, whatever the column's collation counts as equal (`alice` and
+`Alice` under MySQL's default `_ci` collations). Removing a passkey removes a way to sign in, but ends no session unless
+you register the optional listener:
 
 ```php
 use Illuminate\Support\Facades\Event;
@@ -2619,8 +2621,9 @@ protects, so throttle the routes for that. A machine has no interactive sign-in:
 would authenticate, binding and dispatching nothing.
 
 Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
-absent. These are privileged operations: authorise your caller to manage that principal's keys first, since the
-package decides no permission.
+absent, even one whose type or identifier the column's collation counts as equal (`alice` and `Alice` under MySQL's
+default `_ci` collations). These are privileged operations: authorise your caller to manage that principal's keys first,
+since the package decides no permission.
 
 ```php
 $keys = Auth::apiKeys('machine');

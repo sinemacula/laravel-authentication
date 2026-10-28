@@ -66,7 +66,9 @@ final class PasskeyCredentials
     }
 
     /**
-     * The owner's passkeys for the relying party, oldest first.
+     * The owner's passkeys for the relying party, oldest first. Each is checked
+     * against the owner exactly, since the owner columns' collation may count
+     * distinct keys, such as `alice` and `Alice`, as equal.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -87,6 +89,8 @@ final class PasskeyCredentials
             ->orderBy('created_at')
             ->orderBy('id')
             ->get()
+            ->filter(static fn (Passkey $passkey): bool => PasskeyOwner::owns($owner, $passkey))
+            ->values()
             ->all();
     }
 
@@ -181,9 +185,9 @@ final class PasskeyCredentials
     }
 
     /**
-     * Remove the owner's passkey of the relying party with the id. Returns
-     * whether this call removed it; an id that is not a UUID removes nothing,
-     * without a query.
+     * Remove the owner's passkey of the relying party with the id, once it is
+     * read and checked against the owner exactly. Returns whether this call
+     * removed it; an id that is not a UUID removes nothing, without a query.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -203,15 +207,16 @@ final class PasskeyCredentials
 
         [$type, $key] = PasskeyOwner::columns($owner);
 
-        $model = new Passkey;
-
-        return $model->newQueryWithoutScopes()
-            ->toBase()
-            ->where($model->getKeyName(), $id)
+        $passkey = WriteConnection::query((new Passkey)->newQuery())
+            ->whereKey($id)
             ->where('authenticatable_type', $type)
             ->where('authenticatable_id', $key)
             ->where('rp_id', $rp->id)
-            ->delete() === 1;
+            ->first();
+
+        return $passkey instanceof Passkey
+            && PasskeyOwner::owns($owner, $passkey)
+            && $passkey->newQueryWithoutScopes()->toBase()->where($passkey->getKeyName(), $id)->delete() === 1;
     }
 
     /**
