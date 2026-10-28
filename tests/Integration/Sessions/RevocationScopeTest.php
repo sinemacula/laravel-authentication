@@ -5,11 +5,15 @@ declare(strict_types = 1);
 namespace Tests\Integration\Sessions;
 
 use Carbon\CarbonImmutable;
+use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
@@ -90,6 +94,9 @@ final class RevocationScopeTest extends TestCase
     protected function tearDown(): void
     {
         CarbonImmutable::setTestNow();
+        Carbon::setTestNow();
+
+        JWT::$timestamp = null;
 
         foreach (['cutoff_memberships', 'access_only_members', 'access_only_cutoff_identities'] as $table) {
             Schema::dropIfExists($table);
@@ -151,6 +158,38 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
+     * An access-only identity's device-less access token passes the `auth`
+     * middleware until the identity is deactivated, and is refused from then
+     * on, while a token issued afterwards passes: the cutoff alone ends it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAccessOnlyIdentitysDeactivationEndsItsDevicelessToken(): void
+    {
+        Route::middleware('auth:api')->get('/me', static fn (): array => ['identity' => Auth::id()]);
+
+        $identity = AccessOnlyCutoffIdentity::query()->create(['email' => 'ada@example.test', 'password' => 'unused']);
+
+        $this->freezeAt(CarbonImmutable::parse(self::NOW)->subMinute());
+
+        $token = $this->accessToken($identity);
+
+        $this->bearer($token)->assertOk()->assertExactJson(['identity' => $identity->id]);
+
+        $this->freezeAt(CarbonImmutable::parse(self::NOW));
+
+        self::assertSame(0, Auth::sessions('api')->identityDeactivated($identity));
+
+        $this->bearer($token)->assertUnauthorized();
+
+        $this->freezeAt(CarbonImmutable::parse(self::NOW)->addMinute());
+
+        $this->bearer($this->accessToken($identity))->assertOk();
+    }
+
+    /**
      * Configure an `api` guard over the access-only identities.
      *
      * @param  mixed  $app
@@ -180,4 +219,50 @@ final class RevocationScopeTest extends TestCase
      */
     #[\Override]
     protected function defineDatabaseMigrations(): void {}
+
+    /**
+     * A device-less access token of the `api` guard for the identity, issued
+     * now.
+     *
+     * @param  \Tests\Integration\Fixtures\AccessOnlyCutoffIdentity  $identity
+     * @return string
+     *
+     * @throws \Random\RandomException
+     */
+    private function accessToken(AccessOnlyCutoffIdentity $identity): string
+    {
+        $tokens = Auth::jwt('api');
+
+        self::assertNotNull($tokens);
+
+        return $tokens->issueAccessToken($identity, $identity, null);
+    }
+
+    /**
+     * Send a request with the bearer token to the protected route, on guards
+     * resolved afresh.
+     *
+     * @param  string  $token
+     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     */
+    private function bearer(#[\SensitiveParameter] string $token): TestResponse
+    {
+        Auth::forgetGuards();
+
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/me');
+    }
+
+    /**
+     * Freeze every clock at the time.
+     *
+     * @param  \Carbon\CarbonImmutable  $time
+     * @return void
+     */
+    private function freezeAt(CarbonImmutable $time): void
+    {
+        Carbon::setTestNow($time);
+        CarbonImmutable::setTestNow($time);
+
+        JWT::$timestamp = $time->getTimestamp();
+    }
 }
