@@ -14,7 +14,9 @@ to these events, so the shape and the timing are a contract.
 - A context holds the guard (`null` only for a device that records none), the client of the request being served (IP
   address and user agent, cleaned by `ClientContext`), and, as far as the flow established them, the identity, the
   principal, the tenant it acts within, the device, and the sign-in method (for a device's events, the method its
-  session records). A part that was not established is `null`.
+  session records). Where a credential is involved it also holds the credential's id (`credentialId`: an API key's or a
+  passkey's id) and the scopes it grants (`scopes`: the granted list for an API key or a client credentials token, `[]`
+  for a machine bound without one, `null` for a human identity's session). A part that was not established is `null`.
 - A context snapshots, when it is built, the identity's auth identifier, the principal's recorded type (its morph class,
   or its class name) and identifier, the tenant's identifier and the device's identifier, all as strings. A device id a
   token named is kept as the device snapshot when no device row was loaded.
@@ -25,10 +27,11 @@ to these events, so the shape and the timing are a contract.
   event keeps the snapshots of what it holds, even when it carries a device: an identity's `SignedOutEverywhere` (its
   device is the one kept), `PrincipalChoiceRequired` (the proven device) and a switch refused for its target name no
   principal.
-- The snapshots, the enums, the client and the other strings are facts fixed at event time and survive a queue
-  unchanged. The models are live references: a synchronous listener gets the instances the package holds, and a
-  queued listener gets them re-fetched in their state when it runs, or Laravel's `ModelNotFoundException` when one was
-  deleted meanwhile (a pruned device, say). Audit sinks should record the snapshots.
+- The snapshots, the credential's id and scopes, the enums, the client and the other strings are facts fixed at event
+  time and survive a queue unchanged. The models are live references: a synchronous listener gets the instances the
+  package holds, and a queued listener gets them re-fetched in their state when it runs, or Laravel's
+  `ModelNotFoundException` when one was deleted meanwhile (a pruned device, say). Audit sinks should record the
+  snapshots.
 - No event field carries a token, a digest, a password, a pending credential or any other secret. The device's digests
   are hidden from its serialisation; like Laravel's own auth events, the live identity model holds its attributes.
 - An event that reports a write is dispatched through `Database\AfterCommit` on the written row's connection: at once
@@ -42,12 +45,18 @@ to these events, so the shape and the timing are a contract.
   principal's tenant on the write connection and reports none when the tenant cannot be loaded
   (`TenantUnavailableException`), while a principal loaded without its tenant's key is a misconfiguration whose
   `LogicException` propagates.
-- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, principal switch and bearer token,
-  with the flow (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a
-  rate-limited failure. Where Laravel's `Failed` fires as well, it fires first and `AuthenticationFailed` second; a
-  bearer token fires neither `Attempting` nor `Failed`, and its failure at most once per request.
-- A sign-in method may refuse only with `invalid_credentials` (`FailureReason::isSignInMethodReason()`); any other
-  reason is the session service's to give, and a method that returns one is a misconfiguration (`LogicException`).
+- One failure event, `AuthenticationFailed`, reports every failed sign-in, refresh, principal switch, bearer token, API
+  key, client credentials exchange, request for a one-time code and verification by code, with the flow
+  (`AuthenticationFlow`) and a reason (`FailureReason`), the identifier a sign-in named, and the wait of a rate-limited
+  failure. Where Laravel's `Failed` fires as well, it fires first and `AuthenticationFailed` second; a bearer token or
+  an API key fires neither `Attempting` nor `Failed`, and its failure at most once per request.
+- A sign-in method may refuse only with a sign-in method reason (`FailureReason::isSignInMethodReason()`:
+  `invalid_credentials`, `identifier_unverified` once its input proved the identifier is held, `code_expired`,
+  `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`); any other reason is the session
+  service's to give, and a method that returns one is a misconfiguration (`LogicException`). A concealed reason
+  (`FailureReason::isConcealed()`: `account_rate_limited`, `code_expired`, `code_exhausted`,
+  `passkey_counter_regressed`) reaches only the event: `SignInResult::failed()` answers it as `invalid_credentials`,
+  with no wait, so the client learns nothing a guess could use.
 - `RefreshTokenExchange::exchange()` returns its `AuthenticationFailed` undispatched and its caller (the guard)
   dispatches it; the exchange itself dispatches only `DeviceRevoked`, after commit.
 
@@ -73,6 +82,11 @@ to these events, so the shape and the timing are a contract.
   `device-lifecycle.md`).
 - Verification: `IdentifierVerified` carries the identity, the guard it was made for, and the client the caller passed,
   or the client of the request being served.
+- Credentials: `PasskeyAdded`, `PasskeyUsed` and `PasskeyRemoved` carry the owner, the method `passkey` and the
+  passkey's id, after the passkey row's connection commits (see `passkeys.md`); `ApiKeyIssued`, `ApiKeyRotated` (with
+  the replaced key's id) and `ApiKeyRevoked` carry the key's owner, principal, tenant, id and scopes, after the key's
+  connection commits; `ClientCredentialsGranted`, which reports no write, is dispatched at once with the key's id and
+  the scopes granted (see `machine-credentials.md`).
 
 ## Failure / Edge Cases
 
@@ -101,7 +115,8 @@ to these events, so the shape and the timing are a contract.
   `failed()`, the bearer failure's context.
 - `src/Jwt/RefreshTokenExchange.php`: `refused()`, `deviceContext()`, and the `DeviceRevoked` dispatch;
   `src/Sessions/PrincipalSwitch.php`: `context()`.
-- `src/Sessions/SessionService.php`: `signedIn()`, `fail()`; `src/Sessions/SessionPreconditions.php`: `methodReason()`.
+- `src/Sessions/SessionService.php`: `signedIn()`, `fail()`; `src/Sessions/SessionPreconditions.php`: `methodReason()`;
+  `src/Sessions/SignInResult.php`: `failed()`, the concealment.
 - `src/Sessions/Concerns/ManagesDevices.php`: `endSessions()`, the `DeviceRevoked` and `SignedOutEverywhere` contexts.
 - `src/Database/AfterCommit.php`: the commit-bound dispatch.
 
@@ -109,11 +124,13 @@ to these events, so the shape and the timing are a contract.
 
 - `tests/Unit/Events/EventContextTest.php`
   `testSnapshotsEveryIdentifierAsAString`, `testSnapshotsDoNotFollowLaterChanges`,
-  `testKeepsANamedDeviceIdWithoutADevice`
+  `testKeepsANamedDeviceIdWithoutADevice`, `testKeepsTheCredentialAndItsScopes`
 - `tests/Feature/Events/EventContextTest.php`
   `testALoadedDeviceRowStandsInForAnUnloadedIdentityAndPrincipal`, `testWithoutFromDeviceTheRowStandsInForNothing`
 - `tests/Unit/Events/Enums/FailureReasonTest.php`
-  `testOnlyInvalidCredentialsIsASignInMethodReason`
+  `testTheSignInMethodReasons`, `testTheConcealedReasons`
+- `tests/Unit/Sessions/SignInResultTest.php`
+  `testAConcealedReasonIsAnsweredAsInvalidCredentials`, `testAnUnconcealedMethodReasonIsKept`
 - `tests/Unit/Contracts/ContractDeclarationTest.php`
   `testEveryPackageEventImplementsAuthenticationEvent`
 - `tests/Feature/Guards/AbstractGuardEventContextTest.php`

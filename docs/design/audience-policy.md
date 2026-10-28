@@ -17,7 +17,10 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   fails closed with an `InvalidArgumentException` naming the guard and the key. Every call reads and checks the whole
   block, so a malformed key fails whichever check runs first and nothing is cached past a configuration change.
 - A method is allowed only when the guard lists its exact name, the key it is registered under on the
-  `SignInMethodManager` and the name a device records in `sign_in_method`.
+  `SignInMethodManager` and the name a device records in `sign_in_method`. The same list names the machine credentials
+  the guard accepts (`SignInMethodManager::CREDENTIAL_METHODS`): `api_key` on an `api_key` guard, `client_credentials`
+  on a `jwt` guard whose client credentials exchange is open; neither is a sign-in method, and the manager refuses to
+  register a method under either name (see `machine-credentials.md`).
 - A principal's type is its own non-empty `HasType::getType()`, otherwise the non-empty type of the tenant it acts
   within, otherwise none (`Audience\PrincipalType::of()`), read on the write connection. A guard that lists types admits
   only principals whose type it lists; a principal without a type is refused. Refusal is `principal_ineligible`.

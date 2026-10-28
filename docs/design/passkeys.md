@@ -86,6 +86,10 @@ package's.
   says `account_rate_limited`, and the assertion is not checked), or an assertion that does not verify. A regressed
   counter is `passkey_counter_regressed` on the event and `invalid_credentials` in the result (a concealed reason, see
   `FailureReason::isConcealed()`).
+- Enumeration: sign-in names no identifier, and every refusal that could tell one passkey or account from another (the
+  `invalid_credentials` cases above and a regressed counter) gives the same result and takes the whole credential
+  timebox, whether or not an owner was looked up; `signInOptions()` does no identity work. The one-time codes, API keys
+  and client credentials are held to the same criterion (`one-time-codes.md`, `machine-credentials.md`).
 - `signInOptions()` past its limit throws `ThrottleRequestsException` (429, `Retry-After`) and writes nothing.
 - webauthn-lib reports malformed input and failed checks by throwing exceptions of every kind, and PHP warnings on
   input of the wrong shape, which Laravel's error handler raises as exceptions; `WebAuthn::refusing()` turns any of them
@@ -116,7 +120,9 @@ package's.
   `tests/Fixtures/Passkeys/VirtualAuthenticator.php`.
 - `tests/Integration/Passkeys/ConcurrentPasskeyTest.php` (races on PostgreSQL and MySQL),
   `tests/Integration/Passkeys/ReplicaPasskeysTest.php`, `tests/Integration/Migration/PasskeyTablesSchemaTest.php`.
-- `tests/Performance/PasskeyQueryBudgetTest.php` (query budgets and the timebox).
+- `tests/Performance/PasskeyQueryBudgetTest.php` (query budgets and the timebox),
+  `tests/Performance/PasskeyEnumerationTest.php` (the enumeration criterion against a slow identity store).
+- `tests/Feature/Sessions/MachineIdentitySignInTest.php` (`testAPasskeyWhoseOwnerBecameAMachineIsRefused`).
 
 ## Change Triggers
 

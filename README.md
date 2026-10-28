@@ -39,15 +39,23 @@ device record live in the `devices` table so replay and stale credentials can be
 ## Features
 
 - **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
-- **Pluggable sign-in methods** behind one `SignInMethod` contract (a password method ships; SSO and others register
-  on the `SignInMethodManager`), checked against each guard's audience policy and attempt limits, with an
-  additional-factor seam whose default never asks for one.
+- **Pluggable sign-in methods** behind one `SignInMethod` contract (password, one-time code and passkey methods ship;
+  SSO and others register on the `SignInMethodManager`), checked against each guard's audience policy and attempt
+  limits, with an additional-factor seam whose default never asks for one.
+- **One-time codes**: passwordless sign-in with a numeric code sent to a verified phone number (`phone_code`) or email
+  address (`email_code`), and identifier verification by code, through a sender contract the application binds (no
+  provider ships; a fake for tests does). Codes are stored as keyed hashes bound to their purpose, guard and
+  identifier, work once, expire, lock after a few wrong guesses, resend after a cooldown, and are delivered by a queued
+  job, so a request for a code looks the same whether or not anyone has the identifier.
 - **Passkeys** (WebAuthn): usernameless sign-in with discoverable, user-verified credentials as the `passkey` method,
   registration through single-use challenges held in the database, a relying party per guard, a sign counter rule that
   refuses a cloned authenticator, `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` events, and a factor ceremony
   through which a further-factor package verifies the same passkeys.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`, and `scopes()`, the ceiling a machine credential grants.
+- **Non-human identities**: an identity marked `MachineIdentity` has no password, no interactive sign-in, no session
+  and no device refresh, refused at every path that verifies something; it authenticates only with a credential bound to
+  one principal in one tenant.
 - **API keys for non-human identities**: an `api_key` guard that authenticates `Authorization: Bearer <key>` with one
   indexed lookup on the write connection and no password hashing; keys shown once, stored as a SHA-256 digest, bound
   to one guard, one principal and its tenant, with scopes, optional expiry, throttled last use, rotation with a bounded
@@ -92,28 +100,25 @@ device record live in the `devices` table so replay and stale credentials can be
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed` /
   `Logout` alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
   `AdditionalFactorRequired` / `PrincipalChoiceRequired` / `PrincipalSwitched` / `Refreshed` / `DeviceRevoked` /
-  `SignedOutEverywhere` / `IdentifierVerified` and one `AuthenticationFailed` with a reason, each carrying the same
-  context (guard, client, identity, principal, tenant, device, method) and never a secret. A bearer request is not a
-  sign-in: it fires only `Authenticated` and the contextual events.
+  `SignedOutEverywhere` / `IdentifierVerified` / `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` / `ApiKeyIssued` /
+  `ApiKeyRotated` / `ApiKeyRevoked` / `ClientCredentialsGranted` and one `AuthenticationFailed` with a reason, each
+  carrying the same context (guard, client, identity, principal, tenant, device, method, and the credential and its
+  scopes where one is used) and never a secret. A bearer request is not a sign-in: it fires only `Authenticated` and the
+  contextual events.
 - **Audiences per guard**: the sign-in methods and principal types each guard admits, and token and session lifetimes
   per principal type.
-- **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email by
-  default), and a password rehash that never overwrites a concurrent change.
-- **Rate limits in the database**: sign-in, code requests and refresh limited per identifier and per IP address, counted
-  atomically on the write connection without a cache.
-- **One-time codes**: passwordless sign-in with a numeric code sent to a verified phone number (`phone_code`) or email
-  address (`email_code`), and identifier verification by code, through a sender contract the application binds (no
-  provider ships; a fake for tests does). Codes are stored as keyed hashes bound to their purpose, guard and
-  identifier, work once, expire, lock after a few wrong guesses, resend after a cooldown, and are delivered by a queued
-  job, so a request for a code looks the same whether or not anyone has the identifier.
+- **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email and
+  E.164 phone numbers by default), and a password rehash that never overwrites a concurrent change.
+- **Rate limits in the database**: sign-in, code requests, passkey sign-in options, client credentials exchanges and
+  refresh limited per identifier and per IP address, counted atomically on the write connection without a cache.
 - **Identifier verification**: signed verification links or one-time codes bound to their purpose and identifier, and
   an opt-in, per-guard requirement that sign-in identifiers be verified.
-- **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` guard's settings and fails
-  the deploy on a problem, listing all of them.
+- **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` and `api_key` guard's
+  settings and fails the deploy on a problem, listing all of them.
 - **Safe in long-running processes**: nothing one request or queued job binds reaches the next under Octane or a queue
   worker.
 - **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
-  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, table names.
+  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, scope registry, table names.
 
 ## Design Notes
 
@@ -152,7 +157,8 @@ php artisan migrate
 
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
 `TableAlreadyExistsException` that names the configuration key renaming its table (`device.table`,
-`sign_in.pending_table`, `rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`, `api_keys.table`).
+`sign_in.pending_table`, `rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`,
+`api_keys.table`).
 
 Generate a random JWT signing key into `.env`:
 
@@ -347,11 +353,11 @@ hold them, and can give each principal type its own token and session lifetimes.
 ],
 ```
 
-| Key                           | Default        | Meaning                                                                                        |
-|-------------------------------|----------------|------------------------------------------------------------------------------------------------|
-| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions (a non-empty list of lower-case names) |
-| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types            |
-| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                              |
+| Key                           | Default        | Meaning                                                                                                                                                                  |
+|-------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (a non-empty list of lower-case names) |
+| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types                                                                                      |
+| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                                                                                                        |
 
 A principal's type is its own or its tenant's (see [Principal type](#principal-type)); with a list, a principal without
 a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method the guard does
@@ -506,13 +512,22 @@ The package's models live outside your application's `app/Models`, so name them 
 
 ```php
 use Illuminate\Support\Facades\Schedule;
+use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\OneTimeCode;
 use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 
 Schedule::command('model:prune', [
-    '--model' => [Device::class, PendingSignIn::class, RateLimit::class, PasskeyChallenge::class],
+    '--model' => [
+        Device::class,
+        PendingSignIn::class,
+        RateLimit::class,
+        OneTimeCode::class,
+        PasskeyChallenge::class,
+        ApiKey::class,
+    ],
 ])->hourly();
 ```
 
@@ -683,10 +698,10 @@ offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by def
 
 ### Rate limits
 
-Sign-in, requests for one-time codes and refresh are limited per identifier and per IP address, counted in the database
-on the write connection, so the limits hold across servers and do not depend on a cache. Publish the migration with the others
-(`authentication-migrations` creates `rate_limits`), then set limits in the package `rate_limits` block or a guard's
-own `rate_limits` block:
+Sign-in, requests for one-time codes and for passkey sign-in options, client credentials exchanges and refresh are
+limited per identifier and per IP address, counted in the database on the write connection, so the limits hold across
+servers and do not depend on a cache. Publish the migration with the others (`authentication-migrations` creates
+`rate_limits`), then set limits in the package `rate_limits` block or a guard's own `rate_limits` block:
 
 ```php
 'guards' => [
@@ -703,15 +718,17 @@ own `rate_limits` block:
 ],
 ```
 
-| Flow              | Scope            | Default             | Counts                                                                                                         |
-|-------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
-| `sign_in`         | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
-| `sign_in`         | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
-| `refresh`         | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
-| `refresh`         | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
-| `code_request`    | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
-| `code_request`    | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
-| `passkey_options` | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
+| Flow                 | Scope            | Default             | Counts                                                                                                         |
+|----------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
+| `sign_in`            | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
+| `sign_in`            | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
+| `refresh`            | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
+| `refresh`            | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
+| `code_request`       | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
+| `code_request`       | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
+| `passkey_options`    | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
+| `client_credentials` | `per_identifier` | 10 per 60 seconds   | Exchanges refused for the client's credentials or identity, by client id as given                              |
+| `client_credentials` | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -1548,12 +1565,15 @@ $this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) 
 No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
 yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
 
-| Flow                 | Same outcome for an unknown identifier                                                                          | Delivery                       | Timing                                     |
-|----------------------|-----------------------------------------------------------------------------------------------------------------|--------------------------------|--------------------------------------------|
-| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                          | None                           | Padded to the credential timebox           |
-| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                       | Queued job, after the response | No identity work at all, so nothing to pad |
-| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account | None                           | Padded to the credential timebox           |
-| Verification by code | Not applicable: the caller holds the identity                                                                   | Queued job, after the response | Not applicable                             |
+| Flow                 | Same outcome for an unknown identifier                                                                                                                                      | Delivery                       | Timing                                                                                                       |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|--------------------------------------------------------------------------------------------------------------|
+| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                      | None                           | Padded to the credential timebox                                                                             |
+| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                   | Queued job, after the response | No identity work at all, so nothing to pad                                                                   |
+| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                             | None                           | Padded to the credential timebox                                                                             |
+| Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job, after the response | Not applicable                                                                                               |
+| Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                           | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
+| API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                           | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
+| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given                      | None                           | As API key                                                                                                   |
 
 The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
 looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity. Answer `sent` the same
@@ -2438,14 +2458,17 @@ An API client or a service account is an identity of its own type: implement `Co
 refresh; it authenticates only with a credential issued to it, each bound to one principal in one tenant. The package
 enforces this at every entry point that verifies something:
 
-| Entry point                                                          | A non-human identity is                                        |
-|----------------------------------------------------------------------|----------------------------------------------------------------|
-| A password check (`signIn('password')`, `attempt()`, `validate()`)   | refused as `invalid_credentials`, no hash computed, no count   |
-| Any other sign-in method, `start()`, `complete()`, `choose()`        | refused at admission as `machine_identity`                     |
-| A refresh or a switch of principal on a device it owns               | refused as `machine_identity`                                  |
-| A session's access token (`jwt` guard) naming it                     | refused as `machine_identity`                                  |
-| `Auth::jwt()->issueAccessToken()` / `issueRefreshToken()`            | refused with a `LogicException`                                |
-| An `api_key` guard's `attempt()`                                     | refused as `method_not_allowed`: machines do not sign in       |
+| Entry point                                                        | A non-human identity is                                      |
+|--------------------------------------------------------------------|--------------------------------------------------------------|
+| A password check (`signIn('password')`, `attempt()`, `validate()`) | refused as `invalid_credentials`, no hash computed, no count |
+| Any other sign-in method, `start()`, `complete()`, `choose()`      | refused at admission as `machine_identity`                   |
+| A refresh or a switch of principal on a device it owns             | refused as `machine_identity`                                |
+| A session's access token (`jwt` guard) naming it                   | refused as `machine_identity`                                |
+| `Auth::jwt()->issueAccessToken()` / `issueRefreshToken()`          | refused with a `LogicException`                              |
+| An `api_key` guard's `attempt()`                                   | refused as `method_not_allowed`: machines do not sign in     |
+| A one-time code for sign-in                                        | never delivered; one it holds anyway is refused at admission |
+| `Auth::codes()->sendVerification()` / `verify()`                   | refused with an `InvalidArgumentException`                   |
+| Registering, listing or removing passkeys, or a passkey factor     | refused with an `InvalidArgumentException`: it holds none    |
 
 The trusted binds stay trusted: `login()`, `setUser()` and `authenticateAs()` (and so Laravel's `actingAs()` in tests)
 bind a machine as given, limited to no scope (`Auth::scopes()` is `[]`), since the caller has proven it.
@@ -2704,7 +2727,7 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\ApiKeyRotated`            | An API key was rotated, once committed; previous key id   |
 | `SineMacula\...\Events\ApiKeyRevoked`            | An API key was revoked, once committed                    |
 | `SineMacula\...\Events\ClientCredentialsGranted` | A client credentials exchange issued an access token      |
-| `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh, switch, bearer token or key failed    |
+| `SineMacula\...\Events\AuthenticationFailed`     | Any sign-in, refresh, switch, bearer, key or code failure |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -2851,28 +2874,30 @@ Concrete classes in this package are `final` except `AuthManager` (the package's
 shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
 inheritance:
 
-| Extension point                   | How                                                                                                           |
-|-----------------------------------|---------------------------------------------------------------------------------------------------------------|
-| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                        |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                   |
-| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`               |
-| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                     |
-| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                          |
-| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                           |
-| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                             |
-| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name other than `password` |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed      |
-| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                |
-| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                       |
-| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                       |
-| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                           |
-| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                    |
-| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                       |
-| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                        |
+| Extension point                   | How                                                                                                              |
+|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
+| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
+| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                      |
+| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
+| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
+| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
+| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
+| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
+| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                          |
+| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
+| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                              |
+| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
+| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
+| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
-different password scheme under a name of its own and allow that name in the guard's audience. Names are lower case
+different password scheme under a name of its own and allow that name in the guard's audience. The package's other
+methods (`phone_code`, `email_code` and `passkey`) are reserved the same way, as are `api_key` and `client_credentials`,
+which an audience lists for machine credentials and which never resolve to a sign-in method. Names are lower case
 (a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
 so one method never has a second spelling for a guard to allow or a device to record.
 

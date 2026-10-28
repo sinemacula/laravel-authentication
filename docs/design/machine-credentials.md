@@ -12,8 +12,10 @@ authorization package decides what they allow.
   refresh: `PasswordSignIn` refuses it as `invalid_credentials` before any hash or account count; `SignInAdmission`
   refuses it first, as `machine_identity`, for every method and for `start()`, `complete()` and `choose()`;
   `RefreshAdmission` refuses a device it owns (refresh and switch of principal); `BearerAuthentication` refuses a
-  session token naming it; `JwtTokenService` issues it no session token (`LogicException`). The trusted binds stay
-  trusted and bind it with `[]` scopes.
+  session token naming it; `JwtTokenService` issues it no session token (`LogicException`). It is never sent a one-time
+  code, `Auth::codes()->sendVerification()` and `verify()` refuse it, and it can own no passkey
+  (`InvalidArgumentException` from every passkey call that names an owner); a code it holds anyway, or a passkey whose
+  owner became a machine, is refused at admission. The trusted binds stay trusted and bind it with `[]` scopes.
 - A scope is an opaque RFC 6749 scope token (printable ASCII other than space, `"` and `\`, at most 255 bytes). The
   package stores scopes as an ordered list without duplicates and never reads meaning into one.
 - Scopes are a ceiling, never a permission: an authorization package intersects them with the principal's permissions.
@@ -55,7 +57,6 @@ authorization package decides what they allow.
   last use at most once per throttle with one conditional update.
 - `rotate()` ends the replaced key at `now + overlap` or its own expiry, whichever comes first, with an explicit `CASE`
   (never `LEAST()` over a nullable column), and inserts the replacement with the same binding and scopes.
-
 - An application issues a credential with scopes; the scopes are normalised and the registry is asked which of them
   the principal may not be granted on the guard (`AcceptAnyScope`, the default, rejects none).
 - A request authenticated by the credential binds its identity and principal with the credential's scopes;
@@ -77,6 +78,11 @@ authorization package decides what they allow.
 - A request is refused with exactly one `AuthenticationFailed` (flow `api_key`), naming the key once its public part
   found one. The guard counts no attempts: the secret cannot be guessed, and counting would put a write on every
   refused request.
+- Enumeration: a malformed key, an unknown public part and a wrong secret cost the same statements and the same digest
+  work (an unknown public part is compared against a fixed digest), and the key's status is read only once its secret
+  verifies; every client failure of an exchange answers the same `invalid_client` body, and `slow_down` counts the
+  client id as given, so an id no key has is limited like one that exists. Neither uses a password hasher. Codes and
+  passkeys are held to the same criterion (`one-time-codes.md`, `passkeys.md`).
 - `attempt()` on an `api_key` guard always fails (`method_not_allowed`, flow `sign_in`) without a query: machines have
   no interactive sign-in. `validate(['api_key' => $key])` binds and dispatches nothing.
 - Of two concurrent rotations of a key, the second waits on the first's row lock and replaces nothing once it commits
@@ -108,7 +114,8 @@ authorization package decides what they allow.
 
 ## Authoritative Tests
 
-- `tests/Feature/Sessions/MachineIdentitySignInTest.php`, `tests/Feature/Jwt/MachineJwtTokenServiceTest.php`
+- `tests/Feature/Sessions/MachineIdentitySignInTest.php`, `tests/Feature/Jwt/MachineJwtTokenServiceTest.php`,
+  `tests/Feature/Codes/MachineCodeSignInTest.php`
 - `tests/Unit/Scopes/ScopesTest.php`
 - `tests/Feature/Guards/BindsContextualStateTest.php`
 - `tests/Integration/Facade/AuthScopesIntegrationTest.php`

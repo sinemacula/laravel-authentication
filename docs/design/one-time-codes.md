@@ -113,6 +113,9 @@ Each flow is held to the same criterion, and its tests prove it rather than assu
   each waits out the real credential timebox against a slow store; a success returns before it.
 - Verification by code: the caller holds the identity, so the criterion is delivery only: queued, as above.
 
+Passkey sign-in (`passkeys.md`), API keys and client credentials (`machine-credentials.md`) are held to the same
+criterion, and README's "Enumeration resistance" table lists every flow together.
+
 ## Implementation Anchors
 
 - `src/Codes/OneTimeCodes.php` (engine), `src/Codes/CodeKeys.php`, `src/Codes/CodeBinding.php`,
@@ -133,7 +136,8 @@ Each flow is held to the same criterion, and its tests prove it rather than assu
   after-response delivery on `sync`.
 - `tests/Integration/Codes/ReplicaOneTimeCodesTest.php`: write-connection reads.
 - `tests/Feature/Codes/CodeSignInTest.php`, `tests/Feature/Codes/EmailCodeSignInTest.php`,
-  `tests/Feature/Codes/CodeServiceTest.php`, `tests/Feature/Codes/CodeRoutesTest.php`.
+  `tests/Feature/Codes/CodeServiceTest.php`, `tests/Feature/Codes/CodeRoutesTest.php`,
+  `tests/Feature/Codes/MachineCodeSignInTest.php` (a machine holding a code is refused at admission).
 - `tests/Performance/OneTimeCodeQueryBudgetTest.php` and `tests/Performance/OneTimeCodeEnumerationTest.php`.
 
 ## Change Triggers
