@@ -34,6 +34,7 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AccessOnlyIdentity;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
 use Tests\Integration\Fixtures\CutoffIdentity;
 use Tests\Integration\Fixtures\ForeignModelDevicesIdentity;
@@ -365,6 +366,8 @@ final class DeviceRevocationsTest extends TestCase
         self::assertSame(self::idOf($revoked), $device->context->deviceId);
         self::assertSame($identity, $device->context->identity);
         self::assertNull($device->context->principal);
+        self::assertSame($identity->getMorphClass(), $device->context->principalType);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $device->context->principalId);
         self::assertSame(RevocationReason::PASSWORD_CHANGED, $device->reason);
 
         $scope = $this->recordedEvent(SignedOutEverywhere::class);
@@ -444,14 +447,15 @@ final class DeviceRevocationsTest extends TestCase
     }
 
     /**
-     * An identity that holds no devices still has its pending sign-ins ended
-     * and the action reported.
+     * An identity that cannot hold devices cannot hold a pending sign-in either
+     * (no session starts for it), so its revocation leaves both tables alone, a
+     * row recorded for it by hand included, and is still reported.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAnIdentityWithoutDevicesHasItsPendingSignInsEnded(): void
+    public function testAnIdentityWithoutDevicesLeavesThePackagesTablesAlone(): void
     {
         Schema::create('access_only_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
@@ -467,7 +471,7 @@ final class DeviceRevocationsTest extends TestCase
         $this->recordEvents([SignedOutEverywhere::class]);
 
         self::assertSame(0, $this->sessions()->revokeDevices($identity, RevocationReason::IDENTITY_DEACTIVATED));
-        self::assertSame(0, DB::table('pending_sign_ins')->count());
+        self::assertSame(1, DB::table('pending_sign_ins')->count());
         self::assertCount(1, $this->recorded);
 
         Schema::drop('access_only_identities');
@@ -523,8 +527,10 @@ final class DeviceRevocationsTest extends TestCase
         $scope = $this->recordedEvent(SignedOutEverywhere::class);
 
         self::assertSame($membership, $scope->context->principal);
-        self::assertNull($scope->context->identity);
+        self::assertInstanceOf(ActivatableTenantMember::class, $scope->context->identity);
+        self::assertSame(IdentifierCoercion::stringify($membership->identity_id), $scope->context->identityId);
         self::assertSame($membership, $this->recordedEvent(DeviceRevoked::class)->context->principal);
+        self::assertSame($scope->context->identity, $this->recordedEvent(DeviceRevoked::class)->context->identity);
         self::assertSame(self::NOW, self::revokedAt($mine));
         self::assertNull(self::revokedAt($theirs));
         self::assertSame(IdentifierCoercion::stringify($otherMembership->getKey()), DB::table('devices')->whereNull('revoked_at')->value('principal_id'));

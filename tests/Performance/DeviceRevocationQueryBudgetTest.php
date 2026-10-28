@@ -19,7 +19,7 @@ use Tests\Concerns\InteractsWithSessions;
  * device is one conditional `UPDATE`; revoking one device of a list is the
  * owner-scoped read and that `UPDATE`; a bulk revocation reads its devices a
  * chunk at a time and writes one `UPDATE` per device and one `DELETE` of the
- * scope's pending sign-ins.
+ * scope's pending sign-ins, a principal's after one read of its owner.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -117,6 +117,27 @@ final class DeviceRevocationQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
+     * Revoking a 3D principal's two devices reads its owner afresh (to know
+     * whether it can hold devices) and one chunk, and writes two revocations
+     * and the pending sign-ins' delete.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPrincipalsRevocationReadsItsOwnerOnceMore(): void
+    {
+        [, $membership] = $this->seedMember();
+
+        $this->memberSignIn();
+        $this->memberSignIn();
+
+        $sessions = $this->sessions('members');
+
+        self::assertSame(2, $this->assertQueryBudget(2, 3, static fn (): int => $sessions->revokePrincipalDevices($membership, RevocationReason::REVOKED)));
+    }
+
+    /**
      * Register the session guards.
      *
      * @param  mixed  $app
@@ -130,6 +151,18 @@ final class DeviceRevocationQueryBudgetTest extends PerformanceContractTestCase
         assert($app instanceof Application);
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Sign the seeded member in on the `members` guard.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private function memberSignIn(): void
+    {
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
     }
 
     /**

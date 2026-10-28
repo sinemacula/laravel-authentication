@@ -30,7 +30,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
  */
 #[CoversClass(BearerAuthentication::class)]
 #[CoversClass(JwtGuard::class)]
-final class JwtGuardTokensValidAfterTest extends JwtGuardTestCase
+final class BearerAuthenticationTest extends JwtGuardTestCase
 {
     /**
      * Rows of `[seconds from the token's iat to the cutoff, accepted]`. The
@@ -79,6 +79,30 @@ final class JwtGuardTokensValidAfterTest extends JwtGuardTestCase
     public function testThePrincipalsTimeLimitsADevicelessToken(int $offset, bool $accepted): void
     {
         $identity  = $this->identity(null);
+        $principal = $this->principal($this->now->copy()->addSeconds($offset));
+
+        $this->expectOutcome($accepted);
+
+        self::assertSame($accepted ? $identity : null, $this->guardFor($identity, $principal)->user());
+    }
+
+    /**
+     * The principal's time is held against the token's `iat` when the identity
+     * does not record one at all, as for a membership that carries the time
+     * while its identity does not.
+     *
+     * @param  int  $offset
+     * @param  bool  $accepted
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    #[DataProvider('provideCutoffs')]
+    public function testThePrincipalsTimeLimitsATokenWhoseIdentityRecordsNone(int $offset, bool $accepted): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
+
         $principal = $this->principal($this->now->copy()->addSeconds($offset));
 
         $this->expectOutcome($accepted);

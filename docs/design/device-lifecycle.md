@@ -39,8 +39,14 @@ deleted. Starting a session is in
   (by owner, or by principal); (3) once committed, `DeviceRevoked` per revoked device, then `SignedOutEverywhere` per
   scope, also when it revoked none. A failure in (2) leaves (1) in place: fail-safe, and a retry is idempotent.
 - An identity's scope is every device its `devices()` relation returns, of every guard; a principal's is every device of
-  the configured model whose principal columns record it. An identity without `HasDevices` has no devices but still has
-  its cutoff moved and its pending sign-ins deleted; an unsaved principal has neither devices nor pending sign-ins.
+  the configured model whose principal columns record it. An identity without `HasDevices` can hold neither a device nor
+  a pending sign-in (no session starts for it), so its scope, and that of a principal whose owner (read afresh on the
+  writer) is such an identity, reads and deletes nothing and only moves the cutoff: access-only mode needs none of the
+  package's tables to revoke. A principal whose owner cannot be read has its devices looked for anyway; an unsaved
+  principal has neither devices nor pending sign-ins. A principal scope's events carry that owner as their identity.
+- `signOutEverywhere(keepCurrentDevice: true)` keeps the request's device; a request without one (a device-less token)
+  is kept by leaving the identity's cutoff unmoved, so the identity's other device-less tokens survive too, until they
+  expire.
 - The security-change methods (`RevokesOnSecurityChanges`: `passwordChanged()`, `passwordReset()`, `factorRemoved()`,
   `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason.
   `tenantDeactivated()` checks every listed principal acts within the tenant (`getTenant()` on the writer, same class

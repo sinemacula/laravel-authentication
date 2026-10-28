@@ -154,8 +154,12 @@ Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-
 
 1. Do not implement `HasDevices` on your identity model.
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-3. Do not call `$guard->refresh(...)` or the session service, which throws a `LogicException` for an identity without
-   `HasDevices`. Clients re-authenticate when the access token expires.
+3. Do not call `$guard->refresh(...)` or start sessions through the session service (`signIn()`, `start()`), which
+   throws a `LogicException` for an identity without `HasDevices`. Clients re-authenticate when the access token
+   expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens valid after"
+   time (below): the session service's revocation methods (`revokeDevices()`, `signOutEverywhere()`,
+   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalDevices()`) move it,
+   and need none of the package's tables for such an identity, or call `invalidateTokensIssuedBefore()` yourself.
 
 `Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
 device to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
@@ -1726,7 +1730,10 @@ device when one is given, return how many devices they revoked, and also end the
 factor or a principal choice waiting to be completed), so a credential issued before the revocation cannot start a
 session after it. `signOutEverywhere()` is `revokeDevices()` for the request's identity with reason
 `signed_out_everywhere`; it returns `0` on a guest request, and it leaves the guard bound for the rest of the request
-(call `signOut()` as well to end the current session too).
+(call `signOut()` as well to end the current session too). With `keepCurrentDevice: true` on a request whose session has
+no device (an access-only token), the session is kept by leaving the identity's "tokens valid after" cutoff where it is,
+since a device-less token can only be ended through it: every device is still revoked, but the identity's other
+device-less tokens keep working too, until they expire.
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
 (`HasTokensValidAfter`), then, in one transaction on the device model's connection, revokes each unrevoked device, read
@@ -1954,18 +1961,21 @@ Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event):
 ```
 
 The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the device
-columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within,
-the device and the sign-in method (for a device's events, the method its session records); what was not established is
+columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
+device and the sign-in method (for a device's events, the method its session records); what was not established is
 `null`. It also snapshots, when the event is built, the identity's auth identifier (`identityId`), the principal's
 recorded type and identifier (`principalType`, `principalId`), and the tenant's and the device's identifiers
-(`tenantId`, `deviceId`, which keeps the device id a token named even when no device was found). The snapshots, the
-client, the method and the other values are fixed facts that survive a queue unchanged. The models are live references:
-a synchronous listener gets the package's own instances, and a queued listener gets them re-fetched in their state when
-it runs, as Laravel's `SerializesModels` does, or a `ModelNotFoundException` when one was deleted meanwhile (a pruned
-device, say). Audit sinks should record the snapshots. No event carries a token, a digest, a password or any other
-secret. An event that reports a write is dispatched once the write is committed on the written row's own connection: at
-once when it has no open transaction, on its commit otherwise, and never when it is rolled back; a transaction on
-another connection neither delays nor withdraws it.
+(`tenantId`, `deviceId`, which keeps the device id a token named even when no device was found). When a device row was
+loaded but its identity or principal was not (a device revoked from a device list or by an administrator, a refresh
+refused before the owner was read), `identityId`, `principalType` and `principalId` are the owner and principal the row
+records; a device records no tenant, so a revocation's `tenantId` is known only when the tenant's deactivation or the
+request's own session is why. The snapshots, the client, the method and the other values are fixed facts that survive a
+queue unchanged. The models are live references: a synchronous listener gets the package's own instances, and a queued
+listener gets them re-fetched in their state when it runs, as Laravel's `SerializesModels` does, or a
+`ModelNotFoundException` when one was deleted meanwhile (a pruned device, say). Audit sinks should record the snapshots.
+No event carries a token, a digest, a password or any other secret. An event that reports a write is dispatched once the
+write is committed on the written row's own connection: at once when it has no open transaction, on its commit
+otherwise, and never when it is rolled back; a transaction on another connection neither delays nor withdraws it.
 
 A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
 package's `PrincipalAssigned` and `DeviceAuthenticated`, and a rejected token only `AuthenticationFailed`, once per

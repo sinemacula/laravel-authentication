@@ -17,7 +17,8 @@ use SineMacula\Laravel\Authentication\Listeners\Concerns\RevokesOnceCommitted;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnDeactivation;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\ActivatableTenant;
-use Tests\Integration\Fixtures\Coexist3dPrincipal;
+use Tests\Integration\Fixtures\ActivatableTenantMember;
+use Tests\Integration\Fixtures\ActiveMembership;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubModel;
@@ -60,7 +61,7 @@ final class RevokeDevicesOnDeactivationTest extends TestCase
     #[\Override]
     protected function tearDown(): void
     {
-        Schema::dropIfExists('coexist_3d_principals');
+        Schema::dropIfExists('active_memberships');
 
         $this->dropSessionTables();
 
@@ -111,7 +112,7 @@ final class RevokeDevicesOnDeactivationTest extends TestCase
     {
         $principal = $this->seedPrincipalSession();
 
-        Coexist3dPrincipal::observe(RevokeDevicesOnDeactivation::class);
+        ActiveMembership::observe(RevokeDevicesOnDeactivation::class);
 
         $principal->forceFill(['is_active' => false])->save();
 
@@ -162,7 +163,7 @@ final class RevokeDevicesOnDeactivationTest extends TestCase
     {
         $principal = $this->seedPrincipalSession();
 
-        Coexist3dPrincipal::observe(RevokeDevicesOnDeactivation::class);
+        ActiveMembership::observe(RevokeDevicesOnDeactivation::class);
 
         $this->rollBack(static fn () => $principal->forceFill(['is_active' => false])->save());
 
@@ -232,30 +233,31 @@ final class RevokeDevicesOnDeactivationTest extends TestCase
     }
 
     /**
-     * A 3D principal with one live session acting as it.
+     * A 3D principal with one live session acting as it, held by its owner.
      *
-     * @return \Tests\Integration\Fixtures\Coexist3dPrincipal
+     * @return \Tests\Integration\Fixtures\ActiveMembership
      */
-    private function seedPrincipalSession(): Coexist3dPrincipal
+    private function seedPrincipalSession(): ActiveMembership
     {
-        Schema::create('coexist_3d_principals', static function (Blueprint $blueprint): void {
+        Schema::create('active_memberships', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->unsignedInteger('identity_id');
-            $blueprint->string('name');
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
         });
 
-        $principal = new Coexist3dPrincipal;
-        $principal->forceFill(['identity_id' => 1, 'name' => 'Member', 'is_active' => true])->save();
+        $member = ActivatableTenantMember::query()->create(['email' => 'member@example.test', 'password' => 'unused']);
+
+        $principal = new ActiveMembership;
+        $principal->forceFill(['identity_id' => $member->id, 'is_active' => true])->save();
 
         DB::table('devices')->insert([
             'id'                   => (string) Str::uuid7(),
-            'authenticatable_type' => 'identity',
-            'authenticatable_id'   => '1',
-            'principal_type'       => Coexist3dPrincipal::class,
+            'authenticatable_type' => $member->getMorphClass(),
+            'authenticatable_id'   => (string) $member->id,
+            'principal_type'       => $principal->getMorphClass(),
             'principal_id'         => (string) $principal->id,
-            'guard'                => 'api',
+            'guard'                => 'members',
             'signed_in_at'         => now(),
             'idle_expires_at'      => now()->addDay(),
             'absolute_expires_at'  => now()->addWeek(),

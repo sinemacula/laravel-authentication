@@ -18,10 +18,13 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use Tests\Integration\Fixtures\AccessOnlyMember;
 use Tests\Integration\Fixtures\CutoffIdentity;
+use Tests\Integration\Fixtures\CutoffMembership;
 use Tests\TestCase;
 
 /**
@@ -74,6 +77,7 @@ final class TokensValidAfterIntegrationTest extends TestCase
         });
 
         Route::middleware('auth:api')->get('/me', static fn (): array => ['device' => Auth::device()?->getDeviceIdentifier()]);
+        Route::middleware('auth:members')->get('/membership', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
     }
 
     /**
@@ -85,6 +89,8 @@ final class TokensValidAfterIntegrationTest extends TestCase
     protected function tearDown(): void
     {
         Schema::dropIfExists('cutoff_identities');
+        Schema::dropIfExists('cutoff_memberships');
+        Schema::dropIfExists('access_only_members');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -165,6 +171,54 @@ final class TokensValidAfterIntegrationTest extends TestCase
     }
 
     /**
+     * A principal's time limits the device-less tokens acting as it when its
+     * identity records none: revoking the principal's sessions ends a token
+     * issued before, and one issued in the next second works.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePrincipalsTimeLimitsATokenWhoseIdentityRecordsNone(): void
+    {
+        Schema::create('access_only_members', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email');
+            $blueprint->string('password');
+            $blueprint->timestamps();
+        });
+
+        Schema::create('cutoff_memberships', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->unsignedInteger('identity_id');
+            $blueprint->dateTime('tokens_valid_after', 0)->nullable();
+            $blueprint->timestamps();
+        });
+
+        $member     = AccessOnlyMember::query()->create(['email' => 'member@example.test', 'password' => 'unused']);
+        $membership = CutoffMembership::query()->create(['identity_id' => $member->id]);
+        $tokens     = Auth::jwt('members');
+
+        self::assertNotNull($tokens);
+
+        $earlier = $tokens->issueAccessToken($member, $membership, null);
+
+        $this->bearer($earlier, '/membership')->assertOk()->assertJson(['principal' => $membership->id]);
+
+        $this->moveClocksTo($this->now->addMinute());
+
+        Auth::sessions('members')->revokePrincipalDevices($membership, RevocationReason::REVOKED);
+
+        $this->bearer($earlier, '/membership')->assertUnauthorized();
+
+        $this->moveClocksTo($this->now->addSecond());
+
+        $this->bearer($tokens->issueAccessToken($member, $membership, null), '/membership')->assertOk();
+
+        self::assertSame([FailureReason::ISSUED_BEFORE_CUTOFF], $this->reasons);
+    }
+
+    /**
      * Configure the `api` guard over the identities that record a time.
      *
      * @param  mixed  $app
@@ -184,6 +238,8 @@ final class TokensValidAfterIntegrationTest extends TestCase
 
         $config->set('auth.providers.cutoff', ['driver' => 'model', 'model' => CutoffIdentity::class]);
         $config->set('auth.guards.api', ['driver' => 'jwt', 'provider' => 'cutoff']);
+        $config->set('auth.providers.access_only_members', ['driver' => 'model', 'model' => AccessOnlyMember::class]);
+        $config->set('auth.guards.members', ['driver' => 'jwt', 'provider' => 'access_only_members']);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
     }
@@ -221,13 +277,14 @@ final class TokensValidAfterIntegrationTest extends TestCase
      * Send a request with the bearer token.
      *
      * @param  string  $token
+     * @param  string  $uri
      * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
      */
-    private function bearer(string $token): TestResponse
+    private function bearer(string $token, string $uri = '/me'): TestResponse
     {
         Auth::forgetGuards();
 
-        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/me');
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson($uri);
     }
 
     /**

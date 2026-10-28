@@ -113,8 +113,14 @@ trait ManagesDevices
 
     /**
      * End every session of the request's identity, of every guard, with reason
-     * `signed_out_everywhere`, keeping the request's own device when asked.
+     * `signed_out_everywhere`, keeping the request's own session when asked.
      * Returns how many devices this call revoked; `0` for a guest request.
+     *
+     * The request's session is kept by keeping its device. A session without a
+     * device (an access-only token) is kept by leaving the identity's "tokens
+     * valid after" cutoff where it is, since a device-less token can only be
+     * ended through it: its devices are still revoked, but the identity's other
+     * device-less tokens then also keep working until they expire.
      *
      * The guard stays bound for the rest of the request either way; call
      * `signOut()` as well to end the request's own session.
@@ -133,7 +139,10 @@ trait ManagesDevices
             return 0;
         }
 
-        return $this->revokeDevices($identity, RevocationReason::SIGNED_OUT_EVERYWHERE, $keepCurrentDevice ? $this->guard->device() : null);
+        $device = $keepCurrentDevice ? $this->guard->device() : null;
+        $scope  = RevocationScope::identity($identity);
+
+        return $this->endSessions([$keepCurrentDevice && $device === null ? $scope->keepingCutoff() : $scope], RevocationReason::SIGNED_OUT_EVERYWHERE, $device);
     }
 
     /**

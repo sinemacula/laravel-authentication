@@ -41,9 +41,14 @@ principal auth without device tracking or refresh rotation.
 - A forged non-null `did` does not cause a best-effort downgrade. The bearer path fails closed even in a deployment that
   has no `devices` table.
 - This mode is intentionally bearer-only. `JwtTokenService::issueRefreshToken()` still requires a `Device`, and the
-  refresh exchange still depends on an `EloquentDevice` model plus persisted device state. The session service throws a
-  `LogicException` for an identity without `HasDevices`: every session it starts lives on a device, and the access token
-  it would issue names one this identity can never resolve.
+  refresh exchange still depends on an `EloquentDevice` model plus persisted device state. The session service refuses to
+  start a session (`signIn()`, `start()`) for an identity without `HasDevices` with a `LogicException`: every session it
+  starts lives on a device, and the access token it would issue names one this identity can never resolve.
+- Its revocation methods work, and are how device-less tokens end early: for an identity without `HasDevices`, or a
+  principal whose owner is one, a bulk revocation (`revokeDevices()`, `signOutEverywhere()`, the security-change
+  methods, `principalDeactivated()`, `revokePrincipalDevices()`) only moves the scope's "tokens valid after" cutoff and
+  reports it; it reads no `devices` row and deletes no `pending_sign_ins` row, since no session of such an identity can
+  hold either, so neither table needs to exist.
 - Guard construction still validates the configured device model class. The package tolerates a missing table on this
   path because bearer auth with `did = null` never tries to query it.
 - Access-token `jti` values are not consulted on the bearer path. Revocation behavior therefore comes from identity and
@@ -54,6 +59,8 @@ principal auth without device tracking or refresh rotation.
 - `src/Jwt/JwtTokenService.php`: `issueAccessToken()` and `issueRefreshToken()`.
 - `src/Guards/JwtGuard.php`: `resolveBearerToken()`; `src/Guards/BearerAuthentication.php`: `isIssuedAfterCutoff()`.
 - `src/Sessions/IdentityDevices.php`: `find()`, which finds no device for an identity without `HasDevices`.
+- `src/Sessions/RevocationScope.php`: `identity()`, `principal()`, which leave the package's tables alone for an identity
+  without `HasDevices`.
 - `src/Guards/AbstractGuard.php`: `bindAuthenticationLifecycle()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()` and `assertValidDeviceModelConfiguration()`.
 
@@ -71,8 +78,13 @@ principal auth without device tracking or refresh rotation.
   `testAccessOnlyBearerPathUsesSingleReadAndNoWrites`
 - `tests/Integration/Guards/TokensValidAfterIntegrationTest.php`
   `testATimeEndsTheDevicelessTokensIssuedUpToItsSecond`, `testADevicesTokenIsNotHeldToTheTime`
-- `tests/Feature/Guards/JwtGuardTokensValidAfterTest.php`
-  `testTheIdentitysTimeLimitsADevicelessToken`, `testThePrincipalsTimeLimitsADevicelessToken`
+- `tests/Feature/Guards/BearerAuthenticationTest.php`
+  `testTheIdentitysTimeLimitsADevicelessToken`, `testThePrincipalsTimeLimitsADevicelessToken`,
+  `testThePrincipalsTimeLimitsATokenWhoseIdentityRecordsNone`
+- `tests/Integration/Guards/TokensValidAfterIntegrationTest.php`
+  `testThePrincipalsTimeLimitsATokenWhoseIdentityRecordsNone`
+- `tests/Integration/Sessions/RevocationScopeTest.php`
+  `testAnAccessOnlyIdentitysRevocationsOnlyMoveItsCutoff`, `testAPrincipalOfAnAccessOnlyIdentityOnlyMovesItsCutoff`
 - `tests/Performance/TokensValidAfterQueryBudgetTest.php`
   `testAnAcceptedTokenCostsOneRead`, `testARejectedTokenCostsOneRead`
 
