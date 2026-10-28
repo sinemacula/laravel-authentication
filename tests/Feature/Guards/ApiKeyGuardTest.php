@@ -491,7 +491,9 @@ final class ApiKeyGuardTest extends TestCase
 
     /**
      * A key's use is recorded at most once per throttle: not again within it,
-     * and again once it has passed; a throttle of 0 records every use.
+     * and again once it has passed; a throttle of 0 records every use. Only
+     * that key's use is recorded: another key, never used or stale, is left as
+     * it was.
      *
      * @return void
      */
@@ -499,6 +501,10 @@ final class ApiKeyGuardTest extends TestCase
     {
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine);
+        $unused  = $this->apiKeys()->issue($machine, $machine);
+        $stale   = $this->apiKeys()->issue($machine, $machine);
+
+        DB::table('api_keys')->where('id', $stale->id)->update(['last_used_at' => '2026-04-01 12:00:00']);
 
         $this->getWithKey('/machine/me', $issued->key)->assertOk();
 
@@ -519,6 +525,8 @@ final class ApiKeyGuardTest extends TestCase
         config()->set('authentication.api_keys.last_used_throttle_seconds', 0);
 
         self::assertSame(1, $this->countQueries(fn (): bool => Auth::guard('machine')->check(), $issued->key, 'update'));
+        self::assertNull(DB::table('api_keys')->where('id', $unused->id)->value('last_used_at'));
+        self::assertSame('2026-04-01 12:00:00', DB::table('api_keys')->where('id', $stale->id)->value('last_used_at'));
     }
 
     /**
