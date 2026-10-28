@@ -1829,8 +1829,11 @@ One application can serve many requests (Octane) or run many queued jobs (a queu
 may reach the next. Each request rebinds Laravel's `request`, which resets every package guard already resolved: the
 identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates
 from its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its
-guards when each job starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a job signs in
-with `login()` or `setUser()` is signed out again for the next job. A dispatcher or principal resolver swapped in after
+guards when each job a worker runs starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a
+job signs in with `login()` or `setUser()` is signed out again for the next job. Only jobs a worker runs are reset: a
+job on the `sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the
+request that dispatched it and leaves its guards as they are, so a session the request just started stays bound and a
+request that signed out stays signed out. A dispatcher or principal resolver swapped in after
 a guard resolved (`Event::fake()`, a rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its
 session service (and, through it, a switch of principal and the revocations), which read the guard's collaborators
 each time they run. The package's singletons hold configuration only: the token service factory memoises each guard's

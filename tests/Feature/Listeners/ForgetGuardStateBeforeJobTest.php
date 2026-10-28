@@ -5,6 +5,9 @@ declare(strict_types = 1);
 namespace Tests\Feature\Listeners;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Contracts\Queue\Job;
+use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Jobs\SyncJob;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -35,7 +38,27 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
 
         $this->app?->instance('auth', $manager);
 
-        (new ForgetGuardStateBeforeJob)();
+        (new ForgetGuardStateBeforeJob)(new JobProcessing('database', \Mockery::mock(Job::class)));
+    }
+
+    /**
+     * A job run on the `sync` connection runs inside the request or command
+     * that dispatched it, so the guards keep that request's state.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testASyncJobLeavesTheGuardsAlone(): void
+    {
+        $manager = \Mockery::mock(AuthManager::class);
+        $manager->shouldNotReceive('forgetGuardState');
+
+        $this->app?->instance('auth', $manager);
+
+        $job = new SyncJob(app(), '{}', 'sync', 'default');
+
+        (new ForgetGuardStateBeforeJob)(new JobProcessing('sync', $job));
     }
 
     /**
@@ -53,6 +76,6 @@ final class ForgetGuardStateBeforeJobTest extends TestCase
 
         $this->app?->instance('auth', $manager);
 
-        (new ForgetGuardStateBeforeJob)();
+        (new ForgetGuardStateBeforeJob)(new JobProcessing('database', \Mockery::mock(Job::class)));
     }
 }
