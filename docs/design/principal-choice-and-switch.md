@@ -63,7 +63,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
    `PrincipalChoiceRequired` follows the commit, and the result `requiresPrincipal()`.
 2. `choice($token)` lists the eligible principals; `choose($token, $principal)` starts the session as it (`Login`,
    `DeviceCreated`, `SignedIn`), and the slots are given back after the commit.
-3. Later, `switchPrincipal($refreshToken, $other)` rotates the device to the other principal, binds the guard to it
+3. Later, `switchPrincipalFromRequest($other)` (or `switchPrincipal($refreshToken, $other)` with a token read by the
+   caller) rotates the device to the other principal, binds the guard to it
    (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`), and dispatches `PrincipalSwitched` after the commit.
    The previous principal's access tokens fail on the bearer path as `device_principal_mismatch` from then on.
 
@@ -85,7 +86,7 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 ## Implementation Anchors
 
 - `src/Sessions/Concerns/ChoosesPrincipals.php`: `principals()`, `choice()`, `choose()`, `switchPrincipal()`,
-  `offerChoice()`, `switched()`, `previousPrincipal()`.
+  `switchPrincipalFromRequest()`, `offerChoice()`, `switched()`, `previousPrincipal()`.
 - `src/Sessions/PrincipalSwitch.php`: one switch, built per call; `switch()` (the limiter), `switchOn()`, `admit()`,
   `isTarget()`, `switchCurrent()`, `rotateTo()`, `retry()`, `afterLostSwitch()`, `deadlines()`.
 - `src/Jwt/RefreshRotationStore.php`: `switchPrincipal()` and `reload()`.
@@ -100,9 +101,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/ChoosesPrincipalsTest.php` (the choice over HTTP and through the service, choose then factor
-  then complete, discard, the token purposes, the proven device, the slots)
+  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier)
 - `tests/Feature/Sessions/PrincipalSwitchTest.php` (the switch over HTTP, the old access token refused at once,
-  A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal)
+  A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a
+  switch read from the request and the transport's refusals)
 - `tests/Integration/Sessions/PrincipalSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch,
   a different switch, a deadline change, a deletion and an owner change)
 - `tests/Feature/Sessions/PendingSignInsTest.php` `testIssueChoiceStoresTheSignInWithoutAPrincipal`,

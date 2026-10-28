@@ -19,7 +19,6 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
@@ -80,7 +79,7 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
         $this->createSessionTables();
 
-        Route::post('/auth/sign-in', static fn (): JsonResponse => self::signInRoute());
+        Route::post('/auth/sign-in', static fn (Request $request): JsonResponse => self::signInRoute($request));
         Route::post('/auth/refresh', static fn (): JsonResponse => self::refreshRoute());
         Route::post('/auth/switch', static fn (Request $request): JsonResponse => self::switchRoute($request));
         Route::post('/logout', static fn (): JsonResponse => self::logoutRoute());
@@ -168,6 +167,27 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
+     * A sign-in posted from another site, or without the custom header, is
+     * refused before any session starts and sets no cookie, so a cross-site
+     * form cannot sign the browser into another account.
+     *
+     * @return void
+     */
+    public function testASignInFromAnotherSiteSetsNoCookie(): void
+    {
+        $this->seedMemberships();
+
+        foreach ([['Origin' => 'https://evil.example', 'X-Requested-With' => 'XMLHttpRequest'], ['Origin' => 'http://localhost'], []] as $headers) {
+
+            $response = $this->browser('POST', '/auth/sign-in', headers: $headers)->assertForbidden();
+
+            self::assertSame([], $response->headers->getCookies());
+        }
+
+        self::assertSame(0, DB::table('devices')->count());
+    }
+
+    /**
      * Logging out from a route outside the cookie's path revokes the session's
      * device and clears the cookie: the cookie it held no longer refreshes and
      * the access token no longer authenticates.
@@ -219,20 +239,28 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
 
     /**
      * Sign the member in as its default membership and answer with the access
-     * token in the body and the refresh token in the cookie.
+     * token in the body and the refresh token in the cookie, for a request from
+     * the API's own site only: a cross-site form must not sign the browser in.
      *
+     * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      *
      * @throws \Throwable
      */
-    private static function signInRoute(): JsonResponse
+    private static function signInRoute(Request $request): JsonResponse
     {
+        $transport = Auth::refreshTransport(self::GUARD);
+
+        if (!$transport->isSameSiteRequest($request)) {
+            return new JsonResponse(['reason' => 'cross_site_request'], 403);
+        }
+
         $session = Auth::sessions(self::GUARD)->signIn('password', self::credentials('member@example.test'))->session;
 
         assert($session !== null);
 
         return (new JsonResponse(['access_token' => $session->tokens->accessToken]))
-            ->withCookie(Auth::refreshTransport(self::GUARD)->cookie($session->tokens->refreshToken, $session->device));
+            ->withCookie($transport->cookie($session->tokens->refreshToken, $session->device));
     }
 
     /**
@@ -261,9 +289,9 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
     }
 
     /**
-     * Switch the session proven by the refresh token the transport reads to the
-     * membership named, answering a switch read from the cookie with the
-     * rotated cookie, or with the refusal's reason.
+     * Switch the session proven by the refresh token the guard's transport
+     * reads from the request to the membership named, answering a switch read
+     * from the cookie with the rotated cookie, or with the refusal's reason.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -272,22 +300,16 @@ final class RefreshCookieSessionLifecycleTest extends TestCase
      */
     private static function switchRoute(Request $request): JsonResponse
     {
-        $presented = Auth::refreshTransport(self::GUARD)->read($request);
-
-        if (!$presented instanceof PresentedRefreshToken) {
-            return new JsonResponse(['reason' => $presented?->value], 401);
-        }
-
         $target = ActivatableTenantMembership::query()->findOrFail($request->integer('membership'));
-        $result = Auth::sessions(self::GUARD)->switchPrincipal($presented->token, $target);
+        $result = Auth::sessions(self::GUARD)->switchPrincipalFromRequest($target);
 
-        if ($result->session === null) {
-            return new JsonResponse(['reason' => $result->reason?->value], 401);
+        if ($result?->session === null) {
+            return new JsonResponse(['reason' => $result?->reason?->value], 401);
         }
 
         $response = new JsonResponse(['access_token' => $result->session->tokens->accessToken, 'principal' => $result->session->principal->getPrincipalIdentifier()]);
 
-        return $presented->source === RefreshTokenSource::COOKIE
+        return $result->source === RefreshTokenSource::COOKIE
             ? $response->withCookie(Auth::refreshTransport(self::GUARD)->cookie($result->session->tokens->refreshToken, $result->session->device))
             : $response;
     }

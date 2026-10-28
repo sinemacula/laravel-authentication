@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -48,6 +49,30 @@ final class SwitchResultTest extends TestCase
         self::assertSame($session, $result->session);
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
+        self::assertNull($result->source);
+    }
+
+    /**
+     * The same outcome read from a source keeps every part and says which
+     * source, without changing the result it came from.
+     *
+     * @return void
+     */
+    public function testAResultReadFromASourceSaysWhich(): void
+    {
+        $limited = SwitchResult::failed(FailureReason::RATE_LIMITED, 30);
+        $read    = $limited->from(RefreshTokenSource::COOKIE);
+
+        self::assertNotSame($limited, $read);
+        self::assertNull($limited->source);
+        self::assertSame(RefreshTokenSource::COOKIE, $read->source);
+        self::assertSame(FailureReason::RATE_LIMITED, $read->reason);
+        self::assertSame(30, $read->retryAfter);
+
+        $device  = \Mockery::mock(Model::class, EloquentDevice::class);
+        $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new RefreshResult('access', 'refresh'), 'password', false);
+
+        self::assertSame($session, SwitchResult::switched($session)->from(RefreshTokenSource::BODY)->session);
     }
 
     /**

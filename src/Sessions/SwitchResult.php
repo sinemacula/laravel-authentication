@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 
 /**
  * The outcome of switching a session to another principal: the session on the
@@ -12,7 +13,10 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
  *
  * A refused switch leaves the session as it was (unless the presented refresh
  * token proved a replay, which revokes the device), and `AuthenticationFailed`
- * reports why; `retryAfter` carries the wait of a `rate_limited` refusal.
+ * reports why; `retryAfter` carries the wait of a `rate_limited` refusal. A
+ * switch read from the request (`switchPrincipalFromRequest()`) says where the
+ * refresh token came from (`source`), so one read from the cookie can be
+ * answered with a cookie.
  *
  * @api
  *
@@ -27,6 +31,7 @@ final readonly class SwitchResult
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
+     * @param  ?\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      */
     private function __construct(
 
@@ -38,6 +43,9 @@ final readonly class SwitchResult
 
         /** Seconds until another attempt may be made, for `rate_limited` only. */
         public ?int $retryAfter = null,
+
+        /** Where the refresh token was read from, for a switch read from the request. */
+        public ?RefreshTokenSource $source = null,
     ) {}
 
     /**
@@ -61,6 +69,17 @@ final readonly class SwitchResult
     public static function failed(FailureReason $reason, ?int $retryAfter = null): self
     {
         return new self(reason: $reason, retryAfter: $retryAfter);
+    }
+
+    /**
+     * The same outcome, for a refresh token read from the source.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
+     * @return self
+     */
+    public function from(RefreshTokenSource $source): self
+    {
+        return new self($this->session, $this->reason, $this->retryAfter, $source);
     }
 
     /**

@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -22,6 +23,7 @@ use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
@@ -50,7 +52,9 @@ use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
  * additional-factor policy as any sign-in.
  *
  * `switchPrincipal()` moves a session, proven by its refresh token, to another
- * principal of the same identity on the same device (see `PrincipalSwitch`).
+ * principal of the same identity on the same device (see `PrincipalSwitch`);
+ * `switchPrincipalFromRequest()` reads that token from the request through the
+ * guard's refresh token transport first.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -220,6 +224,45 @@ trait ChoosesPrincipals
         }
 
         return $this->switched($outcome, $client);
+    }
+
+    /**
+     * Switch the session to the principal with the refresh token the request
+     * carries, read through the guard's refresh token transport, so it comes
+     * from the one source the guard allows and a cookie passes its cross-site
+     * checks, as `refreshFromRequest()` reads one.
+     *
+     * Returns `null`, dispatching nothing, when the request carries no token. A
+     * token the transport refuses fails with its reason
+     * (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) after
+     * `AuthenticationFailed` (flow `principal_switch`), touching no device;
+     * otherwise it is `switchPrincipal()`. The result says where the token was
+     * read from, so a switch read from the cookie can be answered with one.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return ?\SineMacula\Laravel\Authentication\Sessions\SwitchResult
+     *
+     * @throws \Throwable
+     */
+    public function switchPrincipalFromRequest(Principal $principal): ?SwitchResult
+    {
+        $request   = $this->guard->getRequest();
+        $presented = $this->guard->refreshTransport()->read($request);
+
+        if ($presented instanceof PresentedRefreshToken) {
+            return $this->switchPrincipal($presented->token, $principal)->from($presented->source);
+        }
+
+        if ($presented !== null) {
+
+            $context = new EventContext($this->guard->getName(), ClientContext::fromRequest($request));
+
+            $this->dispatch(new AuthenticationFailed($context, AuthenticationFlow::PRINCIPAL_SWITCH, $presented));
+
+            return SwitchResult::failed($presented);
+        }
+
+        return null;
     }
 
     /**

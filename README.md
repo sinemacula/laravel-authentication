@@ -1495,12 +1495,16 @@ use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 
 Route::post('/auth/sign-in', function (Request $request) {
+    $transport = Auth::refreshTransport('browser');
+
+    abort_unless($transport->isSameSiteRequest($request), 403);
+
     $session = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'))->session;
 
     abort_if($session === null, 401);
 
     return response()->json(['access_token' => $session->tokens->accessToken])
-        ->withCookie(Auth::refreshTransport('browser')->cookie($session->tokens->refreshToken, $session->device));
+        ->withCookie($transport->cookie($session->tokens->refreshToken, $session->device));
 });
 
 Route::post('/auth/refresh', function () {
@@ -1527,11 +1531,16 @@ a logout route outside the cookie's path included, since a path limits where the
 response may set it. A `__Host-` name is accepted only with the path `/` and no domain, as browsers require. Setting or
 clearing the cookie on a guard that does not list `cookie` throws a `LogicException`.
 
-A browser attaches the cookie by itself, to any request for its path, so a refresh read from it is held to two checks
-a cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
+A browser attaches the cookie by itself, to any request for its path, so a refresh read from it is held to two checks a
+cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
 `cookie.allowed_origins` (each exactly `scheme://host[:port]`), and it must carry the `cookie.csrf_header` header
 (`X-Requested-With` by default) with a value, which a form or a simple request cannot send. Anything else is
-`cross_site_request`. A script refreshes with:
+`cross_site_request`. A route that sets the cookie must hold its request to the same checks, the sign-in above all: a
+cross-site page can auto-submit a form to it with an attacker's credentials, and a browser keeps a `SameSite=Strict`
+cookie set by the response to such a top-level navigation, so without the check the victim's browser would hold the
+attacker's refresh cookie and its own scripts would then pass the refresh checks inside the attacker's account.
+`Auth::refreshTransport('browser')->isSameSiteRequest($request)` is that check, as the sign-in route above uses it. A
+script refreshes with:
 
 ```js
 await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});
@@ -1608,34 +1617,35 @@ in with to another one, on the same device, proven by the session's refresh toke
 ```php
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
-use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
-
-$presented = Auth::refreshTransport('api')->read($request);
-
-if (!$presented instanceof PresentedRefreshToken) {
-    abort(401);
-}
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 
 $target = Membership::findOrFail($request->input('membership'));
-$result = Auth::sessions('api')->switchPrincipal($presented->token, $target);
+$result = Auth::sessions('api')->switchPrincipalFromRequest($target);
+
+abort_if($result === null, 401); // no refresh token in the request
 
 if ($result->isFailed()) {
     // AuthenticationFailed was dispatched (flow principal_switch); $result->reason says why.
     abort($result->reason === FailureReason::RATE_LIMITED ? 429 : 401);
 }
 
-return [
-    'access_token'  => $result->session->tokens->accessToken,
-    'refresh_token' => $result->session->tokens->refreshToken,
-];
+$tokens = $result->session->tokens;
+
+return $result->source === RefreshTokenSource::COOKIE
+    ? response()->json(['access_token' => $tokens->accessToken])
+        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken, $result->session->device))
+    : response()->json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
 ```
 
 The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
-refresh credential. Read it with the guard's refresh token transport, so a token from the refresh cookie gets the
-cookie's cross-site checks, and put the switch route under the cookie's path. A switch whose token came from the cookie
-answers with the new refresh token in the cookie, as a refresh does:
-`Auth::refreshTransport('api')->cookie($result->session->tokens->refreshToken, $result->session->device)` (when
-`$presented->source` is `RefreshTokenSource::COOKIE`).
+refresh credential. `switchPrincipalFromRequest()` reads it as `refreshFromRequest()` does, through the guard's refresh
+token transport, so it comes from the one source the guard allows and a token from the refresh cookie gets the cookie's
+cross-site checks; put the switch route under the cookie's path. It returns `null` when the request carries no token,
+and a token the transport refuses fails with its reason (`refresh_token_conflict`, `cross_site_request`,
+`token_invalid`, reported as an `AuthenticationFailed` of flow `principal_switch`) without the device being touched. The
+result's `source` says where the token came from, so a switch read from the cookie answers with the new refresh token
+in the cookie, as a refresh does. `switchPrincipal($refreshToken, $target)` remains for a token your code reads itself;
+never pass it one read from the refresh cookie.
 
 A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`), the token parsed for this
 guard, the device found, of this guard, live, and the rotation id current, or the previous one inside the grace window;

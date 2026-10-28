@@ -94,6 +94,8 @@ final class RefreshTokenTransportTest extends TestCase
     {
         yield 'the query string of a POST' => [static fn (): Request => Request::create('/auth/refresh?refresh_token=' . self::TOKEN, 'POST')];
         yield 'the query string of a GET' => [static fn (): Request => Request::create('/auth/refresh', 'GET', ['refresh_token' => self::TOKEN])];
+        yield 'the form body of a GET' => [static fn (): Request => self::formBody('GET')];
+        yield 'the form body of a HEAD' => [static fn (): Request => self::formBody('HEAD')];
         yield 'the cookie, not a source' => [static fn (): Request => self::cookie(self::TOKEN, 'http://localhost', 'XMLHttpRequest')];
         yield 'another body field' => [static fn (): Request => self::json(['token' => self::TOKEN])];
     }
@@ -202,6 +204,27 @@ final class RefreshTokenTransportTest extends TestCase
     public function testACookieRefreshMustBeSameSite(?string $origin, ?string $csrf): void
     {
         self::assertSame(FailureReason::CROSS_SITE_REQUEST, self::transport(['cookie'])->read(self::cookie('', $origin, $csrf)));
+    }
+
+    /**
+     * A request from the API's own site, or an allowed origin, with the custom
+     * header is a same-site request; any other is not, whether or not it
+     * carries a token, so a route that sets the cookie can hold its request to
+     * the same checks.
+     *
+     * @param  ?string  $origin
+     * @param  ?string  $csrf
+     * @return void
+     */
+    #[DataProvider('provideCrossSiteRequests')]
+    public function testOnlyARequestFromTheOwnSiteWithTheHeaderIsSameSite(?string $origin, ?string $csrf): void
+    {
+        $transport = self::transport(['cookie']);
+
+        self::assertFalse($transport->isSameSiteRequest(self::cookie(null, $origin, $csrf)));
+        self::assertFalse($transport->isSameSiteRequest(self::signIn($origin, $csrf)));
+        self::assertTrue($transport->isSameSiteRequest(self::signIn('http://localhost', 'fetch')));
+        self::assertTrue($transport->isSameSiteRequest(self::signIn(self::ALLOWED_ORIGIN, 'fetch')));
     }
 
     /**
@@ -455,6 +478,36 @@ final class RefreshTokenTransportTest extends TestCase
         $server = array_filter(['HTTP_ORIGIN' => $origin, 'HTTP_X_REQUESTED_WITH' => $csrf], static fn (?string $header): bool => $header !== null);
 
         return Request::create('/auth/refresh', 'POST', $body, [self::COOKIE => $value], [], $server);
+    }
+
+    /**
+     * A sign-in request, carrying no token, from the origin with the custom
+     * header (each omitted when `null`).
+     *
+     * @param  ?string  $origin
+     * @param  ?string  $csrf
+     * @return \Illuminate\Http\Request
+     */
+    private static function signIn(?string $origin, ?string $csrf): Request
+    {
+        $server = array_filter(['HTTP_ORIGIN' => $origin, 'HTTP_X_REQUESTED_WITH' => $csrf], static fn (?string $header): bool => $header !== null);
+
+        return Request::create('/auth/sign-in', 'POST', server: $server);
+    }
+
+    /**
+     * A request of the method whose parsed form body holds the token, as a
+     * server that parses the body of any method produces.
+     *
+     * @param  string  $method
+     * @return \Illuminate\Http\Request
+     */
+    private static function formBody(string $method): Request
+    {
+        $request = Request::create('/auth/refresh', $method);
+        $request->request->set('refresh_token', self::TOKEN);
+
+        return $request;
     }
 
     /**

@@ -30,9 +30,16 @@ request may carry the token in only one place; and the cookie that carries a bro
   that does not list `cookie`, and `cookie()` an `InvalidArgumentException` for a session that has ended. Nothing is
   stored on the server.
 - `refresh(string)` stays for a token the caller reads itself and makes none of the cookie's checks, so only
-  `refreshFromRequest()` reads the cookie for a refresh. A switch of principal is proven by the refresh token too: the
-  application reads it with `read()`, so a token from the cookie gets the same checks, and answers a switch read from
-  the cookie with `cookie()` (see `principal-choice-and-switch.md`).
+  `refreshFromRequest()` reads the cookie for a refresh. A switch of principal is proven by the refresh token too:
+  `SessionService::switchPrincipalFromRequest()` reads it with `read()`, so a token from the cookie gets the same
+  checks (a refusal is an `AuthenticationFailed` of flow `principal_switch` that touches no device), and its
+  `SwitchResult::$source` lets the application answer a switch read from the cookie with `cookie()` (see
+  `principal-choice-and-switch.md`).
+- `isSameSiteRequest($request)` is the cookie's same-site check on its own (the `Origin` and the `csrf_header`), for a
+  route that sets the cookie: the browser sign-in must pass it before signing in, or a cross-site page could auto-submit
+  a form with an attacker's credentials and leave the attacker's refresh cookie in the victim's browser (a browser keeps
+  a `SameSite=Strict` cookie set by the response to a top-level navigation), where the victim's own scripts would then
+  pass every refresh check.
 - `logout()` revokes the session's device but cannot reach the response, so the logout route sends `forgetCookie()`
   itself; the revoked device's cookie no longer refreshes (`device_revoked`) wherever the browser keeps it.
 
@@ -58,7 +65,8 @@ request may carry the token in only one place; and the cookie that carries a bro
 
 ## Implementation Anchors
 
-- `src/Http/RefreshTokenTransport.php`: `read()`, `cookie()`, `forgetCookie()`.
+- `src/Http/RefreshTokenTransport.php`: `read()`, `isSameSiteRequest()`, `cookie()`, `forgetCookie()`.
+- `src/Sessions/Concerns/ChoosesPrincipals.php`: `switchPrincipalFromRequest()`.
 - `src/Http/RefreshTokenSettings.php`: `forGuard()`.
 - `src/Guards/JwtGuard.php`: `refreshFromRequest()`, `refreshTransport()`, `exchangeRefresh()`, `refuseRefresh()`.
 - `src/AuthManager.php`: `refreshTransport()`.
@@ -76,7 +84,8 @@ request may carry the token in only one place; and the cookie that carries a bro
   `testABrowserKeepsItsSessionInTheCookie`, `testTheCookieExpiresWithTheRefreshToken`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`
   `testASwitchReadFromTheCookieIsAnsweredWithTheCookie`,
-  `testASwitchFromAnotherSiteIsRefusedBeforeTheSessionIsTouched`, `testLoggingOutRevokesTheSessionAndClearsTheCookie`
+  `testASwitchFromAnotherSiteIsRefusedBeforeTheSessionIsTouched`, `testASignInFromAnotherSiteSetsNoCookie`,
+  `testLoggingOutRevokesTheSessionAndClearsTheCookie`
 - `tests/Performance/RefreshTokenExchangeQueryBudgetTest.php`
   `testARefreshFromTheRequestCostsWhatARefreshCosts`, `testARequestTheTransportRefusesCostsNoQuery`
 

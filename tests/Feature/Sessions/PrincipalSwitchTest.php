@@ -38,6 +38,7 @@ use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ChoosesPrincipals;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -109,6 +110,8 @@ final class PrincipalSwitchTest extends TestCase
             ];
         });
 
+        Route::post('/switch-from-request', static fn (Request $request): array => self::switchFromRequest($request));
+
         Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
     }
 
@@ -155,6 +158,78 @@ final class PrincipalSwitchTest extends TestCase
         $this->bearer($session->tokens->accessToken)->assertUnauthorized();
 
         self::assertNotSame($first->getKey(), $second->getKey());
+    }
+
+    /**
+     * A switch read from the request takes the refresh token from the source
+     * the guard allows and says which, from the body and then from the header.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchReadFromTheRequestSaysWhereItsTokenCameFrom(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $body = $this->postJson('/switch-from-request', ['refresh_token' => $session->tokens->refreshToken, 'membership' => $second->getKey()])
+            ->assertOk()
+            ->assertJson(['outcome' => 'switched', 'reason' => null, 'source' => 'body']);
+
+        $this->advance(5);
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['X-Refresh-Token' => $body->json('refresh')])
+            ->postJson('/switch-from-request', ['membership' => $first->getKey()])
+            ->assertOk()
+            ->assertJson(['outcome' => 'switched', 'source' => 'header']);
+    }
+
+    /**
+     * A request that carries no refresh token switches nothing and reports
+     * nothing; one the transport refuses (a token in two sources) is reported
+     * as a `principal_switch` failure with the transport's reason, without the
+     * device being touched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchReadFromTheRequestIsRefusedByTheTransport(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->recordEvents([AuthenticationFailed::class, PrincipalSwitched::class]);
+
+        Auth::forgetGuards();
+
+        $this->postJson('/switch-from-request', ['membership' => $second->getKey()])
+            ->assertOk()
+            ->assertExactJson(['outcome' => 'none', 'reason' => null, 'source' => null, 'refresh' => null]);
+
+        self::assertSame([], $this->recorded);
+
+        Auth::forgetGuards();
+
+        $this->withHeaders(['X-Refresh-Token' => $session->tokens->refreshToken])
+            ->postJson('/switch-from-request', ['refresh_token' => $session->tokens->refreshToken, 'membership' => $second->getKey()])
+            ->assertOk()
+            ->assertJson(['outcome' => 'failed', 'reason' => 'refresh_token_conflict', 'source' => null]);
+
+        $failure = $this->recordedEvent(AuthenticationFailed::class);
+
+        self::assertSame(AuthenticationFlow::PRINCIPAL_SWITCH, $failure->flow);
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $failure->reason);
+        self::assertSame(self::GUARD, $failure->context->guard);
+        self::assertNull($failure->context->device);
+        self::assertSame(PrincipalReference::id($session->principal), DB::table('devices')->value('principal_id'));
     }
 
     /**
@@ -729,6 +804,28 @@ final class PrincipalSwitchTest extends TestCase
         assert($app instanceof Application);
 
         self::configureSessionGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Switch to the membership named with the refresh token the request
+     * carries, and answer with the outcome, its reason and source, and the new
+     * refresh token.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return array<string, ?string>
+     *
+     * @throws \Throwable
+     */
+    private static function switchFromRequest(Request $request): array
+    {
+        $result = Auth::sessions(self::GUARD)->switchPrincipalFromRequest(ActivatableTenantMembership::query()->findOrFail($request->integer('membership')));
+
+        return [
+            'outcome' => $result === null ? 'none' : ($result->isSwitched() ? 'switched' : 'failed'),
+            'reason'  => $result?->reason?->value,
+            'source'  => $result?->source?->value,
+            'refresh' => $result?->session?->tokens->refreshToken,
+        ];
     }
 
     /**

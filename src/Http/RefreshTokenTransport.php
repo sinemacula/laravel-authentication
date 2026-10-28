@@ -87,7 +87,7 @@ final readonly class RefreshTokenTransport
 
         [$source] = $present;
 
-        return $source === RefreshTokenSource::COOKIE && !$this->isSameSite($request)
+        return $source === RefreshTokenSource::COOKIE && !$this->isSameSiteRequest($request)
             ? FailureReason::CROSS_SITE_REQUEST
             : $this->presented($request, $source);
     }
@@ -123,6 +123,30 @@ final readonly class RefreshTokenTransport
     public function forgetCookie(): Cookie
     {
         return $this->makeCookie(null, Carbon::now()->subYear());
+    }
+
+    /**
+     * Whether the request came from a page of the API's own site, as the
+     * refresh cookie's checks require: its `Origin` is the request's own
+     * (scheme and host) or one of the allowed origins, and it carries the
+     * custom header with a value, which a cross-site form or simple request
+     * cannot send. `read()` holds a token from the cookie to it; a route that
+     * sets the cookie, a browser sign-in above all, must hold its request to it
+     * too, or a cross-site form could sign the browser into another account.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return bool
+     */
+    public function isSameSiteRequest(Request $request): bool
+    {
+        $origin = $request->headers->get('Origin');
+        $csrf   = $request->headers->get($this->settings->csrfHeader);
+
+        if ($csrf === null || $csrf === '') {
+            return false;
+        }
+
+        return $origin === $request->getSchemeAndHttpHost() || in_array($origin, $this->settings->allowedOrigins, true);
     }
 
     /**
@@ -196,25 +220,6 @@ final readonly class RefreshTokenTransport
         $value = count($values) === 1 ? reset($values) : null;
 
         return is_string($value) && $value !== '' ? new PresentedRefreshToken($value, $source) : FailureReason::TOKEN_INVALID;
-    }
-
-    /**
-     * Whether a cookie refresh came from the request's own origin or an allowed
-     * one, with the custom header set.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
-     */
-    private function isSameSite(Request $request): bool
-    {
-        $origin = $request->headers->get('Origin');
-        $csrf   = $request->headers->get($this->settings->csrfHeader);
-
-        if ($csrf === null || $csrf === '') {
-            return false;
-        }
-
-        return $origin === $request->getSchemeAndHttpHost() || in_array($origin, $this->settings->allowedOrigins, true);
     }
 
     /**
