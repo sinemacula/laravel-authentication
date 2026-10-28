@@ -179,17 +179,18 @@ final class Rehashing
 
         $attempt = $this->rehashingAttempt($key, $user, $previous);
 
-        if ($attempt === null) {
-            $change();
+        if ($attempt !== null) {
+
+            $this->release($key);
+
+            [$guard, $index] = $attempt;
+
+            $this->attempts[$guard][$index]['held'] = $change;
 
             return;
         }
 
-        $this->release($key);
-
-        [$guard, $index] = $attempt;
-
-        $this->attempts[$guard][$index]['held'] = $change;
+        $change();
     }
 
     /**
