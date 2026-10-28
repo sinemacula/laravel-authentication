@@ -6,11 +6,13 @@ namespace Tests\Performance;
 
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -127,31 +129,84 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Attempts abandoned one after another, each validating an instance nothing
-     * holds once the next attempt starts (an `attemptWhen()` whose callback
-     * threw, in a long-running command), are let go of rather than kept for the
-     * rest of the command: the guard keeps only the latest, so a later save
-     * costs no hash check for them.
+     * Rows of `[whether every attempt validates the one instance the command
+     * keeps, as a provider that caches its users returns, rather than a fresh
+     * instance nothing holds once the next attempt starts]`.
      *
+     * @return iterable<string, array{0: bool}>
+     */
+    public static function provideAbandonedInstances(): iterable
+    {
+        yield 'a fresh instance each time' => [false];
+        yield 'one instance kept throughout' => [true];
+    }
+
+    /**
+     * Attempts abandoned one after another (an `attemptWhen()` whose callback
+     * threw, in a long-running command) are let go of rather than kept for the
+     * rest of the command: the guard keeps one attempt, so a later save of
+     * another password costs at most the two hash checks of that one.
+     *
+     * @param  bool  $kept
      * @return void
      */
-    public function testAbandonedAttemptsAreNotKept(): void
+    #[DataProvider('provideAbandonedInstances')]
+    public function testAbandonedAttemptsAreNotKept(bool $kept): void
     {
         $rehashing = app(Rehashing::class);
+        $user      = self::user(5, self::PASSWORD);
 
         for ($attempt = 0; $attempt < 100; $attempt++) {
             Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
-            Event::dispatch(new Validated('web', self::user(5, self::PASSWORD)));
+            Event::dispatch(new Validated('web', $kept ? $user : self::user(5, self::PASSWORD)));
         }
 
-        $user = self::user(5, 'a new password');
+        $user->forceFill(['password' => app(Hasher::class)->make('a new password')]);
 
-        self::assertSame(0, $this->checksDuring(static fn () => $rehashing->unlessRehash($user, app(Hasher::class)->make(self::PASSWORD), static function (): void {})));
+        self::assertLessThanOrEqual(2, $this->checksDuring(static fn () => $rehashing->unlessRehash($user, app(Hasher::class)->make(self::PASSWORD), static function (): void {})));
+        self::assertCount(1, $this->attemptsOf($rehashing, 'web'));
+    }
 
+    /**
+     * An attempt still closes at its end once a change of its user's password
+     * has run inside it, as when an `attemptWhen()` callback saves a new
+     * password and refuses the attempt.
+     *
+     * @return void
+     */
+    public function testAnAttemptWhosePasswordChangedStillCloses(): void
+    {
+        $rehashing = app(Rehashing::class);
+        $user      = self::user(5, self::PASSWORD);
+
+        Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
+        Event::dispatch(new Validated('web', $user));
+
+        $user->forceFill(['password' => app(Hasher::class)->make('a new password')]);
+
+        $rehashing->unlessRehash($user, app(Hasher::class)->make(self::PASSWORD), static function (): void {});
+
+        Event::dispatch(new Failed('web', $user, []));
+
+        self::assertSame([], $this->attemptsOf($rehashing, 'web'));
+    }
+
+    /**
+     * The attempts the mark keeps open for the guard, read from its state: what
+     * a long-running process retains is the budget measured here.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing  $rehashing
+     * @param  string  $guard
+     * @return array<array-key, mixed>
+     */
+    private function attemptsOf(Rehashing $rehashing, string $guard): array
+    {
         $attempts = (new \ReflectionProperty(Rehashing::class, 'attempts'))->getValue($rehashing);
 
         self::assertIsArray($attempts);
-        self::assertCount(1, $attempts['web']);
+        self::assertIsArray($attempts[$guard]);
+
+        return $attempts[$guard];
     }
 
     /**

@@ -117,6 +117,31 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
+     * The very instance an attempt validated, moved to another connection, is
+     * the user stored there: its save of a fresh hash of the attempt's password
+     * is a change, not the attempt's rehash.
+     *
+     * @return void
+     */
+    public function testTheValidatedInstanceMovedElsewhereIsAnotherUser(): void
+    {
+        config()->set('database.connections.tenant', ['driver' => 'mysql', 'host' => '127.0.0.1', 'database' => 'tenant_a', 'prefix' => '']);
+        config()->set('database.connections.elsewhere', ['driver' => 'mysql', 'host' => '127.0.0.1', 'database' => 'tenant_b', 'prefix' => '']);
+
+        $user = self::user((new IntegrationIdentity)->setConnection('tenant'));
+
+        /** @var \ArrayObject<int, string> $runs */
+        $runs = new \ArrayObject;
+
+        Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
+        Event::dispatch(new Validated('web', $user));
+
+        self::save($user->setConnection('elsewhere'), $runs, 'elsewhere');
+
+        self::assertSame(['elsewhere'], $runs->getArrayCopy());
+    }
+
+    /**
      * Two model classes over one table are one user for the same row: a forced
      * rehash through the one runs the save held for an attempt that validated
      * the other, and is a change of that user's password, so the attempt takes

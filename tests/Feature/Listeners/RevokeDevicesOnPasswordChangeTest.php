@@ -168,6 +168,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         $identity = $this->seedOutdatedHash();
 
         self::assertTrue($this->webGuard()->once(self::credentials()));
+        self::assertNotSame(self::OUTDATED_HASH, $identity->fresh()?->getAuthPassword());
 
         DB::table('integration_identities')->update(['password' => self::OUTDATED_HASH]);
 
@@ -456,45 +457,59 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * Rows of `[how the identity's other devices are signed out while a web
-     * attempt for it is open]`.
+     * Rows of `[how the web attempt for the identity is left open, the instance
+     * whose other devices are signed out, whether a listener of the forced save
+     * makes another web attempt before the sign-out's event]`.
      *
-     * @return iterable<string, array{0: string}>
+     * @return iterable<string, array{0: string, 1: string, 2: bool}>
      */
     public static function provideOpenAttempts(): iterable
     {
-        yield 'after an attempt whose callback threw' => ['abandoned'];
-        yield 'from inside the attempt\'s own callback' => ['callback'];
+        foreach (['after an attempt whose callback threw' => 'abandoned', 'from inside the attempt\'s own callback' => 'callback'] as $name => $attempt) {
+            yield "{$name}, through the instance the attempt validated" => [$attempt, 'validated', false];
+            yield "{$name}, through another instance" => [$attempt, 'another', false];
+            yield "{$name}, through the instance the attempt validated, with a nested attempt" => [$attempt, 'validated', true];
+        }
     }
 
     /**
      * `logoutOtherDevices()` saves a fresh hash of the same password, which an
-     * open attempt for the user would take for its own rehash: whether that
-     * attempt threw after validating the user and never ended, or the forced
-     * rehash runs inside its callback, the sign-out still ends every package
-     * session, so its tokens are refused at the `auth` middleware and its
-     * refresh token refreshes nothing.
+     * open attempt for the user would take for its own rehash when it saves the
+     * instance the attempt validated: whether that attempt threw after
+     * validating the user and never ended, or the forced rehash runs inside its
+     * callback, and even when another listener of the forced save makes an
+     * attempt of the same guard before `OtherDeviceLogout`, the sign-out still
+     * ends every package session, so its tokens are refused at the `auth`
+     * middleware and its refresh token refreshes nothing.
      *
      * @param  string  $attempt
+     * @param  string  $through
+     * @param  bool  $nested
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideOpenAttempts')]
-    public function testLogoutOtherDevicesWhileAnAttemptIsOpenRevokes(string $attempt): void
+    public function testLogoutOtherDevicesWhileAnAttemptIsOpenRevokes(string $attempt, string $through, bool $nested): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->signIn();
 
         IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
 
-        $logout = function () use ($identity): bool {
+        if ($nested) {
+            IntegrationIdentity::updated(function (): void {
+                self::assertFalse($this->webGuard()->attempt(['email' => 'ada@example.test', 'password' => 'wrong']));
+            });
+        }
+
+        $logout = static function (IntegrationIdentity $validated) use ($identity, $through): bool {
 
             $guard = Auth::guard('console');
 
             self::assertInstanceOf(SessionGuard::class, $guard);
 
-            $guard->setUser($identity);
+            $guard->setUser($through === 'validated' ? $validated : $identity);
             $guard->logoutOtherDevices(self::PASSWORD);
 
             return true;
@@ -503,15 +518,21 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         if ($attempt === 'callback') {
             self::assertTrue($this->webGuard()->attemptWhen(self::credentials(), $logout));
         } else {
+            $validated = null;
+
             try {
-                $this->webGuard()->attemptWhen(self::credentials(), static function (): never {
+                $this->webGuard()->attemptWhen(self::credentials(), static function (IntegrationIdentity $user) use (&$validated): never {
+                    $validated = $user;
+
                     throw new \RuntimeException('callback failed');
                 });
             } catch (\RuntimeException $exception) { // @phpstan-ignore catch.neverThrown
                 self::assertSame('callback failed', $exception->getMessage());
             }
 
-            $logout();
+            self::assertInstanceOf(IntegrationIdentity::class, $validated);
+
+            $logout($validated);
         }
 
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
