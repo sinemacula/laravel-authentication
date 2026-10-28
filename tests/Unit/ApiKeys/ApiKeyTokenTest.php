@@ -130,6 +130,23 @@ final class ApiKeyTokenTest extends TestCase
     }
 
     /**
+     * A public part is in form only as `<prefix>_<16 characters>`: not a whole
+     * key, a secret, or one with a trailing newline.
+     *
+     * @return void
+     */
+    public function testTellsWhetherAValueIsAPublicPart(): void
+    {
+        $secret = str_repeat('a', 40);
+
+        self::assertTrue(ApiKeyToken::isPublicPart('ak_abcdefghijklmnop'));
+        self::assertFalse(ApiKeyToken::isPublicPart('ak_abcdefghijklmnop_' . $secret));
+        self::assertFalse(ApiKeyToken::isPublicPart($secret));
+        self::assertFalse(ApiKeyToken::isPublicPart("ak_abcdefghijklmnop\n"));
+        self::assertFalse(ApiKeyToken::isPublicPart(''));
+    }
+
+    /**
      * A secret is digested with SHA-256, in hex.
      *
      * @return void

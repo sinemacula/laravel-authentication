@@ -102,7 +102,19 @@ final class ApiKeyToken
      */
     public static function isWellFormed(string $public, #[\SensitiveParameter] string $secret): bool
     {
-        return preg_match(self::PUBLIC_PATTERN, $public) === 1 && preg_match(self::SECRET_PATTERN, $secret) === 1;
+        return self::isPublicPart($public) && preg_match(self::SECRET_PATTERN, $secret) === 1;
+    }
+
+    /**
+     * Whether a presented public part (an OAuth client id) is one in form:
+     * never a whole key or a secret.
+     *
+     * @param  string  $public
+     * @return bool
+     */
+    public static function isPublicPart(string $public): bool
+    {
+        return preg_match(self::PUBLIC_PATTERN, $public) === 1;
     }
 
     /**

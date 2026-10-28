@@ -71,7 +71,11 @@ authorization package decides what they allow.
   principal problems) is `invalid_client` (401, with a Basic challenge for a Basic client), counted per IP address; only
   a principal the audience does not admit is `unauthorized_client`. A guard whose audience does not list
   `client_credentials` answers `unauthorized_client` before looking at the key. A scope not granted is `invalid_scope`,
-  not counted. Past its limit an address gets 429 `slow_down` (RFC 8628's registered error).
+  not counted. Past its limit an address gets 429 `slow_down` (RFC 8628's registered error). Each failure's
+  `AuthenticationFailed` names the client id only when it is a key's public part in form
+  (`PresentedClient::reportedId()`), else none: a client that sends its whole key as the id, or swaps id and secret,
+  would otherwise put the secret in an event (rule: no event field carries a secret), as the `api_key` guard already
+  never names one.
 - `client_credentials.per_identifier` (per client id as given) is off by default. A client id is public (RFC 6749 2.2;
   it is the key's public part, shown in summaries and events), so a count on it lets anyone who knows it keep the real
   client out from any address, and it buys nothing against a 238-bit secret, the reason the `api_key` guard counts
@@ -84,9 +88,9 @@ authorization package decides what they allow.
   refused request.
 - Enumeration: a malformed key, an unknown public part and a wrong secret cost the same statements and the same digest
   work (an unknown public part is compared against a fixed digest), and the key's status is read only once its secret
-  verifies; every client failure of an exchange answers the same `invalid_client` body, and a `slow_down` limit on
-  the client id, when set, counts it as given, so an id no key has is limited like one that exists. Neither uses a password hasher. Codes and
-  passkeys are held to the same criterion (`one-time-codes.md`, `passkeys.md`).
+  verifies; every client failure of an exchange answers the same `invalid_client` body, and a `slow_down` limit on the
+  client id, when set, counts it as given, so an id no key has is limited like one that exists. Neither uses a password
+  hasher. Codes and passkeys are held to the same criterion (`one-time-codes.md`, `passkeys.md`).
 - `attempt()` on an `api_key` guard always fails (`method_not_allowed`, flow `sign_in`) without a query: machines have
   no interactive sign-in. `validate(['api_key' => $key])` binds and dispatches nothing.
 - Of two concurrent rotations of a key, the second waits on the first's row lock and replaces nothing once it commits

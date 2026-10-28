@@ -634,7 +634,7 @@ final class SmsCodeSender implements OneTimeCodeSender
 
     public function send(OneTimeCodeMessage $message): void
     {
-        // $message->identifier is the recipient's own E.164 number or normalised address; $message->code is in clear: never log it.
+        // $message->identifier is the recipient's own number or address; $message->code is in clear: never log it.
         match ($message->type) {
             'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
             'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
@@ -879,15 +879,16 @@ limits; and, for the whole package, the configured device model and pruning rete
 (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
 (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
 choice of principal), the one-time code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when
-any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`)
-and the API key settings (`authentication.api_keys`). Every check runs, so one run lists every problem, each as
-`[<guard>] <message>` (`[device]` for the device model and retention, `[sign_in]` for the pending lifetime, `[codes]`
-for the code settings and sender, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a
-subject without one as `[<guard>] OK`. Code delivery on a `sync` queue connection, while a guard allows a code method,
-is a warning that leaves the exit code alone. Only the named guards are checked with `--guard=api --guard=admin`; a
-named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads
-configuration only: it opens no database connection and never prints a key. The package does not run these checks at
-boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the passkey
+challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`) and the API key settings
+(`authentication.api_keys`). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]`
+for the device model and retention, `[sign_in]` for the pending lifetime, `[codes]` for the code settings and sender,
+`[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a subject without one as
+`[<guard>] OK`. Code delivery on a `sync` queue connection, while a guard allows a code method, is a warning that leaves
+the exit code alone. Only the named guards are checked with `--guard=api --guard=admin`; a named guard that is not
+configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads configuration only: it opens no
+database connection and never prints a key. The package does not run these checks at boot; a misconfiguration otherwise
+surfaces when a guard first uses the setting.
 
 ## Identity Models
 
@@ -1545,16 +1546,17 @@ with `AuthenticationFailed` on the `code_request` flow (an invalid number as `in
 
 Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits
 (`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity that does not hold exactly that
-number, as above, counts as none), counts the check against the account's limit as the password method does, and checks the code against the one sent to the number on this guard. It checks it whether
-or not anyone has the number, so a guess at a number no one has counts against, and locks, its code exactly as one at a
-known number does. A wrong code, a code used before, a code for another guard, purpose or number, and the right code
-for a number no one has are `invalid_credentials`; an expired code and one that used up its attempts are refused as
-`code_expired` and `code_exhausted`, which only `AuthenticationFailed` says: the result says `invalid_credentials`. The
-right code for an identity whose number is not verified is `identifier_unverified` (the code proved the number is held,
-so this tells a guesser nothing). Then the session service does the rest, as for a password: activity, the principal,
-the audience policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its
-row, on the device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt
-back; the sign-in limits on `rate_limits.connection` still count it.
+number, as above, counts as none), counts the check against the account's limit as the password method does, and checks
+the code against the one sent to the number on this guard. It checks it whether or not anyone has the number, so a guess
+at a number no one has counts against, and locks, its code exactly as one at a known number does. A wrong code, a code
+used before, a code for another guard, purpose or number, and the right code for a number no one has are
+`invalid_credentials`; an expired code and one that used up its attempts are refused as `code_expired` and
+`code_exhausted`, which only `AuthenticationFailed` says: the result says `invalid_credentials`. The right code for an
+identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
+guesser nothing). Then the session service does the rest, as for a password: activity, the principal, the audience
+policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its row, on the
+device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the
+sign-in limits on `rate_limits.connection` still count it.
 
 Another identifier type signs in by code once it has a normaliser and a column: register a code method for it, and
 allow it.
@@ -2664,11 +2666,13 @@ A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_
 `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749 error
 but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to authenticate
 the client count against the `client_credentials` limits (100 per IP address a minute by default), and each is answered
-alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section 2.2), so a
-limit on it would let anyone who knows it hold the real client back from any address, while against a 40-character
-random secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks for every scope the key grants; otherwise the token grants exactly those
-asked for. Every failure dispatches `AuthenticationFailed` (flow `client_credentials`, the client id as given, the key
-once found) and a grant `ClientCredentialsGranted`, with the key and the scopes granted.
+alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section 2.2), so a limit
+on it would let anyone who knows it hold the real client back from any address, while against a 40-character random
+secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept that. No scope asks
+for every scope the key grants; otherwise the token grants exactly those asked for. Every failure dispatches
+`AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else none, so
+a whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
+`ClientCredentialsGranted`, with the key and the scopes granted.
 
 The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives
 the guard's access lifetime for the principal's type, never past the key's expiry, and no refresh token is issued. On

@@ -43,23 +43,23 @@ request for a code looks the same whether or not anyone has the identifier, and 
   terminating callbacks; `authentication:check` warns about that setting. The job sets `beforeCommit()`, since the
   package has already waited for its own row's commit.
 - The job first checks, on the write connection, that its issuance is still the binding's live, unused, unexpired code;
-  otherwise it sends nothing. A sign-in code goes only to the identity the guard's provider finds by the identifier
-  that is an `Identity`, not a `MachineIdentity`, active, `HasVerifiableIdentifiers`, holds exactly the bound identifier
+  otherwise it sends nothing. A sign-in code goes only to the identity the guard's provider finds by the identifier that
+  is an `Identity`, not a `MachineIdentity`, active, `HasVerifiableIdentifiers`, holds exactly the bound identifier
   (`CodeIdentifiers::isHeldBy()`: its own identifier of the type, read on the write connection, canonical, compared with
   `hash_equals`), and reports it verified. The lookup alone never decides who holds an identifier: it matches what the
   column's collation does, and MySQL's `utf8mb4_unicode_ci` matches accented look-alikes (`ben@examplé.com`, a domain
   anyone can register, finds the holder of `ben@example.com`). The message's identifier is therefore always the
-  recipient's own, in normal form. A verification code goes only to the identity it carries, read again from the write connection, not a
-  `MachineIdentity`, whose identifier of the type still normalises to the bound one. Otherwise nothing is sent, and
-  nothing says so.
-- A sign-in by code (`CodeSignIn::authenticate()`, inside the session service's credential timebox) refuses a missing
-  or malformed identifier or a code that is not exactly `length` ASCII digits as `invalid_credentials`, counting
-  nothing; looks the identity up, treating one that does not hold exactly the bound identifier as none (so a look-alike
-  neither signs in nor counts against the holder's account); reserves an account attempt for a known identity (refused: `invalid_credentials`, the
-  code untouched); then checks the code against the sign-in binding whether or not an identity was found.
-  `expired` and `exhausted` answer `code_expired` and `code_exhausted`, concealed as `invalid_credentials` in the
-  result. An accepted code for no identity is `invalid_credentials`, for an identity that does not report the
-  identifier verified `identifier_unverified`, otherwise the identity.
+  recipient's own, in normal form. A verification code goes only to the identity it carries, read again from the write
+  connection, not a `MachineIdentity`, whose identifier of the type still normalises to the bound one. Otherwise nothing
+  is sent, and nothing says so.
+- A sign-in by code (`CodeSignIn::authenticate()`, inside the session service's credential timebox) refuses a missing or
+  malformed identifier or a code that is not exactly `length` ASCII digits as `invalid_credentials`, counting nothing;
+  looks the identity up, treating one that does not hold exactly the bound identifier as none (so a look-alike neither
+  signs in nor counts against the holder's account); reserves an account attempt for a known identity (refused:
+  `invalid_credentials`, the code untouched); then checks the code against the sign-in binding whether or not an
+  identity was found. `expired` and `exhausted` answer `code_expired` and `code_exhausted`, concealed as
+  `invalid_credentials` in the result. An accepted code for no identity is `invalid_credentials`, for an identity that
+  does not report the identifier verified `identifier_unverified`, otherwise the identity.
 - Verification by code (`CodeService::sendVerification()` / `verify()`) binds the code to the identity and its current
   identifier of the type in normal form, as the identity given reports it. An accepted code hands that identifier to
   `IdentifierVerifier::verify()`, which records it only if it is still the identity's; a refused check returns its

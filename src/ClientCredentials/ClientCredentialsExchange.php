@@ -158,7 +158,7 @@ final readonly class ClientCredentialsExchange
         $audience = $this->audience();
 
         if (!$audience->allowsMethod($guard, self::METHOD)) {
-            return $this->refuse($context, FailureReason::METHOD_NOT_ALLOWED, ClientCredentialsResult::UNAUTHORIZED_CLIENT, $presented->clientId);
+            return $this->refuse($context, FailureReason::METHOD_NOT_ALLOWED, ClientCredentialsResult::UNAUTHORIZED_CLIENT, $presented->reportedId());
         }
 
         /** @var \SineMacula\Laravel\Authentication\Contracts\AttemptLimiter $limiter */
@@ -167,7 +167,7 @@ final readonly class ClientCredentialsExchange
         $wait    = $limiter->blocked($subject);
 
         if ($wait !== null) {
-            return $this->refuse($context, FailureReason::RATE_LIMITED, ClientCredentialsResult::SLOW_DOWN, $presented->clientId, $wait);
+            return $this->refuse($context, FailureReason::RATE_LIMITED, ClientCredentialsResult::SLOW_DOWN, $presented->reportedId(), $wait);
         }
 
         return $this->authenticated($presented, $client, $limiter, $subject, $audience);
@@ -242,7 +242,7 @@ final readonly class ClientCredentialsExchange
         );
 
         if ($scopes === null) {
-            return $this->refuse($context, FailureReason::SCOPE_INVALID, ClientCredentialsResult::INVALID_SCOPE, $presented->clientId);
+            return $this->refuse($context, FailureReason::SCOPE_INVALID, ClientCredentialsResult::INVALID_SCOPE, $presented->reportedId());
         }
 
         $identity = $admitted->identity;
@@ -282,7 +282,7 @@ final readonly class ClientCredentialsExchange
         $guard = $this->guard->getName();
         $realm = $presented->basic && $error === ClientCredentialsResult::INVALID_CLIENT ? $guard : null;
 
-        $this->guard->getDispatcher()->dispatch($outcome->failure($refused, $guard, AuthenticationFlow::CLIENT_CREDENTIALS, self::METHOD, $client, $presented->clientId));
+        $this->guard->getDispatcher()->dispatch($outcome->failure($refused, $guard, AuthenticationFlow::CLIENT_CREDENTIALS, self::METHOD, $client, $presented->reportedId()));
 
         return ClientCredentialsResult::failed($refused->reason, $error, null, $realm);
     }

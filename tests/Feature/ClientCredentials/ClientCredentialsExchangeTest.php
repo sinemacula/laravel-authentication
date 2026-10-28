@@ -314,6 +314,48 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
+     * Rows of `[the client id and secret sent, given the key issued]`: likely
+     * client mistakes that put the key's secret where the id belongs.
+     *
+     * @return iterable<string, array{0: \Closure(string, string): array{0: string, 1: string}}>
+     */
+    public static function provideMisplacedSecrets(): iterable
+    {
+        yield from [
+            'the whole key as the client id' => [static fn (string $key, string $secret): array => [$key, $secret]],
+            'the id and the secret swapped'  => [static fn (string $key, string $secret): array => [$secret, substr($key, 0, 19)]],
+        ];
+    }
+
+    /**
+     * A client id that is not a key's public part in form, such as a whole key
+     * or a secret sent in its place, is refused and reported with no
+     * identifier, so the secret reaches no event.
+     *
+     * @param  \Closure(string, string): array{0: string, 1: string}  $sent
+     * @return void
+     */
+    #[DataProvider('provideMisplacedSecrets')]
+    public function testASecretSentAsTheClientIdIsNeverReported(\Closure $sent): void
+    {
+        [, $issued] = $this->machineKey();
+
+        $secret = substr($issued->key, 20);
+
+        [$id, $other] = $sent($issued->key, $secret);
+
+        $this->machineEvents = [];
+
+        $this->token('grant_type=client_credentials&client_id=' . $id . '&client_secret=' . $other)->assertStatus(401)->assertExactJson(['error' => 'invalid_client']);
+
+        $failure = $this->machineEventsOf(AuthenticationFailed::class);
+
+        self::assertCount(1, $failure);
+        self::assertNull($failure[0]->identifier);
+        self::assertStringNotContainsString($secret, serialize($failure[0]));
+    }
+
+    /**
      * A client authenticated in the body that fails gets no Basic challenge.
      *
      * @return void
