@@ -317,6 +317,35 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     }
 
     /**
+     * A cookie refresh sent as a form from an allowed origin carries only
+     * headers a browser sends on its own, so it is refused as cross-site; and a
+     * guard told to take `Content-Type` for its custom header fails closed
+     * before the token is read, leaving the device as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFormRequestCannotStandInForTheCustomHeader(): void
+    {
+        $token  = $this->signIn('admin');
+        $before = Device::query()->sole()->getAttributes();
+        $form   = ['Origin' => 'http://localhost', 'Content-Type' => 'application/x-www-form-urlencoded'];
+
+        $this->refresh('admin', '', ['remember' => '1'], $form, $token)
+            ->assertUnauthorized()
+            ->assertJson(['reason' => FailureReason::CROSS_SITE_REQUEST->value]);
+
+        config()->set('auth.guards.admin.refresh_token.cookie.csrf_header', 'Content-Type');
+
+        $refused = $this->refresh('admin', '', ['remember' => '1'], $form, $token)->assertInternalServerError();
+
+        self::assertInstanceOf(\InvalidArgumentException::class, $refused->exception);
+        self::assertStringContainsString('`refresh_token.cookie.csrf_header` must be a custom header', $refused->exception->getMessage());
+        self::assertSame($before, Device::query()->sole()->getAttributes());
+    }
+
+    /**
      * Configure the guards: `api` reads the defaults (body and header), and
      * `admin` reads only the cookie, scoped to `/auth`.
      *

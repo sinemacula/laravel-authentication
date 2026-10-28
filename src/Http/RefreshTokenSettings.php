@@ -47,6 +47,18 @@ final readonly class RefreshTokenSettings
     /** @var string The prefix of a cookie a browser keeps only with `Path=/` and no `Domain`. */
     private const string HOST_PREFIX = '__Host-';
 
+    /** @var list<string> Headers a cross-site form or simple request carries unset by the page: CORS-safelisted, browser-set, or cached credentials. */
+    private const array BROWSER_HEADERS = [
+        'accept', 'accept-charset', 'accept-encoding', 'accept-language', 'access-control-request-headers',
+        'access-control-request-method', 'authorization', 'cache-control', 'connection', 'content-language',
+        'content-length', 'content-type', 'cookie', 'cookie2', 'date', 'dnt', 'expect', 'host', 'keep-alive', 'origin',
+        'pragma', 'priority', 'range', 'referer', 'set-cookie', 'te', 'trailer', 'transfer-encoding', 'upgrade',
+        'upgrade-insecure-requests', 'user-agent', 'via',
+    ];
+
+    /** @var string The `Proxy-` and `Sec-` prefixes, whose headers only the browser sets. */
+    private const string BROWSER_HEADER_PREFIX = '/^(?:proxy|sec)-/i';
+
     /**
      * Constructor.
      *
@@ -118,7 +130,7 @@ final readonly class RefreshTokenSettings
             $path,
             $domain,
             self::origins($guard, $cookie['allowed_origins'] ?? null),
-            self::name($guard, 'cookie.csrf_header', $cookie['csrf_header'] ?? null),
+            self::csrfHeader($guard, $cookie['csrf_header'] ?? null),
         );
     }
 
@@ -236,6 +248,27 @@ final readonly class RefreshTokenSettings
         }
 
         return $value;
+    }
+
+    /**
+     * The CSRF header: a header name, and, in any letter case, none that a
+     * cross-site form or simple request can carry without the page setting it.
+     *
+     * @param  string  $guard
+     * @param  mixed  $value
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function csrfHeader(string $guard, mixed $value): string
+    {
+        $header = self::name($guard, 'cookie.csrf_header', $value);
+
+        if (in_array(strtolower($header), self::BROWSER_HEADERS, true) || preg_match(self::BROWSER_HEADER_PREFIX, $header) === 1) {
+            throw new \InvalidArgumentException(self::message($guard, 'cookie.csrf_header', 'must be a custom header, not one a browser sends on its own'));
+        }
+
+        return $header;
     }
 
     /**

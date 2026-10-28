@@ -163,6 +163,62 @@ final class RefreshTokenSettingsTest extends TestCase
     }
 
     /**
+     * Rows of `[a CSRF header]` a cross-site form or simple request can carry
+     * without the page setting it: CORS-safelisted, set by the browser itself,
+     * or attached from cached credentials, in any letter case.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideHeadersABrowserSendsOnItsOwn(): iterable
+    {
+        yield 'Accept' => ['Accept'];
+        yield 'Accept-Language' => ['Accept-Language'];
+        yield 'Content-Language' => ['Content-Language'];
+        yield 'Content-Type' => ['Content-Type'];
+        yield 'Range' => ['Range'];
+        yield 'Origin' => ['Origin'];
+        yield 'Cookie' => ['Cookie'];
+        yield 'Referer' => ['Referer'];
+        yield 'Host' => ['Host'];
+        yield 'User-Agent' => ['User-Agent'];
+        yield 'Authorization' => ['Authorization'];
+        yield 'content-type in lower case' => ['content-type'];
+        yield 'ORIGIN in upper case' => ['ORIGIN'];
+        yield 'a Sec- header' => ['Sec-Fetch-Site'];
+        yield 'a sec- header in lower case' => ['sec-ch-ua'];
+        yield 'a Proxy- header' => ['Proxy-Authorization'];
+    }
+
+    /**
+     * A CSRF header a browser sends on its own proves nothing about the page
+     * that sent the request, so it fails closed, naming the guard and the key.
+     *
+     * @param  string  $header
+     * @return void
+     */
+    #[DataProvider('provideHeadersABrowserSendsOnItsOwn')]
+    public function testACsrfHeaderABrowserSendsOnItsOwnFailsClosed(string $header): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Refresh token transport for guard [api]: `refresh_token.cookie.csrf_header` must be a custom header, not one a browser sends on its own.');
+
+        RefreshTokenSettings::forGuard('api', self::config(['cookie' => ['csrf_header' => $header]]));
+    }
+
+    /**
+     * A custom header is accepted as it is configured, even when it contains a
+     * name a browser sends.
+     *
+     * @return void
+     */
+    public function testACustomCsrfHeaderIsAcceptedAsConfigured(): void
+    {
+        foreach (['X-Sec-Origin', 'X-Content-Type', 'Origin-Check', 'x-requested-with'] as $header) {
+            self::assertSame($header, RefreshTokenSettings::forGuard('api', self::config(['cookie' => ['csrf_header' => $header]]))->csrfHeader);
+        }
+    }
+
+    /**
      * Rows of `[the guard's block, the message]`: each way a value is wrong.
      *
      * @return iterable<string, array{0: mixed, 1: string}>
@@ -200,6 +256,7 @@ final class RefreshTokenSettingsTest extends TestCase
         yield 'a cookie name with a dot' => [['cookie' => ['name' => 'app.refresh']], '`refresh_token.cookie.name` ' . $name];
         yield 'a CSRF header that is not a name' => [['cookie' => ['csrf_header' => '']], '`refresh_token.cookie.csrf_header` ' . $name];
         yield 'a CSRF header with a dot' => [['cookie' => ['csrf_header' => 'X.CSRF']], '`refresh_token.cookie.csrf_header` ' . $name];
+        yield 'a CSRF header that is not a string' => [['cookie' => ['csrf_header' => ['X-CSRF']]], '`refresh_token.cookie.csrf_header` ' . $name];
         yield 'a cookie source without a path' => [['sources' => ['cookie']], $path];
         yield 'a path that is not absolute' => [['sources' => ['cookie'], 'cookie' => ['path' => 'auth']], $path];
         yield 'a path with a separator' => [['sources' => ['cookie'], 'cookie' => ['path' => '/auth;x']], $path];

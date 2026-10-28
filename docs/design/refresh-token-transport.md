@@ -72,6 +72,9 @@ request may carry the token in only one place; and the cookie that carries a bro
 - Names PHP renames when it parses a request are refused, since the token would never be found under them: a `.` in the
   cookie or a header name (PHP files it as `_`), and a `.`, a space or a bracket in `body_field` (renamed, or nested,
   in a form body).
+- `cookie.csrf_header` must be a custom header: a CORS-safelisted name (`Accept`, `Content-Type`, ...), one the browser
+  sets itself (`Origin`, `Cookie`, `Referer`, `Host`, `User-Agent`, any `Sec-` or `Proxy-` name, ...) or
+  `Authorization`, compared in any letter case, is refused, since a cross-site form could carry it.
 - `cookie.path` is required while the cookie is a source; `allowed_origins` are exact lower-case `scheme://host[:port]`
   values, with no path.
 

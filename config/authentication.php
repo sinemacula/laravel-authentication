@@ -282,7 +282,8 @@ return [
     | cannot be side-stepped by also sending the token another way. A token
     | read from the cookie must come with an `Origin` that is the request's own
     | or one of `allowed_origins` (each exactly `scheme://host[:port]`, in
-    | lower case) and a non-empty `csrf_header` header, else
+    | lower case) and a non-empty `csrf_header` header (a custom one: a
+    | header a browser sends on its own is refused), else
     | `cross_site_request`. The cookie's `path`, the path the sign-in, refresh
     | and switch routes live under, is required when the cookie is a source;
     | `domain` is `null` for the request's host only. A `__Host-` name needs

@@ -1562,7 +1562,8 @@ them: a `.` in the cookie or a header name, and a `.`, a space or a bracket in `
 A browser attaches the cookie by itself, to any request for its path, so a refresh read from it is held to two checks a
 cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
 `cookie.allowed_origins` (each exactly `scheme://host[:port]`), and it must carry the `cookie.csrf_header` header
-(`X-Requested-With` by default) with a value, which a form or a simple request cannot send. Anything else is
+(`X-Requested-With` by default) with a value, which a form or a simple request cannot send; a header a browser sends on
+its own (`Content-Type`, `Origin`, any `Sec-` header and the like) is refused as the `csrf_header`. Anything else is
 `cross_site_request`. A route that sets the cookie must hold its request to the same checks, the sign-in above all: a
 cross-site page can auto-submit a form to it with an attacker's credentials, and a browser keeps a `SameSite=Strict`
 cookie set by the response to such a top-level navigation, so without the check the victim's browser would hold the
