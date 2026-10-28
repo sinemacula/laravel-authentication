@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
 
@@ -249,6 +250,26 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
         self::assertNull($contexts[0]->principal);
         self::assertSame($this->tenant, $contexts[1]->tenant);
         self::assertSame('password', $contexts[1]->method);
+    }
+
+    /**
+     * A principal whose tenant cannot be loaded is bound, and reported with no
+     * tenant, rather than failing the bind.
+     *
+     * @return void
+     */
+    public function testATenantThatCannotBeLoadedIsBoundAsNone(): void
+    {
+        $principal = $this->mockPrincipal();
+        $principal->shouldReceive('getTenant')->andThrow(new TenantUnavailableException('The tenant is not available.'));
+
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->authenticateAs($this->identity, $principal);
+
+        self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->tenant);
+        self::assertSame($principal, $guard->principal());
     }
 
     /**

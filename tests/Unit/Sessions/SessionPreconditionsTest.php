@@ -11,6 +11,8 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Sessions\SessionPreconditions;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
@@ -101,6 +103,28 @@ final class SessionPreconditionsTest extends TestCase
         $otherClass->shouldReceive('getAuthIdentifier')->andReturn(7);
 
         self::assertFalse(SessionPreconditions::isSameIdentity($otherClass, $this->identity(7)));
+    }
+
+    /**
+     * A sign-in method may refuse only with a reason a method may give; any
+     * other is reported as the misconfiguration it is, naming the method.
+     *
+     * @return void
+     */
+    public function testAMethodMayRefuseOnlyWithAMethodsReason(): void
+    {
+        $method = \Mockery::mock(SignInMethod::class);
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, SessionPreconditions::methodReason($method, FailureReason::INVALID_CREDENTIALS));
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage(sprintf(
+            'Sign-in method %s refused a sign-in as `identity_inactive`, which only the session service may decide;'
+            . ' a method answers `invalid_credentials`.',
+            $method::class,
+        ));
+
+        SessionPreconditions::methodReason($method, FailureReason::IDENTITY_INACTIVE);
     }
 
     /**
