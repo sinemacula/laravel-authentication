@@ -66,9 +66,13 @@ final class DeviceRetentionTest extends TestCase
     }
 
     /**
-     * The class is a utility container only: its constructor is private.
+     * `DeviceRetention` is a static utility; instantiation is disallowed
+     * through the private constructor. Reflection invokes it so the line is
+     * covered while still documenting the access modifier.
      *
      * @return void
+     *
+     * @SuppressWarnings("php:S3011")
      */
     public function testConstructorIsPrivate(): void
     {
