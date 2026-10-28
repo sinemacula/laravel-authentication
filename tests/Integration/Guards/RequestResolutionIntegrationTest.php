@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -63,7 +66,8 @@ final class RequestResolutionIntegrationTest extends TestCase
 
     /**
      * Repeated `Auth` calls on a request with a rejected token report one
-     * failure.
+     * failure, as the package's `AuthenticationFailed` (bearer), and no Laravel
+     * `Failed`.
      *
      * @return void
      */
@@ -71,8 +75,14 @@ final class RequestResolutionIntegrationTest extends TestCase
     {
         $failures = 0;
 
-        Event::listen(Failed::class, static function () use (&$failures): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$failures): void {
+            self::assertSame(AuthenticationFlow::BEARER, $event->flow);
+            self::assertSame(FailureReason::TOKEN_INVALID, $event->reason);
+
             $failures++;
+        });
+        Event::listen(Failed::class, static function (): never {
+            throw new \LogicException('A bearer request must not report Laravel\'s Failed.');
         });
 
         Route::get('/repeat', static fn (): array => [

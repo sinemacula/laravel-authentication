@@ -356,6 +356,7 @@ final class CustomEventsIntegrationTest extends TestCase
             'PrincipalAssigned:api',
             'DeviceAuthenticated:api',
             'Refreshed:api',
+            'SignedIn:api',
         ], $captured);
     }
 

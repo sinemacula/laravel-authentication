@@ -6,14 +6,11 @@ namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Support\Carbon;
 use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Guards\OwnedDevice;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
-use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
-use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
  * Proves that a principal or device someone else named belongs to an identity:
@@ -87,45 +84,20 @@ trait VerifiesPinnedContext
      * made), or the device is not found, belongs to another guard's sessions
      * (or to none), has been revoked, or its session has ended (past its idle
      * or absolute deadline, or without deadlines): such a device is treated
-     * exactly like a missing one, from the row already loaded. The deadlines
-     * are checked against the current time with no leeway, so a token cannot
-     * outlive its session.
-     *
-     * Building the `devices()` relation, the lookup, and the revocation and
-     * deadline reads all run inside `WriteConnection::during()` for the
-     * identity, which pins every connection a model resolves meanwhile: a
-     * relation that queries while it is built (a list of permitted devices,
-     * say) and a device that derives its state from a relation or another table
-     * read the writer as well.
+     * exactly like a missing one, from the row already loaded, on the write
+     * connection (see `OwnedDevice`). The deadlines are checked against the
+     * current time with no leeway, so a token cannot outlive its session.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  mixed  $hint
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     *
+     * @throws \LogicException
      */
     protected function resolveDeviceFromHint(Identity $identity, mixed $hint): ?Device
     {
-        if ($hint === null || !$identity instanceof HasDevices) {
-            return null;
-        }
+        $device = OwnedDevice::find($identity, $hint);
 
-        $guard = $this->name;
-
-        return WriteConnection::during($identity, static function () use ($identity, $hint, $guard): ?Device {
-
-            $devices = WriteConnection::query($identity->devices());
-
-            if (!DeviceKeyShape::matches($devices->getModel(), $hint)) {
-                return null;
-            }
-
-            $device = $devices->find($hint);
-
-            return $device instanceof Device
-                && $device->getRevokedAt() === null
-                && $device->getGuard()     === $guard
-                && !TokenLifetimes::hasEnded($device, Carbon::now())
-                ? $device
-                : null;
-        });
+        return $device !== null && OwnedDevice::refusal($device, $this->name, Carbon::now()) === null ? $device : null;
     }
 }

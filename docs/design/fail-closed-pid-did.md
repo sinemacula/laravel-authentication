@@ -14,12 +14,14 @@ specific principal or device and the runtime cannot prove that claim, authentica
   and auth identifier, so a resolver whose hinted lookup is not scoped to the identity cannot bind another identity's
   principal. An owner that cannot be read fails closed.
 - A present bearer `did` must resolve to a real, unrevoked device owned by the resolved identity whose session has not
-  ended. A device with `revoked_at` set, or past its idle or absolute deadline (or without one), is treated exactly like
-  a missing one, so revoking a device or ending its session ends its access tokens at once; the check reads the row the
-  lookup already loaded, with no extra query, and applies no JWT leeway, so an access token cannot outlive its session.
-  Any stored `revoked_at` counts, so a custom model using `ActsAsDevice` without a `datetime` cast on the column is
-  rejected too, and a device loaded without one of its state columns throws a `LogicException` instead of being read as
-  not revoked. The same lookup verifies a device pinned on `attempt()`, which must also come back as the same class.
+  ended. A device with `revoked_at` set, or past its idle or absolute deadline (or without one), is rejected like a
+  missing one, with its own reason (`device_revoked`, `session_expired`; a device of another guard
+  `device_guard_mismatch`, a missing one `device_unknown`), so revoking a device or ending its session ends its access
+  tokens at once; the check reads the row the lookup already loaded, with no extra query, and applies no JWT leeway, so
+  an access token cannot outlive its session. Any stored `revoked_at` counts, so a custom model using `ActsAsDevice`
+  without a `datetime` cast on the column is rejected too, and a device loaded without one of its state columns throws a
+  `LogicException` instead of being read as not revoked. The same lookup verifies a device pinned on `attempt()`, which
+  must also come back as the same class.
 - Refresh is stricter than bearer auth: refresh always requires a valid `did`, because refresh is device-backed.
 - A `did` is checked against the device model's key format before any query; one that cannot be a key fails closed as
   an unresolved device, and a database error on a well-formed `did` propagates instead of reading as a missing device.
@@ -60,8 +62,9 @@ specific principal or device and the runtime cannot prove that claim, authentica
   identity with no device capability fails closed instead of silently binding no device.
 - On the refresh path, `did` resolution is global through the configured device model, and the device's owner is
   reloaded through the guard's identity provider (see `guard-bound-tokens.md`).
-- When bearer auth rejects a token after the identity has already been loaded, the emitted `Failed` event still carries
-  that resolved identity for attribution.
+- When bearer auth rejects a token after the identity has already been loaded, the `AuthenticationFailed` event still
+  carries that resolved identity (and the principal and device, once found) for attribution, and the `did` the token
+  named.
 
 ## Implementation Anchors
 
@@ -87,7 +90,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 ## Authoritative Tests
 
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
-  `testUserAttributesFailedEventToResolvedIdentityWhenPidHintRejectsToken`
+  `testUserAttributesTheFailureToTheResolvedIdentityWhenPidHintRejectsToken`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsTokenWithoutPrincipalClaimInsteadOfUsingTheDefault`
 - `tests/Unit/Jwt/JwtTokenServiceTest.php`
@@ -105,7 +108,7 @@ specific principal or device and the runtime cannot prove that claim, authentica
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsTokenWhenDidHintCannotBeResolved`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
-  `testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved`
+  `testUserAttributesTheFailureToTheResolvedIdentityWhenDidHintCannotBeResolved`
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserRejectsTokenWhenDidHintNamesRevokedDevice`, `testUserRejectsTokenWhenDidHintNamesDeviceWhoseSessionHasEnded`
 - `tests/Integration/Guards/SessionLifetimeIntegrationTest.php`
@@ -171,6 +174,6 @@ Update this note when any of the following change:
 - whether bearer `did` remains identity-scoped through `HasDevices`
 - whether a revoked or ended device is still rejected on the bearer path like a missing one
 - whether refresh `did` remains backed by the configured device model
-- how late-path bearer failures are attributed on the `Failed` event
+- how late-path bearer failures are attributed on the `AuthenticationFailed` event
 - whether the identity, principal, tenant, and device reads still go to the write connection
 - how guard-local or rebound principal resolvers are propagated into refresh

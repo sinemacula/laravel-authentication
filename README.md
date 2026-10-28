@@ -1377,20 +1377,20 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 
 | Event                                            | Fired when                                                |
 |--------------------------------------------------|-----------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`              | Bearer, refresh, or credential attempt starts             |
-| `Illuminate\Auth\Events\Validated`               | A successful `login()` path is about to bind context      |
-| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard                               |
-| `Illuminate\Auth\Events\Login`                   | Full lifecycle complete                                   |
-| `Illuminate\Auth\Events\Failed`                  | Any bearer, refresh, or credential rejection              |
+| `Illuminate\Auth\Events\Attempting`              | A sign-in or refresh starts (never a bearer request)      |
+| `Illuminate\Auth\Events\Validated`               | A sign-in or refresh is about to bind context             |
+| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard, bearer requests included     |
+| `Illuminate\Auth\Events\Login`                   | A sign-in or refresh bound the guard                      |
+| `Illuminate\Auth\Events\Failed`                  | A sign-in or refresh was rejected (never a bearer token)  |
 | `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                              |
 | `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata |
 | `SineMacula\...\Events\Refreshed`                | Refresh exchange completed, once committed                |
 | `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device (a replay); carries reason   |
 | `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed      |
-| `SineMacula\...\Events\SignedIn`                 | The session service started a session, once committed     |
+| `SineMacula\...\Events\SignedIn`                 | A session started or was refreshed, once committed        |
 | `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed      |
 | `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type   |
-| `SineMacula\...\Events\AuthenticationFailed`     | A sign-in or refresh failed; carries flow and reason      |
+| `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh or bearer token failed; with reason    |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -1441,22 +1441,31 @@ secret. An event that reports a write is dispatched once the write is committed 
 once when it has no open transaction, on its commit otherwise, and never when it is rolled back; a transaction on
 another connection neither delays nor withdraws it.
 
-`SignedIn` reports a session the session service started (`signIn()`, `start()` or `complete()`), with the method that
-proved who signed in, unlike Laravel's `Login` and `Authenticated`, which also fire when a refresh or a bearer request
-binds the guard; a refresh dispatches `Refreshed` instead, and `SignedIn::$refresh` is `false`. `attempt()` starts no
-session and never dispatches it: Laravel's `Login` reports its sign-ins, and code that calls `start()` after `attempt()`
-reports the sign-in once. `DeviceCreated` precedes it for a new device (`SignedIn::$deviceCreated`). A sign-in the
-additional-factor policy holds for a further factor dispatches `AdditionalFactorRequired` instead, once committed: from
-`signIn()` it answers the sign-in's `Attempting`, and from `start()`, which dispatches no `Attempting`, it is the only
-event. Completing it dispatches `SignedIn`, and discarding it `AuthenticationFailed` with `additional_factor_failed`.
+A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
+package's `PrincipalAssigned` and `DeviceAuthenticated`, and a rejected token only `AuthenticationFailed`, once per
+request: never `Attempting`, `Validated`, `Login` or `Failed`, so a listener on those records sign-ins, not requests. A
+request without a token dispatches nothing.
 
-`AuthenticationFailed` reports every failed sign-in and refresh, after Laravel's `Failed`, with the flow
-(`AuthenticationFlow`: `sign_in`, `refresh`), a `FailureReason`, the identifier a sign-in's input named (as given), and
-the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once a sign-in method
-verified it or a refresh reloaded the device's owner (a wrong password or an unknown identifier carries none), the
-principal and tenant once resolved, and the device once found. It says why a sign-in failed even where the client is not
-told: a refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
-`invalid_credentials`:
+`Login` and `SignedIn` report real sign-ins: a session the session service started (`signIn()`, `start()` or
+`complete()`), with the method that proved who signed in, and a refresh, which renews the session on its device and
+dispatches `Refreshed` and then `SignedIn` with `$refresh` set and the method the device's session records. `attempt()`
+starts no session and never dispatches `SignedIn`: Laravel's `Login` reports its sign-ins, and code that calls `start()`
+after `attempt()` reports the sign-in once. `DeviceCreated` precedes `SignedIn` for a new device
+(`SignedIn::$deviceCreated`). A sign-in the additional-factor policy holds for a further factor dispatches
+`AdditionalFactorRequired` instead, once committed: from `signIn()` it answers the sign-in's `Attempting`, and from
+`start()`, which dispatches no `Attempting`, it is the only event. Completing it dispatches `SignedIn`, and discarding
+it `AuthenticationFailed` with `additional_factor_failed`.
+
+`AuthenticationFailed` reports every failed sign-in, refresh and bearer token, after Laravel's `Failed` where that
+fires, with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`), a `FailureReason`, the identifier a
+sign-in's input named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the
+identity only once a sign-in method verified it, a refresh reloaded the device's owner or a token's subject was found (a
+wrong password or an unknown identifier carries none), the principal and tenant once resolved, and the device once
+found, else the `did` a token named. A bearer token is checked in this order, so its reason is the first that applies:
+`token_invalid`, `identity_unknown`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`,
+then for a token that names a device `device_unknown`, `device_guard_mismatch`, `device_revoked`, `session_expired`. It
+says why a sign-in failed even where the client is not told: a refusal by the account's own limit is
+`account_rate_limited` on the event, while the sign-in's result says `invalid_credentials`:
 
 | Reason                       | Meaning                                                                 |
 |------------------------------|-------------------------------------------------------------------------|

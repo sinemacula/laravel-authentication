@@ -7,12 +7,17 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 
 ## Invariants
 
-- Any real authentication attempt starts with Laravel's `Attempting` event.
+- Any sign-in attempt (`attempt()`, `signIn()`, `refresh()`) starts with Laravel's `Attempting` event. A request's
+  bearer token is an authentication, not a sign-in (D5): it fires neither `Attempting`, `Validated`, `Login` nor
+  `Failed`, only `Authenticated` and the contextual events, or `AuthenticationFailed` with the reason.
+- `Login` and `SignedIn` report real sign-ins only: a sign-in through the session service and a refresh, which also
+  fires `Refreshed`; `SignedIn::$refresh` tells them apart.
 - The credentials on `Attempting` and `Failed` never carry a password: keys whose name contains `password`
   (case-insensitive) are always removed, plus any fragment in `authentication.events.redacted_credential_keys`. The
   identifier and every other key are kept.
-- `Validated` means the identity has already been accepted by credentials or by an upstream mechanism such as bearer
-  token verification or refresh. It does not guarantee that principal or device resolution will succeed afterwards.
+- `Validated` means the identity has already been accepted by credentials or by an upstream mechanism such as a refresh
+  token or an external identity provider. It does not guarantee that principal or device resolution will succeed
+  afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
 - A bind sets the identity, principal and device before it dispatches anything after `Login`: `Authenticated`,
   `PrincipalAssigned` and `DeviceAuthenticated` all describe the whole bound context (see `event-model.md`).
@@ -22,7 +27,7 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `PrincipalResolver`), and passes each rebind on to its refresh exchange, so an `Event::fake()` made after the guard
   resolved receives the exchange's `DeviceRevoked` as well as the guard's own events.
 - Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
-  rejected token fires `Attempting` and `Failed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
+  rejected token fires its `AuthenticationFailed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
   the request. A successful `login()` or `attempt()` (and so `refresh()`) settles the request before it fires `Login`,
   so a listener that reads the guard mid-bind never resolves the request's own token and leaves its device bound to
@@ -55,17 +60,24 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `authenticateAs()` is the trusted bind of an authentication that is not a sign-in: it clears the previous context,
   settles the request, and emits `Authenticated -> PrincipalAssigned -> DeviceAuthenticated?` without `Validated` or
   `Login`.
-- Bearer `user()` resolution emits `Attempting` and routes through `login()`, so a successful bearer request follows
-  the direct `login()` sequence.
+- Bearer `user()` resolution binds through `bindVerifiedContext()` without a sign-in, so a successful bearer request
+  emits only `Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`, carrying the tenant the activity check
+  loaded and the method the device's session records (see `BearerAuthentication`).
 - Successful `refresh()` emits `Attempting`, then `Validated` and the full bind (`Login -> Authenticated ->
-  PrincipalAssigned -> DeviceAuthenticated`), then the package `Refreshed` event once the rotation is committed on the
-  device's connection (at once with no transaction open there).
+  PrincipalAssigned -> DeviceAuthenticated`), then the package `Refreshed` and `SignedIn` (`refresh` set) events once
+  the rotation is committed on the device's connection (at once with no transaction open there).
 - `logout()` resolves the request if nothing has yet, emits Laravel's `Logout` event only when an identity is bound,
   then clears contextual state.
 
 ## Failure / Edge Cases
 
 - No bearer token means there is nothing to attempt, so `JwtGuard::user()` returns `null` without firing auth events.
+- A rejected bearer token fires only `AuthenticationFailed` (flow `bearer`), once per request, with the first reason in
+  this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `pid` does not resolve
+  to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a device,
+  `device_unknown` (not one of the identity's own, or not a key of the device model), `device_guard_mismatch`,
+  `device_revoked`, `session_expired`. Its context carries the identity, principal and device as far as they were
+  found, and the `did` the token named.
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
   `Http\UnauthenticatedResponse` renders it. Any other guard on the route keeps Laravel's response.
@@ -147,6 +159,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/Concerns/VerifiesPinnedContext.php`: the ownership checks for principals and devices pinned on
   `attempt()`.
 - `src/Guards/JwtGuard.php`: `resolveUserFromRequest()`, `resolveBearerToken()`, `refresh()`.
+- `src/Guards/BearerAuthentication.php` and `src/Guards/OwnedDevice.php`: the bearer checks, their order and reasons,
+  and the device lookup they share with the `attempt()` device pin.
 - `src/AuthenticationServiceProvider.php`: listener registration for `DeviceAuthenticated`, `wireGuardRebinds()`, the
   `auth` middleware binding, and the guest response render callback.
 - `src/Guards/JwtGuard.php` and `src/Jwt/RefreshTokenExchange.php`: `setDispatcher()` and `setPrincipalResolver()`,
@@ -238,6 +252,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Integration/Verification/IdentifierVerifierTest.php`
   `testProvingTheCurrentIdentifierVerifiesIt`, `testVerifyingAgainReportsAlreadyVerified`,
   `testEventWaitsForTheCommitAndNeverReportsARollback`
+- `tests/Integration/Guards/BearerAuthenticationTest.php`
+  `testABearerRequestReportsOnlyTheAuthentication`, `testATokenTheRowsRejectIsReportedOnceWithItsReason`,
+  `testARequestWithoutATokenDispatchesNothing`
 - `tests/Feature/Guards/AbstractGuardEventContextTest.php`
   `testAuthenticateAsReportsTheBindButNoSignIn`, `testAListenerOnAuthenticatedSeesTheWholeContext`
 
@@ -251,7 +268,7 @@ Update this note when any of the following change:
 - the order of the sign-in policy checks in `attempt()`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards
-- the decision to route bearer auth or refresh through `login()`
+- the decision that a bearer request binds without a sign-in and refresh as one
 - what `setUser()` binds
 - the listener or persistence behavior attached to `DeviceAuthenticated`
 - how dispatcher and resolver rebinds reach the guard and its refresh exchange

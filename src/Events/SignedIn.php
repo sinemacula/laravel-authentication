@@ -8,11 +8,12 @@ use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
 /**
- * Dispatched when the session service starts a session: a real sign-in, with
- * the method that proved who signed in, as opposed to Laravel's `Login` and
- * `Authenticated`, which also fire when a refresh or a bearer request binds the
- * guard. A refresh dispatches `Refreshed` instead. `attempt()` starts no
- * session and never dispatches it; Laravel's `Login` reports its sign-ins.
+ * Dispatched for every real sign-in on a device: when the session service
+ * starts a session, with the method that proved who signed in, and when a
+ * refresh renews one (`refresh` set, after `Refreshed`), with the method the
+ * device's session records. A bearer request, which only authenticates, never
+ * dispatches it. `attempt()` starts no session and never dispatches it;
+ * Laravel's `Login` reports its sign-ins.
  *
  * Dispatched once the session is committed on the device's own connection: at
  * once when that connection has no open transaction, after its transaction

@@ -4,11 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Guards;
 
-use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
-use Illuminate\Auth\Events\Failed;
-use Illuminate\Auth\Events\Login;
-use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -20,7 +16,11 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
@@ -52,7 +52,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * A request with no Authorization header returns null from `user()` without
-     * firing Attempting or Failed (there is nothing to attempt).
+     * dispatching anything (there is nothing to attempt).
      *
      * @return void
      *
@@ -90,7 +90,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * When the token service cannot parse a token (malformed / bad signature /
-     * expired), `user()` fires `Attempting` and `Failed` then returns null.
+     * expired), `user()` reports `token_invalid` once, and nothing else, then
+     * returns null.
      *
      * @return void
      *
@@ -100,23 +101,17 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     {
         $guard = $this->makeGuard($this->makeRequest('not-a-jwt'));
 
-        $dispatched = [];
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
-            });
+        $this->expectRejection(FailureReason::TOKEN_INVALID);
 
         $this->provider->shouldNotReceive('retrieveById');
 
         self::assertNull($guard->user());
-        self::assertSame([Attempting::class, Failed::class], $dispatched);
     }
 
     /**
      * A rejected token is attempted once per request: repeated `user()`,
-     * `check()` and accessor calls neither re-run the lookups nor re-fire
-     * `Attempting` and `Failed`.
+     * `check()` and accessor calls neither re-run the lookups nor report the
+     * failure again.
      *
      * @return void
      *
@@ -127,12 +122,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $token = $this->encodeAccessToken(['sub' => 'i-missing', 'pid' => 'p-1']);
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $dispatched = [];
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
-            });
+        $this->expectRejection(FailureReason::IDENTITY_UNKNOWN);
 
         $this->provider->shouldReceive('retrieveById')
             ->once()
@@ -143,11 +133,10 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         self::assertNull($guard->user());
         self::assertFalse($guard->check());
         self::assertNull($guard->principal());
-        self::assertSame([Attempting::class, Failed::class], $dispatched);
     }
 
     /**
-     * A token whose claims array lacks `sub` fires Attempting+Failed and
+     * A token whose claims array lacks `sub` is reported as `token_invalid` and
      * returns null.
      *
      * @return void
@@ -160,17 +149,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $dispatched = [];
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
-            });
+        $this->expectRejection(FailureReason::TOKEN_INVALID);
 
         $this->provider->shouldNotReceive('retrieveById');
 
         self::assertNull($guard->user());
-        self::assertSame([Attempting::class, Failed::class], $dispatched);
     }
 
     /**
@@ -187,18 +170,12 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $dispatched = [];
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
-            });
+        $this->expectRejection(FailureReason::TOKEN_INVALID);
 
         $this->provider->shouldNotReceive('retrieveById');
         $this->resolver->shouldNotReceive('resolve');
 
         self::assertNull($guard->user());
-        self::assertSame([Attempting::class, Failed::class], $dispatched);
     }
 
     /**
@@ -221,10 +198,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->resolver->shouldNotReceive('resolve');
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::IDENTITY_UNKNOWN);
 
         self::assertNull($guard->user());
     }
@@ -252,10 +226,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->resolver->shouldNotReceive('resolve');
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::IDENTITY_UNKNOWN);
 
         self::assertNull($guard->user());
     }
@@ -286,10 +257,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturnNull();
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::PRINCIPAL_MISMATCH);
 
         self::assertNull($guard->user());
     }
@@ -312,7 +280,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
         $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -330,10 +297,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::PRINCIPAL_INACTIVE);
 
         self::assertNull($guard->user());
     }
@@ -341,7 +305,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     /**
      * The resolver's `UnresolvableIdentityException` is a misconfiguration: it
      * propagates out of `user()` as a server error instead of being reported as
-     * a `Failed` bearer attempt.
+     * a failed bearer token.
      *
      * @return void
      *
@@ -367,11 +331,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andThrow($exception);
 
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldNotReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->events->shouldNotReceive('dispatch');
 
         try {
             $guard->user();
@@ -403,8 +363,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $tenant->shouldReceive('isActive')->once()->andReturnFalse();
 
         $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
         $principal->shouldReceive('getTenant')
@@ -421,11 +379,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::TENANT_INACTIVE);
 
         self::assertNull($guard->user());
     }
@@ -448,8 +402,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -495,24 +447,21 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $this->resolver->shouldNotReceive('resolve');
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::IDENTITY_INACTIVE);
 
         self::assertNull($guard->user());
     }
 
     /**
      * When `sub` resolves to a real identity but a fail-closed `pid` branch
-     * rejects the token, the emitted `Failed` event is still attributed to the
-     * resolved identity.
+     * rejects the token, the failure is still attributed to the resolved
+     * identity, with no principal.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserAttributesFailedEventToResolvedIdentityWhenPidHintRejectsToken(): void
+    public function testUserAttributesTheFailureToTheResolvedIdentityWhenPidHintRejectsToken(): void
     {
         $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-hinted']);
 
@@ -522,7 +471,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
         $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-default');
@@ -537,20 +485,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-hinted')
             ->andReturn($principal);
 
-        $failedEvent = null;
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
-                if (!$event instanceof Failed) {
-                    return;
-                }
-
-                $failedEvent = $event;
-            });
+        $this->expectRejection(FailureReason::PRINCIPAL_MISMATCH, static fn (EventContext $context): bool => $context->identity === $identity && $context->principal === null);
 
         self::assertNull($guard->user());
-        self::assertInstanceOf(Failed::class, $failedEvent);
-        self::assertSame($identity, $failedEvent->user);
     }
 
     /**
@@ -581,10 +518,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-hinted')
             ->andReturnNull();
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::PRINCIPAL_MISMATCH);
 
         self::assertNull($guard->user());
     }
@@ -609,7 +543,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
         $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-default');
@@ -624,10 +557,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-hinted')
             ->andReturn($principal);
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::PRINCIPAL_MISMATCH);
 
         self::assertNull($guard->user());
     }
@@ -653,7 +583,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
         $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn(null);
@@ -668,10 +597,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-hinted')
             ->andReturn($principal);
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::PRINCIPAL_MISMATCH);
 
         self::assertNull($guard->user());
     }
@@ -710,8 +636,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -729,18 +653,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->expectRejection(FailureReason::DEVICE_UNKNOWN);
 
         self::assertNull($guard->user());
     }
 
     /**
-     * Fail-closed: a `did` naming a revoked device is rejected exactly like a
-     * missing device, from the single lookup that loaded it, and `Failed` names
-     * the resolved identity.
+     * Fail-closed: a `did` naming a revoked device is rejected as
+     * `device_revoked`, from the single lookup that loaded it, attributed to
+     * the resolved identity and the device.
      *
      * @return void
      *
@@ -748,7 +669,9 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
      */
     public function testUserRejectsTokenWhenDidHintNamesRevokedDevice(): void
     {
-        $this->assertDidHintIsRejected(new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => $this->now]));
+        $device = new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => $this->now]);
+
+        $this->assertDidHintIsRejected($device, FailureReason::DEVICE_REVOKED);
     }
 
     /**
@@ -769,8 +692,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * Fail-closed: a `did` naming a device whose session has ended is rejected
-     * exactly like a missing device, from the single lookup that loaded it,
-     * whatever the token's own expiry.
+     * as `session_expired`, from the single lookup that loaded it, whatever the
+     * token's own expiry.
      *
      * @param  ?int  $idleIn
      * @param  ?int  $absoluteIn
@@ -783,10 +706,11 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
     {
         $this->assertDidHintIsRejected(new StubDevice([
             'id'                  => self::DEVICE_ID,
+            'guard'               => self::GUARD_NAME,
             'revoked_at'          => null,
             'idle_expires_at'     => $idleIn     === null ? null : $this->now->copy()->addSeconds($idleIn),
             'absolute_expires_at' => $absoluteIn === null ? null : $this->now->copy()->addSeconds($absoluteIn),
-        ]));
+        ]), FailureReason::SESSION_EXPIRED);
     }
 
     /**
@@ -817,8 +741,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('devices')->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
         $principal->shouldReceive('isActive')->andReturnTrue();
@@ -873,8 +795,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             });
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
         $principal->shouldReceive('isActive')->andReturnTrue();
@@ -892,8 +812,8 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * A `did` that cannot be a key of the identity's device model is rejected
-     * without querying the devices relation, and `Failed` still names the
-     * resolved identity.
+     * as `device_unknown` without querying the devices relation, attributed to
+     * the resolved identity and principal and to the id the token named.
      *
      * @return void
      *
@@ -921,8 +841,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -940,20 +858,12 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $failedEvent = null;
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
-                if (!$event instanceof Failed) {
-                    return;
-                }
-
-                $failedEvent = $event;
-            });
+        $this->expectRejection(FailureReason::DEVICE_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
+            && $context->principal                                                                                          === $principal
+            && $context->device                                                                                             === null
+            && $context->deviceId                                                                                           === 'not-a-uuid');
 
         self::assertNull($guard->user());
-        self::assertInstanceOf(Failed::class, $failedEvent);
-        self::assertSame($identity, $failedEvent->user);
     }
 
     /**
@@ -991,8 +901,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1010,10 +918,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $this->events->shouldReceive('dispatch')
-            ->with(\Mockery::type(Attempting::class));
-        $this->events->shouldNotReceive('dispatch')
-            ->with(\Mockery::type(Failed::class));
+        $this->events->shouldNotReceive('dispatch');
 
         $this->expectExceptionObject($failure);
 
@@ -1022,14 +927,14 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * When the `did` fail-closed branch rejects a token after `sub` already
-     * resolved, the `Failed` event carries that resolved identity for
-     * attribution.
+     * resolved, the failure carries that resolved identity and principal, and
+     * the device id the token named, for attribution.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUserAttributesFailedEventToResolvedIdentityWhenDidHintCannotBeResolved(): void
+    public function testUserAttributesTheFailureToTheResolvedIdentityWhenDidHintCannotBeResolved(): void
     {
         $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::MISSING_DEVICE_ID]);
 
@@ -1054,8 +959,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1073,27 +976,21 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $failedEvent = null;
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$failedEvent): void {
-                if (!$event instanceof Failed) {
-                    return;
-                }
-
-                $failedEvent = $event;
-            });
+        $this->expectRejection(FailureReason::DEVICE_UNKNOWN, static fn (EventContext $context): bool => $context->identity === $identity
+            && $context->principal                                                                                          === $principal
+            && $context->device                                                                                             === null
+            && $context->deviceId                                                                                           === self::MISSING_DEVICE_ID
+            && $context->guard                                                                                              === self::GUARD_NAME);
 
         self::assertNull($guard->user());
-        self::assertInstanceOf(Failed::class, $failedEvent);
-        self::assertSame($identity, $failedEvent->user);
     }
 
     /**
      * A valid token whose claims include `sub`, `pid`, and `did` results in the
-     * guard binding the identity, principal, and device and dispatching
-     * `Attempting`, `Authenticated`, `Validated`, `PrincipalAssigned`,
-     * `DeviceAuthenticated`, and `Login`.
+     * guard binding the identity, principal, and device and dispatching only
+     * `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated`: a
+     * request's token is an authentication, not a sign-in, so no `Attempting`,
+     * `Validated` or `Login`.
      *
      * @return void
      *
@@ -1126,8 +1023,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1157,18 +1052,7 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         self::assertSame($principal, $guard->principal());
         self::assertSame($device, $guard->device());
 
-        // `Login` before `Authenticated` is Laravel's own ordering.
-        self::assertSame(
-            [
-                Attempting::class,
-                Validated::class,
-                Login::class,
-                Authenticated::class,
-                PrincipalAssigned::class,
-                DeviceAuthenticated::class,
-            ],
-            $dispatched,
-        );
+        self::assertSame([Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class], $dispatched);
     }
 
     /**
@@ -1189,8 +1073,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('getAuthIdentifier')->byDefault()->andReturn(1);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1223,15 +1105,16 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
     /**
      * Assert a bearer token whose `did` names the supplied device is rejected
-     * from the single lookup that loaded it, and that `Failed` names the
-     * resolved identity.
+     * for the reason from the single lookup that loaded it, attributed to the
+     * resolved identity and the device.
      *
      * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function assertDidHintIsRejected(StubDevice $device): void
+    private function assertDidHintIsRejected(StubDevice $device, FailureReason $reason): void
     {
         $token = $this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1', 'did' => self::DEVICE_ID]);
 
@@ -1256,8 +1139,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->andReturn($builder);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->byDefault()->andReturn('principal-1');
-        $principal->shouldReceive('getTenant')->byDefault()->andReturnNull();
         $principal->shouldReceive('getTenant')->andReturnNull();
         $principal->shouldReceive('getPrincipalIdentifier')
             ->andReturn('p-1');
@@ -1275,17 +1156,29 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
-        $dispatched = [];
-
-        $this->events->shouldReceive('dispatch')
-            ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event;
-            });
+        $this->expectRejection($reason, static fn (EventContext $context): bool => $context->identity === $identity && $context->device === $device);
 
         self::assertNull($guard->user());
         self::assertNull($guard->device());
-        self::assertSame([Attempting::class, Failed::class], array_map(static fn (object $event): string => $event::class, $dispatched));
-        self::assertInstanceOf(Failed::class, $dispatched[1]);
-        self::assertSame($identity, $dispatched[1]->user);
+    }
+
+    /**
+     * Expect the request's token to be reported once as rejected for the
+     * reason, with nothing else dispatched, and its context to pass the check
+     * when one is given.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  ?\Closure(\SineMacula\Laravel\Authentication\Events\EventContext): bool  $context
+     * @return void
+     */
+    private function expectRejection(FailureReason $reason, ?\Closure $context = null): void
+    {
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                && $event->flow           === AuthenticationFlow::BEARER
+                && $event->reason         === $reason
+                && $event->context->guard === self::GUARD_NAME
+                && ($context === null || $context($event->context))));
     }
 }

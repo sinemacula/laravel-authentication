@@ -295,7 +295,7 @@ final class StandardAuthEventsIntegrationTest extends TestCase
      *
      * @return void
      */
-    public function testFailedAttemptDispatchesSignInFailedAfterFailed(): void
+    public function testFailedAttemptDispatchesAuthenticationFailedAfterFailed(): void
     {
         $dispatched = [];
 

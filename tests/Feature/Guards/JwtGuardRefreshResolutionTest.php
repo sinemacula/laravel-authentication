@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -590,8 +591,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     }
 
     /**
-     * A successful refresh routes through `login()` and then dispatches the
-     * package `Refreshed` event, yielding the full ordered success sequence.
+     * A successful refresh is a sign-in: `Attempting`, `Validated`, `Login` and
+     * the bind events, then the package `Refreshed` and `SignedIn` (a refresh,
+     * on the device it continued), yielding the full ordered success sequence.
      *
      * @return void
      *
@@ -641,9 +643,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $dispatched = [];
 
         $this->events->shouldReceive('dispatch')
-            ->times(7)
+            ->times(8)
             ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
+                $dispatched[] = $event;
             });
 
         self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
@@ -655,7 +657,19 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             PrincipalAssigned::class,
             DeviceAuthenticated::class,
             Refreshed::class,
-        ], $dispatched);
+            SignedIn::class,
+        ], array_map(static fn (object $event): string => $event::class, $dispatched));
+
+        $refreshed = $dispatched[6];
+        $signedIn  = $dispatched[7];
+
+        self::assertInstanceOf(Refreshed::class, $refreshed);
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        self::assertSame($refreshed->context, $signedIn->context);
+        self::assertFalse($signedIn->deviceCreated);
+        self::assertTrue($signedIn->refresh);
+        self::assertSame('password', $signedIn->context->method);
+        self::assertSame($device, $signedIn->context->device);
     }
 
     /**

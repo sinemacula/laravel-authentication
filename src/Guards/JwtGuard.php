@@ -11,15 +11,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
-use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
@@ -31,7 +29,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Reads `Authorization: Bearer <token>` from the active request, decodes via
  * `JwtTokenService`, then rehydrates the live identity, principal, and optional
- * device from the configured provider/resolver/model state before binding them.
+ * device from the configured provider/resolver/model state before binding them
+ * (see `BearerAuthentication`).
  *
  * Exposes `refresh()` for refresh-credential exchange; the round trip is
  * delegated to `RefreshTokenExchange`. `sessions()` returns the guard's session
@@ -116,11 +115,12 @@ final class JwtGuard extends AbstractGuard
      * Exchange a refresh token for a new access token + rotated refresh token.
      *
      * Delegates the round trip to `RefreshTokenExchange`, binds the resolved
-     * contextual triple, and dispatches `Refreshed` once the rotation is
-     * committed on the device's connection. Returns `null` on failure, after
-     * Laravel's `Failed` and then `AuthenticationFailed` with the reason. Once
-     * too many refreshes have failed for the token's device or from the
-     * request's IP address, the failure is `rate_limited` and a
+     * contextual triple as a sign-in (`Validated`, `Login` and the bind
+     * events), and dispatches `Refreshed` and `SignedIn` (with `refresh` set)
+     * once the rotation is committed on the device's connection. Returns `null`
+     * on failure, after Laravel's `Failed` and then `AuthenticationFailed` with
+     * the reason. Once too many refreshes have failed for the token's device or
+     * from the request's IP address, the failure is `rate_limited` and a
      * `ThrottleRequestsException` (429 with `Retry-After`) is thrown after the
      * events instead.
      *
@@ -203,7 +203,8 @@ final class JwtGuard extends AbstractGuard
 
     /**
      * Resolve the identity from the request's bearer token. `user()` calls this
-     * at most once per request.
+     * at most once per request, so a rejected token is reported once. A request
+     * without a token attempts nothing and dispatches nothing.
      *
      * Fail-closed: a token that claims a specific `pid` or `did` but does not
      * resolve to that exact principal/device is rejected rather than silently
@@ -211,6 +212,7 @@ final class JwtGuard extends AbstractGuard
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     #[\Override]
@@ -243,9 +245,10 @@ final class JwtGuard extends AbstractGuard
     }
 
     /**
-     * Dispatch `Refreshed` once the rotation is committed on the device's own
-     * connection: at once when it has no open transaction, on its commit
-     * otherwise, and never when it rolls back.
+     * Dispatch `Refreshed` and then `SignedIn` (a refresh, on the device it
+     * continued) once the rotation is committed on the device's own connection:
+     * at once when it has no open transaction, on its commit otherwise, and
+     * never when it rolls back.
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh  $result
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -259,154 +262,38 @@ final class JwtGuard extends AbstractGuard
         (new AfterCommit(static fn (): mixed => $container->bound('db.transactions') ? $container->make('db.transactions') : null))
             ->run($result->device, function () use ($context): void {
                 $this->events->dispatch(new Refreshed($context));
+                $this->events->dispatch(new SignedIn($context, false, true));
             });
     }
 
     /**
-     * Decode a bearer token, fire success events, and bind
-     * identity/principal/device. Returns the bound identity, or `null` after
-     * firing `Failed`.
+     * Authenticate a bearer token and bind what it names. A request's token is
+     * an authentication, not a sign-in: success binds through
+     * `bindVerifiedContext()` without `Validated` or `Login`, so only
+     * `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire, and
+     * a rejected token fires only `AuthenticationFailed` with the reason (no
+     * `Attempting` or `Failed`).
      *
      * @param  string  $token
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
      *
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function resolveBearerToken(#[\SensitiveParameter] string $token): ?Identity
     {
-        $this->fireAttemptingEvent([]);
+        $outcome = (new BearerAuthentication($this->name, $this->tokens, $this->provider, $this->resolver))
+            ->authenticate($token, ClientContext::fromRequest($this->request));
 
-        // Reset so a prior request's user cannot leak onto this failure path.
-        $this->lastRetrievedUser = null;
+        if ($outcome instanceof AuthenticationFailed) {
 
-        $context = $this->resolveContextFromToken($token);
-
-        if ($context === null) {
-
-            $this->fireFailedEvent($this->lastRetrievedUser, []);
+            $this->events->dispatch($outcome);
 
             return null;
         }
 
-        $this->fireValidatedEvent($context['identity']);
+        $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->device, $outcome->tenant, $outcome->device?->getSignInMethod(), false);
 
-        $this->bindVerifiedContext($context['identity'], $context['principal'], $context['device'], $context['tenant'], $context['device']?->getSignInMethod(), true);
-
-        return $context['identity'];
-    }
-
-    /**
-     * Resolve identity, principal, the principal's tenant, and device from a
-     * parsed bearer token. The caller fires `Failed` and binds state.
-     *
-     * @formatter:off
-     *
-     * @phpcs:disable Generic.Files.LineLength.TooLong
-     *
-     * @param  string  $token
-     * @return array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, tenant: ?\SineMacula\Laravel\Authentication\Contracts\Tenant, device: ?\SineMacula\Laravel\Authentication\Contracts\Device}|null
-     *
-     * @phpcs:enable Generic.Files.LineLength.TooLong
-     *
-     * @formatter:on
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    private function resolveContextFromToken(#[\SensitiveParameter] string $token): ?array
-    {
-        $claims = $this->tokens->parse($token, TokenType::ACCESS);
-        $user   = $this->loadIdentityFromClaims($claims);
-        $acting = $user === null ? null : $this->resolveActivePrincipal($user, $claims);
-
-        if ($claims === null || $user === null || $acting === null) {
-            return null;
-        }
-
-        $deviceHint = $claims[Claims::DEVICE_ID->value] ?? null;
-        $device     = $this->resolveDeviceFromHint($user, $deviceHint);
-        $deviceLost = $deviceHint !== null && $device === null;
-
-        // Fail-closed: a did that does not resolve must reject rather than bind
-        // null, otherwise audit trails record "no device" despite the token
-        // claiming one.
-        return $deviceLost
-            ? null
-            : [
-                'identity'  => $user,
-                'principal' => $acting[0],
-                'tenant'    => $acting[1],
-                'device'    => $device,
-            ];
-    }
-
-    /**
-     * Look up the identity for the `sub` claim, which `parse()` guarantees on
-     * an access token, and confirm it is active. Stores the retrieved user on
-     * `$lastRetrievedUser` even on the inactive/non-Identity branches so
-     * `Failed` attributes to the resolved account rather than a null.
-     *
-     * @param  ?array<string, mixed>  $claims
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
-     */
-    private function loadIdentityFromClaims(?array $claims): ?Identity
-    {
-        if ($claims === null) {
-            return null;
-        }
-
-        $user = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
-
-        if ($user !== null) {
-            $this->lastRetrievedUser = $user;
-        }
-
-        if (!$user instanceof Identity || !ActivationPolicy::isActive($user)) {
-            return null;
-        }
-
-        return $user;
-    }
-
-    /**
-     * Resolve a principal from the claims and confirm it and its tenant are
-     * active, returning the principal with the tenant its activity check
-     * loaded.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $user
-     * @param  array<string, mixed>  $claims
-     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Principal, 1: ?\SineMacula\Laravel\Authentication\Contracts\Tenant}|null
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    private function resolveActivePrincipal(Identity $user, array $claims): ?array
-    {
-        $principal = $this->resolvePrincipalFromClaims($user, $claims);
-
-        if (!$principal instanceof Principal || !ActivationPolicy::isActive($principal)) {
-            return null;
-        }
-
-        $tenant = ActivationPolicy::activeTenant($principal);
-
-        return $tenant === false ? null : [$principal, $tenant];
-    }
-
-    /**
-     * Resolve the principal named by the `pid` claim, which `parse()`
-     * guarantees on an access token, failing closed when the resolver returns
-     * any other principal.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  array<string, mixed>  $claims
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Principal
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    private function resolvePrincipalFromClaims(Identity $identity, array $claims): ?Principal
-    {
-        $hint     = $claims[Claims::PRINCIPAL_ID->value];
-        $resolved = $this->resolvePrincipal($identity, $hint);
-
-        return $this->matchesPidHint($resolved, $hint) ? $resolved : null;
+        return $outcome->identity;
     }
 }
