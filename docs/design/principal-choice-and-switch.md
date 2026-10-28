@@ -122,6 +122,11 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   switch read from the request and the transport's refusals, and a switch screen's listing)
 - `tests/Integration/Sessions/PrincipalSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch,
   a different switch, a deadline change, a deletion and an owner change)
+- `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
+  waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
+- `tests/Integration/Sessions/ChoiceAndSwitchCommitTest.php` (`PrincipalSwitched` and `PrincipalChoiceRequired` only
+  on commit, and a rolled-back choice's slots kept), `tests/Integration/Sessions/PrincipalChoiceEndToEndTest.php` (offer,
+  choose, then a bearer request as the chosen principal)
 - `tests/Integration/Sessions/ReplicaChoosesPrincipalsTest.php` (the eligible principals read on the write connection)
 - `tests/Feature/Sessions/PendingSignInsTest.php` `testIssueChoiceStoresTheSignInWithoutAPrincipal`,
   `testALivePendingSignInIsFoundOnlyForItsPurpose`, `testAChoicesProvenDeviceCountsOnlyForThePrincipalItRecords`
@@ -129,8 +134,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `testSwitchPrincipalMissesAfterAChangeSinceTheDeviceWasLoaded`
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
   cross-site checks, and the rotated cookie)
-- `tests/Performance/PrincipalSwitchQueryBudgetTest.php` (seven reads and one write per switch; four reads and the
-  counters' writes and the insert per choice)
+- `tests/Performance/PrincipalSwitchQueryBudgetTest.php` (seven reads and one write per switch, from the request
+  too; six reads and no write per grace retry; the counters' writes alone for a refusal, and their read alone when
+  rate-limited; four reads and the counters' writes and the insert per choice offered; five reads per choice read, and
+  five reads and five writes per choice made; and a time ceiling for switches, retries and refusals)
 
 ## Change Triggers
 

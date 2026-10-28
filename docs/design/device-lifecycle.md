@@ -125,6 +125,10 @@ deleted. Starting a session is in
 - `tests/Feature/Sessions/ManagesDevicesTest.php`: logout, sign out everywhere and a device list's revoke over HTTP
 - `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php`: logout from outside the refresh cookie's path revokes
   the device and clears the cookie
+- `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: two revocations in two processes on PostgreSQL
+  and MySQL report each device once, after a commit and after a rollback
+- `tests/Integration/Sessions/SecurityChangeEndToEndTest.php`: each security-change listener's revocation refused at
+  the `auth` middleware and at refresh
 - `tests/Feature/Sessions/DeviceRevocationsTest.php`, `tests/Integration/Sessions/DeviceRevocationsTest.php`,
   `tests/Integration/Sessions/SeparateConnectionDeviceRevocationsTest.php`,
   `tests/Integration/Sessions/RevocationScopeTest.php`, `tests/Feature/Sessions/RevocationScopeTest.php`,
