@@ -565,8 +565,9 @@ final class ApiKeyServiceTest extends TestCase
     }
 
     /**
-     * A key of another principal, or of another guard, is absent to every keyed
-     * operation and is left as it was.
+     * A key of another principal, of a principal of another type that shares
+     * its id, or of another guard, is absent to every keyed operation and is
+     * left as it was.
      *
      * @return void
      *
@@ -582,6 +583,14 @@ final class ApiKeyServiceTest extends TestCase
         self::assertFalse($this->apiKeys()->revoke($stranger, $issued->id));
         self::assertNull($this->apiKeys()->rotate($stranger, $issued->id));
         self::assertSame([], $this->apiKeys()->keys($stranger));
+
+        [, $namesake] = $this->seedAccount();
+
+        self::assertSame($owner->getKey(), $namesake->getKey());
+        self::assertNull($this->apiKeys()->find($namesake, $issued->id));
+        self::assertFalse($this->apiKeys()->revoke($namesake, $issued->id));
+        self::assertNull($this->apiKeys()->rotate($namesake, $issued->id));
+        self::assertSame([], $this->apiKeys()->keys($namesake));
 
         self::assertNull($this->apiKeys('m2m')->find($owner, $issued->id));
         self::assertFalse($this->apiKeys('m2m')->revoke($owner, $issued->id));

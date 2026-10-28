@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -1004,8 +1005,8 @@ final class PasskeyServiceTest extends TestCase
 
     /**
      * An identity's passkeys are listed oldest first, for the guard's relying
-     * party only, never another identity's, and as summaries that hold no key
-     * material.
+     * party only, never another identity's (nor one of an identity of another
+     * type that shares its id), and as summaries that hold no key material.
      *
      * @return void
      *
@@ -1033,6 +1034,10 @@ final class PasskeyServiceTest extends TestCase
         self::assertSame(['id', 'name', 'transports', 'aaguid', 'backup_eligible', 'backed_up', 'created_at', 'last_used_at'], array_keys($listed[0]->toArray()));
         self::assertCount(1, Auth::passkeys('admin')->passkeys($identity));
         self::assertSame([], Auth::passkeys('api')->passkeys($this->seedIdentity('alan@example.test')));
+
+        self::passkeyOfAnotherType($first->id);
+
+        self::assertCount(2, Auth::passkeys('api')->passkeys($identity));
     }
 
     /**
@@ -1088,9 +1093,10 @@ final class PasskeyServiceTest extends TestCase
     }
 
     /**
-     * Another identity's passkey, one of another relying party, and an id that
-     * names none are not removed, and nothing is reported; an id that is not a
-     * UUID is refused without a query.
+     * Another identity's passkey, one of an identity of another type that
+     * shares this one's id, one of another relying party, and an id that names
+     * none are not removed, and nothing is reported, while the identity's own
+     * passkey stays; an id that is not a UUID is refused without a query.
      *
      * @return void
      *
@@ -1098,9 +1104,11 @@ final class PasskeyServiceTest extends TestCase
      */
     public function testOnlyTheIdentitysPasskeyOfTheRelyingPartyIsRemoved(): void
     {
-        $identity = $this->seedIdentity();
-        $other    = $this->seedIdentity('grace@example.test');
-        $foreign  = $this->registerPasskey($other);
+        $identity  = $this->seedIdentity();
+        $other     = $this->seedIdentity('grace@example.test');
+        $foreign   = $this->registerPasskey($other);
+        $own       = $this->registerPasskey($identity, authenticator: new VirtualAuthenticator(self::ORIGIN));
+        $namesakes = self::passkeyOfAnotherType($own->id);
 
         config()->set('auth.guards.admin.passkeys', ['id' => 'app.example.test']);
 
@@ -1109,6 +1117,7 @@ final class PasskeyServiceTest extends TestCase
         $this->recordEvents([PasskeyRemoved::class]);
 
         self::assertFalse(Auth::passkeys('api')->remove($identity, $foreign->id));
+        self::assertFalse(Auth::passkeys('api')->remove($identity, $namesakes));
         self::assertFalse(Auth::passkeys('api')->remove($identity, $elsewhere->id));
         self::assertFalse(Auth::passkeys('api')->remove($identity, '0192f6b2-0000-7000-8000-000000000001'));
 
@@ -1120,8 +1129,25 @@ final class PasskeyServiceTest extends TestCase
 
         self::assertFalse(Auth::passkeys('api')->remove($identity, 'not-a-uuid'));
         self::assertSame(0, $queries);
-        self::assertSame(2, Passkey::query()->count());
+        self::assertSame(4, Passkey::query()->count());
         self::assertSame([], $this->recorded);
+    }
+
+    /**
+     * Of an identity's two passkeys, removing one keeps the other.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRemovingOnePasskeyKeepsTheOthers(): void
+    {
+        $identity = $this->seedIdentity();
+        $removed  = $this->registerPasskey($identity);
+        $kept     = $this->registerPasskey($identity, authenticator: new VirtualAuthenticator(self::ORIGIN));
+
+        self::assertTrue(Auth::passkeys('api')->remove($identity, $removed->id));
+        self::assertSame([$kept->id], array_map(static fn (PasskeySummary $summary): string => $summary->id, Auth::passkeys('api')->passkeys($identity)));
     }
 
     /**
@@ -1187,5 +1213,22 @@ final class PasskeyServiceTest extends TestCase
     {
         Carbon::setTestNow($now);
         CarbonImmutable::setTestNow($now);
+    }
+
+    /**
+     * Store a copy of the passkey for an identity of another type that has the
+     * same id, on the same relying party, and return the copy's id.
+     *
+     * @param  string  $id
+     * @return string
+     */
+    private static function passkeyOfAnotherType(string $id): string
+    {
+        $row  = (array) DB::table('passkeys')->where('id', $id)->first();
+        $copy = (string) Str::uuid();
+
+        DB::table('passkeys')->insert([...$row, 'id' => $copy, 'credential_id_hash' => hash('sha256', $copy), 'authenticatable_type' => MachineClient::class]);
+
+        return $copy;
     }
 }
