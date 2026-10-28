@@ -537,6 +537,8 @@ final class SessionLifetimeIntegrationTest extends TestCase
         $device->forceFill([
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'guard'                => $guard,
             'sign_in_method'       => 'password',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

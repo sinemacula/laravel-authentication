@@ -179,6 +179,8 @@ final class CustomEventsIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $user->getMorphClass(),
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash('rotation-' . (string) $user->getKey()), // @phpstan-ignore cast.string
         ])->save();
 
@@ -248,6 +250,8 @@ final class CustomEventsIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $user->getMorphClass(),
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 

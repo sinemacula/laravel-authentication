@@ -468,6 +468,8 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
             ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
         return $device;

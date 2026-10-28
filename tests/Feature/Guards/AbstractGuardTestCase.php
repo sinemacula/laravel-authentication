@@ -6,6 +6,7 @@ namespace Tests\Feature\Guards;
 
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
@@ -18,7 +19,9 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use Tests\Concerns\BindsSignInPolicyDoubles;
+use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Shared base case for the AbstractGuard split tests.
@@ -167,6 +170,28 @@ abstract class AbstractGuardTestCase extends TestCase
             ->andReturnNull();
 
         return $device;
+    }
+
+    /**
+     * A live device of the guard, as a stored row would load, whose session
+     * acts as the principal (so it can be pinned for it).
+     *
+     * @param  string  $id
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return \Tests\Unit\Stubs\StubDevice
+     */
+    protected function pinnableDevice(string $id, Principal $principal): StubDevice
+    {
+        return new StubDevice([
+            'id'                  => $id,
+            'guard'               => self::GUARD_NAME,
+            'sign_in_method'      => 'password',
+            'principal_type'      => PrincipalReference::type($principal),
+            'principal_id'        => PrincipalReference::id($principal),
+            'revoked_at'          => null,
+            'idle_expires_at'     => Carbon::now()->addDays(90),
+            'absolute_expires_at' => Carbon::now()->addDays(180),
+        ]);
     }
 
     /**

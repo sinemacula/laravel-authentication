@@ -395,6 +395,8 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubActiveAwarePrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => $rotationId === null ? null : RefreshTokenHasher::hash($rotationId),
         ])->save();
 

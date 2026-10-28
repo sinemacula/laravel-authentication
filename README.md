@@ -406,11 +406,16 @@ detects a replay; revoking is idempotent, so a device that is already revoked ke
 revoke a device yourself, set its `revoked_at` (and `revoked_reason`), which takes effect at once but fires no event. A
 device whose session has ended, past its idle or absolute deadline, is rejected the same way on the bearer path and as a
 sign-in pin, and fails refresh with `session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)).
-`ActsAsDevice` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and throws a
-`LogicException` when the device was loaded without one of its refresh or revocation state columns (both digests, the
-rotation time, the session's start, the principal switch time, both deadlines, and the revocation time), for example
-through a `devices()` relation or a global scope that selects other columns, so a partial select is reported instead of
-being read as a device that is not revoked or has no deadline.
+An access token that names a device is accepted only for the principal the device's session records (`principal_type`,
+`principal_id`), and only when it was issued no earlier than the second of the session's last principal switch
+(`principal_switched_at`); otherwise it fails with `device_principal_mismatch`. A switch therefore ends the access
+tokens of the principal it switched from at once, and switching back does not revive the ones issued before it. A device
+that records no principal accepts no token, and a device pinned on `attempt()` must record the principal being bound.
+Both checks read the row already loaded, with no extra query. `ActsAsDevice` reads any stored timestamp as a value, with
+or without a `datetime` cast on the column, and throws a `LogicException` when the device was loaded without one of its
+refresh or revocation state columns (both digests, the rotation time, the session's start, the principal switch time,
+both deadlines, and the revocation time), for example through a `devices()` relation or a global scope that selects
+other columns, so a partial select is reported instead of being read as a device that is not revoked or has no deadline.
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
@@ -1467,9 +1472,10 @@ identity only once a sign-in method verified it, a refresh reloaded the device's
 wrong password or an unknown identifier carries none), the principal and tenant once resolved, and the device once
 found, else the `did` a token named. A bearer token is checked in this order, so its reason is the first that applies:
 `token_invalid`, `identity_unknown`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`,
-then for a token that names a device `device_unknown`, `device_guard_mismatch`, `device_revoked`, `session_expired`. It
-says why a sign-in failed even where the client is not told: a refusal by the account's own limit is
-`account_rate_limited` on the event, while the sign-in's result says `invalid_credentials`:
+then for a token that names no device `issued_before_cutoff`, and for one that names a device `device_unknown`,
+`device_guard_mismatch`, `device_revoked`, `session_expired`, `device_principal_mismatch`. It says why a sign-in failed
+even where the client is not told: a refusal by the account's own limit is `account_rate_limited` on the event, while
+the sign-in's result says `invalid_credentials`:
 
 | Reason                       | Meaning                                                                 |
 |------------------------------|-------------------------------------------------------------------------|
@@ -1485,22 +1491,24 @@ says why a sign-in failed even where the client is not told: a refusal by the ac
 | `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                |
 | `principal_ineligible`       | The guard's audience policy does not admit the identity as principal    |
 | `identifier_unverified`      | The guard requires a verified identifier and it is not                  |
-| `device_mismatch`            | The pinned device is not one of the identity's live devices             |
+| `device_mismatch`            | The pinned device is not a live device of the identity and principal    |
 | `additional_factor_required` | A further factor is required, which only `signIn()` can ask             |
 | `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed              |
 | `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's      |
 | `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                     |
+| `issued_before_cutoff`       | Device-less token issued at or before a "tokens valid after" time       |
 | `device_unknown`             | Device id is not a device key or names no device                        |
 | `device_guard_mismatch`      | Device is another guard's (or none's); not revoked                      |
 | `device_revoked`             | Device row marked revoked                                               |
 | `session_expired`            | Device's idle or absolute deadline reached, or unset                    |
+| `device_principal_mismatch`  | Device acts as another principal, or switched since the token's issue   |
 | `rotation_reuse`             | Rotated refresh token replayed; device revoked                          |
 | `rotation_conflict`          | Device changed during the refresh; retry                                |
 | `refresh_key_missing`        | Device holds no refresh credential                                      |
 
 A sign-in method may answer only `invalid_credentials`; every other reason is the session service's to give. The enum
 also names the reasons of flows that report through the same event as they arrive: `principal_choice_abandoned`,
-`issued_before_cutoff`, `device_principal_mismatch`, `refresh_token_conflict` and `cross_site_request`.
+`refresh_token_conflict` and `cross_site_request`.
 
 ## Extensibility
 

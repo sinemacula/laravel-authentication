@@ -8,6 +8,8 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 
 /**
  * Shared device helpers for test cases that create device tables and rows.
@@ -24,22 +26,39 @@ trait InteractsWithDevices
 {
     /**
      * A session of the guard that starts now, signed in with a password, with
-     * the package's default lifetimes (90 days idle, 180 days absolute).
+     * the package's default lifetimes (90 days idle, 180 days absolute), acting
+     * as the principal when one is given (a bearer token naming the device is
+     * accepted only for the principal the device records).
      *
      * @formatter:off
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $guard
-     * @return array{guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return array<string, mixed>
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
      * @formatter:on
      */
-    protected static function liveSession(string $guard = 'api'): array
+    protected static function liveSession(string $guard = 'api', ?Principal $principal = null): array
     {
-        return self::sessionEndingAt(Carbon::now()->addDays(90), Carbon::now()->addDays(180), $guard);
+        $session = self::sessionEndingAt(Carbon::now()->addDays(90), Carbon::now()->addDays(180), $guard);
+
+        return $principal === null ? $session : [...$session, ...self::recordedPrincipal($principal)];
+    }
+
+    /**
+     * The device columns that record the principal a session acts as, as the
+     * session service writes them at sign-in: the principal, and no switch.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return array{principal_type: string, principal_id: ?string, principal_switched_at: null}
+     */
+    protected static function recordedPrincipal(Principal $principal): array
+    {
+        return ['principal_type' => PrincipalReference::type($principal), 'principal_id' => PrincipalReference::id($principal), 'principal_switched_at' => null];
     }
 
     /**

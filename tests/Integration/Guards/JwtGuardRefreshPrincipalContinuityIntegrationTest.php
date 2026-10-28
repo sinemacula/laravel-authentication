@@ -118,6 +118,8 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => PlainPrincipalFixture::class,
+            'principal_id'         => 'staff-actor',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 

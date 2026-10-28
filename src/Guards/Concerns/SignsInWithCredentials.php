@@ -200,7 +200,7 @@ trait SignsInWithCredentials
             return $admitted;
         }
 
-        $resolvedDevice = $this->resolvePinnedDevice($identity, $device);
+        $resolvedDevice = $this->resolvePinnedDevice($identity, $admitted->principal, $device);
 
         return $resolvedDevice === null
             ? RefusedSignIn::after(FailureReason::DEVICE_MISMATCH, $admitted)

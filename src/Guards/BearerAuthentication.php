@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Guards;
 
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -37,10 +38,11 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  * an issue time after the identity's and the principal's "tokens valid after"
  * time (`issued_before_cutoff`); and, for a token that names a device, that
  * device among the identity's own (`device_unknown`), of this guard
- * (`device_guard_mismatch`), not revoked (`device_revoked`) and with a session
- * that has not ended (`session_expired`). Fail closed: a token that names a
- * principal or device that does not resolve exactly is rejected rather than
- * downgraded.
+ * (`device_guard_mismatch`), not revoked (`device_revoked`), with a session
+ * that has not ended (`session_expired`), and acting as the token's principal
+ * with no principal switch after the token was issued
+ * (`device_principal_mismatch`). Fail closed: a token that names a principal or
+ * device that does not resolve exactly is rejected rather than downgraded.
  *
  * Built for one request with the guard's current collaborators, so it keeps
  * nothing between requests.
@@ -159,7 +161,10 @@ final readonly class BearerAuthentication
     /**
      * Hold the admitted token to the device it names, when it names one: the
      * device must be one of the identity's own, of this guard, not revoked, and
-     * with a session that has not ended. A token that names no device has no
+     * with a session that has not ended, and the session must act as the
+     * token's principal and not have switched principal since the token was
+     * issued (`device_principal_mismatch`), so a switch ends the tokens of the
+     * principal it switched from at once. A token that names no device has no
      * device to revoke, so it must instead have been issued after the "tokens
      * valid after" time of its identity and of its principal, when they record
      * one (`issued_before_cutoff`).
@@ -178,9 +183,29 @@ final readonly class BearerAuthentication
         }
 
         $device  = OwnedDevice::find($admitted->identity, $deviceId);
-        $refusal = $device === null ? FailureReason::DEVICE_UNKNOWN : OwnedDevice::refusal($device, $this->guard, Carbon::now());
+        $refusal = $device === null
+            ? FailureReason::DEVICE_UNKNOWN
+            : OwnedDevice::refusal($device, $this->guard, Carbon::now()) ?? self::principalRefusal($device, $admitted->principal, $issuedAt);
 
         return $refusal === null ? $admitted->on($device) : RefusedSignIn::after($refusal, $admitted->on($device));
+    }
+
+    /**
+     * Why the device's session may not serve a token of the principal issued at
+     * the given time, or `null` when it may: the session must act as the
+     * principal, and must not have switched principal after the token was
+     * issued.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  mixed  $issuedAt
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \LogicException
+     */
+    private static function principalRefusal(Device $device, Principal $principal, mixed $issuedAt): ?FailureReason
+    {
+        return OwnedDevice::actsAs($device, $principal) && OwnedDevice::isIssuedSinceSwitch($device, $issuedAt) ? null : FailureReason::DEVICE_PRINCIPAL_MISMATCH;
     }
 
     /**

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Guards\BearerAuthentication;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 use Tests\Concerns\InteractsWithDevices;
@@ -39,6 +40,7 @@ use Tests\Unit\Stubs\StubIdentity;
  *
  * @internal
  */
+#[CoversClass(BearerAuthentication::class)]
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 {
@@ -775,12 +777,17 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('isActive')->andReturnTrue();
+
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')->andReturnSelf();
         $builder->shouldReceive('getModel')->andReturn(new StubDevice);
         $builder->shouldReceive('find')
             ->with(self::DEVICE_ID)
-            ->andReturn(new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => null]));
+            ->andReturn(new StubDevice([...self::liveSession(self::GUARD_NAME, $principal), 'id' => self::DEVICE_ID, 'revoked_at' => null]));
 
         $resolvers = [];
 
@@ -793,11 +800,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
                 return $builder;
             });
-
-        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getTenant')->andReturnNull();
-        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
-        $principal->shouldReceive('isActive')->andReturnTrue();
 
         $this->provider->shouldReceive('retrieveById')->with('i-1')->andReturn($identity);
         $this->resolver->shouldReceive('resolve')->with($identity, 'p-1')->andReturn($principal);
@@ -1002,7 +1004,15 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
 
         $guard = $this->makeGuard($this->makeRequest($token));
 
-        $device = new StubDevice([...self::liveSession(self::GUARD_NAME), 'id' => self::DEVICE_ID, 'revoked_at' => null]);
+        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
+        $principal->shouldReceive('getTenant')->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->andReturn('p-1');
+        $principal->shouldReceive('isActive')
+            ->once()
+            ->andReturnTrue();
+
+        $device = new StubDevice([...self::liveSession(self::GUARD_NAME, $principal), 'id' => self::DEVICE_ID, 'revoked_at' => null]);
 
         $builder = \Mockery::mock(Builder::class);
         $builder->shouldReceive('useWritePdo')
@@ -1021,14 +1031,6 @@ final class JwtGuardUserResolutionTest extends JwtGuardTestCase
         $identity->shouldReceive('devices')
             ->once()
             ->andReturn($builder);
-
-        $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getTenant')->andReturnNull();
-        $principal->shouldReceive('getPrincipalIdentifier')
-            ->andReturn('p-1');
-        $principal->shouldReceive('isActive')
-            ->once()
-            ->andReturnTrue();
 
         $this->provider->shouldReceive('retrieveById')
             ->once()

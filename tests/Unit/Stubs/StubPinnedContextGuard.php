@@ -60,11 +60,12 @@ final class StubPinnedContextGuard extends AbstractGuard
      * Expose `resolvePinnedDevice()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $pinned
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
      */
-    public function pinnedDevice(Identity $identity, Device $pinned): ?Device
+    public function pinnedDevice(Identity $identity, Principal $principal, Device $pinned): ?Device
     {
-        return $this->resolvePinnedDevice($identity, $pinned);
+        return $this->resolvePinnedDevice($identity, $principal, $pinned);
     }
 }

@@ -335,6 +335,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

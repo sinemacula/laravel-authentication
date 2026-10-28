@@ -327,6 +327,8 @@ final class SeparateDeviceConnectionIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

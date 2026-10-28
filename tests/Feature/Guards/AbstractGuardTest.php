@@ -10,7 +10,6 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Stringable;
 use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
@@ -618,12 +617,8 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     {
         $deviceId = '0190f1d2-7c4e-7a3b-9f10-2b3c4d5e6f70';
 
-        $device = $this->mockDevice();
-        $device->shouldReceive('getDeviceIdentifier')->andReturn($deviceId);
-        $device->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
-        $device->shouldReceive('getRevokedAt')->andReturnNull();
-        $device->shouldReceive('getIdleExpiresAt')->andReturn(Carbon::now()->addDays(90));
-        $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(Carbon::now()->addDays(180));
+        $principal = $this->mockActivePrincipal();
+        $device    = $this->pinnableDevice($deviceId, $principal);
 
         $devices = \Mockery::mock(Builder::class);
         $devices->shouldReceive('useWritePdo')->andReturnSelf();
@@ -632,8 +627,6 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
-
-        $principal = $this->mockActivePrincipal();
 
         $this->provider->shouldReceive('retrieveByCredentials')->twice()->andReturn($identity);
         $this->provider->shouldReceive('validateCredentials')->twice()->andReturnTrue();

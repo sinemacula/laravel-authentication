@@ -63,18 +63,23 @@ trait VerifiesPinnedContext
 
     /**
      * Look a caller-supplied device up among the identity's own devices and
-     * return the live row. Returns `null` when the identity owns no live device
-     * of the same class with that identifier (see `resolveDeviceFromHint()`).
+     * return the live row, when its session acts as the principal being bound.
+     * Returns `null` when the identity owns no live device of the same class
+     * with that identifier (see `resolveDeviceFromHint()`), or the device
+     * records another principal, or none.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $pinned
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
+     *
+     * @throws \LogicException
      */
-    protected function resolvePinnedDevice(Identity $identity, Device $pinned): ?Device
+    protected function resolvePinnedDevice(Identity $identity, Principal $principal, Device $pinned): ?Device
     {
         $owned = $this->resolveDeviceFromHint($identity, $pinned->getDeviceIdentifier());
 
-        return $owned !== null && $owned::class === $pinned::class ? $owned : null;
+        return $owned !== null && $owned::class === $pinned::class && OwnedDevice::actsAs($owned, $principal) ? $owned : null;
     }
 
     /**

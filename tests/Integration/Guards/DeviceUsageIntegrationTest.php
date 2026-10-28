@@ -526,6 +526,8 @@ final class DeviceUsageIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             ...$state,
         ])->save();
 

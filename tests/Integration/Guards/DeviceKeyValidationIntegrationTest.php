@@ -73,6 +73,9 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             $blueprint->string('id')->primary();
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
+            $blueprint->string('principal_type')->nullable();
+            $blueprint->string('principal_id')->nullable();
+            $blueprint->dateTime('principal_switched_at', 0)->nullable();
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('refresh_key', 64)->nullable();
@@ -211,6 +214,8 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             'id'                   => $key,
             'authenticatable_type' => PrefixedKeyDeviceIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

@@ -76,8 +76,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   this order: `token_invalid`; `identity_unknown`, `identity_inactive`; `principal_mismatch` (the `pid` does not resolve
   to exactly that principal); `principal_inactive`, `tenant_inactive`; and for a token that names a device,
   `device_unknown` (not one of the identity's own, or not a key of the device model), `device_guard_mismatch`,
-  `device_revoked`, `session_expired`. Its context carries the identity, principal and device as far as they were
-  found, and the `did` the token named.
+  `device_revoked`, `session_expired`, `device_principal_mismatch` (the device acts as another principal, or none, or
+  switched principal after the token was issued); a token that names no device is checked against the "tokens valid
+  after" times instead (`issued_before_cutoff`). Its context carries the identity, principal and device as far as they
+  were found, and the `did` the token named.
 - A guest on a route that only package guards protect gets a JSON `401` whatever its `Accept` header: the package's
   `Http\Middleware\Authenticate` raises the `AuthenticationException` without evaluating Laravel's guest redirect, and
   `Http\UnauthenticatedResponse` renders it. Any other guard on the route keeps Laravel's response.

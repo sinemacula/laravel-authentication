@@ -193,7 +193,7 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
         ])->save();
 
         $device = $identity->devices()->make();
-        $device->forceFill([...self::liveSession(), 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)])->save();
+        $device->forceFill([...self::liveSession(principal: $identity), 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)])->save();
 
         return [$identity, $device];
     }

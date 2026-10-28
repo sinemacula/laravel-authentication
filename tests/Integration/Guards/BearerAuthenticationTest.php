@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Integration\Guards;
 
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Authenticated;
@@ -240,6 +241,26 @@ final class BearerAuthenticationTest extends TestCase
 
             return null;
         }, FailureReason::SESSION_EXPIRED];
+        yield 'a device acting as another principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Device::query()->whereKey($session->device->getKey())->update(['principal_id' => 'another-principal']);
+
+            return null;
+        }, FailureReason::DEVICE_PRINCIPAL_MISMATCH];
+        yield 'a device acting as no principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Device::query()->whereKey($session->device->getKey())->update(['principal_type' => null, 'principal_id' => null]);
+
+            return null;
+        }, FailureReason::DEVICE_PRINCIPAL_MISMATCH];
+        yield 'a revoked device acting as another principal' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Device::query()->whereKey($session->device->getKey())->update(['principal_id' => 'another-principal', 'revoked_at' => Carbon::now()]);
+
+            return null;
+        }, FailureReason::DEVICE_REVOKED];
+        yield 'a principal switch after the token was issued' => [static function (IntegrationIdentity $identity, SignedInSession $session): ?string {
+            Device::query()->whereKey($session->device->getKey())->update(['principal_switched_at' => Carbon::now()->addSecond()]);
+
+            return null;
+        }, FailureReason::DEVICE_PRINCIPAL_MISMATCH];
     }
 
     /**
@@ -317,6 +338,49 @@ final class BearerAuthenticationTest extends TestCase
     }
 
     /**
+     * A switch away from a principal and back again does not revive the tokens
+     * issued to it before the first switch: each switch is recorded on the
+     * device, and a token issued before the last one is rejected as
+     * `device_principal_mismatch` even though the device records its principal
+     * again. A token issued in the second of the switch back is accepted, as
+     * the switch's own tokens are.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSwitchingAwayAndBackDoesNotReviveEarlierTokens(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signedIn();
+        $deviceId = $session->device->getKey();
+        $recorded = Device::query()->findOrFail($deviceId)->only(['principal_type', 'principal_id']);
+        $earlier  = $session->tokens->accessToken;
+
+        $this->moveClocksTo(Carbon::now()->addMinute());
+
+        Device::query()->whereKey($deviceId)->update(['principal_type' => 'membership', 'principal_id' => 'another-principal', 'principal_switched_at' => Carbon::now()]);
+
+        $this->bearer($earlier)->assertUnauthorized();
+
+        $this->moveClocksTo(Carbon::now()->addMinute());
+
+        Device::query()->whereKey($deviceId)->update([...$recorded, 'principal_switched_at' => Carbon::now()]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $this->bearer($earlier)->assertUnauthorized();
+
+        self::assertSame(FailureReason::DEVICE_PRINCIPAL_MISMATCH, $this->recordedEvent(AuthenticationFailed::class)->reason);
+
+        $tokens = Auth::jwt('api');
+
+        self::assertNotNull($tokens);
+
+        $this->bearer($tokens->issueAccessToken($identity, $identity, Device::query()->findOrFail($deviceId)))->assertOk();
+    }
+
+    /**
      * A member whose tenant is deactivated after the token was issued is
      * rejected as `tenant_inactive`, attributed to the member and membership.
      *
@@ -380,6 +444,20 @@ final class BearerAuthenticationTest extends TestCase
         self::assertSame(1, DB::table('devices')->count());
 
         return $session;
+    }
+
+    /**
+     * Move every clock to the time.
+     *
+     * @param  \Carbon\CarbonInterface  $time
+     * @return void
+     */
+    private function moveClocksTo(CarbonInterface $time): void
+    {
+        Carbon::setTestNow($time);
+        CarbonImmutable::setTestNow($time);
+
+        JWT::$timestamp = $time->getTimestamp();
     }
 
     /**
