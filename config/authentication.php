@@ -252,7 +252,7 @@ return [
     | address. A request for a one-time code counts every request, per
     | identifier and per IP address, and never gives one back. A request for
     | passkey sign-in options counts every request per IP address (it names no
-    | identifier). A client credentials exchange counts only failures, per
+    | identifier, so its `per_identifier` must stay `null`). A client credentials exchange counts only failures, per
     | client id and per IP address. Counts on `connection` are rolled back with
     | any transaction a caller opened there around a sign-in. A guard overrides any limit in a
     | `rate_limits` block on its `config/auth.php` entry, where a scope that is

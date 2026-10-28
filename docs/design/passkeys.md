@@ -63,7 +63,8 @@ package's.
   passkey (name cleaned and cut to 255 characters, only WebAuthn's own transports kept) and answers its
   `PasskeySummary`; `PasskeyAdded` once committed.
 - Sign-in: `signInOptions()` reserves a slot on the client's IP address under the guard's `passkey_options` limit
-  (never given back) and writes a `sign_in` challenge naming no credential. `Auth::sessions()->signIn('passkey',
+  (never given back; its `per_identifier` must be `null`, as there is no identifier, and `AttemptLimits` refuses any
+  other value) and writes a `sign_in` challenge naming no credential. `Auth::sessions()->signIn('passkey',
   ['challenge' => ..., 'credential' => ...])` runs the session service as for any method: no identifier, so the
   `sign_in` limit counts only the IP address; inside the credential timebox `PasskeySignIn` uses the challenge up,
   finds the passkey, loads its owner through the guard's provider (`retrieveById`, the very model recorded), takes a

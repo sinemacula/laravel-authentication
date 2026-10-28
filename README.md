@@ -738,7 +738,8 @@ boundary. A counter started before `decay_seconds` changed keeps its window unti
 forgives the attempts already counted nor gives a slot back to the wrong window. A guard scope that is present wins,
 `null` included; a flow set to `null` turns both of its limits off; a scope the guard leaves out is the package's. A
 malformed limit, a missing one, or an unknown key fails closed with an `InvalidArgumentException` naming the guard and
-the key.
+the key, as does a `passkey_options.per_identifier` other than `null`: a request for passkey sign-in options names no
+identifier, so such a limit could never apply.
 
 A sign-in guesses a secret, so it reserves its slots before the method runs: a refused sign-in fails with
 `rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.

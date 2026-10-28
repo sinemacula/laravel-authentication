@@ -96,6 +96,10 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.rate_limits' => ['refresh' => ['per_ip' => ['max' => 0, 'decay_seconds' => 60]]]],
             '[api] Rate limit `refresh.per_ip` for guard [api] must be null or',
         ];
+        yield 'a passkey options limit per identifier' => [
+            ['auth.guards.api.rate_limits' => ['passkey_options' => ['per_identifier' => ['max' => 5, 'decay_seconds' => 60]]]],
+            '[api] Rate limit `passkey_options.per_identifier` for guard [api] must be null: a request for passkey sign-in options',
+        ];
         yield 'a malformed password identifier' => [
             ['auth.guards.api.sign_in' => ['password_identifier' => 'Email']],
             '[api] auth.guards.api.sign_in.password_identifier must name the identifier column',
