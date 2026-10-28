@@ -4,10 +4,13 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Codes;
 
+use Carbon\CarbonImmutable;
+use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
@@ -46,7 +49,8 @@ final class CodeRoutesTest extends TestCase
     private FakeOneTimeCodeSender $sender;
 
     /**
-     * Create the table, fake the sender and register the routes.
+     * Freeze the clock, so requests a second apart answer alike, create the
+     * table, fake the sender and register the routes.
      *
      * @return void
      */
@@ -54,6 +58,13 @@ final class CodeRoutesTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        $now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($now);
+        CarbonImmutable::setTestNow($now);
+
+        JWT::$timestamp = $now->getTimestamp();
 
         self::createCodeIdentitiesTable();
 
@@ -74,7 +85,7 @@ final class CodeRoutesTest extends TestCase
     }
 
     /**
-     * Drop the table.
+     * Release the clock and drop the table.
      *
      * @return void
      */
@@ -82,6 +93,11 @@ final class CodeRoutesTest extends TestCase
     protected function tearDown(): void
     {
         self::dropCodeIdentitiesTable();
+
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+
+        JWT::$timestamp = null;
 
         parent::tearDown();
     }
