@@ -109,8 +109,9 @@ device record live in the `devices` table so replay and stale credentials can be
   per principal type.
 - **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email and
   E.164 phone numbers by default), and a password rehash that never overwrites a concurrent change.
-- **Rate limits in the database**: sign-in, code requests, passkey sign-in options, client credentials exchanges and
-  refresh limited per identifier and per IP address, counted atomically on the write connection without a cache.
+- **Rate limits in the database**: sign-in, code requests and refresh limited per identifier and per IP address;
+  passkey sign-in options and client credentials exchanges per IP address (a client id only when you opt in); all
+  counted atomically on the write connection without a cache.
 - **Identifier verification**: signed verification links or one-time codes bound to their purpose and identifier, and
   an opt-in, per-guard requirement that sign-in identifiers be verified.
 - **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` and `api_key` guard's
@@ -702,9 +703,10 @@ offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by def
 
 ### Rate limits
 
-Sign-in, requests for one-time codes and for passkey sign-in options, client credentials exchanges and refresh are
-limited per identifier and per IP address, counted in the database on the write connection, so the limits hold across
-servers and do not depend on a cache. Publish the migration with the others (`authentication-migrations` creates
+Sign-in, requests for one-time codes and refresh are limited per identifier and per IP address; requests for passkey
+sign-in options and client credentials exchanges per IP address (an exchange per client id too, only when you opt in).
+Every limit is counted in the database on the write connection, so the limits hold across servers and do not depend on
+a cache. Publish the migration with the others (`authentication-migrations` creates
 `rate_limits`), then set limits in the package `rate_limits` block or a guard's own `rate_limits` block:
 
 ```php
