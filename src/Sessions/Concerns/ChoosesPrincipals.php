@@ -254,7 +254,7 @@ trait ChoosesPrincipals
         $presented = $this->guard->refreshTransport()->read($request);
 
         if ($presented instanceof PresentedRefreshToken) {
-            return $this->switchPrincipal($presented->token, $principal)->from($presented->source);
+            return $this->switchPrincipal($presented->token, $principal)->withSource($presented->source);
         }
 
         if ($presented !== null) {

@@ -72,12 +72,13 @@ final readonly class SwitchResult
     }
 
     /**
-     * The same outcome, for a refresh token read from the source.
+     * A copy of the outcome that says the refresh token was read from the
+     * source; the outcome itself is left as it is.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      * @return self
      */
-    public function from(RefreshTokenSource $source): self
+    public function withSource(RefreshTokenSource $source): self
     {
         return new self($this->session, $this->reason, $this->retryAfter, $source);
     }

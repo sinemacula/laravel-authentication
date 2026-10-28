@@ -61,7 +61,7 @@ final class SwitchResultTest extends TestCase
     public function testAResultReadFromASourceSaysWhich(): void
     {
         $limited = SwitchResult::failed(FailureReason::RATE_LIMITED, 30);
-        $read    = $limited->from(RefreshTokenSource::COOKIE);
+        $read    = $limited->withSource(RefreshTokenSource::COOKIE);
 
         self::assertNotSame($limited, $read);
         self::assertNull($limited->source);
@@ -72,7 +72,7 @@ final class SwitchResultTest extends TestCase
         $device  = \Mockery::mock(Model::class, EloquentDevice::class);
         $session = new SignedInSession(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), $device, new RefreshResult('access', 'refresh'), 'password', false);
 
-        self::assertSame($session, SwitchResult::switched($session)->from(RefreshTokenSource::BODY)->session);
+        self::assertSame($session, SwitchResult::switched($session)->withSource(RefreshTokenSource::BODY)->session);
     }
 
     /**
