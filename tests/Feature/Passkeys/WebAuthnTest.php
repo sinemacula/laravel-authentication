@@ -409,6 +409,12 @@ final class WebAuthnTest extends TestCase
             'an origin not listed' => [static function (VirtualAuthenticator $authenticator): void {
                 $authenticator->origin = 'https://evil.test';
             }],
+            'a listed origin over http' => [static function (VirtualAuthenticator $authenticator): void {
+                $authenticator->origin = 'http://app.example.test';
+            }],
+            'a subdomain of a listed origin' => [static function (VirtualAuthenticator $authenticator): void {
+                $authenticator->origin = 'https://deep.app.example.test';
+            }],
             'another relying party id hash' => [static function (VirtualAuthenticator $authenticator): void {
                 $authenticator->rpId = 'other.test';
             }],

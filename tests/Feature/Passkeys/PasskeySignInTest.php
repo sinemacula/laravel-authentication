@@ -381,6 +381,9 @@ final class PasskeySignInTest extends TestCase
             'another origin' => [static function (VirtualAuthenticator $authenticator): void {
                 $authenticator->origin = 'https://evil.test';
             }, null],
+            'a subdomain of the origin' => [static function (VirtualAuthenticator $authenticator): void {
+                $authenticator->origin = 'https://deep.app.example.test';
+            }, null],
         ];
     }
 
