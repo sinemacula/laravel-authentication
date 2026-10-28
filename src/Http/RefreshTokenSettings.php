@@ -57,7 +57,7 @@ final readonly class RefreshTokenSettings
     ];
 
     /** @var string The `Proxy-` and `Sec-` prefixes, whose headers only the browser sets. */
-    private const string BROWSER_HEADER_PREFIX = '/^(?:proxy|sec)-/i';
+    private const string BROWSER_HEADER_PREFIX = '/^(?:proxy|sec)-/';
 
     /**
      * Constructor.
@@ -253,6 +253,8 @@ final readonly class RefreshTokenSettings
     /**
      * The CSRF header: a header name, and, in any letter case, none that a
      * cross-site form or simple request can carry without the page setting it.
+     * A `_` is read as `-`, as Symfony's header bag reads it, so `Content_Type`
+     * is refused as `Content-Type` is.
      *
      * @param  string  $guard
      * @param  mixed  $value
@@ -264,7 +266,9 @@ final readonly class RefreshTokenSettings
     {
         $header = self::name($guard, 'cookie.csrf_header', $value);
 
-        if (in_array(strtolower($header), self::BROWSER_HEADERS, true) || preg_match(self::BROWSER_HEADER_PREFIX, $header) === 1) {
+        $read = strtolower(strtr($header, '_', '-'));
+
+        if (in_array($read, self::BROWSER_HEADERS, true) || preg_match(self::BROWSER_HEADER_PREFIX, $read) === 1) {
             throw new \InvalidArgumentException(self::message($guard, 'cookie.csrf_header', 'must be a custom header, not one a browser sends on its own'));
         }
 

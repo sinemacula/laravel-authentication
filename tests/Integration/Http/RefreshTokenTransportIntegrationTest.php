@@ -319,7 +319,8 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     /**
      * A cookie refresh sent as a form from an allowed origin carries only
      * headers a browser sends on its own, so it is refused as cross-site; and a
-     * guard told to take `Content-Type` for its custom header fails closed
+     * guard told to take `Content-Type` for its custom header, or
+     * `Content_Type`, which Symfony reads as the same header, fails closed
      * before the token is read, leaving the device as it was.
      *
      * @return void
@@ -336,13 +337,15 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
             ->assertUnauthorized()
             ->assertJson(['reason' => FailureReason::CROSS_SITE_REQUEST->value]);
 
-        config()->set('auth.guards.admin.refresh_token.cookie.csrf_header', 'Content-Type');
+        foreach (['Content-Type', 'Content_Type'] as $header) {
+            config()->set('auth.guards.admin.refresh_token.cookie.csrf_header', $header);
 
-        $refused = $this->refresh('admin', '', ['remember' => '1'], $form, $token)->assertInternalServerError();
+            $refused = $this->refresh('admin', '', ['remember' => '1'], $form, $token)->assertInternalServerError();
 
-        self::assertInstanceOf(\InvalidArgumentException::class, $refused->exception);
-        self::assertStringContainsString('`refresh_token.cookie.csrf_header` must be a custom header', $refused->exception->getMessage());
-        self::assertSame($before, Device::query()->sole()->getAttributes());
+            self::assertInstanceOf(\InvalidArgumentException::class, $refused->exception);
+            self::assertStringContainsString('`refresh_token.cookie.csrf_header` must be a custom header', $refused->exception->getMessage());
+            self::assertSame($before, Device::query()->sole()->getAttributes());
+        }
     }
 
     /**

@@ -114,6 +114,14 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.refresh_token' => ['cookie' => ['csrf_header' => 'content-type']]],
             '[api] Refresh token transport for guard [api]: `refresh_token.cookie.csrf_header` must be a custom header, not one a browser sends on its own.',
         ];
+        yield 'a CSRF header a browser sends on its own, spelled with an underscore' => [
+            ['auth.guards.api.refresh_token' => ['cookie' => ['csrf_header' => 'Content_Type']]],
+            '[api] Refresh token transport for guard [api]: `refresh_token.cookie.csrf_header` must be a custom header, not one a browser sends on its own.',
+        ];
+        yield 'a Sec- CSRF header spelled with an underscore' => [
+            ['auth.guards.api.refresh_token' => ['cookie' => ['csrf_header' => 'Sec_Fetch_Site']]],
+            '[api] Refresh token transport for guard [api]: `refresh_token.cookie.csrf_header` must be a custom header, not one a browser sends on its own.',
+        ];
         yield 'a refresh cookie name with a trailing newline' => [
             ['authentication.refresh_token.cookie.name' => "refresh_token\n"],
             '[api] Refresh token transport for guard [api]: `refresh_token.cookie.name` must be a header or cookie name without `.`.',

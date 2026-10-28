@@ -1563,13 +1563,13 @@ A browser attaches the cookie by itself, to any request for its path, so a refre
 cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
 `cookie.allowed_origins` (each exactly `scheme://host[:port]`), and it must carry the `cookie.csrf_header` header
 (`X-Requested-With` by default) with a value, which a form or a simple request cannot send; a header a browser sends on
-its own (`Content-Type`, `Origin`, any `Sec-` header and the like) is refused as the `csrf_header`. Anything else is
-`cross_site_request`. A route that sets the cookie must hold its request to the same checks, the sign-in above all: a
-cross-site page can auto-submit a form to it with an attacker's credentials, and a browser keeps a `SameSite=Strict`
-cookie set by the response to such a top-level navigation, so without the check the victim's browser would hold the
-attacker's refresh cookie and its own scripts would then pass the refresh checks inside the attacker's account.
-`Auth::refreshTransport('browser')->isSameSiteRequest($request)` is that check, as the sign-in route above uses it. A
-script refreshes with:
+its own (`Content-Type`, `Origin`, any `Sec-` header and the like, also when spelled with `_` for `-`) is refused as the
+`csrf_header`. Anything else is `cross_site_request`. A route that sets the cookie must hold its request to the same
+checks, the sign-in above all: a cross-site page can auto-submit a form to it with an attacker's credentials, and a
+browser keeps a `SameSite=Strict` cookie set by the response to such a top-level navigation, so without the check the
+victim's browser would hold the attacker's refresh cookie and its own scripts would then pass the refresh checks inside
+the attacker's account. `Auth::refreshTransport('browser')->isSameSiteRequest($request)` is that check, as the sign-in
+route above uses it. A script refreshes with:
 
 ```js
 await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});

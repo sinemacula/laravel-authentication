@@ -165,7 +165,8 @@ final class RefreshTokenSettingsTest extends TestCase
     /**
      * Rows of `[a CSRF header]` a cross-site form or simple request can carry
      * without the page setting it: CORS-safelisted, set by the browser itself,
-     * or attached from cached credentials, in any letter case.
+     * or attached from cached credentials, in any letter case and with `_` for
+     * `-`, which Symfony's header bag reads as the same header.
      *
      * @return iterable<string, array{0: string}>
      */
@@ -187,6 +188,11 @@ final class RefreshTokenSettingsTest extends TestCase
         yield 'a Sec- header' => ['Sec-Fetch-Site'];
         yield 'a sec- header in lower case' => ['sec-ch-ua'];
         yield 'a Proxy- header' => ['Proxy-Authorization'];
+        yield 'Content_Type with an underscore' => ['Content_Type'];
+        yield 'User_Agent with an underscore' => ['User_Agent'];
+        yield 'accept_language with an underscore in lower case' => ['accept_language'];
+        yield 'a Sec_ header with an underscore' => ['Sec_Fetch_Site'];
+        yield 'a PROXY_ header with an underscore in upper case' => ['PROXY_AUTHORIZATION'];
     }
 
     /**
@@ -213,7 +219,7 @@ final class RefreshTokenSettingsTest extends TestCase
      */
     public function testACustomCsrfHeaderIsAcceptedAsConfigured(): void
     {
-        foreach (['X-Sec-Origin', 'X-Content-Type', 'Origin-Check', 'x-requested-with'] as $header) {
+        foreach (['X-Sec-Origin', 'X-Content-Type', 'Origin-Check', 'x-requested-with', 'X_Requested_With', 'Secret-Token', 'Sec'] as $header) {
             self::assertSame($header, RefreshTokenSettings::forGuard('api', self::config(['cookie' => ['csrf_header' => $header]]))->csrfHeader);
         }
     }
