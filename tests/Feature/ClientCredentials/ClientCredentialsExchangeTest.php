@@ -314,29 +314,53 @@ final class ClientCredentialsExchangeTest extends TestCase
     }
 
     /**
-     * Rows of `[the client id and secret sent, given the key issued]`: likely
-     * client mistakes that put the key's secret where the id belongs.
+     * Rows of `[what is sent for the key and its secret, refusal set up by the
+     * closure, status, error]`: a whole key sent as the client id, or the id
+     * and the secret swapped, refused at each step that reports the client.
      *
-     * @return iterable<string, array{0: \Closure(string, string): array{0: string, 1: string}}>
+     * @return iterable<string, array{0: \Closure(string, string): array{0: string, 1: string}, 1: \Closure(self): void, 2: int, 3: string}>
      */
     public static function provideMisplacedSecrets(): iterable
     {
-        yield from [
-            'the whole key as the client id' => [static fn (string $key, string $secret): array => [$key, $secret]],
-            'the id and the secret swapped'  => [static fn (string $key, string $secret): array => [$secret, substr($key, 0, 19)]],
+        $sent = [
+            'the whole key as the client id' => static fn (string $key, string $secret): array => [$key, $secret],
+            'the id and the secret swapped'  => static fn (string $key, string $secret): array => [$secret, substr($key, 0, 19)],
         ];
+
+        $refusals = [
+            'refused as a client'          => [static function (): void {}, 401, 'invalid_client'],
+            'on a guard without the grant' => [static function (): void {
+                config()->set('auth.guards.m2m.audience.methods', ['password']);
+            }, 400, 'unauthorized_client'],
+            'from an address past its limit' => [static function (self $test): void {
+                config()->set('authentication.rate_limits.client_credentials.per_ip', ['max' => 1, 'decay_seconds' => 60]);
+
+                $test->token('grant_type=client_credentials&client_id=ak_zzzzzzzzzzzzzzzz&client_secret=' . str_repeat('a', 40))->assertStatus(401);
+            }, 429, 'slow_down'],
+        ];
+
+        foreach ($sent as $mistake => $send) {
+            foreach ($refusals as $refused => [$refusal, $status, $error]) {
+                yield "{$mistake}, {$refused}" => [$send, $refusal, $status, $error];
+            }
+        }
     }
 
     /**
      * A client id that is not a key's public part in form, such as a whole key
-     * or a secret sent in its place, is refused and reported with no
-     * identifier, so the secret reaches no event.
+     * or a secret sent in its place, is reported with no identifier by every
+     * refusal that reports the client (an unknown client, a guard that does not
+     * allow the grant, an address past its limit), so the secret reaches no
+     * event.
      *
      * @param  \Closure(string, string): array{0: string, 1: string}  $sent
+     * @param  \Closure(self): void  $refusal
+     * @param  int  $status
+     * @param  string  $error
      * @return void
      */
     #[DataProvider('provideMisplacedSecrets')]
-    public function testASecretSentAsTheClientIdIsNeverReported(\Closure $sent): void
+    public function testASecretSentAsTheClientIdIsNeverReported(\Closure $sent, \Closure $refusal, int $status, string $error): void
     {
         [, $issued] = $this->machineKey();
 
@@ -344,9 +368,11 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         [$id, $other] = $sent($issued->key(), $secret);
 
+        $refusal($this);
+
         $this->machineEvents = [];
 
-        $this->token('grant_type=client_credentials&client_id=' . $id . '&client_secret=' . $other)->assertStatus(401)->assertExactJson(['error' => 'invalid_client']);
+        $this->token('grant_type=client_credentials&client_id=' . $id . '&client_secret=' . $other)->assertStatus($status)->assertExactJson(['error' => $error]);
 
         $failure = $this->machineEventsOf(AuthenticationFailed::class);
 
