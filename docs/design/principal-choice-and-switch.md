@@ -106,6 +106,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `testALivePendingSignInIsFoundOnlyForItsPurpose`, `testAChoicesProvenDeviceCountsOnlyForThePrincipalItRecords`
 - `tests/Feature/Jwt/RefreshRotationStoreTest.php` `testSwitchPrincipalRecordsTheTargetAndMirrorsIt`,
   `testSwitchPrincipalMissesAfterAChangeSinceTheDeviceWasLoaded`
+- `tests/Integration/Http/RefreshCookieSessionLifecycleTest.php` (a switch proven by the refresh cookie, its
+  cross-site checks, and the rotated cookie)
 - `tests/Performance/PrincipalSwitchQueryBudgetTest.php` (seven reads and one write per switch; four reads and the
   counters' writes and the insert per choice)
 
