@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -45,7 +46,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 /**
  * Package service provider: registers the package's configuration, auth
  * manager, guard and provider drivers, sign-in collaborators and policies,
- * middleware, listener and publishing tags.
+ * middleware, listener, publishing tags and console command.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -101,6 +102,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->registerListeners();
         $this->registerUnauthenticatedResponse();
         $this->registerPublishing();
+        $this->registerCommands();
     }
 
     /**
@@ -167,6 +169,57 @@ final class AuthenticationServiceProvider extends ServiceProvider
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
 
         return $guard;
+    }
+
+    /**
+     * Resolve the effective principal resolver for the guard; the guard driver
+     * and `authentication:check` both use it.
+     *
+     * Guards without a `principal_resolver` override track the global
+     * `PrincipalResolver::class` binding and should therefore receive future
+     * container refreshes. Guard-local overrides resolve once at construction
+     * time and are fixed thereafter.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  string  $name
+     * @param  array<string, mixed>  $config
+     * @return array{resolver: \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver, tracks_global: bool}
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
+    {
+        if (!array_key_exists('principal_resolver', $config)) {
+            return [
+                'resolver'      => $app->make(PrincipalResolver::class),
+                'tracks_global' => true,
+            ];
+        }
+
+        $abstract = $config['principal_resolver'];
+
+        if (!is_string($abstract) || $abstract === '') {
+            throw new \InvalidArgumentException("Auth guard [{$name}] principal_resolver must be a non-empty string container abstract.");
+        }
+
+        $resolver = $app->make($abstract);
+
+        if (!$resolver instanceof PrincipalResolver) {
+
+            $resolvedType = get_debug_type($resolver);
+
+            $message = "Auth guard [{$name}] principal_resolver [{$abstract}]"
+                . " resolved to [{$resolvedType}] instead of ["
+                . PrincipalResolver::class
+                . '].';
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        return [
+            'resolver'      => $resolver,
+            'tracks_global' => false,
+        ];
     }
 
     /**
@@ -271,53 +324,17 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Resolve the effective principal resolver for the guard.
+     * Register the package's console commands when running in the console.
      *
-     * Guards without a `principal_resolver` override track the global
-     * `PrincipalResolver::class` binding and should therefore receive future
-     * container refreshes. Guard-local overrides resolve once at construction
-     * time and are fixed thereafter.
-     *
-     * @param  \Illuminate\Foundation\Application  $app
-     * @param  string  $name
-     * @param  array<string, mixed>  $config
-     * @return array{resolver: \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver, tracks_global: bool}
-     *
-     * @throws \InvalidArgumentException
+     * @return void
      */
-    private static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
+    protected function registerCommands(): void
     {
-        if (!array_key_exists('principal_resolver', $config)) {
-            return [
-                'resolver'      => $app->make(PrincipalResolver::class),
-                'tracks_global' => true,
-            ];
+        if (!$this->app->runningInConsole()) {
+            return;
         }
 
-        $abstract = $config['principal_resolver'];
-
-        if (!is_string($abstract) || $abstract === '') {
-            throw new \InvalidArgumentException("Auth guard [{$name}] principal_resolver must be a non-empty string container abstract.");
-        }
-
-        $resolver = $app->make($abstract);
-
-        if (!$resolver instanceof PrincipalResolver) {
-
-            $resolvedType = is_object($resolver) ? $resolver::class : get_debug_type($resolver);
-
-            $message = "Auth guard [{$name}] principal_resolver [{$abstract}]"
-                . " resolved to [{$resolvedType}] instead of ["
-                . PrincipalResolver::class
-                . '].';
-
-            throw new \InvalidArgumentException($message);
-        }
-
-        return [
-            'resolver'      => $resolver,
-            'tracks_global' => false,
-        ];
+        $this->commands([CheckConfigurationCommand::class]);
     }
 
     /**

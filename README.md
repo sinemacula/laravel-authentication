@@ -77,6 +77,8 @@ device record live in the `devices` table so replay and stale credentials can be
   the write connection without a cache.
 - **Identifier verification**: signed verification links bound to their purpose and identifier, and an opt-in,
   per-guard requirement that sign-in identifiers be verified.
+- **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` guard's settings and fails
+  the deploy on a problem, listing all of them.
 - **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
   policy, audience policy, attempt limiter, identifier normalisers, table names.
 
@@ -601,6 +603,19 @@ $membership = WriteConnection::query(Membership::query()->where('identity_id', $
 // Model reads on any connection, eager loads included, plus the identity's connection.
 $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
 ```
+
+### Checking the configuration
+
+`php artisan authentication:check` resolves every `jwt` guard's settings the way the guard would and exits `1` when
+any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each guard's token service (keys,
+active kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and audience), that
+its provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the
+package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier and the refresh token
+transport, and the configured device model. Every check runs, so one run lists every problem, each as `[<guard>]
+<message>` (`[device]` for the device model), and a guard without one as `[<guard>] OK`. `--guard=api --guard=admin`
+checks only the named guards; a named guard that is not configured, or not a `jwt` guard, is a problem. The command
+reads configuration only: it opens no database connection and never prints a key. The package does not run these
+checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Identity Models
 

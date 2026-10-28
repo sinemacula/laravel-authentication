@@ -269,6 +269,26 @@ final class GuardAudiencePolicyTest extends TestCase
 
         $this->assertFailsClosed($message, fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'));
         $this->assertFailsClosed($message, fn (): ?FailureReason => $this->admit(new PlainPrincipalFixture(1)));
+        $this->assertFailsClosed($message, function (): bool {
+            $this->packagePolicy()->validate(self::GUARD);
+
+            return true;
+        });
+    }
+
+    /**
+     * Validating a guard whose settings are well formed reports nothing and
+     * leaves its decisions as they were.
+     *
+     * @return void
+     */
+    public function testValidatingWellFormedSettingsPasses(): void
+    {
+        $policy = $this->packagePolicy();
+
+        $policy->validate(self::GUARD);
+
+        self::assertTrue($policy->allowsMethod(self::GUARD, 'password'));
     }
 
     /**
@@ -364,6 +384,20 @@ final class GuardAudiencePolicyTest extends TestCase
 
         $config->set('auth.guards.' . self::GUARD, ['driver' => 'jwt', 'provider' => 'users']);
         $config->set('auth.guards.other', ['driver' => 'jwt', 'provider' => 'users']);
+    }
+
+    /**
+     * Resolve the bound policy, which is the package's.
+     *
+     * @return \SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy
+     */
+    private function packagePolicy(): GuardAudiencePolicy
+    {
+        $policy = $this->policy();
+
+        self::assertInstanceOf(GuardAudiencePolicy::class, $policy);
+
+        return $policy;
     }
 
     /**

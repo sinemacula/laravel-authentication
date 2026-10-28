@@ -125,6 +125,20 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     }
 
     /**
+     * Validate every audience setting of the guard, failing closed as any check
+     * would, without deciding anything; `authentication:check` runs it.
+     *
+     * @param  string  $guard
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function validate(string $guard): void
+    {
+        $this->settings($guard);
+    }
+
+    /**
      * Resolve and validate every audience setting of the guard, so a malformed
      * one fails closed whichever check runs first.
      *

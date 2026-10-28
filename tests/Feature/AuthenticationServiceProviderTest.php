@@ -10,18 +10,22 @@ use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Console\Application as ConsoleApplication;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -167,6 +171,100 @@ final class AuthenticationServiceProviderTest extends TestCase
             DefaultPrincipalResolver::class,
             app(PrincipalResolver::class),
         );
+    }
+
+    /**
+     * The configuration check is registered as an Artisan command when the
+     * application runs in the console.
+     *
+     * @return void
+     */
+    public function testTheConfigurationCheckIsRegisteredInTheConsole(): void
+    {
+        self::assertArrayHasKey('authentication:check', Artisan::all());
+        self::assertInstanceOf(CheckConfigurationCommand::class, Artisan::all()['authentication:check']);
+    }
+
+    /**
+     * Outside the console no command is registered.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testNoCommandIsRegisteredOutsideTheConsole(): void
+    {
+        $app = \Mockery::mock(Application::class)->makePartial();
+        $app->shouldReceive('runningInConsole')->andReturnFalse();
+
+        $bootstrappers = new \ReflectionProperty(ConsoleApplication::class, 'bootstrappers');
+        $before        = $bootstrappers->getValue();
+
+        (new \ReflectionMethod(AuthenticationServiceProvider::class, 'registerCommands'))->invoke(new AuthenticationServiceProvider($app));
+
+        self::assertSame($before, $bootstrappers->getValue());
+    }
+
+    /**
+     * The principal resolver selection is public, for the configuration check:
+     * a guard without an override takes the bound resolver and tracks its
+     * rebinds, and one with an override takes that, fixed.
+     *
+     * @return void
+     */
+    public function testTheGuardsPrincipalResolverIsSelectedForTheConfigurationCheck(): void
+    {
+        $app = $this->app;
+
+        assert($app instanceof Application);
+
+        $global   = AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, 'api', []);
+        $override = AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, 'api', ['principal_resolver' => StubReplacementPrincipalResolver::class]);
+
+        self::assertSame(app(PrincipalResolver::class), $global['resolver']);
+        self::assertTrue($global['tracks_global']);
+        self::assertInstanceOf(StubReplacementPrincipalResolver::class, $override['resolver']);
+        self::assertFalse($override['tracks_global']);
+    }
+
+    /**
+     * Rows of `[an override, the problem it is reported as]`.
+     *
+     * @return iterable<string, array{0: mixed, 1: string}>
+     */
+    public static function provideUnusableResolverOverrides(): iterable
+    {
+        $notAnAbstract = 'Auth guard [api] principal_resolver must be a non-empty string container abstract.';
+
+        yield 'an empty abstract' => ['', $notAnAbstract];
+        yield 'an abstract that is not a string' => [[StubReplacementPrincipalResolver::class], $notAnAbstract];
+        $notAResolver = 'Auth guard [api] principal_resolver [stdClass] resolved to [stdClass] instead of [' . PrincipalResolver::class . '].';
+
+        yield 'an abstract that is not a resolver' => [\stdClass::class, $notAResolver];
+        yield 'an abstract bound to a value' => ['config.resolver-value', 'Auth guard [api] principal_resolver [config.resolver-value] resolved to [string] instead of ['];
+    }
+
+    /**
+     * An override that cannot be the guard's resolver is reported, naming the
+     * guard and what it resolved to.
+     *
+     * @param  mixed  $override
+     * @param  string  $message
+     * @return void
+     */
+    #[DataProvider('provideUnusableResolverOverrides')]
+    public function testAnUnusableResolverOverrideIsReported(mixed $override, string $message): void
+    {
+        $app = $this->app;
+
+        assert($app instanceof Application);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage($message);
+
+        $app->instance('config.resolver-value', 'not a resolver');
+
+        AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, 'api', ['principal_resolver' => $override]);
     }
 
     /**
