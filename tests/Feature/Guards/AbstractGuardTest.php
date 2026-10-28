@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\Guards;
 
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
@@ -21,13 +22,16 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
+use Tests\Unit\Stubs\StubCredentialGuard;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -831,6 +835,102 @@ final class AbstractGuardTest extends AbstractGuardTestCase
 
         self::assertInstanceOf(AuthenticationFailed::class, $signIn);
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $signIn->reason);
+    }
+
+    /**
+     * A successful attempt binds as a sign-in through the password method:
+     * `Login` (not remembered) and the bind events, whose context reports the
+     * `password` method and the tenant the admission loaded.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASuccessfulAttemptBindsAsAPasswordSignIn(): void
+    {
+        $identity  = $this->mockIdentity();
+        $principal = $this->mockActivePrincipal();
+        $tenant    = \Mockery::mock(Tenant::class);
+        $tenant->shouldReceive('getTenantIdentifier')->andReturn('tenant-9');
+        $principal->shouldReceive('getTenant')->andReturn($tenant);
+
+        $this->expectPasswordAccepted($identity);
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal);
+
+        $events = $this->recordEvents();
+
+        self::assertTrue($this->makeGuard()->attempt(['email' => 'ada@example.test', 'password' => 'secret']));
+
+        $classes = array_map(static fn (object $event): string => $event::class, $events->getArrayCopy());
+
+        self::assertSame([Attempting::class, Validated::class, Login::class, Authenticated::class, PrincipalAssigned::class], $classes);
+
+        $login    = $events[2];
+        $assigned = $events[4];
+
+        self::assertInstanceOf(Login::class, $login);
+        self::assertFalse($login->remember);
+        self::assertInstanceOf(PrincipalAssigned::class, $assigned);
+        self::assertSame('password', $assigned->context->method);
+        self::assertSame($tenant, $assigned->context->tenant);
+    }
+
+    /**
+     * A subclass binding a resolved context through the protected
+     * `bindAuthenticationLifecycle()` hook gets a sign-in (`Login`, not
+     * remembered) whose events report the method the device's session records,
+     * and no method without a device.
+     *
+     * @return void
+     */
+    public function testTheLifecycleHookBindsASignInWithTheDevicesMethod(): void
+    {
+        $guard  = new StubCredentialGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+        $device = $this->mockDevice();
+        $device->shouldReceive('getSignInMethod')->andReturn('passkey');
+
+        $events = $this->recordEvents();
+
+        $guard->bindResolvedContext($this->mockIdentity(), $this->mockPrincipal(), $device);
+
+        $withDevice = $events->getArrayCopy();
+
+        $events->exchangeArray([]);
+
+        $guard->bindResolvedContext($this->mockIdentity(), $this->mockPrincipal());
+
+        $withoutDevice = $events->getArrayCopy();
+
+        $classes = array_map(static fn (object $event): string => $event::class, $withDevice);
+
+        self::assertSame([Login::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class], $classes);
+        self::assertInstanceOf(Login::class, $withDevice[0]);
+        self::assertFalse($withDevice[0]->remember);
+        self::assertInstanceOf(DeviceAuthenticated::class, $withDevice[3]);
+        self::assertSame('passkey', $withDevice[3]->context->method);
+        self::assertSame([Login::class, Authenticated::class, PrincipalAssigned::class], array_map(static fn (object $event): string => $event::class, $withoutDevice));
+        self::assertInstanceOf(PrincipalAssigned::class, $withoutDevice[2]);
+        self::assertNull($withoutDevice[2]->context->method);
+        self::assertNull($guard->device());
+    }
+
+    /**
+     * `authenticateAs()` without a device binds with no method and no device
+     * event.
+     *
+     * @return void
+     */
+    public function testAuthenticateAsWithoutADeviceReportsNoMethod(): void
+    {
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->authenticateAs($this->mockIdentity(), $this->mockPrincipal());
+
+        self::assertSame([Authenticated::class, PrincipalAssigned::class], array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()));
+        self::assertInstanceOf(PrincipalAssigned::class, $events[1]);
+        self::assertNull($events[1]->context->method);
+        self::assertNull($events[1]->context->device);
     }
 
     /**

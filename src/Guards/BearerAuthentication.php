@@ -4,11 +4,14 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -30,12 +33,14 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  * provider (`identity_unknown`) and active (`identity_inactive`); the principal
  * its `pid` names, which must resolve to exactly that principal
  * (`principal_mismatch`) and be active in an active tenant
- * (`principal_inactive`, `tenant_inactive`); and, for a token that names a
- * device, that device among the identity's own (`device_unknown`), of this
- * guard (`device_guard_mismatch`), not revoked (`device_revoked`) and with a
- * session that has not ended (`session_expired`). Fail closed: a token that
- * names a principal or device that does not resolve exactly is rejected rather
- * than downgraded.
+ * (`principal_inactive`, `tenant_inactive`); for a token that names no device,
+ * an issue time after the identity's and the principal's "tokens valid after"
+ * time (`issued_before_cutoff`); and, for a token that names a device, that
+ * device among the identity's own (`device_unknown`), of this guard
+ * (`device_guard_mismatch`), not revoked (`device_revoked`) and with a session
+ * that has not ended (`session_expired`). Fail closed: a token that names a
+ * principal or device that does not resolve exactly is rejected rather than
+ * downgraded.
  *
  * Built for one request with the guard's current collaborators, so it keeps
  * nothing between requests.
@@ -93,7 +98,7 @@ final readonly class BearerAuthentication
 
         $deviceId = $claims[Claims::DEVICE_ID->value] ?? null;
         $admitted = $this->admit($claims);
-        $admitted = $admitted instanceof AdmittedSignIn ? $this->onDevice($admitted, $deviceId) : $admitted;
+        $admitted = $admitted instanceof AdmittedSignIn ? $this->onDevice($admitted, $deviceId, $claims[Claims::ISSUED_AT->value]) : $admitted;
 
         return $admitted instanceof RefusedSignIn ? $this->failed($admitted, $client, IdentifierCoercion::stringify($deviceId)) : $admitted;
     }
@@ -154,25 +159,60 @@ final readonly class BearerAuthentication
     /**
      * Hold the admitted token to the device it names, when it names one: the
      * device must be one of the identity's own, of this guard, not revoked, and
-     * with a session that has not ended. A token that names no device is
-     * admitted as it is.
+     * with a session that has not ended. A token that names no device has no
+     * device to revoke, so it must instead have been issued after the "tokens
+     * valid after" time of its identity and of its principal, when they record
+     * one (`issued_before_cutoff`).
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  mixed  $deviceId
+     * @param  mixed  $issuedAt
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
      *
      * @throws \LogicException
      */
-    private function onDevice(AdmittedSignIn $admitted, mixed $deviceId): AdmittedSignIn|RefusedSignIn
+    private function onDevice(AdmittedSignIn $admitted, mixed $deviceId, mixed $issuedAt): AdmittedSignIn|RefusedSignIn
     {
         if ($deviceId === null) {
-            return $admitted;
+            return self::isIssuedAfterCutoff($admitted, $issuedAt) ? $admitted : RefusedSignIn::after(FailureReason::ISSUED_BEFORE_CUTOFF, $admitted);
         }
 
         $device  = OwnedDevice::find($admitted->identity, $deviceId);
         $refusal = $device === null ? FailureReason::DEVICE_UNKNOWN : OwnedDevice::refusal($device, $this->guard, Carbon::now());
 
         return $refusal === null ? $admitted->on($device) : RefusedSignIn::after($refusal, $admitted->on($device));
+    }
+
+    /**
+     * Whether a token issued without a device was issued after the "tokens
+     * valid after" time of the identity and of the principal, each read on the
+     * write connection from the model already loaded. Whole seconds: a token
+     * issued at or before the time is rejected, since its `iat` cannot tell the
+     * same second before the cutoff from after it. A subject that does not
+     * record a time, or records none yet, does not limit the token.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  mixed  $issuedAt
+     * @return bool
+     *
+     * @throws \LogicException
+     */
+    private static function isIssuedAfterCutoff(AdmittedSignIn $admitted, mixed $issuedAt): bool
+    {
+        foreach ([$admitted->identity, $admitted->principal] as $subject) {
+
+            if (!$subject instanceof HasTokensValidAfter) {
+                continue;
+            }
+
+            $cutoff = WriteConnection::during($subject, static fn (): ?CarbonInterface => $subject->getTokensValidAfter());
+
+            if ($cutoff !== null && (!is_int($issuedAt) || $issuedAt <= $cutoff->getTimestamp())) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

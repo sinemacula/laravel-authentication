@@ -12,9 +12,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -186,5 +189,40 @@ final class JwtGuardTest extends JwtGuardTestCase
         self::assertSame(FailureReason::RATE_LIMITED, $dispatched[2]->reason);
         self::assertSame(30, $dispatched[2]->retryAfter);
         self::assertFalse($guard->hasUser());
+    }
+
+    /**
+     * A bearer token that names no device binds the identity and principal as
+     * an authentication, with no device and no sign-in method in its context.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testADevicelessBearerTokenReportsNoMethod(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
+
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-1');
+        $principal->shouldReceive('getTenant')->andReturnNull();
+
+        $this->provider->shouldReceive('retrieveById')->once()->with('i-1')->andReturn($identity);
+        $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($principal);
+
+        $dispatched = [];
+
+        $this->events->shouldReceive('dispatch')->andReturnUsing(static function (object $event) use (&$dispatched): void {
+            $dispatched[] = $event;
+        });
+
+        $guard = $this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])));
+
+        self::assertSame($identity, $guard->user());
+        self::assertCount(2, $dispatched);
+        self::assertInstanceOf(PrincipalAssigned::class, $dispatched[1]);
+        self::assertNull($dispatched[1]->context->device);
+        self::assertNull($dispatched[1]->context->method);
     }
 }

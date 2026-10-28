@@ -135,10 +135,14 @@ Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-
 3. Do not call `$guard->refresh(...)` or the session service, which throws a `LogicException` for an identity without
    `HasDevices`. Clients re-authenticate when the access token expires.
 
-`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Bearer requests need
-none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the `rate_limits` table (see
-[Rate limits](#rate-limits)), so publish and run the migrations for it, or set the guard's `rate_limits.sign_in` to
-`null`; the `devices` and `pending_sign_ins` tables then stay empty. See `docs/design/access-only-mode.md`.
+`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
+device to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
+whose `iat` is at or before either one's `getTokensValidAfter()` is rejected (`issued_before_cutoff`), counted in whole
+seconds, so a token issued in the cutoff's own second is rejected too. Tokens that name a device are not held to it.
+Bearer requests need none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the
+`rate_limits` table (see [Rate limits](#rate-limits)), so publish and run the migrations for it, or set the guard's
+`rate_limits.sign_in` to `null`; the `devices` and `pending_sign_ins` tables then stay empty. See
+`docs/design/access-only-mode.md`.
 
 ## Configuration
 

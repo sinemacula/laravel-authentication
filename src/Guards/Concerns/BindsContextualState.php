@@ -206,26 +206,6 @@ trait BindsContextualState
     }
 
     /**
-     * The tenant a principal bound without an activity check acts within, read
-     * on the write connection, or `null` when it names none or the tenant
-     * cannot be loaded. A principal loaded without the tenant's key is a
-     * misconfiguration, and its `LogicException` propagates.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
-     *
-     * @throws \LogicException
-     */
-    protected static function boundTenant(Principal $principal): ?Tenant
-    {
-        try {
-            return WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
-        } catch (TenantUnavailableException) {
-            return null;
-        }
-    }
-
-    /**
      * Clear identity, principal, and device state without firing events. The
      * caller dispatches any events.
      *
@@ -236,6 +216,26 @@ trait BindsContextualState
         $this->identity  = null;
         $this->principal = null;
         $this->device    = null;
+    }
+
+    /**
+     * The tenant a principal bound without an activity check acts within, read
+     * on the write connection, or `null` when it names none or the tenant
+     * cannot be loaded. A principal loaded without the tenant's key is a
+     * misconfiguration, and its `LogicException` propagates.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
+     *
+     * @throws \LogicException
+     */
+    private static function boundTenant(Principal $principal): ?Tenant
+    {
+        try {
+            return WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+        } catch (TenantUnavailableException) {
+            return null;
+        }
     }
 
     /**
