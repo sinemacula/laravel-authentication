@@ -252,21 +252,55 @@ final class ScopesTest extends TestCase
     }
 
     /**
-     * The registry is asked about the normalised scopes for the guard and the
-     * principal, and the scopes it rejects are refused with them named; a scope
-     * it names that was not asked about is ignored.
+     * Rows of `[scopes asked for, the registry's answer, scopes refused]`.
      *
+     * @return iterable<string, array{0: list<string>, 1: list<string>, 2: list<string>}>
+     */
+    public static function provideRegistryRefusals(): iterable
+    {
+        yield from [
+            'a scope it rejects'              => [['read', 'admin'], ['admin'], ['admin']],
+            'scopes named in its own order'   => [['admin', 'read', 'write'], ['write', 'admin'], ['admin', 'write']],
+            'a given scope and one not asked' => [['read', 'admin'], ['not-asked', 'admin'], ['admin']],
+            'only a scope not asked about'    => [['read'], ['not-asked'], ['read']],
+            'a pattern'                       => [['read', 'admin:users'], ['admin:*'], ['read', 'admin:users']],
+            'a scope in a form of its own'    => [['admin'], ['Admin'], ['admin']],
+            'everything'                      => [['read', 'write'], ['*'], ['read', 'write']],
+        ];
+    }
+
+    /**
+     * The registry is asked about the normalised scopes for the guard and the
+     * principal, and any answer but `[]` refuses them: the given scopes it
+     * names are named, or every given scope when it names none of them as
+     * given.
+     *
+     * @param  list<string>  $scopes
+     * @param  list<string>  $answer
+     * @param  list<string>  $refused
      * @return void
      */
-    public function testARegistryRejectionIsRefused(): void
+    #[DataProvider('provideRegistryRefusals')]
+    public function testARegistryRejectionIsRefused(array $scopes, array $answer, array $refused): void
     {
         $principal = new PlainPrincipalFixture('p-1');
-        $registry  = new class implements ScopeRegistry {
+        $registry  = new class ($answer) implements ScopeRegistry {
             /** @var list<array{0: string, 1: \SineMacula\Laravel\Authentication\Contracts\Principal, 2: list<string>}> What the registry was asked. */
             public array $asked = [];
 
             /**
-             * Reject `admin` and a scope nobody asked for.
+             * Constructor.
+             *
+             * @param  list<string>  $answer
+             */
+            public function __construct(
+
+                /** What the registry answers. */
+                private readonly array $answer,
+            ) {}
+
+            /**
+             * Give the answer.
              *
              * @param  string  $guard
              * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -278,21 +312,20 @@ final class ScopesTest extends TestCase
             {
                 $this->asked[] = [$guard, $principal, $scopes];
 
-                return ['not-asked', ...array_values(array_intersect($scopes, ['admin']))];
+                return $this->answer;
             }
         };
 
-        self::assertSame(['read'], Scopes::grantable($registry, 'machine', $principal, ['read', 'read']));
-        self::assertSame([['machine', $principal, ['read']]], $registry->asked);
-
         try {
-            Scopes::grantable($registry, 'machine', $principal, ['read', 'admin']);
+            Scopes::grantable($registry, 'machine', $principal, [...$scopes, $scopes[0]]);
 
-            self::fail('Expected the registry to refuse admin.');
+            self::fail('Expected the registry to refuse the scopes.');
         } catch (InvalidScopeException $exception) {
-            self::assertSame(['admin'], $exception->scopes);
+            self::assertSame($refused, $exception->scopes);
             self::assertSame('The scope registry does not allow these scopes for the principal on guard [machine].', $exception->getMessage());
         }
+
+        self::assertSame([['machine', $principal, $scopes]], $registry->asked);
     }
 
     /**

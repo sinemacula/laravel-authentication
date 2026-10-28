@@ -48,7 +48,9 @@ authorization package decides what they allow.
   replaced key, then the insert of its replacement, in one transaction), and its event is dispatched once committed
   there.
 - A credential's scopes are fixed when it is issued, after normalisation and the `ScopeRegistry`'s check; a malformed
-  or rejected scope is an `InvalidScopeException`, the caller's error rather than a failed authentication.
+  or rejected scope is an `InvalidScopeException`, the caller's error rather than a failed authentication. Any answer
+  from the registry but `[]` refuses, naming the given scopes it names, or every given scope when it names none as
+  given, so a registry that answers with a pattern or its own form of a scope never lets the credential through.
 
 ## Success Path
 

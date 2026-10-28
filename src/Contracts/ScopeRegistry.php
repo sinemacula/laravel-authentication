@@ -25,8 +25,9 @@ interface ScopeRegistry
 {
     /**
      * The scopes, of those given, that may not be granted to the principal on
-     * the guard; `[]` accepts them all. The scopes given are already
-     * well-formed and free of duplicates.
+     * the guard; `[]` accepts them all, and any other answer refuses the
+     * credential. The scopes given are already well-formed and free of
+     * duplicates.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

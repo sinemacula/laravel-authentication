@@ -2544,9 +2544,11 @@ final class PermissionScopes implements ScopeRegistry
 $this->app->singleton(ScopeRegistry::class, PermissionScopes::class);
 ```
 
-A malformed or rejected scope throws `Exceptions\InvalidScopeException` (an `InvalidArgumentException`) naming the
-offending scopes in `$exception->scopes`: issuing a credential is a trusted, programmatic action, so this is the
-caller's error, not a failed authentication. A credential's scopes are fixed for its life.
+Any answer but `[]` refuses the credential, whatever it names: a scope given (named in the exception), or a pattern or a
+form of its own (every scope given is named then). A malformed or rejected scope throws
+`Exceptions\InvalidScopeException` (an `InvalidArgumentException`) naming the offending scopes in `$exception->scopes`:
+issuing a credential is a trusted, programmatic action, so this is the caller's error, not a failed authentication. A
+credential's scopes are fixed for its life.
 
 #### API keys
 

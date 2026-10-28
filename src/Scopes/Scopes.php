@@ -109,7 +109,10 @@ final class Scopes
 
     /**
      * The scopes a credential of the principal on the guard may grant: the
-     * given scopes normalised, then held to the scope registry.
+     * given scopes normalised, then held to the scope registry. Any answer from
+     * the registry but `[]` refuses them, naming the given scopes it names, or
+     * every given scope when it names none of them as given (a pattern, or its
+     * own form of a scope), so a refusal never depends on echoing the input.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\ScopeRegistry  $registry
      * @param  string  $guard
@@ -122,10 +125,12 @@ final class Scopes
     public static function grantable(ScopeRegistry $registry, string $guard, Principal $principal, array $scopes): array
     {
         $normalised = self::normalise($scopes);
-        $rejected   = array_values(array_intersect($registry->rejected($guard, $principal, $normalised), $normalised));
+        $answer     = $registry->rejected($guard, $principal, $normalised);
 
-        if ($rejected !== []) {
-            throw new InvalidScopeException("The scope registry does not allow these scopes for the principal on guard [{$guard}].", $rejected);
+        if ($answer !== []) {
+            $named = array_values(array_intersect($normalised, $answer));
+
+            throw new InvalidScopeException("The scope registry does not allow these scopes for the principal on guard [{$guard}].", $named === [] ? $normalised : $named);
         }
 
         return $normalised;
