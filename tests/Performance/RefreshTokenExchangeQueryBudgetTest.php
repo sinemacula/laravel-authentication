@@ -57,6 +57,12 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     /** @var string Guard name for standard refresh tests. */
     private const string GUARD = 'api';
 
+    /** @var string Guard that reads its refresh token from the cookie. */
+    private const string COOKIE_GUARD = 'browser';
+
+    /** @var string The refresh cookie's name. */
+    private const string COOKIE_NAME = '__Secure-refresh_token';
+
     /** @var int Runs of each path in the timing comparison. */
     private const int TIMED_RUNS = 5;
 
@@ -189,6 +195,55 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard = $this->freshJwtGuard(self::GUARD);
 
         self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(3, 1, static fn () => $guard->refreshFromRequest()));
+    }
+
+    /**
+     * Reading the token from the refresh cookie, with its same-site checks and
+     * its count of the request's cookies, adds no query either.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testACookieRefreshCostsWhatARefreshCosts(): void
+    {
+        $identity   = $this->seedIdentity();
+        $rotationId = 'cookie-refresh-rotation-id';
+
+        $device = new Device;
+        $device->forceFill([
+            ...self::liveSession(self::COOKIE_GUARD, $identity),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        $jwt = PackageAuth::jwt(self::COOKIE_GUARD);
+        self::assertNotNull($jwt);
+
+        app()->instance('request', self::cookieRequest($jwt->issueRefreshToken($device, $rotationId, $identity), 'http://localhost'));
+
+        $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
+
+        self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(3, 1, static fn () => $guard->refreshFromRequest()));
+    }
+
+    /**
+     * A cookie sent from another site is refused before the exchange: no query,
+     * and no limit counted.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testACrossSiteCookieRequestCostsNoQuery(): void
+    {
+        app()->instance('request', self::cookieRequest('a', 'https://elsewhere.example'));
+
+        $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn () => $guard->refreshFromRequest()));
     }
 
     /**
@@ -719,6 +774,12 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'provider' => 'identities',
         ]);
 
+        $config->set('auth.guards.' . self::COOKIE_GUARD, [
+            'driver'        => 'jwt',
+            'provider'      => 'identities',
+            'refresh_token' => ['sources' => ['cookie'], 'cookie' => ['path' => '/auth']],
+        ]);
+
         $config->set('auth.guards.' . self::TENANT_AWARE_GUARD, [
             'driver'   => 'jwt',
             'provider' => 'tenant_aware_identities',
@@ -735,6 +796,23 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         ]);
 
         $config->set('authentication.device.last_used_throttle_seconds', 60);
+    }
+
+    /**
+     * A refresh request to the cookie guard carrying the token in the refresh
+     * cookie, from the origin, with the custom header.
+     *
+     * @param  string  $token
+     * @param  string  $origin
+     * @return \Illuminate\Http\Request
+     */
+    private static function cookieRequest(#[\SensitiveParameter] string $token, string $origin): Request
+    {
+        return Request::create('/auth/refresh', 'POST', [], [self::COOKIE_NAME => $token], [], [
+            'HTTP_COOKIE'           => self::COOKIE_NAME . '=' . $token,
+            'HTTP_ORIGIN'           => $origin,
+            'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+        ]);
     }
 
     /**
