@@ -5,7 +5,6 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Support\Manager;
-use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
@@ -131,8 +130,7 @@ final class SignInMethodManager extends Manager
      * Build the method registered under exactly the name: one of the package's
      * own, through its `create<Name>Driver()` method, or one registered with
      * `extend()`. Any other spelling, including one that differs only in case
-     * or punctuation from a registered name, is unknown, as is a package name
-     * whose creator is not defined.
+     * or punctuation from a registered name, is unknown.
      *
      * @param  mixed  $driver
      * @return mixed
@@ -194,19 +192,15 @@ final class SignInMethodManager extends Manager
     }
 
     /**
-     * Whether a method is registered under exactly the name: a package method
-     * whose creator is defined, or one registered with `extend()`.
+     * Whether a method is registered under exactly the name: one of the
+     * package's own, or one registered with `extend()`.
      *
      * @param  string  $name
      * @return bool
      */
     private function isRegistered(string $name): bool
     {
-        if (array_key_exists($name, $this->customCreators)) {
-            return true;
-        }
-
-        return in_array($name, self::PACKAGE_METHODS, true) && method_exists($this, 'create' . Str::studly($name) . 'Driver');
+        return array_key_exists($name, $this->customCreators) || in_array($name, self::PACKAGE_METHODS, true);
     }
 
     /**

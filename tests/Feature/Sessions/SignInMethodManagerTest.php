@@ -5,11 +5,12 @@ declare(strict_types = 1);
 namespace Tests\Feature\Sessions;
 
 use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
@@ -137,30 +138,31 @@ final class SignInMethodManagerTest extends TestCase
     }
 
     /**
-     * Rows of `[name]`: every method the package registers itself.
+     * Rows of `[name, class]`: every method the package registers itself, and
+     * the class it resolves to.
      *
-     * @return iterable<string, array{0: string}>
+     * @return iterable<string, array{0: string, 1: class-string<\SineMacula\Laravel\Authentication\Contracts\SignInMethod>}>
      */
     public static function providePackageMethodNames(): iterable
     {
         yield from [
-            'password'   => ['password'],
-            'phone code' => ['phone_code'],
-            'email code' => ['email_code'],
-            'passkey'    => ['passkey'],
+            'password'   => ['password', PasswordSignIn::class],
+            'phone code' => ['phone_code', CodeSignIn::class],
+            'email code' => ['email_code', CodeSignIn::class],
+            'passkey'    => ['passkey', PasskeySignIn::class],
         ];
     }
 
     /**
      * None of the package's own methods can be replaced through `extend()`, and
-     * each resolves to the package's own method once its creator exists, else
-     * fails as not registered.
+     * each resolves to the package's own method.
      *
      * @param  string  $name
+     * @param  class-string<\SineMacula\Laravel\Authentication\Contracts\SignInMethod>  $class
      * @return void
      */
     #[DataProvider('providePackageMethodNames')]
-    public function testThePackageMethodsAreReserved(string $name): void
+    public function testThePackageMethodsAreReserved(string $name, string $class): void
     {
         $manager = $this->manager();
 
@@ -172,16 +174,7 @@ final class SignInMethodManagerTest extends TestCase
             self::assertSame("The [{$name}] sign-in method is the package's own and cannot be replaced; register yours under another name.", $exception->getMessage());
         }
 
-        if (method_exists($manager, 'create' . Str::studly($name) . 'Driver')) {
-            self::assertInstanceOf(SignInMethod::class, $manager->method($name));
-
-            return;
-        }
-
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Sign-in method [{$name}] is not registered.");
-
-        $manager->method($name);
+        self::assertInstanceOf($class, $manager->method($name));
     }
 
     /**
