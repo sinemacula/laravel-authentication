@@ -47,6 +47,22 @@ final class ApiKeySummaryTest extends TestCase
     }
 
     /**
+     * A summary serialises to JSON, alone or in a list, as its array form, so
+     * returning one from a route shows snake_case keys and ISO-8601 times.
+     *
+     * @return void
+     *
+     * @throws \JsonException
+     */
+    public function testASummaryIsJsonAsItsArrayForm(): void
+    {
+        $summary = self::summary();
+
+        self::assertSame($summary->toArray(), $summary->jsonSerialize());
+        self::assertSame(json_encode([$summary->toArray()], JSON_THROW_ON_ERROR), json_encode([$summary], JSON_THROW_ON_ERROR));
+    }
+
+    /**
      * A key stored without a creation time shows none.
      *
      * @return void

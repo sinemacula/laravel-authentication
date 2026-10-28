@@ -6,20 +6,23 @@ namespace SineMacula\Laravel\Authentication\ApiKeys;
 
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Contracts\Support\Arrayable;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
 
 /**
  * What an application may show about an API key: its id, its public part, the
  * guard it authenticates for, its name and scopes, and when it expires, was
  * last used, rotated (and by which key) or revoked. Never its secret or the
- * secret's digest.
+ * secret's digest. `toArray()` and JSON use snake_case keys and ISO-8601 times.
  *
  * @api
+ *
+ * @implements \Illuminate\Contracts\Support\Arrayable<string, mixed>
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-final readonly class ApiKeySummary
+final readonly class ApiKeySummary implements \JsonSerializable, Arrayable
 {
     /**
      * Constructor.
@@ -108,6 +111,7 @@ final readonly class ApiKeySummary
      *
      * @formatter:on
      */
+    #[\Override]
     public function toArray(): array
     {
         return [
@@ -123,6 +127,25 @@ final readonly class ApiKeySummary
             'revoked_at'   => $this->revokedAt?->toIso8601String(),
             'created_at'   => $this->createdAt?->toIso8601String(),
         ];
+    }
+
+    /**
+     * The summary as JSON serialises it: the same as `toArray()`.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @return array{id: string, public_id: string, guard: string, name: ?string, scopes: list<string>, expires_at: ?string, last_used_at: ?string, rotated_at: ?string, replaced_by: ?string, revoked_at: ?string, created_at: ?string}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    #[\Override]
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
     }
 
     /**

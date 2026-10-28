@@ -2607,6 +2607,9 @@ $keys->revoke($principal, $keyId);             // whether this call revoked it; 
 $keys->rotate($principal, $keyId, overlapSeconds: 3600, expiresAt: now()->addYear()); // ?IssuedApiKey
 ```
 
+A summary is safe to return from a route as it is: `toArray()` and its JSON use snake_case keys and ISO-8601 times, and
+neither holds the secret or its digest.
+
 Rotating issues a replacement with the same guard, owner, principal, tenant, name and scopes (held to the scope registry
 again), and ends the replaced key once the overlap passes (`rotation_overlap_seconds` by default, at most
 `max_rotation_overlap_seconds`), or at its own expiry when that comes sooner; both keys work during the overlap, and the
