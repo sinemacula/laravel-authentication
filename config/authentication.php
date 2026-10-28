@@ -458,13 +458,13 @@ return [
     | malformed value or an unknown key fails closed with an
     | `InvalidArgumentException` naming the guard and the key when the guard's
     | passkeys are first used, and `authentication:check` reports it for every
-    | guard whose audience allows `passkey`.
+    | guard whose audience allows `passkey` or that sets a `passkeys` block.
     |
     */
 
     'passkeys' => [
         'table'                 => env('AUTHENTICATION_PASSKEYS_TABLE', 'passkeys'),
-        'challenges_table'      => env('AUTHENTICATION_PASSKEY_CHALLENGES_TABLE', 'passkey_challenges'),
+        'challenges_table'      => env('AUTHENTICATION_PASSKEYS_CHALLENGES_TABLE', 'passkey_challenges'),
         'challenge_ttl_seconds' => env('AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS', 300),
 
         'relying_party' => [
