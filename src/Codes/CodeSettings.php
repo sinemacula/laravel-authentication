@@ -129,16 +129,24 @@ final readonly class CodeSettings
      */
     public function deliversSynchronously(): bool
     {
-        $connection = $this->queueConnection() ?? $this->config->get('queue.default');
-        $driver     = is_string($connection) ? $this->config->get("queue.connections.{$connection}.driver") : null;
+        return $this->driver($this->deliveryConnection()) === 'sync';
+    }
 
-        if (!is_string($driver)) {
-            $message = sprintf('%squeue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.', self::PREFIX);
+    /**
+     * Whether the delivery job's connection uses Laravel's `failover` driver
+     * and lists a `sync` connection, directly or through another `failover`
+     * connection: once every connection before it fails, the job runs during
+     * its dispatch.
+     *
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function fallsBackToSync(): bool
+    {
+        $connection = $this->deliveryConnection();
 
-            throw new \InvalidArgumentException($message);
-        }
-
-        return $driver === 'sync';
+        return $this->driver($connection) === 'failover' && $this->reachesSync($connection, []);
     }
 
     /**
@@ -156,6 +164,69 @@ final readonly class CodeSettings
         $this->cooldownSeconds();
         $this->queueName();
         $this->deliversSynchronously();
+    }
+
+    /**
+     * The delivery job's connection: the configured one, or the application's
+     * default, which must be configured in `queue.connections`.
+     *
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function deliveryConnection(): string
+    {
+        $connection = $this->queueConnection() ?? $this->config->get('queue.default');
+
+        if (!is_string($connection) || !is_string($this->driver($connection))) {
+            $message = sprintf('%squeue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.', self::PREFIX);
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        return $connection;
+    }
+
+    /**
+     * The driver of the queue connection, or `null` when it is not configured.
+     *
+     * @param  string  $connection
+     * @return ?string
+     */
+    private function driver(string $connection): ?string
+    {
+        $driver = $this->config->get("queue.connections.{$connection}.driver");
+
+        return is_string($driver) ? $driver : null;
+    }
+
+    /**
+     * Whether the connection is a `sync` one, or a `failover` one that lists
+     * one, through any depth of `failover` connections; a connection already on
+     * the path is not followed again.
+     *
+     * @param  string  $connection
+     * @param  list<string>  $path
+     * @return bool
+     */
+    private function reachesSync(string $connection, array $path): bool
+    {
+        $driver = $this->driver($connection);
+
+        if ($driver !== 'failover' || in_array($connection, $path, true)) {
+            return $driver === 'sync';
+        }
+
+        $listed = $this->config->get("queue.connections.{$connection}.connections");
+        $path[] = $connection;
+
+        foreach (is_array($listed) ? $listed : [] as $next) {
+            if (is_string($next) && $this->reachesSync($next, $path)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

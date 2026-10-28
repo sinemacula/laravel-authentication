@@ -477,6 +477,69 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
+     * On a `failover` connection that falls back to `sync` delivery never runs
+     * inside the request either: the job is pushed once the response is sent,
+     * and when every connection before `sync` fails it runs then.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnAFailoverThatFallsBackToSyncDeliveryRunsAfterTheResponse(): void
+    {
+        self::seedCodeIdentity();
+
+        config()->set('queue.connections.broken', ['driver' => 'database', 'connection' => 'missing', 'table' => 'jobs', 'queue' => 'default']);
+        config()->set('queue.connections.failover', ['driver' => 'failover', 'connections' => ['broken', 'sync']]);
+        config()->set('authentication.codes.queue.connection', 'failover');
+
+        $sender = $this->sender;
+
+        Route::post('/codes', static function () use ($sender): array {
+            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE])->isSent();
+
+            return ['sent' => $sent, 'delivered' => $sender->count()];
+        });
+
+        $this->postJson('/codes')->assertExactJson(['sent' => true, 'delivered' => 0]);
+
+        self::assertSame(self::CODE, $sender->lastCodeFor(self::PHONE));
+    }
+
+    /**
+     * A `failover` connection that falls back to `sync` still hands the job to
+     * its first connection that works, once the response is sent, for a worker
+     * to deliver.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnAFailoverThatFallsBackToSyncTheJobIsPushedAfterTheResponse(): void
+    {
+        self::createJobsTable();
+        self::seedCodeIdentity();
+
+        config()->set('queue.connections.database', ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]);
+        config()->set('queue.connections.failover', ['driver' => 'failover', 'connections' => ['database', 'sync']]);
+        config()->set('authentication.codes.queue.connection', 'failover');
+
+        Route::post('/codes', static function (): array {
+            $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE])->isSent();
+
+            return ['sent' => $sent, 'pushed' => DB::table('jobs')->count()];
+        });
+
+        $this->postJson('/codes')->assertExactJson(['sent' => true, 'pushed' => 0]);
+
+        self::assertSame([1, 0], [DB::table('jobs')->count(), $this->sender->count()]);
+
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--stop-when-empty' => true]);
+
+        self::assertSame(self::CODE, $this->sender->lastCodeFor(self::PHONE));
+    }
+
+    /**
      * An application that turns dispatching after the response off gets
      * Laravel's synchronous fallback: the code is delivered during the call.
      *

@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Foundation\Application;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -181,7 +182,10 @@ final readonly class CodeService
     /**
      * Take a code request from the identifier's and the IP address's limits,
      * issue the code and queue its delivery; malformed settings, the code key
-     * among them, fail closed before anything is counted.
+     * among them, fail closed before anything is counted. A connection that
+     * could run the delivery during its dispatch gets it after the response: a
+     * `sync` one runs it then, and a `failover` one that can fall back to
+     * `sync` is pushed to then.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
@@ -203,6 +207,7 @@ final readonly class CodeService
         (new CodeKeys($config))->validate();
 
         $synchronous = $settings->deliversSynchronously();
+        $fallsBack   = $settings->fallsBackToSync();
         $reservation = $this->collaborator(AttemptLimiter::class)->acquire(
             new AttemptSubject($binding->guard, AttemptFlow::CODE_REQUEST, $binding->identifier, $binding->type, $context->client->ip),
         );
@@ -222,10 +227,14 @@ final readonly class CodeService
             ->onQueue($settings->queueName())
             ->beforeCommit();
 
-        $this->afterCommit(function () use ($job, $synchronous): void {
+        $this->afterCommit(function () use ($job, $synchronous, $fallsBack): void {
             $bus = $this->collaborator(Dispatcher::class);
 
-            $synchronous ? $bus->dispatchAfterResponse($job) : $bus->dispatch($job);
+            match (true) {
+                $synchronous => $bus->dispatchAfterResponse($job),
+                $fallsBack   => $this->collaborator(Application::class)->terminating(static fn (): mixed => $bus->dispatch($job)),
+                default      => $bus->dispatch($job),
+            };
         });
 
         return CodeRequest::sent($issued->expiresAt);

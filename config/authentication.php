@@ -405,17 +405,17 @@ return [
     | `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and
     | replaces it at once. Each number is an integer, or a digit string as
     | `env()` returns one. Codes are stored in `table`, on the device model's
-    | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a
-    | key derived from `app.key` when `key` is not set; rotating either only
+    | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a key
+    | derived from `app.key` when `key` is not set; rotating either only
     | invalidates the codes outstanding. Requests for codes are limited by the
     | `code_request` rate limits. Delivery is a queued job, never part of the
-    | request, pushed to the `queue` connection and queue named (`null` for
-    | the defaults); on a `sync` connection it runs after the response is
-    | sent, and `authentication:check` warns, since a worker is the production
-    | setting. The application binds its `OneTimeCodeSender`. A malformed
-    | value fails closed when a code is first issued, and
-    | `authentication:check` reports it. Prune expired codes with
-    | `model:prune`.
+    | request, pushed to the `queue` connection and queue named (`null` for the
+    | defaults); on a `sync` connection it runs after the response is sent, a
+    | `failover` connection that can fall back to `sync` is pushed to after the
+    | response, and `authentication:check` warns about both, since a worker is
+    | the production setting. The application binds its `OneTimeCodeSender`. A
+    | malformed value fails closed when a code is first issued, and
+    | `authentication:check` reports it. Prune expired codes with `model:prune`.
     |
     */
 

@@ -375,6 +375,42 @@ final class CheckConfigurationCommandTest extends TestCase
     }
 
     /**
+     * Delivering codes on a `failover` connection that can fall back to `sync`
+     * is a warning of its own, only when a guard allows a code sign-in method;
+     * one whose connections are all worker-backed is not.
+     *
+     * @return void
+     */
+    public function testCodeDeliveryThatCanFallBackToSyncIsAWarning(): void
+    {
+        config()->set([
+            'queue.default'                         => 'database',
+            'queue.connections.database'            => ['driver' => 'database'],
+            'queue.connections.sync'                => ['driver' => 'sync'],
+            'queue.connections.workers'             => ['driver' => 'failover', 'connections' => ['database']],
+            'queue.connections.failover'            => ['driver' => 'failover', 'connections' => ['database', 'sync']],
+            'authentication.codes.queue.connection' => 'failover',
+        ]);
+
+        FakeOneTimeCodeSender::fake($this->app);
+
+        $warning = '[codes] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
+            . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.codes.queue.connection` '
+            . 'to a worker-backed connection that cannot in production.';
+        $checked = ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK'];
+
+        self::assertSame([0, $checked], $this->check());
+
+        config()->set('auth.guards.admin.audience', ['methods' => ['email_code']]);
+
+        self::assertSame([0, [...array_slice($checked, 0, 5), $warning, ...array_slice($checked, 5)]], $this->check());
+
+        config()->set('authentication.codes.queue.connection', 'workers');
+
+        self::assertSame([0, $checked], $this->check());
+    }
+
+    /**
      * A delivery connection that is not configured is a problem and raises no
      * warning; a guard whose audience is malformed counts as allowing no code
      * method here, since its own checks report it.

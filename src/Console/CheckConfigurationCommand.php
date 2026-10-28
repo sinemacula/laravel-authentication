@@ -176,27 +176,35 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * Warn, without failing, when a guard allows a code sign-in method and the
-     * codes are delivered on a `sync` queue connection: delivery then runs in
-     * the web process after each response, where a worker is the production
-     * setting. Malformed queue settings are left to the `[codes]` checks.
+     * codes are delivered on a `sync` queue connection, or on a `failover` one
+     * that can fall back to `sync`: delivery then runs in the web process after
+     * a response, where a worker is the production setting. Malformed queue
+     * settings are left to the `[codes]` checks.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
      */
     private function warnAboutSynchronousCodeDelivery(ConfigRepository $config): void
     {
+        $settings = new CodeSettings($config);
+
         try {
-            $synchronous = (new CodeSettings($config))->deliversSynchronously();
+            $synchronous = $settings->deliversSynchronously();
+            $fallsBack   = $settings->fallsBackToSync();
         } catch (\InvalidArgumentException) {
             return;
         }
 
-        if (!$synchronous || $this->codeGuards($config) === []) {
+        if ((!$synchronous && !$fallsBack) || $this->codeGuards($config) === []) {
             return;
         }
 
-        $this->warn('[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.');
+        $this->warn($synchronous
+            ? '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
+                . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.'
+            : '[codes] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
+                . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.codes.queue.connection` '
+                . 'to a worker-backed connection that cannot in production.');
     }
 
     /**

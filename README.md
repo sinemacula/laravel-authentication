@@ -610,8 +610,11 @@ encrypted with `app.key` on the queue, pushed to `queue.connection` and `queue.n
 code is committed on its connection. Delivery is never part of the request: on Laravel's `sync` driver, which would run
 the job during its dispatch, it is dispatched after the response instead, in the application's terminating callbacks
 (and in a console command, when it ends); if you turn after-response dispatching off
-(`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. Run a worker in production:
-`authentication:check` warns when a guard allows a code method and the delivery connection is `sync`. Bind your
+(`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. A `failover` connection that lists a `sync` one
+(directly or through another `failover`) would run the job during its dispatch whenever the connections before it
+fail, so the job is pushed to it in the terminating callbacks instead: a worker-backed connection still gets it, and a
+fall back to `sync` runs it after the response. Run a worker in production: `authentication:check` warns when a guard
+allows a code method and the delivery connection is `sync`, or a `failover` that can fall back to `sync`. Bind your
 gateway as the sender, from a service provider (the package ships none, and fails the job with a
 `BindingResolutionException` without one; `authentication:check` reports a guard that allows a code method with no
 sender bound):
@@ -884,11 +887,11 @@ challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`) and the API
 (`authentication.api_keys`). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]`
 for the device model and retention, `[sign_in]` for the pending lifetime, `[codes]` for the code settings and sender,
 `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a subject without one as
-`[<guard>] OK`. Code delivery on a `sync` queue connection, while a guard allows a code method, is a warning that leaves
-the exit code alone. Only the named guards are checked with `--guard=api --guard=admin`; a named guard that is not
-configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads configuration only: it opens no
-database connection and never prints a key. The package does not run these checks at boot; a misconfiguration otherwise
-surfaces when a guard first uses the setting.
+`[<guard>] OK`. Code delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while a
+guard allows a code method, is a warning that leaves the exit code alone. Only the named guards are checked with
+`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
+problem. The command reads configuration only: it opens no database connection and never prints a key. The package does
+not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Identity Models
 

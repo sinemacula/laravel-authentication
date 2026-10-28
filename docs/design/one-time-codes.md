@@ -40,7 +40,11 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - Delivery is the `SendOneTimeCode` job (`ShouldQueue`, `ShouldBeEncrypted`), dispatched through `AfterCommit` on the
   code row's connection, so only a committed code is delivered and a rolled-back one never is. It is never inline: on a
   connection whose driver is `sync` it is dispatched with `dispatchAfterResponse()`, which runs in the application's
-  terminating callbacks; `authentication:check` warns about that setting. The job sets `beforeCommit()`, since the
+  terminating callbacks. A `failover` connection that lists a `sync` one, directly or through another `failover` (a
+  connection already on the path is not followed again), runs the job during its dispatch whenever the connections
+  before it fail, so the job is pushed to it from the terminating callbacks instead (`CodeSettings::fallsBackToSync()`):
+  a worker-backed connection still receives it, and a fall back runs it after the response. `authentication:check`
+  warns about both settings. The job sets `beforeCommit()`, since the
   package has already waited for its own row's commit.
 - The job first checks, on the write connection, that its issuance is still the binding's live, unused, unexpired code;
   otherwise it sends nothing. A sign-in code goes only to the identity the guard's provider finds by the identifier that
@@ -111,8 +115,8 @@ Each flow is held to the same criterion, and its tests prove it rather than assu
 - Code request: the result, the statements run (compared in order, known number against unknown, from clients whose
   limits start alike) and the time taken are the same for a number no one has; against an identity store whose lookup
   is slow and a gateway that is slow, a request is faster than either, since it does neither. Delivery is a queued job,
-  shown on Laravel's real `sync` and `database` drivers as well as a faked queue, and on `sync` it runs after the
-  response.
+  shown on Laravel's real `sync`, `database` and `failover` drivers as well as a faked queue; on `sync`, and on a
+  `failover` that falls back to it, it runs after the response.
 - Code sign-in: an unknown number (with a wrong code, or with the code issued for it), a wrong, expired, exhausted or
   used code, a locked account and a malformed code all answer `SignInResult::failed(invalid_credentials)` exactly, and
   each waits out the real credential timebox against a slow store; a success returns before it.
@@ -131,7 +135,7 @@ criterion, and README's "Enumeration resistance" table lists every flow together
 - `src/Contracts/OneTimeCodeSender.php`, `src/Codes/OneTimeCodeMessage.php`, `src/Testing/FakeOneTimeCodeSender.php`.
 - `src/Identifiers/E164PhoneNormaliser.php`, `src/Models/OneTimeCode.php`,
   `database/migrations/2026_04_06_000003_create_one_time_codes_table.php`.
-- `src/Console/CheckConfigurationCommand.php` (`[codes]` checks and the `sync` warning).
+- `src/Console/CheckConfigurationCommand.php` (`[codes]` checks and the `sync` and `failover` warnings).
 
 ## Authoritative Tests
 
@@ -139,7 +143,8 @@ criterion, and README's "Enumeration resistance" table lists every flow together
   repeated-digits resend and checks overtaken between read and write.
 - `tests/Integration/Codes/ConcurrentOneTimeCodesTest.php`: races on PostgreSQL and MySQL.
 - `tests/Integration/Codes/SendOneTimeCodeTest.php`: recipients (the exact holder only), live issuance, encrypted
-  payload on a real queue, a deleted identity's job dropped, after-response delivery on `sync`.
+  payload on a real queue, a deleted identity's job dropped, after-response delivery on `sync` and on a `failover` that
+  falls back to it.
 - `tests/Integration/Codes/CodeIdentifiersTest.php`: an identity's own identifier in canonical form, and exact holding.
 - `tests/Integration/Codes/ReplicaOneTimeCodesTest.php`: write-connection reads, including an identity that reads its
   identifier and verification with queries of its own.

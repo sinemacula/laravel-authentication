@@ -202,6 +202,62 @@ final class CodeSettingsTest extends TestCase
     }
 
     /**
+     * Rows of `[delivery connection, whether it falls back to sync]` over one
+     * set of connections.
+     *
+     * @return iterable<string, array{0: string, 1: bool}>
+     */
+    public static function provideFailoverConnections(): iterable
+    {
+        yield from [
+            'sync itself'                       => ['sync', false],
+            'a worker-backed connection'        => ['database', false],
+            'a failover listing sync'           => ['to_sync', true],
+            'a failover listing sync later'     => ['nested', true],
+            'a failover of workers only'        => ['workers', false],
+            'a failover listing itself'         => ['looping', false],
+            'failovers listing each other'      => ['ping', false],
+            'a failover leading into a loop'    => ['entry', false],
+            'a failover listing nothing'        => ['empty', false],
+            'a failover of unknown or no names' => ['unknown', false],
+        ];
+    }
+
+    /**
+     * A `failover` delivery connection falls back to `sync` when it lists a
+     * `sync` connection, directly or through other `failover` connections; a
+     * connection already on the path is not followed again, and a name that is
+     * not a configured connection leads nowhere.
+     *
+     * @param  string  $connection
+     * @param  bool  $fallsBack
+     * @return void
+     */
+    #[DataProvider('provideFailoverConnections')]
+    public function testTellsWhetherTheDeliveryConnectionFallsBackToSync(string $connection, bool $fallsBack): void
+    {
+        $connections = [
+            'sync'     => ['driver' => 'sync'],
+            'database' => ['driver' => 'database'],
+            'redis'    => ['driver' => 'redis'],
+            'to_sync'  => ['driver' => 'failover', 'connections' => ['redis', 'sync']],
+            'nested'   => ['driver' => 'failover', 'connections' => ['database', 'workers', 'looping', 'to_sync']],
+            'workers'  => ['driver' => 'failover', 'connections' => ['redis', 'database']],
+            'looping'  => ['driver' => 'failover', 'connections' => ['looping', 'workers']],
+            'ping'     => ['driver' => 'failover', 'connections' => ['pong', 'database']],
+            'pong'     => ['driver' => 'failover', 'connections' => ['ping', 'redis']],
+            'entry'    => ['driver' => 'failover', 'connections' => ['ping']],
+            'empty'    => ['driver' => 'failover'],
+            'unknown'  => ['driver' => 'failover', 'connections' => ['missing', ['sync'], 7]],
+        ];
+
+        $settings = self::settings(['queue' => ['connection' => $connection]], ['default' => 'sync', 'connections' => $connections]);
+
+        self::assertSame($fallsBack, $settings->fallsBackToSync());
+        self::assertSame($connection === 'sync', $settings->deliversSynchronously());
+    }
+
+    /**
      * Rows of `[codes block, queue configuration]` whose delivery connection is
      * not configured.
      *
