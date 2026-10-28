@@ -1,0 +1,316 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace Tests\Feature\Passkeys;
+
+use Carbon\CarbonImmutable;
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Models\Passkey;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyCredentials;
+use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
+use Tests\Concerns\InteractsWithPasskeys;
+use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Passkeys\VirtualAuthenticator;
+use Tests\TestCase;
+use Webauthn\CredentialRecord;
+
+/**
+ * Feature tests for the passkey store: what a registration stores, the
+ * compare-and-set a verified use is written with, and the library's record a
+ * stored passkey becomes.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+#[CoversClass(PasskeyCredentials::class)]
+final class PasskeyCredentialsTest extends TestCase
+{
+    use InteractsWithPasskeys, InteractsWithSessions;
+
+    /** @var \Carbon\CarbonImmutable Frozen clock reference. */
+    private CarbonImmutable $now;
+
+    /**
+     * Freeze the clocks and create the tables.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->now = CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0);
+
+        Carbon::setTestNow($this->now);
+        CarbonImmutable::setTestNow($this->now);
+
+        $this->createSessionTables();
+    }
+
+    /**
+     * Drop the tables and release the clocks.
+     *
+     * @return void
+     */
+    #[\Override]
+    protected function tearDown(): void
+    {
+        $this->dropSessionTables();
+
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+
+        parent::tearDown();
+    }
+
+    /**
+     * A registration stores the backup and verification flags as the
+     * authenticator reported them, and hands back the stored passkey as a saved
+     * model in step with its row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARegistrationStoresTheFlagsAndHandsBackTheSavedPasskey(): void
+    {
+        $this->authenticator()->backupEligible = false;
+        $this->authenticator()->backedUp       = false;
+
+        $this->registerPasskey($this->seedIdentity());
+
+        $stored = Passkey::query()->sole();
+
+        self::assertSame([false, false, true], [$stored->backup_eligible, $stored->backup_state, $stored->uv_initialized]);
+
+        $record = PasskeyCredentials::record($stored);
+
+        $record->publicKeyCredentialId = 'another credential';
+
+        $passkey = PasskeyCredentials::register($this->rp(), $this->seedIdentity('grace@example.test'), $record, null, $this->now);
+
+        self::assertNotNull($passkey);
+        self::assertTrue($passkey->exists);
+        self::assertFalse($passkey->isDirty());
+        self::assertSame(2, Passkey::query()->count());
+    }
+
+    /**
+     * A use read against a count that has since moved is not written: the
+     * passkey keeps the count the other use wrote, and the model the use read
+     * keeps what it read.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAUseReadAgainstAStaleCountIsNotWritten(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        $read = Passkey::query()->sole();
+
+        DB::table('passkeys')->update(['sign_count' => 5]);
+
+        self::assertFalse(PasskeyCredentials::use($read, self::verified($read, 6), $this->now));
+        self::assertSame([5, null], [Passkey::query()->sole()->sign_count, Passkey::query()->sole()->last_used_at]);
+        self::assertSame([0, null], [$read->sign_count, $read->last_used_at]);
+    }
+
+    /**
+     * A use read against a count above 0 that has since moved is not written
+     * whatever count it presents, 0 included.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAUseReadAgainstAMovedCountAboveZeroIsNotWritten(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        DB::table('passkeys')->update(['sign_count' => 1]);
+
+        $read = Passkey::query()->sole();
+
+        DB::table('passkeys')->update(['sign_count' => 5]);
+
+        self::assertFalse(PasskeyCredentials::use($read, self::verified($read, 0), $this->now));
+        self::assertSame(5, Passkey::query()->sole()->sign_count);
+    }
+
+    /**
+     * A use that moves the count is written, with the backup state and the last
+     * use, and mirrored on the model, which stays in step with its row.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAUseThatMovesTheCountIsWrittenAndMirrored(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        $read = Passkey::query()->sole();
+
+        self::assertTrue(PasskeyCredentials::use($read, self::verified($read, 3, backedUp: false), $this->now));
+        self::assertSame([3, false, true], [$read->sign_count, $read->backup_state, $read->uv_initialized]);
+        self::assertTrue($read->last_used_at?->equalTo($this->now));
+        self::assertFalse($read->isDirty());
+
+        $stored = Passkey::query()->sole();
+
+        self::assertSame([3, false, true], [$stored->sign_count, $stored->backup_state, $stored->uv_initialized]);
+        self::assertTrue($stored->last_used_at?->equalTo($this->now));
+    }
+
+    /**
+     * A use writes only what a use changes: a name changed since the passkey
+     * was read is kept.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAUseWritesOnlyWhatAUseChanges(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        $read = Passkey::query()->sole();
+
+        DB::table('passkeys')->update(['name' => 'Renamed']);
+
+        self::assertTrue(PasskeyCredentials::use($read, self::verified($read, 1), $this->now));
+        self::assertSame('Renamed', Passkey::query()->sole()->name);
+    }
+
+    /**
+     * A count of 0 against a stored 0 is accepted even when the update finds
+     * nothing to change, as MySQL reports a second use within the same second:
+     * there is no count to race for. A count above 0 is not.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAZeroCountAgainstAZeroIsAcceptedWhateverTheUpdateFinds(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        $read = Passkey::query()->sole();
+
+        DB::table('passkeys')->delete();
+
+        self::assertFalse(PasskeyCredentials::use($read, self::verified($read, 1), $this->now));
+        self::assertTrue(PasskeyCredentials::use($read, self::verified($read, 0), $this->now));
+    }
+
+    /**
+     * A stored passkey becomes the library's record of it: its raw id, public
+     * key and user handle decoded, its transports, count and flags, recorded as
+     * unattested, with no AAGUID read as the nil one and a stored one kept.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStoredPasskeyBecomesTheLibrarysRecord(): void
+    {
+        $this->registerPasskey($this->seedIdentity());
+
+        $passkey = Passkey::query()->sole();
+        $record  = PasskeyCredentials::record($passkey);
+
+        self::assertSame(VirtualAuthenticator::decode($this->authenticator()->lastCredentialId()), $record->publicKeyCredentialId);
+        self::assertSame(VirtualAuthenticator::decode($passkey->public_key), $record->credentialPublicKey);
+        self::assertSame(VirtualAuthenticator::decode($passkey->user_handle), $record->userHandle);
+        self::assertSame(['public-key', ['internal', 'hybrid'], 'none', 0], [$record->type, $record->transports, $record->attestationType, $record->counter]);
+        self::assertSame([true, true, true], [$record->backupEligible, $record->backupStatus, $record->uvInitialized]);
+        self::assertSame('00000000-0000-0000-0000-000000000000', $record->aaguid->toRfc4122());
+
+        $passkey->aaguid = 'adce0002-35bc-c60a-648b-0b25f1f05503';
+
+        self::assertSame('adce0002-35bc-c60a-648b-0b25f1f05503', PasskeyCredentials::record($passkey)->aaguid->toRfc4122());
+    }
+
+    /**
+     * `PasskeyCredentials` is a static utility; instantiation is disallowed via
+     * the private constructor. Reflection invokes it so the line is covered
+     * while still documenting the access modifier.
+     *
+     * @return void
+     *
+     * @SuppressWarnings("php:S3011")
+     */
+    public function testConstructorIsPrivate(): void
+    {
+        $reflection  = new \ReflectionClass(PasskeyCredentials::class);
+        $constructor = $reflection->getConstructor();
+
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $instance = $reflection->newInstanceWithoutConstructor();
+        $constructor->invoke($instance);
+
+        self::assertInstanceOf(PasskeyCredentials::class, $instance);
+    }
+
+    /**
+     * Configure the guards and their relying party.
+     *
+     * @param  mixed  $app
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    #[\Override]
+    protected function defineEnvironment(mixed $app): void
+    {
+        parent::defineEnvironment($app);
+
+        assert($app instanceof Application);
+
+        $config = $app->make(ConfigRepository::class);
+
+        self::configureSessionGuards($config);
+        self::configurePasskeys($config);
+    }
+
+    /**
+     * The passkey as an assertion verified with the count would leave it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\Passkey  $passkey
+     * @param  int  $count
+     * @param  bool  $backedUp
+     * @return \Webauthn\CredentialRecord
+     */
+    private static function verified(Passkey $passkey, int $count, bool $backedUp = true): CredentialRecord
+    {
+        $record = PasskeyCredentials::record($passkey);
+
+        $record->counter       = $count;
+        $record->backupStatus  = $backedUp;
+        $record->uvInitialized = true;
+
+        return $record;
+    }
+
+    /**
+     * The `api` guard's relying party.
+     *
+     * @return \SineMacula\Laravel\Authentication\Passkeys\RelyingParty
+     */
+    private function rp(): RelyingParty
+    {
+        return RelyingParty::forGuard('api', app(ConfigRepository::class));
+    }
+}

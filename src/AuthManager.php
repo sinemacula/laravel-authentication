@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
@@ -23,8 +24,8 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
  * (`identity`, `principal`, `device`, `tenant`, `type`, `scopes`), guard-scoped
- * `jwt()` issuance and each JWT guard's `sessions()`, `codes()` and
- * `refreshTransport()` directly on the manager. Each contextual accessor
+ * `jwt()` issuance and each JWT guard's `sessions()`, `codes()`, `passkeys()`
+ * and `refreshTransport()` directly on the manager. Each contextual accessor
  * forwards to the active guard when it implements `ContextualGuard`, otherwise
  * returns `null`. Bound to the `auth` container key by
  * `AuthenticationServiceProvider`.
@@ -123,6 +124,22 @@ class AuthManager extends IlluminateAuthManager
     public function refreshTransport(?string $guard = null): RefreshTokenTransport
     {
         return $this->jwtGuard($guard, 'refresh token transport')->refreshTransport();
+    }
+
+    /**
+     * Return the passkey service of the named JWT guard, or of the current
+     * default guard when the name is omitted: its registration, sign-in and
+     * factor ceremonies, and the listing and removal of an identity's passkeys,
+     * for the guard's relying party.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function passkeys(?string $guard = null): PasskeyService
+    {
+        return new PasskeyService($this->jwtGuard($guard, 'passkey service'), $this->app);
     }
 
     /**

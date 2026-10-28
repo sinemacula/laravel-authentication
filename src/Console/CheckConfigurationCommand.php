@@ -19,6 +19,9 @@ use SineMacula\Laravel\Authentication\Database\DeviceRetention;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
+use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -30,17 +33,19 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * the guard would, and the device model, and exits non-zero on a problem, for
  * deploy pipelines and readiness probes.
  *
- * Every check runs, so one run lists every problem, each as `[<guard>]
- * <message>`: the token service (keys, active kid, algorithm, key lengths,
- * lifetimes, leeway, issuer and audience), the identity provider, a principal
- * resolver override, the package audience policy's settings, every flow's rate
- * limits, the password identifier and the refresh token transport. The
- * package-wide settings are reported as `[device]` (the device model and the
- * pruning retention), `[sign_in]` (the pending sign-in lifetime) and `[codes]`
+ * Every check runs, so one run lists every problem, each as
+ * `[<guard>] <message>`: the token service (keys, active kid, algorithm, key
+ * lengths, lifetimes, leeway, issuer and audience), the identity provider, a
+ * principal resolver override, the package audience policy's settings, every
+ * flow's rate limits, the password identifier, the refresh token transport, and
+ * the passkey relying party of a guard that allows passkeys or configures one.
+ * The package-wide settings are reported as `[device]` (the device model and
+ * the pruning retention), `[sign_in]` (the pending sign-in lifetime), `[codes]`
  * (the one-time code settings and key, and a sender bound when a guard allows
  * one of the package's code sign-in methods, with a warning, not a problem,
- * when their delivery runs on a `sync` queue connection). The command reads
- * configuration only: it opens no database connection and prints no secret.
+ * when their delivery runs on a `sync` queue connection) and `[passkeys]` (the
+ * passkey challenge lifetime). The command reads configuration only: it opens
+ * no database connection and prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,7 +120,10 @@ final class CheckConfigurationCommand extends Command
             'sign_in' => [
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
-            'codes' => $this->codeChecks($config),
+            'codes'    => $this->codeChecks($config),
+            'passkeys' => [
+                static fn (): int => (new PasskeyChallenges($config))->ttlSeconds(),
+            ],
         ];
     }
 
@@ -307,7 +315,51 @@ final class CheckConfigurationCommand extends Command
             static fn (): mixed => array_map(static fn (AttemptFlow $flow): array => (new AttemptLimits($config))->for($guard, $flow), AttemptFlow::cases()),
             static fn (): mixed => (new PasswordSignIn($config))->identifierType($guard),
             static fn (): mixed => RefreshTokenSettings::forGuard($guard, $config),
+            self::passkeyCheck($app, $guard, $guardConfig, $config),
         ];
+    }
+
+    /**
+     * The passkey check of a `jwt` guard: its relying party, resolved as its
+     * passkeys would resolve it, when it sets a `passkeys` block or the package
+     * audience policy allows it the `passkey` method. A policy of the
+     * application's own is not asked, as its settings are not checked either,
+     * and audience settings the package policy cannot read are reported by the
+     * audience check alone.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  string  $guard
+     * @param  array<array-key, mixed>  $guardConfig
+     * @param  \Illuminate\Config\Repository  $config
+     * @return \Closure(): void
+     */
+    private static function passkeyCheck(Application $app, string $guard, array $guardConfig, ConfigRepository $config): \Closure
+    {
+        return static function () use ($app, $guard, $guardConfig, $config): void {
+            if (!array_key_exists('passkeys', $guardConfig) && !self::allowsPasskeys($app->make(AudiencePolicy::class), $guard)) {
+                return;
+            }
+
+            RelyingParty::forGuard($guard, $config);
+        };
+    }
+
+    /**
+     * Whether the package audience policy allows the guard the `passkey`
+     * method; `false` for a policy of the application's own, and for settings
+     * it cannot read.
+     *
+     * @param  mixed  $policy
+     * @param  string  $guard
+     * @return bool
+     */
+    private static function allowsPasskeys(mixed $policy, string $guard): bool
+    {
+        try {
+            return $policy instanceof GuardAudiencePolicy && $policy->allowsMethod($guard, PasskeySignIn::NAME);
+        } catch (\InvalidArgumentException) {
+            return false;
+        }
     }
 
     /**

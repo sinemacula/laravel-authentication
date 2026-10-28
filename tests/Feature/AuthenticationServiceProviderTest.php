@@ -47,6 +47,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
+use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -609,8 +610,8 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The migrations tag publishes every shipped migration (devices, pending
-     * sign-ins and rate limits), from the package to the application's
-     * migrations, under their own file names.
+     * sign-ins, rate limits, passkeys and passkey challenges), from the package
+     * to the application's migrations, under their own file names.
      *
      * @return void
      */
@@ -624,11 +625,24 @@ final class AuthenticationServiceProviderTest extends TestCase
         }
 
         self::assertSame([
-            realpath($source . '2026_04_06_000000_create_devices_table.php')          => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
-            realpath($source . '2026_04_06_000001_create_pending_sign_ins_table.php') => database_path('migrations/2026_04_06_000001_create_pending_sign_ins_table.php'),
-            realpath($source . '2026_04_06_000002_create_rate_limits_table.php')      => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
-            realpath($source . '2026_04_06_000003_create_one_time_codes_table.php')   => database_path('migrations/2026_04_06_000003_create_one_time_codes_table.php'),
+            realpath($source . '2026_04_06_000000_create_devices_table.php')            => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
+            realpath($source . '2026_04_06_000001_create_pending_sign_ins_table.php')   => database_path('migrations/2026_04_06_000001_create_pending_sign_ins_table.php'),
+            realpath($source . '2026_04_06_000002_create_rate_limits_table.php')        => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
+            realpath($source . '2026_04_06_000003_create_one_time_codes_table.php')     => database_path('migrations/2026_04_06_000003_create_one_time_codes_table.php'),
+            realpath($source . '2026_04_06_000004_create_passkeys_table.php')           => database_path('migrations/2026_04_06_000004_create_passkeys_table.php'),
+            realpath($source . '2026_04_06_000005_create_passkey_challenges_table.php') => database_path('migrations/2026_04_06_000005_create_passkey_challenges_table.php'),
         ], $paths);
+    }
+
+    /**
+     * The WebAuthn wrapper is shared: built once and reused by every guard's
+     * passkeys.
+     *
+     * @return void
+     */
+    public function testTheWebAuthnWrapperIsShared(): void
+    {
+        self::assertSame(app(WebAuthn::class), app(WebAuthn::class));
     }
 
     /**

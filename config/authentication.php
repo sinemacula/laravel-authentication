@@ -395,4 +395,45 @@ return [
             'name'       => env('AUTHENTICATION_CODES_QUEUE'),
         ],
     ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Passkeys
+    |---------------------------------------------------------------------------
+    |
+    | Passkeys (WebAuthn credentials) are kept in `table` and the ceremonies'
+    | single-use challenges in `challenges_table`, both on the device model's
+    | connection. A challenge lives `challenge_ttl_seconds` (30 to 600; an
+    | integer, or a digit string as `env()` returns one), which is also the
+    | `timeout` the options give the browser. Prune expired challenges with
+    | `model:prune`.
+    |
+    | `relying_party` is the default every guard starts from; a guard
+    | overrides any of its keys in a `passkeys` block on its `config/auth.php`
+    | entry, where a key that is present wins. `id` is the relying party id: a
+    | lower-case host name (not an IP address), required on every guard that
+    | uses passkeys, which every credential is scoped to. `name` is the name
+    | the browser shows, by default `app.name`. `origins` lists the exact
+    | origins the ceremonies may run on, each `https://host[:port]` (or
+    | `http://localhost[:port]` for development), in lower case, whose host is
+    | the relying party id or a subdomain of it; the package does not consult
+    | the public suffix list, so never name a public suffix as the id. A
+    | malformed value or an unknown key fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | passkeys are first used, and `authentication:check` reports it for every
+    | guard whose audience allows `passkey`.
+    |
+    */
+
+    'passkeys' => [
+        'table'                 => env('AUTHENTICATION_PASSKEYS_TABLE', 'passkeys'),
+        'challenges_table'      => env('AUTHENTICATION_PASSKEY_CHALLENGES_TABLE', 'passkey_challenges'),
+        'challenge_ttl_seconds' => env('AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS', 300),
+
+        'relying_party' => [
+            'id'      => env('AUTHENTICATION_PASSKEYS_RP_ID'),
+            'name'    => env('APP_NAME'),
+            'origins' => [],
+        ],
+    ],
 ];

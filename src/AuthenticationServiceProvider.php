@@ -46,6 +46,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
+use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -69,6 +70,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
         '2026_04_06_000001_create_pending_sign_ins_table.php',
         '2026_04_06_000002_create_rate_limits_table.php',
         '2026_04_06_000003_create_one_time_codes_table.php',
+        '2026_04_06_000004_create_passkeys_table.php',
+        '2026_04_06_000005_create_passkey_challenges_table.php',
     ];
 
     /**
@@ -91,6 +94,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(SignInMethodManager::class);
         $this->app->scoped(Rehashing::class);
         $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
+        $this->app->singleton(WebAuthn::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,

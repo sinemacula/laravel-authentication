@@ -8,6 +8,7 @@ use Illuminate\Support\Manager;
 use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -180,6 +181,16 @@ final class SignInMethodManager extends Manager
     protected function createEmailCodeDriver(): CodeSignIn
     {
         return $this->container->make(CodeSignIn::class, ['type' => 'email']);
+    }
+
+    /**
+     * Build the passkey sign-in method.
+     *
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn
+     */
+    protected function createPasskeyDriver(): PasskeySignIn
+    {
+        return new PasskeySignIn($this->container);
     }
 
     /**

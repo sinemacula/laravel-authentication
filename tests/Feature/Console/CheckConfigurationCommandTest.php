@@ -56,7 +56,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK'], $output);
+        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK'], $output);
         self::assertSame(0, $queries);
     }
 
@@ -160,6 +160,26 @@ final class CheckConfigurationCommandTest extends TestCase
             ['auth.guards.api.audience' => ['methods' => ['password', 'phone_code']]],
             '[codes] Guards [api] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
         ];
+        yield 'a passkey challenge lifetime out of range' => [
+            ['authentication.passkeys.challenge_ttl_seconds' => 601],
+            '[passkeys] authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600 seconds.',
+        ];
+        yield 'a guard that allows passkeys without a relying party' => [
+            ['auth.guards.api.audience' => ['methods' => ['password', 'passkey']]],
+            '[api] Passkey relying party `id` for guard [api] must be a lower-case host name, not an IP address:',
+        ];
+        yield 'a guard that allows passkeys with an origin off its relying party' => [
+            [
+                'auth.guards.api.audience'                      => ['methods' => ['passkey']],
+                'authentication.passkeys.relying_party.id'      => 'example.test',
+                'authentication.passkeys.relying_party.origins' => ['https://example.org'],
+            ],
+            '[api] Passkey relying party `origins` for guard [api] must be a non-empty list of exact lower-case origins',
+        ];
+        yield 'a malformed passkeys block on a guard that does not allow passkeys' => [
+            ['auth.guards.api.passkeys' => 'example.test'],
+            '[api] Passkey configuration for guard [api]: the guard\'s `passkeys` overrides must be an array.',
+        ];
     }
 
     /**
@@ -221,7 +241,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         FakeOneTimeCodeSender::fake($this->app);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
     }
 
     /**
@@ -266,11 +286,11 @@ final class CheckConfigurationCommandTest extends TestCase
         $warning = '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
             . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.';
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
 
         config()->set('auth.guards.admin.audience', ['methods' => ['phone_code']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', $warning, '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', $warning, '[api] OK', '[admin] OK']], $this->check());
     }
 
     /**
@@ -294,6 +314,7 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame([
             '[device] OK',
             '[sign_in] OK',
+            '[passkeys] OK',
             '[admin] OK',
             '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
@@ -330,7 +351,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check(['--guard' => ['api', 'web', 'missing', 'api']]);
 
         self::assertSame(1, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[web] Not a jwt guard.', '[missing] Not configured.'], $output);
+        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[web] Not a jwt guard.', '[missing] Not configured.'], $output);
     }
 
     /**
@@ -346,11 +367,11 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK'], $output);
+        self::assertSame(['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK'], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK']], $this->check());
+        self::assertSame([0, ['No jwt guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK']], $this->check());
     }
 
     /**
@@ -363,7 +384,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[2024] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[2024] OK']], $this->check());
     }
 
     /**
@@ -405,7 +426,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         $failing = $this->check();
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $passing);
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $passing);
         self::assertSame(1, $failing[0]);
     }
 
@@ -418,7 +439,25 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards.api.principal_resolver', StubReplacementPrincipalResolver::class);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[api] OK', '[admin] OK']], $this->check());
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
+    }
+
+    /**
+     * A guard that allows passkeys, or configures a relying party, passes with
+     * a valid one; a guard that does neither needs none.
+     *
+     * @return void
+     */
+    public function testAGuardThatUsesPasskeysPassesWithAValidRelyingParty(): void
+    {
+        config()->set([
+            'auth.guards.api.audience'                      => ['methods' => ['password', 'passkey']],
+            'auth.guards.admin.passkeys'                    => ['id' => 'admin.example.test', 'origins' => ['https://admin.example.test']],
+            'authentication.passkeys.relying_party.id'      => 'example.test',
+            'authentication.passkeys.relying_party.origins' => ['https://example.test'],
+        ]);
+
+        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api] OK', '[admin] OK']], $this->check());
     }
 
     /**

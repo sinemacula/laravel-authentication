@@ -42,6 +42,10 @@ device record live in the `devices` table so replay and stale credentials can be
 - **Pluggable sign-in methods** behind one `SignInMethod` contract (a password method ships; SSO and others register
   on the `SignInMethodManager`), checked against each guard's audience policy and attempt limits, with an
   additional-factor seam whose default never asks for one.
+- **Passkeys** (WebAuthn): usernameless sign-in with discoverable, user-verified credentials as the `passkey` method,
+  registration through single-use challenges held in the database, a relying party per guard, a sign counter rule that
+  refuses a cloned authenticator, `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` events, and a factor ceremony
+  through which a further-factor package verifies the same passkeys.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
   `type()`.
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
@@ -118,6 +122,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/principal-choice-and-switch.md`
 - `docs/design/audience-policy.md`
 - `docs/design/one-time-codes.md`
+- `docs/design/passkeys.md`
 
 ## Installation
 
@@ -125,7 +130,8 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the migrations (the `devices`, `pending_sign_ins` and `rate_limits` tables), then migrate:
+Publish the config and the migrations (the `devices`, `pending_sign_ins`, `rate_limits`, `passkeys` and
+`passkey_challenges` tables), then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -135,7 +141,7 @@ php artisan migrate
 
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
 `TableAlreadyExistsException` that names the configuration key renaming its table (`device.table`,
-`sign_in.pending_table`, `rate_limits.table`).
+`sign_in.pending_table`, `rate_limits.table`, `passkeys.table`, `passkeys.challenges_table`).
 
 Generate a random JWT signing key into `.env`:
 
@@ -476,10 +482,13 @@ The package's models live outside your application's `app/Models`, so name them 
 ```php
 use Illuminate\Support\Facades\Schedule;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 
-Schedule::command('model:prune', ['--model' => [Device::class, PendingSignIn::class, RateLimit::class]])->hourly();
+Schedule::command('model:prune', [
+    '--model' => [Device::class, PendingSignIn::class, RateLimit::class, PasskeyChallenge::class],
+])->hourly();
 ```
 
 A custom device model opts in with the `PrunesDevices` trait alone (it brings Laravel's `MassPrunable` with it, and
@@ -602,6 +611,51 @@ that expired or was replaced is never sent. Requests for codes are limited by th
 [Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned: schedule `model:prune` with
 `Models\OneTimeCode` beside the others (see [Pruning devices](#pruning-devices)).
 
+### Passkeys
+
+```php
+'passkeys' => [
+    'table'                 => 'passkeys',
+    'challenges_table'      => 'passkey_challenges',
+    'challenge_ttl_seconds' => 300,
+
+    'relying_party' => [
+        'id'      => env('AUTHENTICATION_PASSKEYS_RP_ID'),   // e.g. example.com
+        'name'    => env('APP_NAME'),
+        'origins' => [],                                      // e.g. ['https://app.example.com']
+    ],
+],
+```
+
+Passkeys belong to a WebAuthn relying party. Every guard that uses passkeys needs one: the package's `relying_party`,
+with any of its keys overridden in a `passkeys` block on the guard's `config/auth.php` entry, where a key that is
+present wins:
+
+```php
+'guards' => [
+    'console' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'audience' => ['methods' => ['password', 'passkey']],
+        'passkeys' => ['id' => 'console.example.com', 'origins' => ['https://console.example.com']],
+    ],
+],
+```
+
+`id` is the relying party id, a lower-case host name (not an IP address); every passkey registered through the guard is
+scoped to it, and a guard only ever sees the passkeys of its own id, so guards that share an id share their passkeys.
+`name` is what the browser shows, by default `app.name`. `origins` lists the exact origins the ceremonies may run on,
+each `https://host[:port]`, or `http://localhost[:port]` for development, in lower case, with a host that is the id or a
+subdomain of it; a ceremony from any other origin, or framed in another site, is refused. The package does not consult
+the public suffix list, so never name a public suffix (`co.uk`, say) as the id. Anything else, or an unknown key, fails
+closed with an `InvalidArgumentException` naming the guard and the key when the guard's passkeys are first used, and
+`authentication:check` reports it for every guard whose audience allows `passkey` or that sets a `passkeys` block.
+
+A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
+give the browser. Both tables live on the device model's connection; prune expired challenges with `model:prune` (see
+[Pruning devices](#pruning-devices)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms
+offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
+
 ### Rate limits
 
 Sign-in, requests for one-time codes and refresh are limited per identifier and per IP address, counted in the database
@@ -624,14 +678,15 @@ own `rate_limits` block:
 ],
 ```
 
-| Flow           | Scope            | Default             | Counts                                                                                                         |
-|----------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
-| `sign_in`      | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
-| `sign_in`      | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
-| `refresh`      | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
-| `refresh`      | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
-| `code_request` | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
-| `code_request` | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
+| Flow              | Scope            | Default             | Counts                                                                                                         |
+|-------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
+| `sign_in`         | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
+| `sign_in`         | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
+| `refresh`         | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
+| `refresh`         | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
+| `code_request`    | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
+| `code_request`    | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
+| `passkey_options` | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -756,8 +811,11 @@ provider resolves to an `IdentityProvider`, its `principal_resolver` override, i
 for the whole package, the configured device model and pruning retention (`authentication.device.prune_after_days`,
 otherwise checked only when `model:prune` runs) and the pending sign-in lifetime
 (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
-choice of principal). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for
-the device model and retention, `[sign_in]` for the pending lifetime), and a subject without one as `[<guard>] OK`.
+choice of principal) and the passkey challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`). It also
+resolves the passkey relying party of every guard whose audience allows `passkey` or that sets a `passkeys` block. Every
+check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for the device model and
+retention, `[sign_in]` for the pending lifetime, `[passkeys]` for the challenge lifetime), and a subject without one as
+`[<guard>] OK`.
 `--guard=api --guard=admin` checks only the named guards; a named guard that is not configured, or not a `jwt` guard, is
 a problem. The command reads configuration only: it opens no database connection and never prints a key. The package
 does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
@@ -1668,6 +1726,123 @@ continues no live choice of this guard fails as `pending_invalid`; `pending()` a
 and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a discarded choice reports
 `AuthenticationFailed` with `principal_choice_abandoned`.
 
+### Using passkeys
+
+Each JWT guard has a passkey service, `Auth::passkeys('api')`, for its relying party (see [Passkeys](#passkeys)
+under Configuration). Passkeys are usernameless: the browser offers the passkeys it holds for the relying party, the
+user verifies (biometrics, a PIN), and the passkey names its owner. Every ceremony is two calls, options and then the
+browser's answer: the options carry a single-use challenge stored in `passkey_challenges`, which the answer must use up
+within its lifetime, through the same guard, for the same relying party (and, for a registration or a factor, the same
+identity), whatever it then proves. The routes and responses are yours.
+
+Allow the method in each guard's audience (`'methods' => ['password', 'passkey']`). A signed-in identity registers a
+passkey:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
+
+// POST /passkeys/options, behind auth:api
+$identity = Auth::identity();
+
+return Auth::passkeys('api')->registrationOptions($identity, $identity->email, $identity->name);
+
+// POST /passkeys, behind auth:api
+$input = $request->validate([
+    'challenge'  => ['required', 'string'],
+    'credential' => ['required'],
+    'name'       => ['nullable', 'string'],
+]);
+
+$outcome = Auth::passkeys('api')->register(
+    Auth::identity(),
+    $input['challenge'],
+    $input['credential'],
+    $input['name'] ?? null,
+);
+
+return $outcome instanceof PasskeySummary
+    ? response()->json($outcome, 201)
+    : response()->json(['error' => $outcome->value], 422);
+```
+
+The options (`CeremonyOptions`: `challenge`, `options`, `expires_at` as JSON) ask for a discoverable credential with
+user verification and no attestation, exclude the identity's passkeys, and hand the browser its options in their
+WebAuthn JSON form: pass `options` to `PublicKeyCredential.parseCreationOptionsFromJSON()` and
+`navigator.credentials.create()`, and post the credential's `toJSON()` back with the `challenge`. Choose the user name
+and display name from the identity's own record, never from the request: the browser shows them. Every passkey an
+identity registers for a relying party carries one random user handle, the one its first passkey got, so it carries no
+personal data and does not depend on `app.key`. `register()` answers a `PasskeySummary`, or a
+`PasskeyRegistrationFailure`: `challenge_invalid` (not a live registration challenge of this guard for the identity),
+`response_invalid` (malformed, or it does not verify: origin, relying party, user presence and verification, challenge,
+algorithm, attestation statement) or `already_registered`. The name is stored cleaned and cut to 255 characters. Under
+`attestation: none` a browser may still pass an authenticator's own statement through, so the formats the WebAuthn
+library checks on its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`, `apple`) are accepted for their internal
+consistency, but no certificate chain or metadata is evaluated and every passkey is recorded as unattested. A machine
+identity holds no passkey (an `InvalidArgumentException`), and passkeys belong to saved Eloquent identities.
+
+Signing in takes options and then the session service:
+
+```php
+// POST /sign-in/passkey/options
+return Auth::passkeys('api')->signInOptions();
+
+// POST /sign-in/passkey
+$result = Auth::sessions('api')->signIn('passkey', $request->only('challenge', 'credential'));
+```
+
+`signInOptions()` names no credential, so the browser offers every passkey it holds for the relying party. Anyone may
+ask for them and each request writes a challenge, so each is counted against the client's IP address under the guard's
+`passkey_options` limit (see [Rate limits](#rate-limits)); past it, a `ThrottleRequestsException` answers `429` with
+`Retry-After`. The `passkey` method uses the challenge up, finds the passkey of the guard's relying party the answer
+names, loads its owner through the guard's provider as the very model it records, takes a slot of the owner's account
+limit, and verifies the assertion: the origin, the relying party, user presence and verification, the signature, the
+challenge, and the user handle the passkey was registered under. The session service then decides the rest, as for any
+method (see [Signing in: the session service](#signing-in-the-session-service)): no identifier is named, so only the IP
+address is limited before the method runs and the verified-identifier requirement does not apply. A challenge the
+answer cannot use fails as `passkey_challenge_invalid`, in the result too, since it says nothing about any account (the
+client starts again); every other refusal is `invalid_credentials`.
+
+The sign counter guards against a cloned authenticator. With `s` the count stored and `p` the assertion's: `s = 0` and
+`p = 0` is accepted and the count stays 0 (most synced passkeys keep no counter); `p > s` is accepted and the count
+becomes `p`, with a compare-and-set on `s`, so of two assertions read against one count only one moves it; anything else
+(`p <= s` with `s > 0`) is refused as `passkey_counter_regressed`, which only `AuthenticationFailed` says (the result
+says `invalid_credentials`). Nothing is written then, so a clone cannot lock the genuine authenticator out; the owner
+can remove the passkey. A verified passkey records its count, backup state and last use and dispatches `PasskeyUsed`
+whether or not the session service then admits its owner: the passkey was used.
+
+A further-factor package verifies one of an identity's passkeys through the same checks:
+
+```php
+// Allows only the identity's passkeys.
+$options = Auth::passkeys('api')->factorOptions($identity);
+
+// null once verified, else the reason.
+$reason = Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential);
+```
+
+`verifyFactor()` answers `null` once the identity's own passkey verified (with `PasskeyUsed`), and otherwise
+`passkey_challenge_invalid`, `invalid_credentials` (malformed, not verified, or not the identity's) or
+`passkey_counter_regressed`, which the caller already holding the identity may see. It counts nothing and reports no
+failure: the factor's outcome is the further-factor package's to limit and report.
+
+`Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
+`PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
+key, user handle or count. `remove($identity, $passkeyId)` removes the identity's passkey of the relying party and
+reports `PasskeyRemoved` once committed; it answers whether this call removed it. Removing a passkey removes a way to
+sign in, but ends no session unless you register the optional listener:
+
+```php
+use Illuminate\Support\Facades\Event;
+use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasskeyRemoval;
+
+Event::listen(PasskeyRemoved::class, RevokeDevicesOnPasskeyRemoval::class);
+```
+
+It ends every session of the identity with `factor_removed`; to keep the current device signed in, call
+`Auth::sessions()->factorRemoved($identity, Auth::device())` yourself instead. See `docs/design/passkeys.md`.
+
 ### Refreshing
 
 Refresh with the token the request carries, read through the guard's refresh token transport:
@@ -2255,6 +2430,9 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\PrincipalChoiceRequired`  | A sign-in waits for a choice of principal, once committed |
 | `SineMacula\...\Events\PrincipalSwitched`        | A session switched its principal, once committed          |
 | `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type   |
+| `SineMacula\...\Events\PasskeyAdded`             | A passkey was registered, once committed                  |
+| `SineMacula\...\Events\PasskeyUsed`              | A passkey's assertion was verified, once committed        |
+| `SineMacula\...\Events\PasskeyRemoved`           | A passkey was removed, once committed                     |
 | `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh, switch or bearer token failed; reason |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
@@ -2375,6 +2553,8 @@ the event, while the sign-in's result says `invalid_credentials`:
 | `cross_site_request`         | A cookie refresh token without an allowed origin and the custom header  |
 | `code_expired`               | The one-time code expired; event only, not on a sign-in's result        |
 | `code_exhausted`             | The code used up its attempts; event only, not on a sign-in's result    |
+| `passkey_challenge_invalid`  | The passkey challenge is unknown, expired, used, or another ceremony's  |
+| `passkey_counter_regressed`  | The passkey's sign counter did not advance; event only, not on result   |
 
 A sign-in method may answer `invalid_credentials`, `identifier_unverified` once its input proved the identifier is held,
 and the code and passkey reasons; every other reason is the session service's to give. A code request refused because
@@ -2397,6 +2577,7 @@ inheritance:
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                             |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name other than `password` |
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed      |
+| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                |
 | Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                       |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                       |
 | Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                           |
@@ -2425,7 +2606,7 @@ twice), and each is given back.
 
 ## Requirements
 
-- PHP ^8.3 (extensions: hash, mbstring, openssl)
+- PHP ^8.3 (extensions: hash, mbstring, openssl; sodium, bundled with PHP, for EdDSA passkeys)
 - Laravel ^12.40 || ^13.3
 
 ## Testing
