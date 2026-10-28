@@ -18,7 +18,10 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -33,7 +36,8 @@ use Tests\TestCase;
  * guard already resolved, so nothing one request bound (an identity, a
  * principal, a device, a refusal) is seen by the next, and a dispatcher or a
  * principal resolver swapped in after the guard resolved reaches the guard, its
- * refresh exchange and its session service.
+ * refresh exchange and its session service, the switch of principal and the
+ * revocations included.
  *
  * The guards are never forgotten between the requests here, unlike the rest of
  * the suite, so a leak would show.
@@ -340,6 +344,62 @@ final class RequestSequenceTest extends TestCase
     }
 
     /**
+     * `Event::fake()` after the guard and its session service resolved reaches
+     * the session lifecycle as well: a switch of principal and a sign-out
+     * everywhere made through the service the guard already holds are recorded
+     * by the fake.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFakeDispatcherAfterResolutionReachesTheSessionLifecycle(): void
+    {
+        [$first, $second] = $this->seedMemberships();
+
+        $guard   = $this->membersGuard();
+        $session = $guard->sessions()->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+
+        Event::fake([PrincipalSwitched::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+
+        self::assertTrue($guard->sessions()->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
+        self::assertSame(1, $guard->sessions()->signOutEverywhere());
+
+        Event::assertDispatched(PrincipalSwitched::class, static fn (PrincipalSwitched $event): bool => $event->previousPrincipalId === (string) $first->id);
+        Event::assertDispatched(DeviceRevoked::class, static fn (DeviceRevoked $event): bool => $event->reason === RevocationReason::SIGNED_OUT_EVERYWHERE);
+        Event::assertDispatched(SignedOutEverywhere::class, static fn (SignedOutEverywhere $event): bool => $event->revoked === 1);
+    }
+
+    /**
+     * A principal resolver bound after the guard and its session service
+     * resolved is the one a switch of principal admits the session with.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResolverBoundAfterResolutionReachesTheSwitch(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $guard   = $this->membersGuard();
+        $session = $guard->sessions()->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+
+        $resolver = \Mockery::mock(PrincipalResolver::class);
+        $resolver->shouldReceive('resolve')->atLeast()->once()->andReturnNull();
+
+        $this->app?->instance(PrincipalResolver::class, $resolver);
+
+        $result = $guard->sessions()->switchPrincipal($session->tokens->refreshToken, $second);
+
+        self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $result->reason);
+    }
+
+    /**
      * Configure the guards.
      *
      * @param  mixed  $app
@@ -387,6 +447,35 @@ final class RequestSequenceTest extends TestCase
         $this->flushHeaders();
 
         return $session === null ? $this->getJson('/me') : $this->withToken($session->tokens->accessToken)->getJson('/me');
+    }
+
+    /**
+     * Persist a member with a membership in an active tenant (its default
+     * principal) and a second one in the same tenant.
+     *
+     * @return array{0: \Tests\Integration\Fixtures\ActivatableTenantMembership, 1: \Tests\Integration\Fixtures\ActivatableTenantMembership}
+     */
+    private function seedMemberships(): array
+    {
+        [$member, $first, $tenant] = $this->seedMember();
+
+        $second = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
+
+        return [$first, $second];
+    }
+
+    /**
+     * The `members` guard, as resolved so far.
+     *
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private function membersGuard(): JwtGuard
+    {
+        $guard = Auth::manager()->guard('members');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        return $guard;
     }
 
     /**
