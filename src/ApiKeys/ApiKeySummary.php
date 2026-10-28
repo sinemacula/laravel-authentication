@@ -25,7 +25,7 @@ final readonly class ApiKeySummary
      * Constructor.
      *
      * @param  string  $id
-     * @param  string  $prefix
+     * @param  string  $publicId
      * @param  string  $guard
      * @param  ?string  $name
      * @param  list<string>  $scopes
@@ -41,8 +41,8 @@ final readonly class ApiKeySummary
         /** The key's id, which names it to the service and in events. */
         public string $id,
 
-        /** The key's public part, `<prefix>_<public>`, which is also its OAuth client id. */
-        public string $prefix,
+        /** The key's public part, `<prefix>_<public>`: shown to tell keys apart, and the key's OAuth client id. */
+        public string $publicId,
 
         /** The guard the key authenticates for. */
         public string $guard,
@@ -82,7 +82,7 @@ final readonly class ApiKeySummary
     {
         return new self(
             $key->id,
-            $key->prefix,
+            $key->public_id,
             $key->guard,
             $key->name,
             $key->scopes,
@@ -102,7 +102,7 @@ final readonly class ApiKeySummary
      *
      * @phpcs:disable Generic.Files.LineLength.TooLong
      *
-     * @return array{id: string, prefix: string, guard: string, name: ?string, scopes: list<string>, expires_at: ?string, last_used_at: ?string, rotated_at: ?string, replaced_by: ?string, revoked_at: ?string, created_at: ?string}
+     * @return array{id: string, public_id: string, guard: string, name: ?string, scopes: list<string>, expires_at: ?string, last_used_at: ?string, rotated_at: ?string, replaced_by: ?string, revoked_at: ?string, created_at: ?string}
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -112,7 +112,7 @@ final readonly class ApiKeySummary
     {
         return [
             'id'           => $this->id,
-            'prefix'       => $this->prefix,
+            'public_id'    => $this->publicId,
             'guard'        => $this->guard,
             'name'         => $this->name,
             'scopes'       => $this->scopes,

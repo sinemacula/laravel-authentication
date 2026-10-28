@@ -46,7 +46,7 @@ final class ApiKeyLookup
     public static function find(string $public): ?ApiKey
     {
         /** @var ?\SineMacula\Laravel\Authentication\Models\ApiKey */
-        return WriteConnection::query((new ApiKey)->newQuery())->where('prefix', $public)->first();
+        return WriteConnection::query((new ApiKey)->newQuery())->where('public_id', $public)->first();
     }
 
     /**

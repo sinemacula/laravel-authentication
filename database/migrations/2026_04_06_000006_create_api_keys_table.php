@@ -35,7 +35,7 @@ return new class extends Migration {
 
             // The key's public part, `<prefix>_<public>`: displayed, and the
             // one indexed lookup a presented key costs.
-            $blueprint->string('prefix', 64)->unique();
+            $blueprint->string('public_id', 64)->unique();
 
             // SHA-256 hex digest of the secret, compared in constant time; the
             // secret itself is never stored.

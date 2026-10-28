@@ -124,7 +124,7 @@ final class ApiKeyGuardQueryBudgetTest extends PerformanceContractTestCase
             self::assertFalse($this->assertQueryBudget($reads, 0, static fn (): bool => PackageAuth::guard('machine')->check()));
         }
 
-        foreach ([$issued->summary->prefix . '_' . str_repeat('a', 40), $revoked->key] as $key) {
+        foreach ([$issued->summary->publicId . '_' . str_repeat('a', 40), $revoked->key] as $key) {
             $this->startMachineRequest($key);
 
             self::assertFalse($this->assertQueryBudget(1, 0, static fn (): bool => PackageAuth::guard('machine')->check()));

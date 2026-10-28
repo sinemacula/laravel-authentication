@@ -32,7 +32,7 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * @copyright   2026 Sine Macula Limited
  *
  * @property string $id
- * @property string $prefix
+ * @property string $public_id
  * @property string $secret_hash
  * @property string $guard
  * @property ?string $name

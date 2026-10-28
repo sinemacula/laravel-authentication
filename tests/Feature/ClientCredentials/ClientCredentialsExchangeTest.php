@@ -156,7 +156,7 @@ final class ClientCredentialsExchangeTest extends TestCase
     {
         [, $issued] = $this->machineKey();
 
-        $encoded = str_replace('_', '%5F', $issued->summary->prefix) . ':' . substr($issued->key, 20);
+        $encoded = str_replace('_', '%5F', $issued->summary->publicId) . ':' . substr($issued->key, 20);
 
         $this->token('grant_type=client_credentials', ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($encoded)])->assertOk();
     }
@@ -284,7 +284,7 @@ final class ClientCredentialsExchangeTest extends TestCase
     {
         [$machine, $issued] = $this->machineKey(['read'], CarbonImmutable::now()->addMinutes(10));
 
-        [$id, $secret] = [$issued->summary->prefix, substr($issued->key, 20)];
+        [$id, $secret] = [$issued->summary->publicId, substr($issued->key, 20)];
 
         match ($case) {
             'unknown'   => $id     = 'ak_zzzzzzzzzzzzzzzz',
@@ -549,7 +549,7 @@ final class ClientCredentialsExchangeTest extends TestCase
     {
         [, $issued] = $this->machineKey();
 
-        $wrong = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->prefix . ':' . str_repeat('a', 40))];
+        $wrong = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->publicId . ':' . str_repeat('a', 40))];
 
         for ($attempt = 0; $attempt < 20; $attempt++) {
             $this->token('grant_type=client_credentials', $wrong)->assertStatus(401);
@@ -601,7 +601,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         [, $issued] = $this->machineKey();
 
-        $wrong = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->prefix . ':' . str_repeat('a', 40))];
+        $wrong = ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->publicId . ':' . str_repeat('a', 40))];
 
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $this->token('grant_type=client_credentials', $wrong)->assertStatus(401);
@@ -626,7 +626,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         $this->startMachineRequest();
 
-        $result = Auth::clientCredentials('m2m')->exchange($issued->summary->prefix, substr($issued->key, 20), 'read', new ClientContext('192.0.2.1', 'Agent'));
+        $result = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key, 20), 'read', new ClientContext('192.0.2.1', 'Agent'));
 
         self::assertTrue($result->isGranted());
         self::assertSame(['read'], $result->scopes);
@@ -636,7 +636,7 @@ final class ClientCredentialsExchangeTest extends TestCase
 
         $this->startMachineRequest();
 
-        $refused = Auth::clientCredentials('m2m')->exchange($issued->summary->prefix, str_repeat('a', 40));
+        $refused = Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, str_repeat('a', 40));
 
         self::assertFalse($refused->isGranted());
         self::assertSame('invalid_client', $refused->error);
@@ -736,7 +736,7 @@ final class ClientCredentialsExchangeTest extends TestCase
      */
     private function basic(IssuedApiKey $issued): array
     {
-        return ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->prefix . ':' . substr($issued->key, 20))];
+        return ['HTTP_AUTHORIZATION' => 'Basic ' . base64_encode($issued->summary->publicId . ':' . substr($issued->key, 20))];
     }
 
     /**
@@ -747,7 +747,7 @@ final class ClientCredentialsExchangeTest extends TestCase
      */
     private function body(IssuedApiKey $issued): string
     {
-        return 'client_id=' . $issued->summary->prefix . '&client_secret=' . substr($issued->key, 20);
+        return 'client_id=' . $issued->summary->publicId . '&client_secret=' . substr($issued->key, 20);
     }
 
     /**

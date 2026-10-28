@@ -26,8 +26,9 @@ authorization package decides what they allow.
   credential's granted list for an API key or a client credentials token, and `[]` for a `MachineIdentity` bound
   without a credential: a machine is never left without a ceiling.
 - Every bound context's events carry the credential's id (`credentialId`) and its scopes (`scopes`) as plain strings.
-- An API key is `<prefix>_<public>_<secret>`; only `<prefix>_<public>` and the SHA-256 digest of the secret are stored,
-  so the key exists in plaintext only in the `IssuedApiKey` the issuing call returns (whose dump redacts it).
+- An API key is `<prefix>_<public>_<secret>`; only `<prefix>_<public>` (the key's public id, column `public_id`, which
+  is also its OAuth client id) and the SHA-256 digest of the secret are stored, so the key exists in plaintext only in
+  the `IssuedApiKey` the issuing call returns (whose dump redacts it).
 - A key belongs to one guard, one non-human identity, one principal and that principal's tenant. Every keyed operation
   of the service matches the principal's type and identifier, and the guard, in its statement; a key of another
   principal or guard is absent.

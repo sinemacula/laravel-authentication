@@ -97,9 +97,9 @@ final class ApiKeysTableSchemaTest extends TestCase
             'id'                   => false,
             'last_used_at'         => true,
             'name'                 => true,
-            'prefix'               => false,
             'principal_id'         => false,
             'principal_type'       => false,
+            'public_id'            => false,
             'replaced_by'          => true,
             'revoked_at'           => true,
             'rotated_at'           => true,
@@ -131,7 +131,7 @@ final class ApiKeysTableSchemaTest extends TestCase
 
         DB::table(self::TABLE)->insert([
             'id'                   => '0195f4a2-7b1c-7000-8000-000000000001',
-            'prefix'               => 'ak_abcdefghijklmnop',
+            'public_id'            => 'ak_abcdefghijklmnop',
             'secret_hash'          => str_repeat('a', 64),
             'guard'                => 'machine',
             'authenticatable_type' => 'machine',
@@ -160,7 +160,7 @@ final class ApiKeysTableSchemaTest extends TestCase
         $types = array_column(Schema::getColumns(self::TABLE), 'type', 'name');
 
         self::assertStringContainsString('(64)', $types['secret_hash']);
-        self::assertStringContainsString('(64)', $types['prefix']);
+        self::assertStringContainsString('(64)', $types['public_id']);
     }
 
     /**
@@ -178,10 +178,10 @@ final class ApiKeysTableSchemaTest extends TestCase
 
         $columns = array_map(static fn (array $index): array => $index['columns'], $secondary);
 
-        self::assertEqualsCanonicalizing([['prefix'], ['authenticatable_type', 'authenticatable_id'], ['principal_type', 'principal_id']], $columns);
-        self::assertSame([['prefix']], array_map(static fn (array $index): array => $index['columns'], $unique));
+        self::assertEqualsCanonicalizing([['public_id'], ['authenticatable_type', 'authenticatable_id'], ['principal_type', 'principal_id']], $columns);
+        self::assertSame([['public_id']], array_map(static fn (array $index): array => $index['columns'], $unique));
         self::assertEqualsCanonicalizing(
-            [self::TABLE . '_prefix_unique', self::TABLE . '_owner_index', self::TABLE . '_principal_index'],
+            [self::TABLE . '_public_id_unique', self::TABLE . '_owner_index', self::TABLE . '_principal_index'],
             array_column($secondary, 'name'),
         );
     }

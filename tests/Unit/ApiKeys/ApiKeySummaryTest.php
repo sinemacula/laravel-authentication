@@ -33,7 +33,7 @@ final class ApiKeySummaryTest extends TestCase
 
         self::assertSame([
             'id'           => 'key-1',
-            'prefix'       => 'ak_abcdefghijklmnop',
+            'public_id'    => 'ak_abcdefghijklmnop',
             'guard'        => 'machine',
             'name'         => 'sync',
             'scopes'       => ['read'],

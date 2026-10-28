@@ -333,13 +333,13 @@ final readonly class ApiKeyService
 
         for ($attempt = 1; $attempt <= self::ISSUE_ATTEMPTS; $attempt++) {
 
-            $key->forceFill(['prefix' => ($this->publicParts ?? ApiKeyToken::newPublicPart(...))($prefix)]);
+            $key->forceFill(['public_id' => ($this->publicParts ?? ApiKeyToken::newPublicPart(...))($prefix)]);
 
             if ($key->newQuery()->toBase()->insertOrIgnore($key->getAttributes()) === 1) {
 
                 $stored = $key->newFromBuilder($key->getAttributes());
 
-                return [$stored, new IssuedApiKey($stored->id, ApiKeyToken::join($stored->prefix, $secret), ApiKeySummary::of($stored))];
+                return [$stored, new IssuedApiKey($stored->id, ApiKeyToken::join($stored->public_id, $secret), ApiKeySummary::of($stored))];
             }
         }
 

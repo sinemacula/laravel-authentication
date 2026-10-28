@@ -223,7 +223,7 @@ final class ApiKeyGuardTest extends TestCase
     {
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine, ['read']);
-        $public  = $issued->summary->prefix;
+        $public  = $issued->summary->publicId;
 
         $unknown = $this->countQueries(fn (): bool => Auth::guard('machine')->check(), 'ak_zzzzzzzzzzzzzzzz_' . str_repeat('a', 40));
 
@@ -532,8 +532,8 @@ final class ApiKeyGuardTest extends TestCase
     {
         $machine = $this->seedMachine();
         $issued  = $this->apiKeys()->issue($machine, $machine);
-        $key     = ApiKeyLookup::find($issued->summary->prefix);
-        $stale   = ApiKeyLookup::find($issued->summary->prefix);
+        $key     = ApiKeyLookup::find($issued->summary->publicId);
+        $stale   = ApiKeyLookup::find($issued->summary->publicId);
 
         self::assertNotNull($key);
         self::assertNotNull($stale);

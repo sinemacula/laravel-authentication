@@ -102,12 +102,12 @@ final class ApiKeyServiceTest extends TestCase
         $issued = $this->apiKeys()->issue($machine, $machine, ['invoices:read', 'invoices:read', 'reports'], 'Billing sync', CarbonImmutable::now()->addDays(30));
 
         self::assertMatchesRegularExpression('/^ak_[a-z0-9]{16}_[A-Za-z0-9]{40}$/', $issued->key);
-        self::assertSame(substr($issued->key, 0, 19), $issued->summary->prefix);
+        self::assertSame(substr($issued->key, 0, 19), $issued->summary->publicId);
 
         $row = DB::table('api_keys')->where('id', $issued->id)->first();
 
         self::assertNotNull($row);
-        self::assertSame($issued->summary->prefix, $row->prefix);
+        self::assertSame($issued->summary->publicId, $row->public_id);
         self::assertSame(hash('sha256', substr($issued->key, 20)), $row->secret_hash);
         self::assertStringNotContainsString(substr($issued->key, 20), json_encode($row, JSON_THROW_ON_ERROR));
         self::assertSame('machine', $row->guard);
@@ -155,7 +155,7 @@ final class ApiKeyServiceTest extends TestCase
         $second = $keys->issue($machine, $machine);
 
         self::assertNotSame($first->key, $second->key);
-        self::assertNotSame($first->summary->prefix, $second->summary->prefix);
+        self::assertNotSame($first->summary->publicId, $second->summary->publicId);
         self::assertSame([], $first->summary->scopes);
         self::assertNull($first->summary->expiresAt);
         self::assertNull($first->summary->name);
@@ -371,13 +371,13 @@ final class ApiKeyServiceTest extends TestCase
     public function testDrawsAgainWhenAPublicPartCollides(): void
     {
         $machine = $this->seedMachine();
-        $taken   = $this->apiKeys()->issue($machine, $machine)->summary->prefix;
+        $taken   = $this->apiKeys()->issue($machine, $machine)->summary->publicId;
         $draws   = [$taken, $taken, 'ak_fresh0fresh0fresh'];
         $service = $this->drawingService(static function () use (&$draws): string {
             return (string) array_shift($draws);
         });
 
-        self::assertSame('ak_fresh0fresh0fresh', $service->issue($machine, $machine)->summary->prefix);
+        self::assertSame('ak_fresh0fresh0fresh', $service->issue($machine, $machine)->summary->publicId);
         self::assertSame([], $draws);
         self::assertSame(2, DB::table('api_keys')->count());
     }
@@ -391,7 +391,7 @@ final class ApiKeyServiceTest extends TestCase
     public function testGivesUpAfterThreeCollidingDraws(): void
     {
         $machine = $this->seedMachine();
-        $taken   = $this->apiKeys()->issue($machine, $machine)->summary->prefix;
+        $taken   = $this->apiKeys()->issue($machine, $machine)->summary->publicId;
         $draws   = new \ArrayObject;
         $service = $this->drawingService(static function () use ($taken, $draws): string {
             $draws->append($taken);

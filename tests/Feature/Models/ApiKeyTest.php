@@ -70,7 +70,7 @@ final class ApiKeyTest extends TestCase
     {
         DB::table('api_keys')->insert([
             'id'                   => '0195f4a2-7b1c-7000-8000-000000000001',
-            'prefix'               => 'ak_abcdefghijklmnop',
+            'public_id'            => 'ak_abcdefghijklmnop',
             'secret_hash'          => str_repeat('a', 64),
             'guard'                => 'machine',
             'authenticatable_type' => 'machine',
@@ -127,7 +127,7 @@ final class ApiKeyTest extends TestCase
 
             DB::table('api_keys')->insert($times + [
                 'id'                   => sprintf('0195f4a2-7b1c-7000-8000-%012d', $number),
-                'prefix'               => 'ak_' . str_pad((string) $number, 16, '0', STR_PAD_LEFT),
+                'public_id'            => 'ak_' . str_pad((string) $number, 16, '0', STR_PAD_LEFT),
                 'secret_hash'          => str_repeat('a', 64),
                 'guard'                => 'machine',
                 'name'                 => $name,
