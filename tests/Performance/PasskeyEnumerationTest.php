@@ -20,7 +20,7 @@ use Tests\Concerns\InteractsWithPasskeys;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Fixtures\Passkeys\VirtualAuthenticator;
 use Tests\Integration\Fixtures\IntegrationIdentity;
-use Tests\Performance\Fixtures\SlowOwnerLookupProvider;
+use Tests\Performance\Fixtures\SlowModelProvider;
 
 /**
  * Holds passkey sign-in to the enumeration criteria: usernameless, so there is
@@ -29,7 +29,8 @@ use Tests\Performance\Fixtures\SlowOwnerLookupProvider;
  * owner is gone, a forged signature, another user handle, a regressed counter,
  * a locked account) gives the same result and takes the whole credential
  * timebox, whether or not an owner was looked up, through a provider whose
- * lookup takes a known time. Sign-in options do no identity work at all.
+ * lookup takes a known time when it finds the owner. Sign-in options do no
+ * identity work at all.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -60,13 +61,13 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
         $this->createSessionTables();
 
-        $provider = static fn (Application $app): SlowOwnerLookupProvider => new SlowOwnerLookupProvider($app->make(Hasher::class), IntegrationIdentity::class);
+        $provider = static fn (Application $app): SlowModelProvider => new SlowModelProvider($app->make(Hasher::class), IntegrationIdentity::class);
 
         Auth::provider('slow-model', $provider);
 
         $this->registerPasskey($this->seedIdentity());
 
-        SlowOwnerLookupProvider::$lookups = 0;
+        SlowModelProvider::$lookups = 0;
     }
 
     /**
@@ -136,7 +137,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
         self::assertEquals(SignInResult::failed(FailureReason::INVALID_CREDENTIALS), $result);
         self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, $took);
-        self::assertSame($looksUp, SlowOwnerLookupProvider::$lookups > 0);
+        self::assertSame($looksUp, SlowModelProvider::$lookups > 0);
     }
 
     /**
@@ -158,7 +159,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
         $took = hrtime(true) - $started;
 
         self::assertLessThan(self::TIMEBOX_MICROSECONDS * 1000, $took);
-        self::assertGreaterThanOrEqual(SlowOwnerLookupProvider::LOOKUP_MICROSECONDS * 1000, $took);
+        self::assertGreaterThanOrEqual(SlowModelProvider::FOUND_MICROSECONDS * 1000, $took);
     }
 
     /**
@@ -181,7 +182,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
         Auth::passkeys('api')->signInOptions();
 
-        self::assertSame(0, SlowOwnerLookupProvider::$lookups);
+        self::assertSame(0, SlowModelProvider::$lookups);
         self::assertSame([], array_filter($queries, static fn (string $sql): bool => str_contains($sql, 'integration_identities')));
     }
 
@@ -237,7 +238,7 @@ final class PasskeyEnumerationTest extends PerformanceContractTestCase
 
         $this->registerPasskey(IntegrationIdentity::query()->firstOrFail(), 'admin');
 
-        SlowOwnerLookupProvider::$lookups = 0;
+        SlowModelProvider::$lookups = 0;
 
         $options = $this->signInOptions();
 
