@@ -19,9 +19,10 @@ request may carry the token in only one place; and the cookie that carries a bro
 - A request whose `Cookie` headers carry the refresh cookie more than once is refused as `refresh_token_conflict` too.
   PHP keeps only the first cookie it files under a name, and a browser sends a cookie another host of the site planted
   (a `__Secure-` cookie with the parent `Domain` and a longer `Path`) before the API's own, so the raw headers are
-  counted, each name taken as PHP files it (a `.` or a space as `_`, nothing from a `[` on). The planted cookie keeps
-  failing refreshes until it expires and the API cannot clear it; a `__Host-` name with the path `/` stops other hosts
-  from planting one, at the cost of the cookie riding on every request to the API's host.
+  counted, each name taken as PHP files it (nothing from the first `[` on when a `]` follows it; a `.`, a space or an
+  unclosed `[` as `_`). The planted cookie keeps failing refreshes until it expires and the API cannot clear it; a
+  `__Host-` name with the path `/` stops other hosts from planting one, at the cost of the cookie riding on every
+  request to the API's host.
 - A token read from the cookie must come with an `Origin` that is the request's own (`getSchemeAndHttpHost()`, so
   behind a proxy it needs `TrustProxies`) or one of `allowed_origins`, compared exactly, and with a non-empty
   `csrf_header` header, which a cross-site form cannot send; otherwise `cross_site_request`. The checks come before the

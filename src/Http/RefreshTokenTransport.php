@@ -209,12 +209,12 @@ final readonly class RefreshTokenTransport
 
     /**
      * How many cookies the request's `Cookie` headers carry under the refresh
-     * cookie's name, each name read as PHP files it (a `.` or a space as `_`,
-     * nothing from a `[` on). PHP keeps only the first of the cookies it files
-     * under one name, and a browser sends a cookie that another host of the
-     * site planted (with the parent `Domain` and a longer `Path`) before the
-     * API's own, so the headers are counted rather than the one cookie PHP
-     * kept.
+     * cookie's name, each name read as PHP files it: nothing from the first `[`
+     * on when a `]` follows it, and a `.`, a space or an unclosed `[` as `_`.
+     * PHP keeps only the first of the cookies it files under one name, and a
+     * browser sends a cookie that another host of the site planted (with the
+     * parent `Domain` and a longer `Path`) before the API's own, so the headers
+     * are counted rather than the one cookie PHP kept.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return int
@@ -225,7 +225,7 @@ final readonly class RefreshTokenTransport
 
         foreach ($request->headers->all('cookie') as $header) {
             foreach (explode(';', strtr((string) $header, ',', ';')) as $pair) {
-                $names[] = strtr(explode('[', explode('=', ltrim($pair))[0])[0], '. ', '__');
+                $names[] = strtr((string) preg_replace('/\[.*\].*/s', '', explode('=', ltrim($pair))[0]), '. [', '___');
             }
         }
 

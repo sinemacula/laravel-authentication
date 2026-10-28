@@ -230,6 +230,7 @@ final class RefreshTokenTransportIntegrationTest extends TestCase
     {
         yield 'the same name' => ['__Secure-refresh_token'];
         yield 'a name with a dot' => ['__Secure-refresh.token'];
+        yield 'a name with an unclosed bracket' => ['__Secure-refresh[token'];
     }
 
     /**

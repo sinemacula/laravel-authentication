@@ -157,6 +157,7 @@ final class RefreshTokenTransportTest extends TestCase
         yield 'a name with a dot' => [['__Secure-refresh.token=planted; ' . $own]];
         yield 'a name with a space' => [['__Secure-refresh token=planted; ' . $own]];
         yield 'a name with an index' => [['__Secure-refresh_token[x]=planted; ' . $own]];
+        yield 'a name with an unclosed bracket' => [['__Secure-refresh[token=planted; ' . $own]];
         yield 'the name without a value' => [['__Secure-refresh_token; ' . $own]];
     }
 
@@ -194,6 +195,8 @@ final class RefreshTokenTransportTest extends TestCase
         yield 'a name with a prefix' => ['x__Secure-refresh_token=planted; ' . $own];
         yield 'a name with a suffix' => ['__Secure-refresh_token2=planted; ' . $own];
         yield 'the name as a value' => ['theme=__Secure-refresh_token; ' . $own];
+        yield 'the name with an unclosed bracket after it' => ['__Secure-refresh_token[=planted; ' . $own];
+        yield 'a name cut at an index before the end' => ['__Secure-refresh[token]=planted; ' . $own];
     }
 
     /**
