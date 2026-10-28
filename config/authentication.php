@@ -243,8 +243,12 @@ return [
     | that carries an IPv4 client's address (IPv4-mapped, or the NAT64
     | well-known prefix `64:ff9b::/96`) as that IPv4 address. Refresh, which
     | cannot guess a secret, counts only failures, per device and per IP
-    | address. Counts on `connection` are rolled back with any transaction a
-    | caller opened there around a sign-in. A guard overrides any limit in a
+    | address. A request for a one-time code counts every request, per
+    | identifier and per IP address, and never gives one back. A request for
+    | passkey sign-in options counts every request per IP address (it names no
+    | identifier). A client credentials exchange counts only failures, per
+    | client id and per IP address. Counts on `connection` are rolled back with
+    | any transaction a caller opened there around a sign-in. A guard overrides any limit in a
     | `rate_limits` block on its `config/auth.php` entry, where a scope that is
     | present wins, `null` included, and a flow set to `null` turns both of its
     | limits off. A malformed limit or an unknown key fails closed with an
@@ -264,6 +268,21 @@ return [
         ],
 
         'refresh' => [
+            'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
+            'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
+        ],
+
+        'code_request' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 3600],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 3600],
+        ],
+
+        'passkey_options' => [
+            'per_identifier' => null,
+            'per_ip'         => ['max' => 100, 'decay_seconds' => 300],
+        ],
+
+        'client_credentials' => [
             'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
             'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
         ],

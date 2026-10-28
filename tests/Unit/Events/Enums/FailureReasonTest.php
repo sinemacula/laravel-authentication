@@ -59,20 +59,56 @@ final class FailureReasonTest extends TestCase
             'refresh_key_missing',
             'refresh_token_conflict',
             'cross_site_request',
+            'code_expired',
+            'code_exhausted',
+            'passkey_challenge_invalid',
+            'passkey_counter_regressed',
+            'machine_identity',
+            'credential_invalid',
+            'credential_revoked',
+            'credential_expired',
+            'credential_guard_mismatch',
+            'scope_invalid',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 
     /**
-     * Only `invalid_credentials` is a reason a sign-in method may give; every
-     * other one is the session service's to decide.
+     * The reasons a sign-in method may give: a refused input, an identifier the
+     * input proved possession of but that is not verified, and the code and
+     * passkey outcomes; every other one is the session service's to decide.
      *
      * @return void
      */
-    public function testOnlyInvalidCredentialsIsASignInMethodReason(): void
+    public function testTheSignInMethodReasons(): void
     {
         $allowed = array_values(array_filter(FailureReason::cases(), static fn (FailureReason $reason): bool => $reason->isSignInMethodReason()));
 
-        self::assertSame([FailureReason::INVALID_CREDENTIALS], $allowed);
+        self::assertSame([
+            FailureReason::INVALID_CREDENTIALS,
+            FailureReason::IDENTIFIER_UNVERIFIED,
+            FailureReason::CODE_EXPIRED,
+            FailureReason::CODE_EXHAUSTED,
+            FailureReason::PASSKEY_CHALLENGE_INVALID,
+            FailureReason::PASSKEY_COUNTER_REGRESSED,
+        ], $allowed);
+    }
+
+    /**
+     * The reasons only the server-side event carries, so a sign-in's result
+     * reveals neither an account nor a code.
+     *
+     * @return void
+     */
+    public function testTheConcealedReasons(): void
+    {
+        $concealed = array_values(array_filter(FailureReason::cases(), static fn (FailureReason $reason): bool => $reason->isConcealed()));
+
+        self::assertSame([
+            FailureReason::ACCOUNT_RATE_LIMITED,
+            FailureReason::CODE_EXPIRED,
+            FailureReason::CODE_EXHAUSTED,
+            FailureReason::PASSKEY_COUNTER_REGRESSED,
+        ], $concealed);
     }
 
     /**
@@ -84,7 +120,7 @@ final class FailureReasonTest extends TestCase
     {
         $flows = array_map(static fn (AuthenticationFlow $flow): string => $flow->value, AuthenticationFlow::cases());
 
-        self::assertSame(['sign_in', 'bearer', 'refresh', 'principal_switch'], $flows);
+        self::assertSame(['sign_in', 'bearer', 'refresh', 'principal_switch', 'code_request', 'identifier_verification', 'api_key', 'client_credentials'], $flows);
     }
 
     /**

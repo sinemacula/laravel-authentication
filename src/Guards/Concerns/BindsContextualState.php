@@ -9,6 +9,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -19,10 +20,11 @@ use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 
 /**
- * Holds the identity -> principal -> device triple bound to a guard and exposes
- * accessors plus setters that fire the contextual events. Each event carries
- * the whole bound context, set before it is dispatched, with the request's
- * client.
+ * Holds the identity -> principal -> device triple bound to a guard, with the
+ * credential that authenticated it and the scopes that credential grants, and
+ * exposes accessors plus setters that fire the contextual events. Each event
+ * carries the whole bound context, set before it is dispatched, with the
+ * request's client.
  *
  * Every accessor goes through the host guard's `user()`, so the first access on
  * a request resolves it, as Laravel's own guards do, even on a route without
@@ -52,6 +54,12 @@ trait BindsContextualState
 
     /** @var ?\SineMacula\Laravel\Authentication\Contracts\Device Device bound to the guard, if any. */
     protected ?Device $device = null;
+
+    /** @var ?string Identifier of the credential (an API key) that authenticated the bound identity, if any. */
+    protected ?string $credentialId = null;
+
+    /** @var ?list<string> Scopes the bound context is limited to; `null` when no credential limits it. */
+    protected ?array $scopes = null;
 
     /**
      * Return the authenticated identity, if any, resolving the request on first
@@ -93,6 +101,27 @@ trait BindsContextualState
         $this->user();
 
         return $this->device;
+    }
+
+    /**
+     * Return the scopes the request's credential grants, resolving the request
+     * on first access: `null` for a human identity's session, which no
+     * credential limits, and the granted list (`[]` for none) for an API key or
+     * a client-credentials token. A non-human identity bound without a
+     * credential (through the trusted `login()`, `setUser()` or
+     * `authenticateAs()`) gets `[]`: a machine is always limited. The package
+     * carries scopes and never interprets them; they are a ceiling the
+     * application's authorization intersects with the principal's permissions.
+     *
+     * @return ?list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function scopes(): ?array
+    {
+        $this->user();
+
+        return $this->scopes;
     }
 
     /**
@@ -206,16 +235,18 @@ trait BindsContextualState
     }
 
     /**
-     * Clear identity, principal, and device state without firing events. The
-     * caller dispatches any events.
+     * Clear identity, principal, device and credential state without firing
+     * events. The caller dispatches any events.
      *
      * @return void
      */
     protected function clearContextualState(): void
     {
-        $this->identity  = null;
-        $this->principal = null;
-        $this->device    = null;
+        $this->identity     = null;
+        $this->principal    = null;
+        $this->device       = null;
+        $this->credentialId = null;
+        $this->scopes       = null;
     }
 
     /**
@@ -239,22 +270,37 @@ trait BindsContextualState
     }
 
     /**
-     * Bind the whole triple, then dispatch Laravel's `Authenticated`,
+     * Bind the whole triple, with the credential that authenticated it and the
+     * scopes it grants, then dispatch Laravel's `Authenticated`,
      * `PrincipalAssigned` and, with a device, `DeviceAuthenticated`, all
      * describing it, so a listener on any of them sees the complete context.
+     * Bound without a credential's scopes, a human identity is not limited
+     * (`null`) and a non-human one is limited to none (`[]`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
+     * @param  ?string  $credentialId
+     * @param  ?list<string>  $scopes
      * @return void
      */
-    private function bindContext(Identity $identity, Principal $principal, ?Device $device, ?Tenant $tenant, ?string $method): void
-    {
-        $this->identity  = $identity;
-        $this->principal = $principal;
-        $this->device    = $device;
+    private function bindContext(
+        Identity $identity,
+        Principal $principal,
+        ?Device $device,
+        ?Tenant $tenant,
+        ?string $method,
+        #[\SensitiveParameter]
+        ?string $credentialId = null,
+        ?array $scopes = null,
+    ): void {
+        $this->identity     = $identity;
+        $this->principal    = $principal;
+        $this->device       = $device;
+        $this->credentialId = $credentialId;
+        $this->scopes       = $scopes ?? ($identity instanceof MachineIdentity ? [] : null);
 
         $context = $this->boundContext($tenant, $method);
 
@@ -277,7 +323,17 @@ trait BindsContextualState
      */
     private function boundContext(?Tenant $tenant, ?string $method): EventContext
     {
-        return new EventContext($this->name, ClientContext::fromRequest($this->request), $this->identity, $this->principal, $tenant, $this->device, $method);
+        return new EventContext(
+            $this->name,
+            ClientContext::fromRequest($this->request),
+            $this->identity,
+            $this->principal,
+            $tenant,
+            $this->device,
+            $method,
+            credentialId: $this->credentialId,
+            scopes: $this->scopes,
+        );
     }
 
     /**

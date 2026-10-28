@@ -17,9 +17,10 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 
 /**
  * Who and what a package event is about: the guard, the client the request came
- * from, the identity, principal, tenant and device, and the sign-in method.
- * Every package event carries one, so a single listener on
- * `AuthenticationEvent` can attribute them all the same way.
+ * from, the identity, principal, tenant and device, the sign-in method, and the
+ * credential (an API key or a passkey) with the scopes it grants. Every package
+ * event carries one, so a single listener on `AuthenticationEvent` can
+ * attribute them all the same way.
  *
  * A part the event's flow did not establish is `null`: a failure carries only
  * as much as it got to before it failed, and a device id a token named is kept
@@ -40,8 +41,11 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  * them re-fetched in their state when it runs (or a `ModelNotFoundException`
  * when one was deleted in between), as Laravel's `SerializesModels` does. A
  * principal, tenant or device that is not an Eloquent model is serialised as
- * the object itself. Never carries a token, a digest, a password or any other
- * secret.
+ * the object itself. The credential's id and scopes are plain strings, so they
+ * survive queueing unchanged too: `scopes` is `null` for a human identity's
+ * session, which no credential limits, and the list the credential grants
+ * otherwise (`[]` grants none). Never carries a token, a key, a digest, a
+ * password or any other secret.
  *
  * @api
  *
@@ -79,6 +83,8 @@ final readonly class EventContext
      * @param  ?string  $method
      * @param  ?string  $deviceId
      * @param  bool  $fromDevice
+     * @param  ?string  $credentialId
+     * @param  ?list<string>  $scopes
      */
     public function __construct(
 
@@ -109,6 +115,13 @@ final readonly class EventContext
         // Whether the event is about the device row itself, so the owner and
         // principal the row records stand in for those not given.
         bool $fromDevice = false,
+
+        /** Identifier of the API key or passkey the event concerns, if any. */
+        #[\SensitiveParameter]
+        public ?string $credentialId = null,
+
+        /** Scopes the credential grants; `null` for a human identity's session, which no credential limits. */
+        public ?array $scopes = null,
     ) {
         $recorded = $fromDevice ? $device : null;
 

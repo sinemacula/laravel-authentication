@@ -21,11 +21,11 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `device`, `tenant`, `type`), guard-scoped `jwt()`
- * issuance and each JWT guard's `sessions()` and `refreshTransport()` directly
- * on the manager. Each contextual accessor forwards to the active guard when it
- * implements `ContextualGuard`, otherwise returns `null`. Bound to the `auth`
- * container key by `AuthenticationServiceProvider`.
+ * (`identity`, `principal`, `device`, `tenant`, `type`, `scopes`), guard-scoped
+ * `jwt()` issuance and each JWT guard's `sessions()` and `refreshTransport()`
+ * directly on the manager. Each contextual accessor forwards to the active
+ * guard when it implements `ContextualGuard`, otherwise returns `null`. Bound
+ * to the `auth` container key by `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -207,6 +207,23 @@ class AuthManager extends IlluminateAuthManager
         $guard = $this->guard();
 
         return $guard instanceof ContextualGuard ? $guard->type() : null;
+    }
+
+    /**
+     * The scopes the active request's credential grants, when the active guard
+     * is contextual: `null` for a human identity's session, which no credential
+     * limits (and when the guard is not contextual), otherwise the granted
+     * list.
+     *
+     * @return ?list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function scopes(): ?array
+    {
+        $guard = $this->guard();
+
+        return $guard instanceof ContextualGuard ? $guard->scopes() : null;
     }
 
     /**

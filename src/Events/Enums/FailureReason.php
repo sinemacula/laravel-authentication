@@ -5,15 +5,17 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
- * Machine-readable reason a sign-in, a request's access token, a refresh or a
- * principal switch failed, carried on the `AuthenticationFailed` event and on a
- * failed `SignInResult`.
+ * Machine-readable reason a sign-in, a request's access token or API key, a
+ * refresh, a principal switch, a code request or a client credentials exchange
+ * failed, carried on the `AuthenticationFailed` event and on a failed
+ * `SignInResult`.
  *
  * Backed, so SIEM consumers count failure modes without scraping log messages.
- * `account_rate_limited` is the one reason a sign-in's result never carries: a
- * refusal by the account's own limit is answered as `invalid_credentials`, so
- * it does not reveal that the account exists, and only the server-side event
- * says why.
+ * The concealed reasons (`isConcealed()`) are ones a sign-in's result never
+ * carries: a refusal by the account's own limit, an expired or exhausted code
+ * and a passkey whose sign counter did not advance are answered as
+ * `invalid_credentials`, so the result does not reveal that the account or a
+ * code exists, and only the server-side event says why.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -122,15 +124,79 @@ enum FailureReason: string
     // custom header
     case CROSS_SITE_REQUEST = 'cross_site_request';
 
+    // The one-time code exists but has expired; only on the event
+    case CODE_EXPIRED = 'code_expired';
+
+    // The one-time code used up its attempts and is locked until another is
+    // requested; only on the event
+    case CODE_EXHAUSTED = 'code_exhausted';
+
+    // The passkey ceremony's challenge is unknown, expired, already used, or
+    // another guard's or purpose's
+    case PASSKEY_CHALLENGE_INVALID = 'passkey_challenge_invalid';
+
+    // The passkey's sign counter did not advance, as a cloned authenticator's
+    // would not; only on the event
+    case PASSKEY_COUNTER_REGRESSED = 'passkey_counter_regressed';
+
+    // A non-human identity tried an interactive sign-in, a session, a switch, a
+    // refresh or a device's token
+    case MACHINE_IDENTITY = 'machine_identity';
+
+    // The API key or client credential is malformed, unknown, has the wrong
+    // secret, or is not a non-human identity's
+    case CREDENTIAL_INVALID = 'credential_invalid';
+
+    // The API key or client credential is revoked
+    case CREDENTIAL_REVOKED = 'credential_revoked';
+
+    // The API key or client credential has expired, including a rotated key
+    // once its overlap ended
+    case CREDENTIAL_EXPIRED = 'credential_expired';
+
+    // The API key or client credential was issued for another guard
+    case CREDENTIAL_GUARD_MISMATCH = 'credential_guard_mismatch';
+
+    // A requested scope is malformed or not granted to the credential
+    case SCOPE_INVALID = 'scope_invalid';
+
     /**
      * Whether a sign-in method may answer with this reason. Every other reason
      * is the session service's to decide, so a method that returns one is
-     * misconfigured.
+     * misconfigured. `identifier_unverified` is a method's answer only once the
+     * input proved possession of the identifier, as a correct one-time code
+     * does.
      *
      * @return bool
      */
     public function isSignInMethodReason(): bool
     {
-        return $this === self::INVALID_CREDENTIALS;
+        return match ($this) {
+            self::INVALID_CREDENTIALS,
+            self::IDENTIFIER_UNVERIFIED,
+            self::CODE_EXPIRED,
+            self::CODE_EXHAUSTED,
+            self::PASSKEY_CHALLENGE_INVALID,
+            self::PASSKEY_COUNTER_REGRESSED => true,
+            default                         => false,
+        };
+    }
+
+    /**
+     * Whether only the server-side event may carry this reason: a sign-in's
+     * result answers it as `invalid_credentials`, with no wait, so it reveals
+     * neither that an account exists nor that a code was requested for it.
+     *
+     * @return bool
+     */
+    public function isConcealed(): bool
+    {
+        return match ($this) {
+            self::ACCOUNT_RATE_LIMITED,
+            self::CODE_EXPIRED,
+            self::CODE_EXHAUSTED,
+            self::PASSKEY_COUNTER_REGRESSED => true,
+            default                         => false,
+        };
     }
 }

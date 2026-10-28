@@ -120,7 +120,7 @@ final class SessionPreconditionsTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(sprintf(
             'Sign-in method %s refused a sign-in as `identity_inactive`, which only the session service may decide;'
-            . ' a method answers `invalid_credentials`.',
+            . ' a method answers `invalid_credentials` or another sign-in method reason.',
             $method::class,
         ));
 

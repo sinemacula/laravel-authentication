@@ -31,7 +31,10 @@ final class AttemptLimitsTest extends TestCase
     /**
      * The shipped defaults: sign-in 5 per identifier and 50 per IP address in
      * five minutes; refresh failures 10 per device and 100 per IP address in a
-     * minute.
+     * minute; code requests 5 per identifier and 50 per IP address in an hour;
+     * passkey sign-in options 100 per IP address in five minutes, with no
+     * identifier to count; client credentials failures 10 per client id and 100
+     * per IP address in a minute.
      *
      * @return void
      */
@@ -39,6 +42,9 @@ final class AttemptLimitsTest extends TestCase
     {
         self::assertSame(['per_identifier' => [5, 300], 'per_ip' => [50, 300]], $this->resolved(AttemptFlow::SIGN_IN));
         self::assertSame(['per_identifier' => [10, 60], 'per_ip' => [100, 60]], $this->resolved(AttemptFlow::REFRESH));
+        self::assertSame(['per_identifier' => [5, 3600], 'per_ip' => [50, 3600]], $this->resolved(AttemptFlow::CODE_REQUEST));
+        self::assertSame(['per_identifier' => null, 'per_ip' => [100, 300]], $this->resolved(AttemptFlow::PASSKEY_OPTIONS));
+        self::assertSame(['per_identifier' => [10, 60], 'per_ip' => [100, 60]], $this->resolved(AttemptFlow::CLIENT_CREDENTIALS));
     }
 
     /**
@@ -184,8 +190,8 @@ final class AttemptLimitsTest extends TestCase
 
         $this->setGuardLimits(null);
 
-        config()->set('authentication.rate_limits.code_request', null);
-        $this->assertFailsClosed('Rate limits for guard [api]: `authentication.rate_limits` has an unknown key `code_request`.', AttemptFlow::SIGN_IN);
+        config()->set('authentication.rate_limits.magic_link', null);
+        $this->assertFailsClosed('Rate limits for guard [api]: `authentication.rate_limits` has an unknown key `magic_link`.', AttemptFlow::SIGN_IN);
 
         config()->set('authentication.rate_limits', null);
         $this->assertFailsClosed('Rate limits for guard [api]: `authentication.rate_limits` must be an array.', AttemptFlow::SIGN_IN);

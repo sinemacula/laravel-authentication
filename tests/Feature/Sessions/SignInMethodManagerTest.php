@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\Sessions;
 
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
@@ -132,7 +133,106 @@ final class SignInMethodManagerTest extends TestCase
         }
 
         self::assertInstanceOf(PasswordSignIn::class, $manager->method('password'));
-        self::assertSame($manager, $manager->extend('passkey', fn (): mixed => null));
+        self::assertSame($manager, $manager->extend('magic_link', fn (): mixed => null));
+    }
+
+    /**
+     * Rows of `[name]`: every method the package registers itself.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function providePackageMethodNames(): iterable
+    {
+        yield from [
+            'password'   => ['password'],
+            'phone code' => ['phone_code'],
+            'email code' => ['email_code'],
+            'passkey'    => ['passkey'],
+        ];
+    }
+
+    /**
+     * None of the package's own methods can be replaced through `extend()`, and
+     * each resolves to the package's own method once its creator exists, else
+     * fails as not registered.
+     *
+     * @param  string  $name
+     * @return void
+     */
+    #[DataProvider('providePackageMethodNames')]
+    public function testThePackageMethodsAreReserved(string $name): void
+    {
+        $manager = $this->manager();
+
+        try {
+            $manager->extend($name, fn (): mixed => null);
+
+            self::fail("Expected [{$name}] to be reserved.");
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame("The [{$name}] sign-in method is the package's own and cannot be replaced; register yours under another name.", $exception->getMessage());
+        }
+
+        if (method_exists($manager, 'create' . Str::studly($name) . 'Driver')) {
+            self::assertInstanceOf(SignInMethod::class, $manager->method($name));
+
+            return;
+        }
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Sign-in method [{$name}] is not registered.");
+
+        $manager->method($name);
+    }
+
+    /**
+     * Rows of `[name]`: the machine credential kinds an audience may list.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideCredentialMethodNames(): iterable
+    {
+        yield from [
+            'api key'            => ['api_key'],
+            'client credentials' => ['client_credentials'],
+        ];
+    }
+
+    /**
+     * A machine credential kind is not a sign-in method: it cannot be
+     * registered as one, and never resolves to one.
+     *
+     * @param  string  $name
+     * @return void
+     */
+    #[DataProvider('provideCredentialMethodNames')]
+    public function testTheCredentialKindsAreNotSignInMethods(string $name): void
+    {
+        $manager = $this->manager();
+
+        self::assertContains($name, SignInMethodManager::CREDENTIAL_METHODS);
+
+        try {
+            $manager->extend($name, fn (): mixed => null);
+
+            self::fail("Expected [{$name}] to be refused.");
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame("[{$name}] names a machine credential, not a sign-in method; register yours under another name.", $exception->getMessage());
+        }
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage("Sign-in method [{$name}] is not registered.");
+
+        $manager->method($name);
+    }
+
+    /**
+     * The credential kinds are exactly the two machine credentials.
+     *
+     * @return void
+     */
+    public function testTheCredentialKinds(): void
+    {
+        self::assertSame(['api_key', 'client_credentials'], SignInMethodManager::CREDENTIAL_METHODS);
     }
 
     /**

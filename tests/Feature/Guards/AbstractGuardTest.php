@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
@@ -915,6 +916,29 @@ final class AbstractGuardTest extends AbstractGuardTestCase
         self::assertInstanceOf(PrincipalAssigned::class, $withoutDevice[2]);
         self::assertNull($withoutDevice[2]->context->method);
         self::assertNull($guard->device());
+    }
+
+    /**
+     * A subclass binding a context a credential authenticated through the
+     * protected `bindVerifiedContext()` hook binds it as a request, with no
+     * `Login`, limited to the credential's scopes, and its events carry the
+     * credential, its scopes and the method.
+     *
+     * @return void
+     */
+    public function testTheVerifiedContextHookBindsACredentialsScopes(): void
+    {
+        $guard  = new StubCredentialGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+        $events = $this->recordEvents();
+
+        $guard->bindCredential($this->mockIdentity(MachineIdentity::class), $this->mockPrincipal(), 'key-1', ['invoices:read']);
+
+        self::assertSame([Authenticated::class, PrincipalAssigned::class], array_map(static fn (object $event): string => $event::class, $events->getArrayCopy()));
+        self::assertInstanceOf(PrincipalAssigned::class, $events[1]);
+        self::assertSame('key-1', $events[1]->context->credentialId);
+        self::assertSame(['invoices:read'], $events[1]->context->scopes);
+        self::assertSame('api_key', $events[1]->context->method);
+        self::assertSame(['invoices:read'], $guard->scopes());
     }
 
     /**

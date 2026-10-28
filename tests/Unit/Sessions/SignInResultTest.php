@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -146,18 +147,47 @@ final class SignInResultTest extends TestCase
     }
 
     /**
-     * A refusal by the account's own limit is answered as invalid credentials
-     * with no wait, so the result never reveals that the account exists.
+     * Rows of `[reason]`: each reason only the server-side event carries.
      *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason}>
+     */
+    public static function provideConcealedReasons(): iterable
+    {
+        yield 'account rate limited' => [FailureReason::ACCOUNT_RATE_LIMITED];
+        yield 'code expired' => [FailureReason::CODE_EXPIRED];
+        yield 'code exhausted' => [FailureReason::CODE_EXHAUSTED];
+        yield 'passkey counter regressed' => [FailureReason::PASSKEY_COUNTER_REGRESSED];
+    }
+
+    /**
+     * A concealed reason (the account's own limit, an expired or exhausted
+     * code, a passkey counter that did not advance) is answered as invalid
+     * credentials with no wait, so the result never reveals that the account or
+     * a code exists.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      */
-    public function testAnAccountsOwnLimitIsAnsweredAsInvalidCredentials(): void
+    #[DataProvider('provideConcealedReasons')]
+    public function testAConcealedReasonIsAnsweredAsInvalidCredentials(FailureReason $reason): void
     {
-        $refused = SignInResult::failed(FailureReason::ACCOUNT_RATE_LIMITED, 30);
+        $refused = SignInResult::failed($reason, 30);
 
         self::assertTrue($refused->isFailed());
         self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
         self::assertNull($refused->retryAfter);
+    }
+
+    /**
+     * A reason a sign-in method may give that is not concealed reaches the
+     * result as it is.
+     *
+     * @return void
+     */
+    public function testAnUnconcealedMethodReasonIsKept(): void
+    {
+        self::assertSame(FailureReason::PASSKEY_CHALLENGE_INVALID, SignInResult::failed(FailureReason::PASSKEY_CHALLENGE_INVALID)->reason);
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, SignInResult::failed(FailureReason::IDENTIFIER_UNVERIFIED)->reason);
     }
 
     /**

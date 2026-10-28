@@ -96,8 +96,9 @@ final class SessionPreconditions
 
     /**
      * The reason a sign-in method refused the input with, which must be one a
-     * method may give: any other is the session service's to decide, so a
-     * method that answers with one is misconfigured.
+     * method may give (`FailureReason::isSignInMethodReason()`): any other is
+     * the session service's to decide, so a method that answers with one is
+     * misconfigured.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\SignInMethod  $method
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -111,7 +112,7 @@ final class SessionPreconditions
 
             $message = sprintf(
                 'Sign-in method %s refused a sign-in as `%s`, which only the session service may decide;'
-                . ' a method answers `invalid_credentials`.',
+                . ' a method answers `invalid_credentials` or another sign-in method reason.',
                 $method::class,
                 $reason->value,
             );

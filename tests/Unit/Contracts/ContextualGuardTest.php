@@ -65,6 +65,7 @@ final class ContextualGuardTest extends TestCase
             'device'    => Device::class,
             'tenant'    => Tenant::class,
             'type'      => 'string',
+            'scopes'    => 'array',
         ];
 
         foreach ($expected as $method => $returnType) {
