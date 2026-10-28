@@ -2507,9 +2507,11 @@ scopes: the most its bearer may do. The package carries them and never interpret
 (`invoices:read`, `https://api.example.test/reports`), an RFC 6749 scope token: printable ASCII other than space, `"`
 and `\`, at most 255 bytes, kept as an ordered list without duplicates and written as one space-separated string in a
 token's `scope` claim. That string may be at most 8,192 bytes: a longer list is refused with an `InvalidScopeException`
-when the key is issued, so it is always stored whole and fits a request header in a token. Scopes are a ceiling, never a
-permission: authorization computes the principal's permissions and intersects them with the credential's scopes, so a
-scope grants nothing the principal could not already do.
+when the key is issued, so it is always stored whole. A client credentials token carries the list in its claims, so one
+granting a long list can outgrow a proxy's limit on a request header line (8 KB under nginx's and Apache's defaults,
+which a token reaches once its list passes about 5,800 bytes); keep the scopes a client asks for short, or raise that
+limit. Scopes are a ceiling, never a permission: authorization computes the principal's permissions and intersects them
+with the credential's scopes, so a scope grants nothing the principal could not already do.
 
 `Auth::scopes()` (and `scopes()` on a package guard) reports them for the request:
 

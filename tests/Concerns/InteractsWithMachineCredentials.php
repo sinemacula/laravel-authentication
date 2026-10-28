@@ -265,4 +265,22 @@ trait InteractsWithMachineCredentials
     {
         return array_values(array_filter($this->machineEvents, static fn (object $event): bool => $event instanceof $class));
     }
+
+    /**
+     * Distinct scopes that, written space-separated, take exactly the most
+     * bytes a list may: 31 of 255 bytes, one of 128 and one of 127, mostly
+     * slashes, which JSON escapes, so the stored form is as long as it gets.
+     *
+     * @return list<string>
+     */
+    protected static function longestScopes(): array
+    {
+        $scopes = [];
+
+        for ($index = 0; $index < 31; $index++) {
+            $scopes[] = sprintf('%04d', $index) . str_repeat('/', 251);
+        }
+
+        return [...$scopes, 'a' . str_repeat('/', 127), 'b' . str_repeat('/', 126)];
+    }
 }

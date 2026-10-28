@@ -36,8 +36,7 @@ final class Scopes
      * and all of them, space-separated, at most 8,192 bytes. The list bound
      * keeps the stored list whole in every engine's column (MySQL's `TEXT`
      * holds 65,535 bytes, and an insert that ignores duplicate keys there would
-     * cut a longer value short without an error) and a token's `scope` claim
-     * within what a request header carries.
+     * cut a longer value short without an error).
      *
      * @param  array<array-key, mixed>  $scopes
      * @return list<string>

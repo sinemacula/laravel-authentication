@@ -275,8 +275,9 @@ final class ApiKeyServiceTest extends TestCase
     /**
      * The longest list of scopes a key may have is stored whole on every
      * engine, MySQL's `TEXT` column and its duplicate-ignoring insert included,
-     * and read back by the key's summary and its use; one scope more is refused
-     * before anything is stored.
+     * and read back by the key's summary; one scope more is refused before
+     * anything is stored. `ApiKeyGuardTest` and
+     * `ClientTokenBearerAuthenticationTest` use a key with that list.
      *
      * @return void
      */
@@ -1051,23 +1052,5 @@ final class ApiKeyServiceTest extends TestCase
         self::assertNotNull($this->app);
 
         return new ApiKeyService($guard, $this->app, $draw);
-    }
-
-    /**
-     * Distinct scopes that, written space-separated, take exactly the most
-     * bytes a list may: 31 of 255 bytes, one of 128 and one of 127, mostly
-     * slashes, which JSON escapes, so the stored form is as long as it gets.
-     *
-     * @return list<string>
-     */
-    private static function longestScopes(): array
-    {
-        $scopes = [];
-
-        for ($index = 0; $index < 31; $index++) {
-            $scopes[] = sprintf('%04d', $index) . str_repeat('/', 251);
-        }
-
-        return [...$scopes, 'a' . str_repeat('/', 127), 'b' . str_repeat('/', 126)];
     }
 }

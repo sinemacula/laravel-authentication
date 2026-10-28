@@ -120,6 +120,29 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
+     * A key with the longest list of scopes a key may have is exchanged for a
+     * token that grants every one of them, in order. That token is longer than
+     * the 8 KB a request header line may take under nginx's and Apache's
+     * defaults, as the README warns, so a proxy with those defaults refuses it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testATokenForTheLongestListOfScopesCarriesItWhole(): void
+    {
+        $scopes = self::longestScopes();
+
+        [, $issued] = $this->machineKey($scopes);
+
+        $token = $this->exchange($issued);
+
+        self::assertGreaterThan(8192, strlen('Authorization: Bearer ' . $token));
+
+        $this->bearer('/m2m/me', $token)->assertOk()->assertJsonPath('scopes', $scopes);
+    }
+
+    /**
      * Revoking the key rejects its live token at the next request.
      *
      * @return void

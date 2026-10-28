@@ -145,6 +145,21 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
+     * A key with the longest list of scopes a key may have authenticates with
+     * every one of them, in order.
+     *
+     * @return void
+     */
+    public function testAKeyWithTheLongestListOfScopesCarriesItWhole(): void
+    {
+        $machine = $this->seedMachine();
+        $scopes  = self::longestScopes();
+        $issued  = $this->apiKeys()->issue($machine, $machine, $scopes);
+
+        $this->getWithKey('/machine/me', $issued->key())->assertOk()->assertJsonPath('scopes', $scopes);
+    }
+
+    /**
      * A 3D key binds the membership and its tenant.
      *
      * @return void
