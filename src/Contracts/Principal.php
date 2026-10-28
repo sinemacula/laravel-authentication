@@ -57,10 +57,14 @@ interface Principal
      * soft-deleted, or hidden by a scope), throw `TenantUnavailableException`,
      * which the activity check treats as an inactive tenant; `null` would let
      * the principal authenticate as if it had no tenant, and a stand-in for the
-     * missing row as if the tenant were there. Likewise, throw a
-     * `LogicException` rather than read a key (or polymorphic type) the
-     * principal was loaded without as "no tenant". Any other principal may
-     * return `null` for a tenant it cannot load.
+     * missing row as if the tenant were there. Give the exception the tenant's
+     * class, the name of the attribute the principal's key refers to, and that
+     * key, so the session service's `tenantDeactivated()` can tell the
+     * principal acts within the deleted tenant it is called for; without them
+     * the principal is refused there. Likewise, throw a `LogicException` rather
+     * than read a key (or polymorphic type) the principal was loaded without as
+     * "no tenant". Any other principal may return `null` for a tenant it cannot
+     * load.
      *
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Tenant
      *

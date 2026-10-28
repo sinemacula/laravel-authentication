@@ -998,12 +998,14 @@ tenant key names a `CanBeActive` tenant that is deleted, soft-deleted, or hidden
 `ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive tenant,
 instead of returning `null` as if the principal acted within no tenant. The default model a `withDefault()` relation
 returns for such a missing row counts as missing too, rather than as a present tenant. A `Principal` that implements
-`getTenant()` itself should do the same. As with `ProvidesActiveState`, a principal loaded without the key of an
-opted-in tenant (a partial select) throws a `LogicException` rather than being read as acting within no tenant. A
-polymorphic (`MorphTo`) tenant relation names its model through its type column, so a principal loaded without that
-column throws a `LogicException` as well, and one whose type is empty while its key is set is rejected like a tenant
-that cannot be loaded. A tenant that does not implement `CanBeActive` is never checked, so a missing one reads as no
-tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
+`getTenant()` itself should do the same, and give the exception the tenant's class, the name of the attribute its key
+refers to and that key (`new TenantUnavailableException($message, Team::class, 'id', $this->team_id)`), as
+`ActsAsPrincipal` does, so `tenantDeactivated()` recognises the deleted tenant it names. As with `ProvidesActiveState`,
+a principal loaded without the key of an opted-in tenant (a partial select) throws a `LogicException` rather than being
+read as acting within no tenant. A polymorphic (`MorphTo`) tenant relation names its model through its type column, so a
+principal loaded without that column throws a `LogicException` as well, and one whose type is empty while its key is set
+is rejected like a tenant that cannot be loaded. A tenant that does not implement `CanBeActive` is never checked, so a
+missing one reads as no tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
 
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
@@ -1785,12 +1787,14 @@ Never call `passwordChanged()` for the automatic rehash of a password on sign-in
 `factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. Devices record
 principals, not tenants, so `tenantDeactivated()` takes the tenant's principals from you: each must act within the
 tenant (read on the write connection from the principal as stored, so a `tenant` relation you loaded does not decide and
-Eloquent's strict mode does not stop the read), or an `InvalidArgumentException` is thrown before anything is written; a
-tenant already deleted or soft-deleted still works, since a principal naming that very tenant (its class and key) acts
-within it, so restoring the tenant later revives no session; a principal listed twice counts once, and every principal's
-sessions end in one device transaction, with one `SignedOutEverywhere` per principal. Deactivation already stops every
-token at once through the live activity checks (see [Active-state enforcement](#active-state-enforcement)); revoking
-makes the end outlast a reactivation and records why.
+Eloquent's strict mode does not stop the read), or an `InvalidArgumentException` is thrown before anything is written. A
+`CanBeActive` tenant already deleted or soft-deleted still works, since a principal whose `TenantUnavailableException`
+names that very tenant (its class and key, as `ActsAsPrincipal` reports it) acts within it, so restoring the tenant
+later revives no session; a tenant that does not implement `CanBeActive` reads as no tenant once it cannot be loaded, so
+call `tenantDeactivated()` before deleting it; a principal listed twice counts once, and every principal's sessions end
+in one device transaction, with one `SignedOutEverywhere` per principal. Deactivation already stops every token at once
+through the live activity checks (see [Active-state enforcement](#active-state-enforcement)); revoking makes the end
+outlast a reactivation and records why.
 
 Three optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
 triggered it is committed on the changed model's connection, so a change that is rolled back revokes nothing:

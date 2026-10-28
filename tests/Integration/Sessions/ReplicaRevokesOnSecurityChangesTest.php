@@ -20,8 +20,9 @@ use Tests\TestCase;
 /**
  * Proves a tenant's deactivation reads each principal's tenant from the write
  * connection: a principal the primary has just moved into a new tenant acts
- * within it, though the replica does not hold that tenant yet. A principal's
- * deactivation reads its owner from the write connection too.
+ * within it, though the replica does not hold that tenant yet, and one whose
+ * tenant, not opted into activation, was deleted acts within none. A
+ * principal's deactivation reads its owner from the write connection too.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -135,6 +136,30 @@ final class ReplicaRevokesOnSecurityChangesTest extends TestCase
         self::assertCount(1, $reported);
         self::assertInstanceOf(TenantAware3dIdentity::class, $reported[0]->context->identity);
         self::assertSame($identity->getKey(), $reported[0]->context->identity->getKey());
+    }
+
+    /**
+     * A tenant that does not opt into activation reads as no tenant once it is
+     * deleted, so its deactivation can no longer tell that its principals act
+     * within it and refuses them, writing nothing: the application calls
+     * `tenantDeactivated()` before deleting such a tenant.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeletedTenantThatDoesNotOptIntoActivationIsNoTenant(): void
+    {
+        $identity  = TenantAware3dIdentity::query()->create(['email' => 'member@example.test', 'password' => 'unused']);
+        $tenant    = TenantAware3dTenant::query()->create(['name' => 'Gone', 'type' => 'team']);
+        $principal = TenantAware3dPrincipal::query()->create(['identity_id' => $identity->getKey(), 'tenant_id' => $tenant->getKey(), 'name' => 'Member']);
+
+        $tenant->delete();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('does not act within tenant ' . TenantAware3dTenant::class);
+
+        Auth::sessions('api')->tenantDeactivated($tenant, [$principal]);
     }
 
     /**

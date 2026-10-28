@@ -118,9 +118,13 @@ trait RevokesOnSecurityChanges
      * devices record principals, not tenants. Every principal must act within
      * the tenant (the same class and identifier, read on the write connection),
      * or nothing is written and an `InvalidArgumentException` is thrown; a
-     * principal listed twice counts once. A tenant that is already deleted or
-     * soft-deleted works too: a principal naming it acts within it. All devices
-     * and pending sign-ins are ended in one transaction, after each principal's
+     * principal listed twice counts once. A tenant that opts into activation
+     * (`CanBeActive`) and is already deleted or soft-deleted works too: a
+     * principal whose `getTenant()` throws the `TenantUnavailableException`
+     * naming it (its class, key name and key, as `ActsAsPrincipal` does) acts
+     * within it. A tenant that does not opt in reads as no tenant once it
+     * cannot be loaded, so call this before deleting it. All devices and
+     * pending sign-ins are ended in one transaction, after each principal's
      * cutoff moved, with one `SignedOutEverywhere` per principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -158,9 +162,10 @@ trait RevokesOnSecurityChanges
      * connection from a copy without loaded relations, so a tenant relation set
      * by whoever loaded the principal (or eager-loaded from a replica) cannot
      * stand in for the stored one, and Eloquent strict mode cannot stop the
-     * read. A principal whose tenant cannot be loaded any more (deleted,
-     * soft-deleted, hidden by a scope) acts within the tenant when it names
-     * that very tenant: its class and key.
+     * read. A principal whose opted-in tenant cannot be loaded any more
+     * (deleted, soft-deleted, hidden by a scope) acts within the tenant when
+     * its `TenantUnavailableException` names that very tenant: its class and
+     * key.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant

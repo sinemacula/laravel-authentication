@@ -52,10 +52,11 @@ deleted. Starting a session is in
   `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason.
   `tenantDeactivated()` checks every listed principal acts within the tenant (`getTenant()` on the writer, through
   `WriteConnection::stored()`, so a `tenant` relation whoever loaded the principal set does not decide and Eloquent's
-  strict mode does not stop the read; same class and identifier; for a tenant that can no longer be loaded, the class
-  and key the `TenantUnavailableException` carries, so a deleted or soft-deleted tenant still ends its principals'
-  sessions) before anything is written, de-duplicates by recorded type and id, and ends all of them in one device
-  transaction with one `SignedOutEverywhere` each.
+  strict mode does not stop the read; same class and identifier; for a `CanBeActive` tenant that can no longer be
+  loaded, the class and key the `TenantUnavailableException` carries, so a deleted or soft-deleted one still ends its
+  principals' sessions; a tenant without `CanBeActive` reads as no tenant once it cannot be loaded, so the application
+  calls it before deleting one) before anything is written, de-duplicates by recorded type and id, and ends all of them
+  in one device transaction with one `SignedOutEverywhere` each.
 - The optional listeners (`RevokeDevicesOnPasswordReset`, `RevokeDevicesOnPasswordChange`,
   `RevokeDevicesOnDeactivation`) run their revocation through `AfterCommit` on the changed model's connection, so a
   rolled-back change revokes nothing. They act through a jwt guard's session service: the guard bound to the
