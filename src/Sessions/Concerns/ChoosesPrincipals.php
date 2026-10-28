@@ -71,29 +71,30 @@ trait ChoosesPrincipals
 
     /**
      * The principals the identity may sign in as on this guard, for a choice or
-     * a switch: the identity's `principals()`, read on the write connection
-     * (for an identity that is its own principal, or has no `principals()`, the
-     * resolver's default), that are active, act within an active tenant (or
-     * none), and are admitted by the guard's audience policy.
+     * a switch screen: the identity's `principals()`, read on the write
+     * connection (for an identity that is its own principal, or has no
+     * `principals()`, the resolver's default), that are active, act within an
+     * active tenant (or none), and are admitted by the guard's audience policy.
+     *
+     * With an identifier type, the policy must also admit the identity and each
+     * principal with it, as it admits a sign-in that used one: a switch screen
+     * passes the type the session's device records
+     * (`Auth::device()?->getSignInIdentifierType()`), so it lists only the
+     * targets the audience policy lets that session switch to.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?string  $identifierType
      * @return list<\SineMacula\Laravel\Authentication\Contracts\Principal>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function principals(Identity $identity): array
+    public function principals(Identity $identity, ?string $identifierType = null): array
     {
-        $candidates = $identity instanceof HasPrincipals && !$identity instanceof Principal
-            ? WriteConnection::during($identity, static fn (): array => WriteConnection::query($identity->principals())->get()->all())
-            : [$this->guard->getPrincipalResolver()->resolve($identity)];
-
-        $audience = $this->collaborator(AudiencePolicy::class);
-        $guard    = $this->guard->getName();
-
-        return array_values(array_filter($candidates, static fn (mixed $principal): bool => $principal instanceof Principal
-            && ActivationPolicy::isPrincipalActive($principal)
-            && $audience->admit($guard, $identity, $principal, null) === null));
+        return $this->admissible($identity, $identifierType)[0];
     }
 
     /**
@@ -327,38 +328,103 @@ trait ChoosesPrincipals
     }
 
     /**
-     * The eligible principals (`principals()`) the audience policy also admits
-     * with the identifier type a sign-in used, and its reason for the last one
-     * it refused, if any. A sign-in that used no identifier is not held to it.
+     * The eligible principals the audience policy also admits with the
+     * identifier type a sign-in used, and its reason for refusing the identity
+     * with it, or for the last principal it refused with it, if any. A sign-in
+     * that used no identifier is not held to it.
+     *
+     * Eligibility is that of `principals()`: active, within an active tenant or
+     * none, and admitted with no identifier type; a principal that is not
+     * eligible is left out without a reason.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?string  $identifierType
      * @return array{0: list<\SineMacula\Laravel\Authentication\Contracts\Principal>, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason}
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
     private function admissible(Identity $identity, ?string $identifierType): array
     {
-        $guard      = $this->guard->getName();
-        $audience   = $this->collaborator(AudiencePolicy::class);
+        $guard    = $this->guard->getName();
+        $audience = $this->collaborator(AudiencePolicy::class);
+        $refusal  = $identifierType === null ? null : $audience->admitIdentifier($guard, $identity, $identifierType);
+
+        if ($refusal !== null) {
+            return [[], $refusal];
+        }
+
         $principals = [];
-        $refusal    = null;
 
-        foreach ($this->principals($identity) as $principal) {
+        foreach ($this->candidates($identity) as $principal) {
 
-            $reason = $identifierType === null ? null : $audience->admit($guard, $identity, $principal, $identifierType);
-
-            if ($reason === null) {
-                $principals[] = $principal;
-
+            if (!$principal instanceof Principal) {
                 continue;
             }
 
-            $refusal = $reason;
+            $reason = self::refusalOf($audience, $guard, $identity, $principal, $identifierType);
+
+            if ($reason === null) {
+                $principals[] = $principal;
+            }
+
+            $refusal = $reason instanceof FailureReason ? $reason : $refusal;
         }
 
         return [$principals, $refusal];
+    }
+
+    /**
+     * The principals the identity may act as, before any check: its
+     * `principals()` read on the write connection, or, for an identity that is
+     * its own principal or has no `principals()`, the resolver's default.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return array<array-key, mixed>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    private function candidates(Identity $identity): array
+    {
+        return $identity instanceof HasPrincipals && !$identity instanceof Principal
+            ? WriteConnection::during($identity, static fn (): array => WriteConnection::query($identity->principals())->get()->all())
+            : [$this->guard->getPrincipalResolver()->resolve($identity)];
+    }
+
+    /**
+     * Whether the audience policy refuses the principal to the identifier type:
+     * `false` when the principal is not eligible at all (inactive, within an
+     * inactive tenant, or refused with no identifier type), the policy's reason
+     * when it refuses the eligible principal to the type, and `null` when it
+     * admits it. The principal is read as stored (`WriteConnection::stored()`):
+     * one of a collection is hydrated with lazy loading prevented under
+     * Eloquent strict mode, and its tenant, which the checks read, is loaded on
+     * purpose.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy  $audience
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?string  $identifierType
+     * @return false|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     */
+    private static function refusalOf(AudiencePolicy $audience, string $guard, Identity $identity, Principal $principal, ?string $identifierType): FailureReason|false|null
+    {
+        return WriteConnection::stored($principal, static function (Principal $stored) use ($audience, $guard, $identity, $identifierType): FailureReason|false|null {
+
+            if (!ActivationPolicy::isPrincipalActive($stored) || $audience->admit($guard, $identity, $stored, null) !== null) {
+                return false;
+            }
+
+            return $identifierType === null ? null : $audience->admit($guard, $identity, $stored, $identifierType);
+        });
     }
 
     /**

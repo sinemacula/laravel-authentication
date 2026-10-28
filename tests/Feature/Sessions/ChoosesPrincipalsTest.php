@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -24,6 +25,7 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -683,6 +685,95 @@ final class ChoosesPrincipalsTest extends TestCase
         ActivatableTenant::query()->whereKey($first->tenant_id)->update(['is_active' => false]);
 
         self::assertSame([$second->getKey()], self::keys($this->sessions(self::GUARD)->principals($member)));
+    }
+
+    /**
+     * An identity the resolver finds no default principal for has none to list,
+     * and the audience policy is never asked about one.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityTheResolverHasNoPrincipalForListsNone(): void
+    {
+        $identity = \Mockery::mock(Identity::class);
+
+        $resolver = \Mockery::mock(PrincipalResolver::class);
+        $resolver->shouldReceive('resolve')->once()->with($identity)->andReturnNull();
+
+        $audience = \Mockery::mock(AudiencePolicy::class);
+        $audience->shouldNotReceive('admit');
+
+        app()->instance(AudiencePolicy::class, $audience);
+
+        self::assertSame([], $this->freshGuard()->setPrincipalResolver($resolver)->sessions()->principals($identity));
+    }
+
+    /**
+     * Listed with an identifier type, the principals are those the policy
+     * admits with it, and none when it refuses the identity with that type,
+     * without asking about any principal; listed without one, the identity is
+     * not held to it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testThePrincipalsListedWithAnIdentifierTypeAreThoseThePolicyAdmits(): void
+    {
+        [$member, $own, $invited] = $this->seedChooser();
+
+        $package = app(AudiencePolicy::class);
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy($package, $invited->tenant_id));
+
+        self::assertSame([$own->getKey()], self::keys($this->sessions(self::GUARD)->principals($member, 'email')));
+        self::assertSame([$own->getKey(), $invited->getKey()], self::keys($this->sessions(self::GUARD)->principals($member)));
+
+        $audience = \Mockery::mock(AudiencePolicy::class);
+        $audience->shouldReceive('admitIdentifier')->once()->with(self::GUARD, $member, 'email')->andReturn(FailureReason::IDENTIFIER_UNVERIFIED);
+        $audience->shouldReceive('admit')->twice()->with(self::GUARD, $member, \Mockery::type(ChoosingMembership::class), null)->andReturnNull();
+
+        app()->instance(AudiencePolicy::class, $audience);
+
+        self::assertSame([], $this->sessions(self::GUARD)->principals($member, 'email'));
+        self::assertSame([$own->getKey(), $invited->getKey()], self::keys($this->sessions(self::GUARD)->principals($member)));
+    }
+
+    /**
+     * Under Eloquent strict mode, which prevents lazy loading on models read
+     * together, a choice is offered, looked up and listed for an identity with
+     * several principals, each principal's tenant read as stored, and a
+     * principal from the list is chosen.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceIsMadeUnderEloquentStrictMode(): void
+    {
+        [$member, $own, $invited] = $this->seedChooser();
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+
+        Model::preventLazyLoading();
+
+        try {
+            $offered = $this->sessions(self::GUARD)->signIn('password', self::credentials('chooser@example.test'))->choice;
+
+            self::assertNotNull($offered);
+            self::assertSame([$own->getKey()], self::keys($offered->principals));
+            self::assertSame([$own->getKey()], self::keys($this->sessions(self::GUARD)->choice($offered->token)->principals ?? []));
+            self::assertSame([$own->getKey(), $invited->getKey()], self::keys($this->sessions(self::GUARD)->principals($member)));
+
+            $chosen = $this->sessions(self::GUARD)->choose($offered->token, $offered->principals[0]);
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        self::assertTrue($chosen->isSignedIn());
+        self::assertTrue($chosen->session?->principal->is($own)); // @phpstan-ignore method.notFound
     }
 
     /**

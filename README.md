@@ -1365,8 +1365,11 @@ waits for the identity to choose one when it may sign in as any: the result `req
 `PrincipalChoice` with a single-use `token`, the guard, the identity, the method, the expiry
 (`sign_in.pending_ttl_seconds`, as for a factor) and the `principals` it may choose from. Those are the identity's
 `principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
-by the guard's audience policy; `Auth::sessions('api')->principals($identity)` lists them the same way for a switch
-screen (for an identity that is its own principal, the resolver's default). An identity with none fails as
+by the guard's audience policy (for an identity that is its own principal, the resolver's default).
+`Auth::sessions('api')->principals($identity, $identifierType)` lists them the same way; a switch screen passes the
+type of identifier its session's sign-in used, `Auth::guard('api')->device()?->getSignInIdentifierType()`, so it lists
+only the targets the audience policy lets that session switch to (without a type, the list ignores the identifier and
+may hold targets a switch refuses). An identity with none fails as
 `principal_unresolved`, as before. The choice itself, and every later look-up of it, is admitted with the identifier
 type the sign-in used, as a sign-in naming a principal would be, so a principal your audience policy refuses to that
 identifier is neither offered nor listed, and a guard with `require_verified_identifier` offers no choice, and lists no

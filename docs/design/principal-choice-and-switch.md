@@ -16,9 +16,14 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 - Eligible principals (`SessionService::principals()`) are the identity's `principals()` read on the write connection
   (the resolver's default for an identity that is its own principal or has no `principals()`), active, in an active
   tenant or none, and admitted by the audience policy with no identifier type. Offering a choice, and every later
-  `choice()` lookup, which recomputes the list, also admits each of them with the sign-in's identifier type (the one the
-  choice stores): a principal the policy then refuses is neither offered nor listed, and when it refuses every one the
-  sign-in fails with that reason, storing and reporting nothing.
+  `choice()` lookup, which recomputes the list, also admits the identity (`admitIdentifier()`) and each of them with the
+  sign-in's identifier type (the one the choice stores): a principal the policy then refuses is neither offered nor
+  listed, and when it refuses every one the sign-in fails with that reason, storing and reporting nothing.
+  `principals($identity, $identifierType)` lists the same way for a switch screen given the type the session's device
+  records, so it lists only targets the audience policy lets that session switch to.
+- Each principal read with the others is checked on a stored copy (`WriteConnection::stored()`): Eloquent strict mode
+  prevents lazy loading on models read together, and the activity check and the audience policy read its tenant. The
+  list holds the principals as read.
 - Every sign-in asks the audience policy's `admitIdentifier()` before any principal is resolved or listed
   (`SignInAdmission`), so with the package's policy a guard requiring a verified identifier refuses an unverified one
   as `identifier_unverified` whether the identity has principals or not, and the answer never tells someone holding an
@@ -109,10 +114,11 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/ChoosesPrincipalsTest.php` (the choice over HTTP and through the service, choose then factor
-  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier)
+  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier,
+  the listing with an identifier type, and a choice under Eloquent strict mode)
 - `tests/Feature/Sessions/PrincipalSwitchTest.php` (the switch over HTTP, the old access token refused at once,
   A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a
-  switch read from the request and the transport's refusals)
+  switch read from the request and the transport's refusals, and a switch screen's listing)
 - `tests/Integration/Sessions/PrincipalSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch,
   a different switch, a deadline change, a deletion and an owner change)
 - `tests/Integration/Sessions/ReplicaChoosesPrincipalsTest.php` (the eligible principals read on the write connection)

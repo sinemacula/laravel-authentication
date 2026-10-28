@@ -657,6 +657,35 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
+     * A switch screen that lists the identity's principals with the identifier
+     * type the session's device records offers only the targets a switch
+     * admits, while the list without a type holds every eligible principal.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchScreenListsOnlyTheTargetsTheSwitchAdmits(): void
+    {
+        [$first, $second, $member] = $this->seedMemberships();
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $second->tenant_id));
+
+        $session = $this->signIn();
+        $guard   = Auth::manager()->guard(self::GUARD);
+
+        assert($guard instanceof JwtGuard);
+
+        $type   = $guard->device()?->getSignInIdentifierType();
+        $listed = $this->sessions(self::GUARD)->principals($member, $type);
+
+        self::assertSame('email', $type);
+        self::assertSame([$first->getKey()], array_map(static fn (Principal $principal): mixed => $principal->getPrincipalIdentifier(), $listed));
+        self::assertCount(2, $this->sessions(self::GUARD)->principals($member));
+        $this->assertSwitchFails(FailureReason::IDENTIFIER_UNVERIFIED, $session, $second);
+    }
+
+    /**
      * A switch asks the audience policy about the identity with the session's
      * identifier type before the target, as its sign-in was asked, so a policy
      * that now refuses that identifier for the identity as a whole refuses the
