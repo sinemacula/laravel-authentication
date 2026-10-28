@@ -5,6 +5,8 @@ declare(strict_types = 1);
 namespace Tests\Concerns;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -12,6 +14,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\Integration\Fixtures\CodeMachineClient;
+use Tests\Integration\Fixtures\LookAlikeModelProvider;
 use Tests\Integration\Fixtures\UnverifiableCodeIdentity;
 
 /**
@@ -24,7 +27,9 @@ use Tests\Integration\Fixtures\UnverifiableCodeIdentity;
  * `mobile` `password`) over `CodeIdentity`; `console` allows `email_code` and
  * `password` and requires verified identifiers; `web` allows only `password`;
  * `machines` allows the code methods over `CodeMachineClient`; `unverifiable`
- * allows them over identities that cannot report verification.
+ * allows them over identities that cannot report verification; `lookalike`
+ * (see `configureLookAlikeGuard()`) allows them over `CodeIdentity` found as a
+ * case- and accent-insensitive collation finds it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -97,6 +102,22 @@ trait InteractsWithCodeIdentities
         $config->set('queue.connections.sync', ['driver' => 'sync']);
         $config->set('hashing.bcrypt.rounds', 4);
         $config->set('authentication.timebox.credentials_microseconds', 1);
+    }
+
+    /**
+     * Register the `lookalike` guard: the code sign-in methods over
+     * `CodeIdentity`, looked up by a provider that finds an identity by any
+     * look-alike of its identifier, as a case- and accent-insensitive collation
+     * does, on every driver.
+     *
+     * @return void
+     */
+    protected function configureLookAlikeGuard(): void
+    {
+        Auth::provider('look-alike', static fn (Application $app): LookAlikeModelProvider => new LookAlikeModelProvider($app->make(Hasher::class), CodeIdentity::class));
+
+        config()->set('auth.providers.look_alike', ['driver' => 'look-alike']);
+        config()->set('auth.guards.lookalike', ['driver' => 'jwt', 'provider' => 'look_alike', 'audience' => ['methods' => ['phone_code', 'email_code']]]);
     }
 
     /**

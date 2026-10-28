@@ -13,7 +13,6 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
-use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -245,9 +244,7 @@ final readonly class CodeService
             throw new \InvalidArgumentException(sprintf('%s is a machine identity: it has no identifiers to verify by code.', $identity::class));
         }
 
-        $verifiable = IdentifierVerifier::verifiable($identity);
-        $current    = WriteConnection::during($verifiable, static fn (): ?string => $verifiable->getIdentifierForVerification(IdentifierType::assertValid($type)));
-        $identifier = $current === null ? null : $this->collaborator(IdentifierVerifier::class)->canonical($type, $current);
+        $identifier = CodeIdentifiers::of(IdentifierVerifier::verifiable($identity), IdentifierType::assertValid($type), $this->collaborator(IdentifierVerifier::class));
 
         return $identifier === null ? null : CodeBinding::verification($this->guard->getName(), $type, $identifier, $identity);
     }

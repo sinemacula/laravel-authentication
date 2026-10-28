@@ -11,9 +11,11 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 /**
  * A one-time code to deliver: what `OneTimeCodeSender::send()` is given.
  *
- * The identifier is the destination in its normal form (an E.164 number, a
- * trimmed, lower-cased address), and the identity is the recipient the delivery
- * job resolved. The code is in clear, so the message must not be logged.
+ * The identifier is the destination: the recipient's own identifier of the type
+ * in its normal form (an E.164 number, a trimmed, lower-cased address), which
+ * the delivery job has checked is exactly the one the code is bound to, not a
+ * look-alike a database lookup matched. The identity is the recipient the job
+ * resolved. The code is in clear, so the message must not be logged.
  *
  * @api
  *
@@ -44,7 +46,7 @@ final readonly class OneTimeCodeMessage
         /** Type of the identifier, for example `phone` or `email`. */
         public string $type,
 
-        /** Destination, in its normal form. */
+        /** Destination: the recipient's own identifier of the type, in its normal form. */
         #[\SensitiveParameter] public string $identifier,
 
         /** The code, in clear. */

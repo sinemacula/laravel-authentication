@@ -9,6 +9,7 @@ use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
@@ -18,13 +19,16 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
+use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithRateLimits;
@@ -319,6 +323,26 @@ final class CodeSignInTest extends TestCase
         $this->codeService('unverifiable')->send('phone_code', ['phone' => self::PHONE]);
 
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->signIn(self::CODE, guard: 'unverifiable')->reason);
+    }
+
+    /**
+     * Whatever a provider returns for the number that is not an identity is
+     * treated as no one: the right code signs nothing in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testWhatIsNotAnIdentityIsNoOne(): void
+    {
+        $this->codeService()->send('phone_code', ['phone' => self::PHONE]);
+
+        $provider = \Mockery::mock(IdentityProvider::class);
+        $provider->shouldReceive('retrieveByCredentials')->once()->andReturn(\Mockery::mock(Authenticatable::class));
+
+        $request = new SignInRequest('mobile', $provider, ['phone' => self::PHONE, 'code' => self::CODE], new ClientContext(null, null));
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, app(SignInMethodManager::class)->method('phone_code')->authenticate($request));
     }
 
     /**

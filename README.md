@@ -634,7 +634,7 @@ final class SmsCodeSender implements OneTimeCodeSender
 
     public function send(OneTimeCodeMessage $message): void
     {
-        // $message->identifier is the E.164 number or the normalised address; $message->code is in clear: never log it.
+        // $message->identifier is the recipient's own E.164 number or normalised address; $message->code is in clear: never log it.
         match ($message->type) {
             'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
             'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
@@ -1533,13 +1533,17 @@ A code request does nothing that depends on whether anyone has the number. The g
 IP address must have code requests left (`rate_limited`, with the wait), and no code may have been sent to the number
 within the resend cooldown (`rate_limited`, with the seconds left); then a code is issued, for anyone's number, and its
 delivery queued. The job alone finds the recipient, when it runs: the active identity the guard's provider returns for
-the number that reports it verified and is not a machine identity. For anyone else it sends nothing and says nothing,
-so the response, the statements run and the time taken are the same for a number no one has. Each refusal is reported
+the number that holds exactly that number, reports it verified and is not a machine identity. For anyone else it sends
+nothing and says nothing, so the response, the statements run and the time taken are the same for a number no one has.
+"Exactly" is decided by the package, not your database: the identity's own identifier, in its normal form, must be
+byte for byte the requested one. A lookup matches whatever the column's collation does, and MySQL's default
+`utf8mb4_unicode_ci` ignores accents, so `ben@examplé.com` (another domain, which anyone can register) finds the holder
+of `ben@example.com`; such an identity neither receives the code nor signs in with it. Each refusal is reported
 with `AuthenticationFailed` on the `code_request` flow (an invalid number as `invalid_credentials`).
 
 Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits
-(`invalid_credentials` otherwise, nothing counted), looks the identity up, counts the check against the account's limit
-as the password method does, and checks the code against the one sent to the number on this guard. It checks it whether
+(`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity that does not hold exactly that
+number, as above, counts as none), counts the check against the account's limit as the password method does, and checks the code against the one sent to the number on this guard. It checks it whether
 or not anyone has the number, so a guess at a number no one has counts against, and locks, its code exactly as one at a
 known number does. A wrong code, a code used before, a code for another guard, purpose or number, and the right code
 for a number no one has are `invalid_credentials`; an expired code and one that used up its attempts are refused as

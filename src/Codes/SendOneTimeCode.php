@@ -35,13 +35,14 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * sends nothing otherwise; a retry checks again, so a code that stopped working
  * is never sent. Then it finds the recipient. A sign-in code goes only to an
  * identity the guard's provider finds by the identifier that is active, can
- * report its identifiers verified, reports this one verified, and is not a
- * machine identity; for anyone else, or no one, nothing is sent and nothing
- * says so. A verification code goes only to the identity it was issued for,
- * read again from the write connection, while its identifier of the type is
- * still the one the code is bound to, and never to a machine identity. An
- * exception from the sender fails the job, and the application's retry policy
- * applies; an unbound sender is a `BindingResolutionException`. A
+ * report its identifiers verified, holds exactly this one (its own, in its
+ * normal form, not a look-alike the lookup's collation matched) and reports it
+ * verified, and is not a machine identity; for anyone else, or no one, nothing
+ * is sent and nothing says so. A verification code goes only to the identity it
+ * was issued for, read again from the write connection, while its identifier of
+ * the type is still the one the code is bound to, and never to a machine
+ * identity. An exception from the sender fails the job, and the application's
+ * retry policy applies; an unbound sender is a `BindingResolutionException`. A
  * verification job whose identity was deleted before it ran is dropped, not
  * failed; the class attribute, rather than a property, is what every supported
  * Laravel version reads for that.
@@ -110,8 +111,9 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
 
     /**
      * The identity the guard's provider finds by the identifier, when it may
-     * receive a sign-in code: active, not a machine identity, and reporting the
-     * identifier verified (read on the write connection).
+     * receive a sign-in code: active, not a machine identity, holding exactly
+     * the identifier, and reporting it verified (both read on the write
+     * connection).
      *
      * @param  \Illuminate\Contracts\Container\Container  $container
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
@@ -133,7 +135,9 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
             return null;
         }
 
-        return ActivationPolicy::isActive($found) && WriteConnection::during($found, static fn (): bool => $found->hasVerifiedIdentifier($type)) ? $found : null;
+        return ActivationPolicy::isActive($found)
+            && CodeIdentifiers::isHeldBy($found, $this->binding, $container->make(IdentifierVerifier::class))
+            && WriteConnection::during($found, static fn (): bool => $found->hasVerifiedIdentifier($type)) ? $found : null;
     }
 
     /**
@@ -156,10 +160,6 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
             return null;
         }
 
-        $type       = $this->binding->type;
-        $current    = WriteConnection::during($fresh, static fn (): ?string => $fresh->getIdentifierForVerification($type));
-        $identifier = $current === null ? null : $container->make(IdentifierVerifier::class)->canonical($type, $current);
-
-        return $identifier !== null && hash_equals($this->binding->identifier, $identifier) ? $fresh : null;
+        return CodeIdentifiers::isHeldBy($fresh, $this->binding, $container->make(IdentifierVerifier::class)) ? $fresh : null;
     }
 }

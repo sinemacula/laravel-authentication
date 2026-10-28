@@ -13,6 +13,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
+use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * A one-time code sign-in method: an identifier of one type and the code
@@ -32,13 +33,17 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * one issued for the guard and identifier whether or not an identity has the
  * identifier, so a guess at an unknown identifier counts against, and locks,
  * that code exactly as one at a known identifier does; for a known identity the
- * check also counts against the account's own limit first. A code that expired
- * or used up its attempts is refused as `code_expired` or `code_exhausted`,
- * which the sign-in's result conceals as `invalid_credentials`. A correct code
- * for an identity whose identifier of the type is not verified is
- * `identifier_unverified`: the code proved the identifier is held, so this
- * tells a guesser nothing, and a code is never sent to an unverified identifier
- * in the first place.
+ * check also counts against the account's own limit first. An identity the
+ * guard's provider finds holds the identifier only when its own identifier of
+ * the type, in its normal form, is exactly the one the code is bound to: a
+ * lookup matches whatever the column's collation does, which on some engines
+ * ignores case and accents, so an identity found by a look-alike is treated as
+ * no identity at all. A code that expired or used up its attempts is refused as
+ * `code_expired` or `code_exhausted`, which the sign-in's result conceals as
+ * `invalid_credentials`. A correct code for an identity whose identifier of the
+ * type is not verified is `identifier_unverified`: the code proved the
+ * identifier is held, so this tells a guesser nothing, and a code is never sent
+ * to an unverified identifier in the first place.
  *
  * @api
  *
@@ -62,6 +67,7 @@ final readonly class CodeSignIn implements SignInMethod
      * @param  string  $type
      * @param  \SineMacula\Laravel\Authentication\Codes\OneTimeCodes  $codes
      * @param  \SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers  $normalisers
+     * @param  \SineMacula\Laravel\Authentication\Verification\IdentifierVerifier  $verifier
      *
      * @throws \InvalidArgumentException
      */
@@ -75,6 +81,9 @@ final readonly class CodeSignIn implements SignInMethod
 
         /** Normalisers that give identifiers their normal form. */
         private IdentifierNormalisers $normalisers,
+
+        /** Gives an identity's own identifier its canonical form, to compare with the bound one. */
+        private IdentifierVerifier $verifier,
     ) {
         if (IdentifierType::assertValid($type) === self::CODE_KEY) {
             throw new \InvalidArgumentException(sprintf('A code sign-in method cannot use the identifier type [%s]: its input key holds the code.', self::CODE_KEY));
@@ -128,8 +137,7 @@ final readonly class CodeSignIn implements SignInMethod
             return FailureReason::INVALID_CREDENTIALS;
         }
 
-        $found    = $request->provider->retrieveByCredentials([$this->type => $binding->identifier]);
-        $identity = $found instanceof Identity ? $found : null;
+        $identity = $this->holder($request->provider->retrieveByCredentials([$this->type => $binding->identifier]), $binding);
         $failure  = $identity !== null && !$request->reserveAccountAttempt($identity)
             ? FailureReason::INVALID_CREDENTIALS
             : $this->codes->check($binding, $code, CarbonImmutable::now()->startOfSecond())->failure();
@@ -156,6 +164,27 @@ final readonly class CodeSignIn implements SignInMethod
         $identifier = $given === null ? null : $this->normalisers->get($this->type)->normalise($given);
 
         return $identifier === null ? null : CodeBinding::signIn($guard, $this->type, $identifier);
+    }
+
+    /**
+     * The identity the provider found, when it holds exactly the bound
+     * identifier, read on the write connection; `null` for none, or one found
+     * only by a look-alike. An identity that cannot report its identifiers is
+     * kept, as it can never be signed in by code anyway.
+     *
+     * @param  mixed  $found
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @return ?\SineMacula\Laravel\Authentication\Contracts\Identity
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function holder(mixed $found, CodeBinding $binding): ?Identity
+    {
+        return match (true) {
+            !$found instanceof Identity                => null,
+            $found instanceof HasVerifiableIdentifiers => CodeIdentifiers::isHeldBy($found, $binding, $this->verifier) ? $found : null,
+            default                                    => $found,
+        };
     }
 
     /**

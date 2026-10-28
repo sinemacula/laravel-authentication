@@ -22,11 +22,13 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use Tests\Concerns\InteractsWithCodeIdentities;
+use Tests\Concerns\InteractsWithRateLimits;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\TestCase;
 
@@ -47,13 +49,16 @@ use Tests\TestCase;
 #[CoversClass(SignInMethodManager::class)]
 final class EmailCodeSignInTest extends TestCase
 {
-    use InteractsWithCodeIdentities;
+    use InteractsWithCodeIdentities, InteractsWithRateLimits;
 
     /** @var string The code the engine issues first. */
     private const string CODE = '135790';
 
     /** @var string The seeded identity's address, as stored. */
     private const string EMAIL = 'ben@example.com';
+
+    /** @var string A look-alike of the address: another domain, which a case- and accent-insensitive collation matches to it. */
+    private const string LOOK_ALIKE = 'ben@examplé.com';
 
     /** @var \SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender The sender the codes are delivered through. */
     private FakeOneTimeCodeSender $sender;
@@ -288,6 +293,94 @@ final class EmailCodeSignInTest extends TestCase
 
         self::assertSame('246802', $this->sender->lastCodeFor(self::EMAIL, CodePurpose::SIGN_IN));
         self::assertTrue($this->signIn('246802')->isSignedIn());
+    }
+
+    /**
+     * A code requested for a look-alike of a verified address, which a case-
+     * and accent-insensitive lookup matches to its holder, is delivered to no
+     * one, and even the right code for the look-alike signs in no one, nor
+     * counts against the holder's account; the holder's own address is
+     * unaffected.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALookAlikeOfAnAddressReachesAndSignsInNoOne(): void
+    {
+        $holder = self::seedCodeIdentity(email: self::EMAIL);
+
+        $this->configureLookAlikeGuard();
+
+        self::assertTrue($holder->is($this->freshGuard('lookalike')->getProvider()->retrieveByCredentials(['email' => self::LOOK_ALIKE])));
+        self::assertTrue($this->codeService('lookalike')->send('email_code', ['email' => self::LOOK_ALIKE])->isSent());
+
+        $this->app?->terminate();
+
+        self::assertSame(0, $this->sender->count());
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE, self::LOOK_ALIKE, 'lookalike')->reason);
+        self::assertNotNull(DB::table('one_time_codes')->value('consumed_at'));
+        self::assertSame(0, Device::query()->count());
+        self::assertSame(0, self::counterHits('sign_in', 'per_account', AccountAttempts::account($holder)));
+
+        $this->codeService('lookalike')->send('email_code', ['email' => self::EMAIL]);
+        $this->app?->terminate();
+
+        self::assertSame('246802', $this->sender->lastCodeFor(self::EMAIL));
+        self::assertTrue($this->signIn('246802', guard: 'lookalike')->isSignedIn());
+    }
+
+    /**
+     * An identity whose stored address differs from the requested one only in
+     * what the address's normal form folds (its case) holds it: it receives the
+     * code at its address in normal form and signs in with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAddressStoredInAnotherCaseIsStillItsHolders(): void
+    {
+        $holder = self::seedCodeIdentity(email: null);
+
+        DB::table('code_identities')->update(['email' => 'Ben@Example.COM', 'email_verified_at' => '2026-01-01 00:00:00']);
+
+        $this->configureLookAlikeGuard();
+        $this->codeService('lookalike')->send('email_code', ['email' => self::EMAIL]);
+        $this->app?->terminate();
+
+        $message = $this->sender->sent()[0] ?? null;
+
+        self::assertSame(self::EMAIL, $message?->identifier);
+        self::assertTrue($holder->is($message->identity));
+        self::assertTrue($this->signIn(self::CODE, guard: 'lookalike')->isSignedIn());
+    }
+
+    /**
+     * On MySQL, whose `utf8mb4_unicode_ci` collation matches an address with an
+     * accented look-alike, the package's own `model` provider finds the holder
+     * by the look-alike, and still no code reaches it and no session starts.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testOnMySqlTheCollationsLookAlikeReachesAndSignsInNoOne(): void
+    {
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            self::markTestSkipped('Only MySQL\'s collation matches an address with its accented look-alike.');
+        }
+
+        $holder = self::seedCodeIdentity(email: self::EMAIL);
+
+        self::assertTrue($holder->is($this->freshGuard('mobile')->getProvider()->retrieveByCredentials(['email' => self::LOOK_ALIKE])));
+
+        $this->codeService()->send('email_code', ['email' => self::LOOK_ALIKE]);
+        $this->app?->terminate();
+
+        self::assertSame(0, $this->sender->count());
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->signIn(self::CODE, self::LOOK_ALIKE)->reason);
+        self::assertSame(0, Device::query()->count());
     }
 
     /**

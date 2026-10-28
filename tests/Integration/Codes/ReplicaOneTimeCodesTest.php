@@ -21,13 +21,15 @@ use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Integration\Fixtures\CodeIdentity;
+use Tests\Integration\Fixtures\QueryingCodeIdentity;
 use Tests\TestCase;
 
 /**
  * Proves every read that decides a one-time code is from the write connection:
  * a code issued moments ago, and an identity's number verified or changed
  * moments ago, which only the primary holds yet, decide the sign-in, the
- * verification and the delivery while the replica lags behind.
+ * verification and the delivery while the replica lags behind, also for an
+ * identity that reads its number and verification with queries of its own.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,6 +46,9 @@ final class ReplicaOneTimeCodesTest extends TestCase
 
     /** @var string The code the engine issues first. */
     private const string CODE = '135790';
+
+    /** @var string The number the identity changes to on the primary only. */
+    private const string CHANGED_PHONE = '+447700900124';
 
     /** @var \SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender The sender the job delivers through. */
     private FakeOneTimeCodeSender $sender;
@@ -145,6 +150,31 @@ final class ReplicaOneTimeCodesTest extends TestCase
     }
 
     /**
+     * For an identity that reads its number and whether it is verified with
+     * queries of its own, the delivery and the sign-in both read them on the
+     * primary: a number changed and verified moments ago, which the replica
+     * still holds as the old, unverified one, gets the code and signs in.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAQueryingIdentitysNumberAndVerificationAreReadOnThePrimary(): void
+    {
+        DB::connection(self::PRIMARY_CONNECTION)->table('code_identities')->update(['phone' => self::CHANGED_PHONE, 'phone_verified_at' => '2026-04-06 11:00:00']);
+
+        $this->codeService('querying')->send('phone_code', ['phone' => self::CHANGED_PHONE]);
+        $this->app?->terminate();
+
+        self::assertSame(self::CODE, $this->sender->lastCodeFor(self::CHANGED_PHONE));
+
+        $result = $this->sessions('querying')->signIn('phone_code', ['phone' => self::CHANGED_PHONE, 'code' => self::CODE]);
+
+        self::assertTrue($result->isSignedIn());
+        self::assertInstanceOf(QueryingCodeIdentity::class, $result->session?->identity);
+    }
+
+    /**
      * A verification code for an identity loaded as the guard loads it, from
      * the primary, is bound to the number changed moments ago; the delivery,
      * which reads the identity again, sends it there, and the code verifies
@@ -156,13 +186,13 @@ final class ReplicaOneTimeCodesTest extends TestCase
      */
     public function testAVerificationFollowsTheNumberThePrimaryHolds(): void
     {
-        DB::connection(self::PRIMARY_CONNECTION)->table('code_identities')->update(['phone' => '+447700900124']);
+        DB::connection(self::PRIMARY_CONNECTION)->table('code_identities')->update(['phone' => self::CHANGED_PHONE]);
 
         $identity = CodeIdentity::query()->useWritePdo()->findOrFail($this->identity->getKey());
 
         $this->codeService()->sendVerification($identity, 'phone');
 
-        $binding = CodeBinding::verification('mobile', 'phone', '+447700900124', $identity);
+        $binding = CodeBinding::verification('mobile', 'phone', self::CHANGED_PHONE, $identity);
         $issueId = DB::connection(self::PRIMARY_CONNECTION)->table('one_time_codes')->value('issue_id');
 
         self::assertIsString($issueId);
@@ -170,7 +200,7 @@ final class ReplicaOneTimeCodesTest extends TestCase
 
         (new SendOneTimeCode($binding, new IssuedCode(self::CODE, $issueId, CarbonImmutable::now()->addSeconds(600)), $this->identity))->handle(app());
 
-        self::assertSame(self::CODE, $this->sender->lastCodeFor('+447700900124'));
+        self::assertSame(self::CODE, $this->sender->lastCodeFor(self::CHANGED_PHONE));
         self::assertSame(IdentifierVerification::VERIFIED, $this->codeService()->verify($identity, 'phone', self::CODE));
     }
 
@@ -188,6 +218,9 @@ final class ReplicaOneTimeCodesTest extends TestCase
         $config = app(ConfigRepository::class);
 
         self::configureCodeGuards($config);
+
+        $config->set('auth.providers.querying', ['driver' => 'model', 'model' => QueryingCodeIdentity::class]);
+        $config->set('auth.guards.querying', ['driver' => 'jwt', 'provider' => 'querying', 'audience' => ['methods' => ['phone_code']]]);
 
         $this->configureLaggingReplica($config);
     }

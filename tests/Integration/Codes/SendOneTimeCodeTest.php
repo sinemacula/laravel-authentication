@@ -183,6 +183,37 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
+     * A sign-in code bound to a look-alike of a verified address, whose lookup
+     * finds the address's holder, is not sent; the holder's own address gets
+     * its code, at that address in its normal form.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASignInCodeGoesOnlyToTheExactHolderOfTheAddress(): void
+    {
+        $holder = self::seedCodeIdentity(email: 'ada@example.test');
+
+        $this->configureLookAlikeGuard();
+
+        $lookAlike = CodeBinding::signIn('lookalike', 'email', 'ada@exämple.test');
+
+        (new SendOneTimeCode($lookAlike, $this->issue($lookAlike, $this->now)))->handle(app());
+
+        self::assertSame(0, $this->sender->count());
+
+        $exact = CodeBinding::signIn('lookalike', 'email', 'ada@example.test');
+
+        (new SendOneTimeCode($exact, $this->issue($exact, $this->now)))->handle(app());
+
+        $message = $this->sender->sent()[0] ?? null;
+
+        self::assertSame('ada@example.test', $message?->identifier);
+        self::assertTrue($holder->is($message->identity));
+    }
+
+    /**
      * Rows of what happens to the issuance before the job runs.
      *
      * @return iterable<string, array{0: string}>
