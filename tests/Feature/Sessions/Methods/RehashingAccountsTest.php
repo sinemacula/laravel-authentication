@@ -77,6 +77,7 @@ final class RehashingAccountsTest extends TestCase
 
         Event::dispatch(new OtherDeviceLogout('admin', $there));
         Event::dispatch(new Login('web', $here, false));
+        Event::dispatch(new Attempting('console', ['email' => 'grace@example.test', 'password' => self::PASSWORD], false));
         Event::dispatch(new OtherDeviceLogout('web', $here));
 
         self::assertSame(['there, changed'], $runs->getArrayCopy());
@@ -184,8 +185,8 @@ final class RehashingAccountsTest extends TestCase
     }
 
     /**
-     * Save the user's password over a hash of the same password, recording the
-     * change under the name when it runs.
+     * Save the user's password over a hash of the same password that needed
+     * rehashing, recording the change under the name when it runs.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $user
      * @param  \ArrayObject<int, string>  $runs
@@ -194,7 +195,7 @@ final class RehashingAccountsTest extends TestCase
      */
     private static function save(Identity&Model $user, \ArrayObject $runs, string $name): void
     {
-        app(Rehashing::class)->unlessRehash($user, Hash::make(self::PASSWORD), static function () use ($runs, $name): void {
+        app(Rehashing::class)->unlessRehash($user, Hash::make(self::PASSWORD, ['rounds' => 5]), static function () use ($runs, $name): void {
             $runs->append($name);
         });
     }

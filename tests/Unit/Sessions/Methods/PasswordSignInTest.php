@@ -7,6 +7,8 @@ namespace Tests\Unit\Sessions\Methods;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Support\Stringable;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
@@ -25,6 +27,7 @@ use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Unit tests for the password sign-in method: the configured identifier key,
@@ -497,27 +500,31 @@ final class PasswordSignInTest extends TestCase
     }
 
     /**
-     * The rehash runs with its identity marked by the container's shared
-     * `Rehashing`, so a listener on a change of password can tell it from one,
-     * and the mark is cleared once it ends.
+     * The rehash runs with its identity and the password signed in with marked
+     * by the container's shared `Rehashing`, so a listener on a change of
+     * password can tell a save that re-encodes that password from a change, and
+     * the mark is cleared once it ends.
      *
      * @return void
      */
     public function testRehashRunsMarkedAsAnAutomaticRehash(): void
     {
-        $identity  = $this->identity();
         $rehashing = new Rehashing;
         $previous  = Container::getInstance();
         $container = new Container;
+        $hasher    = new BcryptHasher(['rounds' => 4]);
+        $outdated  = (new BcryptHasher(['rounds' => 5]))->make('secret');
+        $identity  = new PlainIdentityFixture(1, $hasher->make('secret'));
 
         $container->instance(Rehashing::class, $rehashing);
+        $container->instance(Hasher::class, $hasher);
 
         Container::setInstance($container);
 
         $changes = [];
 
-        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, $identity, &$changes): void {
-            $rehashing->unlessRehash($identity, 'previous hash', static function () use (&$changes): void {
+        $this->provider->shouldReceive('rehashPasswordIfRequired')->once()->andReturnUsing(static function () use ($rehashing, $identity, $outdated, &$changes): void {
+            $rehashing->unlessRehash($identity, $outdated, static function () use (&$changes): void {
                 $changes[] = 'during';
             });
 
@@ -526,13 +533,13 @@ final class PasswordSignInTest extends TestCase
 
         try {
             (new PasswordSignIn(new Repository))->rehash($this->provider, $identity, ['password' => 'secret']);
+
+            $rehashing->unlessRehash($identity, $outdated, static function () use (&$changes): void {
+                $changes[] = 'after';
+            });
         } finally {
             Container::setInstance($previous);
         }
-
-        $rehashing->unlessRehash($identity, 'previous hash', static function () use (&$changes): void {
-            $changes[] = 'after';
-        });
 
         self::assertSame(['after'], $changes);
     }

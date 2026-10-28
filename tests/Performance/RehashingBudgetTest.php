@@ -51,6 +51,7 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
         $hasher = \Mockery::mock(Hasher::class);
 
         $hasher->shouldReceive('make')->andReturnUsing(static fn (string $value): string => $bcrypt->make($value));
+        $hasher->shouldReceive('needsRehash')->andReturnUsing(static fn (string $hash): bool => $bcrypt->needsRehash($hash));
         $hasher->shouldReceive('check')->andReturnUsing(function (string $value, mixed $hash) use ($bcrypt): bool {
             $this->checks++;
 
@@ -110,7 +111,7 @@ final class RehashingBudgetTest extends PerformanceContractTestCase
                 Event::dispatch(new Attempting('web', ['email' => 'ada@example.test', 'password' => self::PASSWORD], false));
                 Event::dispatch(new Validated('web', $user));
 
-                $previous = app(Hasher::class)->make($from);
+                $previous = (new BcryptHasher(['rounds' => 5]))->make($from);
 
                 $user->forceFill(['password' => app(Hasher::class)->make($to)]);
 

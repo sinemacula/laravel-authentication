@@ -104,9 +104,10 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
     }
 
     /**
-     * A password saved while an automatic rehash runs is not a change of
-     * password, and a password sign-in's rehash runs marked so; the same save
-     * once the rehash is over is a change.
+     * A save that rehashes the password signed in with while the package's own
+     * automatic rehash runs is not a change of password, and a password
+     * sign-in's rehash runs marked so; the same save once the rehash is over is
+     * a change.
      *
      * @return void
      *
@@ -114,19 +115,35 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
      */
     public function testTheAutomaticRehashRevokesNothing(): void
     {
-        $identity = $this->seedIdentity();
+        $identity = $this->seedOutdatedHash()->refresh();
 
-        $this->signIn();
-
-        IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
-
-        app(Rehashing::class)->during($identity, static function () use ($identity): void {
+        app(Rehashing::class)->during($identity, self::PASSWORD, static function () use ($identity): void {
             $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
         });
 
         self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
 
         $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+        self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * A new password saved while the package's own automatic rehash runs, by
+     * another listener of the rehash's save say, is a change: the mark covers
+     * only a save that rehashes the password signed in with.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testANewPasswordSavedDuringTheAutomaticRehashRevokes(): void
+    {
+        $identity = $this->seedOutdatedHash()->refresh();
+
+        app(Rehashing::class)->during($identity, self::PASSWORD, static function () use ($identity): void {
+            IntegrationIdentity::query()->whereKey($identity->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
+        });
 
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
     }
@@ -458,50 +475,69 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
     /**
      * Rows of `[how the web attempt for the identity is left open, the instance
-     * whose other devices are signed out, whether a listener of the forced save
-     * makes another web attempt before the sign-out's event]`.
+     * whose other devices are signed out, what another listener of the forced
+     * save does before the sign-out's event]`.
      *
-     * @return iterable<string, array{0: string, 1: string, 2: bool}>
+     * @return iterable<string, array{0: string, 1: string, 2: string}>
      */
     public static function provideOpenAttempts(): iterable
     {
         foreach (['after an attempt whose callback threw' => 'abandoned', 'from inside the attempt\'s own callback' => 'callback'] as $name => $attempt) {
-            yield "{$name}, through the instance the attempt validated" => [$attempt, 'validated', false];
-            yield "{$name}, through another instance" => [$attempt, 'another', false];
-            yield "{$name}, through the instance the attempt validated, with a nested attempt" => [$attempt, 'validated', true];
+            yield "{$name}, through another instance" => [$attempt, 'another', 'nothing'];
+            yield "{$name}, through the instance the attempt validated" => [$attempt, 'validated', 'nothing'];
+            yield "{$name}, through the validated instance, with a nested attempt" => [$attempt, 'validated', 'attempt'];
+            yield "{$name}, through the validated instance, binding it to a guard" => [$attempt, 'validated', 'bind'];
+            yield "{$name}, through the validated instance, with a change rolled back" => [$attempt, 'validated', 'rollback'];
         }
     }
 
     /**
      * `logoutOtherDevices()` saves a fresh hash of the same password, which an
      * open attempt for the user would take for its own rehash when it saves the
-     * instance the attempt validated: whether that attempt threw after
-     * validating the user and never ended, or the forced rehash runs inside its
-     * callback, and even when another listener of the forced save makes an
-     * attempt of the same guard before `OtherDeviceLogout`, the sign-out still
-     * ends every package session, so its tokens are refused at the `auth`
-     * middleware and its refresh token refreshes nothing.
+     * instance the attempt validated over a hash that needed rehashing: whether
+     * that attempt threw after validating the user and never ended, or the
+     * forced rehash runs inside its callback, and whatever another listener of
+     * the forced save does first (attempt again on the same guard, bind the
+     * instance to a guard, or change the password in a transaction it rolls
+     * back), the sign-out still ends every package session, so its tokens are
+     * refused at the `auth` middleware and its refresh token refreshes nothing.
      *
      * @param  string  $attempt
      * @param  string  $through
-     * @param  bool  $nested
+     * @param  string  $listener
      * @return void
      *
      * @throws \Throwable
      */
     #[DataProvider('provideOpenAttempts')]
-    public function testLogoutOtherDevicesWhileAnAttemptIsOpenRevokes(string $attempt, string $through, bool $nested): void
+    public function testLogoutOtherDevicesWhileAnAttemptIsOpenRevokes(string $attempt, string $through, string $listener): void
     {
         $identity = $this->seedIdentity();
         $session  = $this->signIn();
 
+        DB::table('integration_identities')->update(['password' => self::OUTDATED_HASH]);
+
         IntegrationIdentity::observe(RevokeDevicesOnPasswordChange::class);
 
-        if ($nested) {
-            IntegrationIdentity::updated(function (): void {
-                self::assertFalse($this->webGuard()->attempt(['email' => 'ada@example.test', 'password' => 'wrong']));
-            });
-        }
+        $listening = true;
+
+        IntegrationIdentity::updated(function (IntegrationIdentity $saved) use ($listener, &$listening): void {
+
+            if (!$listening) {
+                return;
+            }
+
+            $listening = false;
+
+            match ($listener) {
+                'attempt'  => self::assertFalse($this->webGuard()->attempt(['email' => 'ada@example.test', 'password' => 'wrong'])),
+                'bind'     => $this->webGuard()->setUser($saved),
+                'rollback' => self::rollBack(static function () use ($saved): void {
+                    IntegrationIdentity::query()->whereKey($saved->getKey())->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('rolled back')])->save();
+                }),
+                default => null,
+            };
+        });
 
         $logout = static function (IntegrationIdentity $validated) use ($identity, $through): bool {
 
@@ -509,7 +545,7 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
 
             self::assertInstanceOf(SessionGuard::class, $guard);
 
-            $guard->setUser($through === 'validated' ? $validated : $identity);
+            $guard->setUser($through === 'validated' ? $validated : $identity->refresh());
             $guard->logoutOtherDevices(self::PASSWORD);
 
             return true;
@@ -624,6 +660,25 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         $config->set('auth.guards.console', ['driver' => 'session', 'provider' => 'users']);
         $config->set('auth.timebox_duration', 1);
         $config->set('session.driver', 'array');
+    }
+
+    /**
+     * Run the callback in a transaction and roll it back.
+     *
+     * @param  \Closure(): void  $callback
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private static function rollBack(\Closure $callback): void
+    {
+        DB::beginTransaction();
+
+        try {
+            $callback();
+        } finally {
+            DB::rollBack();
+        }
     }
 
     /**

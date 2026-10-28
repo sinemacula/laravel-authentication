@@ -1856,18 +1856,21 @@ Membership::observe(RevokeDevicesOnDeactivation::class);
   `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change, and
   the observer ignores it: the package's own sign-ins run it marked, and so do Laravel's guards (`attempt()`,
   `attemptWhen()`, `once()`, as a web login over the same user model does), whose attempt the package follows through
-  Laravel's auth events: while an attempt is open, a save is the rehash only when it saves the very model instance the
-  attempt validated, both the hash it replaces and the hash it saves verify the password the attempt was made with, and
-  no change of the user's password has run since. So a new password saved before the attempt ends (by an
-  `attemptWhen()` callback, say) revokes, and so does any later save of the user, a change back to that password or a
-  fresh hash of it through another instance included. An attempt made inside another attempt's callback, or the
-  session's user resolved there, leaves the outer attempt's rehash alone (an `Auth::login()` of the very instance the
-  outer attempt validated, inside its callback, does end it early, so its rehash then revokes), and users are told apart
-  by the row they are stored in (connection, database, table and key), so the same key in another tenant's database is
-  another user. Confirming the current password with `validate()` before changing it is not
-  an attempt, so the change that follows revokes; so does Laravel's `logoutOtherDevices()`, whose forced rehash exists
-  to sign the other sessions out, even while an attempt for the user is open (the package tells it apart by the
-  `OtherDeviceLogout` event that follows it). Only changes saved through Eloquent fire model events.
+  Laravel's auth events. A save is the rehash only as a user provider makes one: the hash it replaces needed rehashing,
+  and both it and the hash saved verify the password signed in with; for an attempt, it must also save the very model
+  instance the attempt validated, with no change of the user's password run since. So a new password saved before the
+  attempt ends (by an `attemptWhen()` callback, say) revokes, and so does any later save of the user, a change back to
+  that password or a fresh hash of it through another instance included. An attempt made inside another attempt's
+  callback, or the session's user resolved there, leaves the outer attempt's rehash alone; two cases end the outer
+  attempt early, so its rehash then revokes: an `Auth::login()` of the very instance it validated inside its callback,
+  and a refused inner attempt that validated that same instance (from a provider that caches its users). Users are told
+  apart by the row they are stored in (connection, database, table and key), so the same key in another tenant's
+  database is another user. Confirming the current password with `validate()` before changing it is not an attempt, so
+  the change that follows revokes; so does Laravel's `logoutOtherDevices()`, whose forced rehash exists to sign the
+  other sessions out, even while an attempt for the user is open (the package holds a save it may take for the attempt's
+  rehash until the `OtherDeviceLogout` event that follows a forced one, or until a later attempt finds that attempt
+  ended; a sign-out after another change of the password may therefore revoke twice). Only changes saved through
+  Eloquent fire model events.
 - `RevokeDevicesOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
   it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
   identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
