@@ -454,6 +454,33 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
+     * A check that counted its attempt on an issuance and then finds it
+     * replaced by a resend of the same digits never uses the replacement up: it
+     * is invalid, and the new issuance stays unused and still accepts the code.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testACheckThatCountedItsAttemptNeverUsesUpAResendOfTheSameDigits(): void
+    {
+        $binding = self::binding();
+        $codes   = self::sequence(['424242', '424242']);
+        $later   = $this->now->addSeconds(60);
+
+        $codes->issue($binding, $this->now);
+
+        $this->afterTheAttemptIsCounted(static function () use ($codes, $binding, $later): void {
+            $codes->issue($binding, $later);
+        });
+
+        self::assertSame(CodeCheck::INVALID, $codes->check($binding, '424242', $later));
+        self::assertNull(DB::table('one_time_codes')->value('consumed_at'));
+        self::assertSame(0, self::attempts());
+        self::assertSame(CodeCheck::ACCEPTED, $codes->check($binding, '424242', $later));
+    }
+
+    /**
      * Rows of `[change another request makes after the check reads, answer]`: a
      * check whose attempt cannot be counted answers from a fresh read of the
      * issuance it read: exhausted or expired when it now is, invalid when it
