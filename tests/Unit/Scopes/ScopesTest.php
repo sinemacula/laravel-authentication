@@ -61,6 +61,46 @@ final class ScopesTest extends TestCase
     }
 
     /**
+     * A list of scopes is accepted up to 8,192 bytes written space-separated,
+     * duplicates not counted; one byte more refuses the scopes from the first
+     * that does not fit.
+     *
+     * @return void
+     */
+    public function testBoundsTheListOfScopes(): void
+    {
+        $scopes = self::longestScopes();
+
+        self::assertSame(Scopes::MAX_LIST_LENGTH, strlen(Scopes::format($scopes)));
+        self::assertSame($scopes, Scopes::normalise([...$scopes, $scopes[0]]));
+
+        try {
+            Scopes::normalise([...$scopes, 'x']);
+
+            self::fail('Expected the list to be refused.');
+        } catch (InvalidScopeException $exception) {
+            self::assertSame(['x'], $exception->scopes);
+            self::assertSame('The scopes, written space-separated, must be at most 8192 bytes.', $exception->getMessage());
+        }
+
+        try {
+            Scopes::normalise([...array_slice($scopes, 0, -1), end($scopes) . '/']);
+
+            self::fail('Expected a list one byte too long to be refused.');
+        } catch (InvalidScopeException $exception) {
+            self::assertSame([end($scopes) . '/'], $exception->scopes);
+        }
+
+        try {
+            Scopes::normalise(['x', ...$scopes]);
+
+            self::fail('Expected the list to be refused.');
+        } catch (InvalidScopeException $exception) {
+            self::assertSame([end($scopes)], $exception->scopes);
+        }
+    }
+
+    /**
      * Rows of `[scope, reported]`: values that are not scope tokens, and how
      * the exception names each.
      *
@@ -268,5 +308,23 @@ final class ScopesTest extends TestCase
         $this->expectException(InvalidScopeException::class);
 
         Scopes::grantable($registry, 'machine', new PlainPrincipalFixture('p-1'), ['a b']);
+    }
+
+    /**
+     * Distinct scopes that, written space-separated, take exactly the most
+     * bytes a list may: 31 of 255 bytes, one of 128 and one of 127, mostly
+     * slashes, which JSON escapes, so the stored form is as long as it gets.
+     *
+     * @return list<string>
+     */
+    private static function longestScopes(): array
+    {
+        $scopes = [];
+
+        for ($index = 0; $index < 31; $index++) {
+            $scopes[] = sprintf('%04d', $index) . str_repeat('/', 251);
+        }
+
+        return [...$scopes, 'a' . str_repeat('/', 127), 'b' . str_repeat('/', 126)];
     }
 }

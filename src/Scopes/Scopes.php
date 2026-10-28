@@ -24,12 +24,20 @@ final class Scopes
     /** @var int Longest scope accepted, in bytes. */
     public const int MAX_LENGTH = 255;
 
+    /** @var int Longest list of scopes accepted, in bytes, written space-separated as a token's `scope` claim carries it. */
+    public const int MAX_LIST_LENGTH = 8192;
+
     /** @var string An RFC 6749 scope token: printable ASCII except space, `"` and `\`. */
     private const string TOKEN_PATTERN = '/^[\x21\x23-\x5B\x5D-\x7E]+$/D';
 
     /**
      * Bring scopes to their stored form: each a well-formed scope token of at
-     * most 255 bytes, duplicates removed, the first occurrence's order kept.
+     * most 255 bytes, duplicates removed, the first occurrence's order kept,
+     * and all of them, space-separated, at most 8,192 bytes. The list bound
+     * keeps the stored list whole in every engine's column (MySQL's `TEXT`
+     * holds 65,535 bytes, and an insert that ignores duplicate keys there would
+     * cut a longer value short without an error) and a token's `scope` claim
+     * within what a request header carries.
      *
      * @param  array<array-key, mixed>  $scopes
      * @return list<string>
@@ -56,8 +64,10 @@ final class Scopes
             throw new InvalidScopeException($message, $malformed);
         }
 
-        /** @var list<string> */
-        return array_values(array_unique($scopes));
+        /** @var list<string> $unique */
+        $unique = array_values(array_unique($scopes));
+
+        return self::withinListLength($unique);
     }
 
     /**
@@ -119,6 +129,31 @@ final class Scopes
         }
 
         return $normalised;
+    }
+
+    /**
+     * The scopes when, space-separated, they fit the list bound; otherwise the
+     * scopes from the first that does not fit are refused.
+     *
+     * @param  list<string>  $scopes
+     * @return list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException
+     */
+    private static function withinListLength(array $scopes): array
+    {
+        $length = -1;
+
+        foreach ($scopes as $index => $scope) {
+
+            $length += strlen($scope) + 1;
+
+            if ($length > self::MAX_LIST_LENGTH) {
+                throw new InvalidScopeException('The scopes, written space-separated, must be at most ' . self::MAX_LIST_LENGTH . ' bytes.', array_slice($scopes, $index));
+            }
+        }
+
+        return $scopes;
     }
 
     /**

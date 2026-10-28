@@ -17,7 +17,10 @@ authorization package decides what they allow.
   (`InvalidArgumentException` from every passkey call that names an owner); a code it holds anyway, or a passkey whose
   owner became a machine, is refused at admission. The trusted binds stay trusted and bind it with `[]` scopes.
 - A scope is an opaque RFC 6749 scope token (printable ASCII other than space, `"` and `\`, at most 255 bytes). The
-  package stores scopes as an ordered list without duplicates and never reads meaning into one.
+  package stores scopes as an ordered list without duplicates and never reads meaning into one. The list, written
+  space-separated, is at most 8,192 bytes (`Scopes::MAX_LIST_LENGTH`), else `InvalidScopeException` at issue: the JSON
+  stored in the `TEXT` column (65,535 bytes on MySQL) then never exceeds about 20 KB even with every `/` escaped, and
+  an insert that ignores duplicate keys, which on MySQL turns every error into a warning, can never cut it short.
 - Scopes are a ceiling, never a permission: an authorization package intersects them with the principal's permissions.
 - `Auth::scopes()` is `null` when no credential limits the request (a human identity's session, or nothing bound), the
   credential's granted list for an API key or a client credentials token, and `[]` for a `MachineIdentity` bound

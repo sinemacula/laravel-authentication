@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Scopes\Scopes;
 use Tests\Concerns\InteractsWithMachineCredentials;
 use Tests\Integration\Fixtures\MachineAccount;
 use Tests\Integration\Fixtures\MachineClient;
@@ -269,6 +270,40 @@ final class ApiKeyServiceTest extends TestCase
         }
 
         self::assertSame(0, DB::table('api_keys')->count());
+    }
+
+    /**
+     * The longest list of scopes a key may have is stored whole on every
+     * engine, MySQL's `TEXT` column and its duplicate-ignoring insert included,
+     * and read back by the key's summary and its use; one scope more is refused
+     * before anything is stored.
+     *
+     * @return void
+     */
+    public function testStoresTheLongestListOfScopesWhole(): void
+    {
+        $machine = $this->seedMachine();
+        $scopes  = self::longestScopes();
+
+        self::assertSame(Scopes::MAX_LIST_LENGTH, strlen(Scopes::format($scopes)));
+
+        $issued = $this->apiKeys()->issue($machine, $machine, $scopes);
+
+        self::assertSame($scopes, $this->apiKeys()->find($machine, $issued->id)?->scopes);
+        $stored = DB::table('api_keys')->value('scopes');
+
+        self::assertIsString($stored);
+        self::assertSame($scopes, json_decode($stored, true));
+
+        try {
+            $this->apiKeys()->issue($machine, $machine, [...$scopes, 'x']);
+
+            self::fail('Expected a list past the bound to be refused.');
+        } catch (InvalidScopeException $exception) {
+            self::assertSame(['x'], $exception->scopes);
+        }
+
+        self::assertSame(1, DB::table('api_keys')->count());
     }
 
     /**
@@ -1004,5 +1039,23 @@ final class ApiKeyServiceTest extends TestCase
         self::assertNotNull($this->app);
 
         return new ApiKeyService($guard, $this->app, $draw);
+    }
+
+    /**
+     * Distinct scopes that, written space-separated, take exactly the most
+     * bytes a list may: 31 of 255 bytes, one of 128 and one of 127, mostly
+     * slashes, which JSON escapes, so the stored form is as long as it gets.
+     *
+     * @return list<string>
+     */
+    private static function longestScopes(): array
+    {
+        $scopes = [];
+
+        for ($index = 0; $index < 31; $index++) {
+            $scopes[] = sprintf('%04d', $index) . str_repeat('/', 251);
+        }
+
+        return [...$scopes, 'a' . str_repeat('/', 127), 'b' . str_repeat('/', 126)];
     }
 }

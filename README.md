@@ -2489,8 +2489,10 @@ A credential issued to a machine (an API key, or the access token a client crede
 scopes: the most its bearer may do. The package carries them and never interprets them. A scope is an opaque string
 (`invoices:read`, `https://api.example.test/reports`), an RFC 6749 scope token: printable ASCII other than space, `"`
 and `\`, at most 255 bytes, kept as an ordered list without duplicates and written as one space-separated string in a
-token's `scope` claim. Scopes are a ceiling, never a permission: authorization computes the principal's permissions and
-intersects them with the credential's scopes, so a scope grants nothing the principal could not already do.
+token's `scope` claim. That string may be at most 8,192 bytes: a longer list is refused with an `InvalidScopeException`
+when the key is issued, so it is always stored whole and fits a request header in a token. Scopes are a ceiling, never a
+permission: authorization computes the principal's permissions and intersects them with the credential's scopes, so a
+scope grants nothing the principal could not already do.
 
 `Auth::scopes()` (and `scopes()` on a package guard) reports them for the request:
 
