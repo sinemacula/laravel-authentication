@@ -430,7 +430,8 @@ final class PendingFactorSessionServiceTest extends TestCase
      * A proven device that changes after the factor was asked for is not
      * continued: a refresh before the completion makes it unknown to the
      * pending sign-in, and one in the middle of the completion makes the swap
-     * miss; either way the completion starts on a new device.
+     * miss; either way the completion starts on a new device, which records the
+     * sign-in's identifier type.
      *
      * @return void
      *
@@ -457,6 +458,7 @@ final class PendingFactorSessionServiceTest extends TestCase
         $result = $this->sessions()->complete($during->token);
 
         self::assertTrue($result->session?->deviceCreated);
+        self::assertSame('email', Device::query()->whereKey($result->session->device->getKey())->value('sign_in_identifier_type'));
         self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey());
     }
 
@@ -487,7 +489,8 @@ final class PendingFactorSessionServiceTest extends TestCase
     /**
      * When the proven device changes before a sign-in can continue on it, the
      * factor policy is asked again without the device, and a pending sign-in it
-     * then asks for carries no device.
+     * then asks for carries no device; its completion records the sign-in's
+     * identifier type.
      *
      * @return void
      *
@@ -522,7 +525,10 @@ final class PendingFactorSessionServiceTest extends TestCase
         self::assertNull(PendingSignIn::query()->firstOrFail()->device_id);
         self::assertSame([1, 1], [$this->identifierHits(), $this->accountHits($identity)]);
 
-        self::assertTrue($this->sessions()->complete((string) $result->pending?->token)->isSignedIn());
+        $completed = $this->sessions()->complete((string) $result->pending?->token)->session;
+
+        self::assertNotNull($completed);
+        self::assertSame('email', Device::query()->whereKey($completed->device->getKey())->value('sign_in_identifier_type'));
         self::assertSame([0, 0], [$this->identifierHits(), $this->accountHits($identity)]);
     }
 

@@ -443,6 +443,37 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
+     * A session started by choosing records the type of identifier its sign-in
+     * used, so a later switch is held to it as the choice was: a principal the
+     * policy refuses to that identifier is not reached by choosing another and
+     * switching, and the session stays as it was.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChosenSessionSwitchesOnlyWhereItsIdentifierIsAdmitted(): void
+    {
+        [, $own, $invited] = $this->seedChooser();
+
+        app()->instance(AudiencePolicy::class, new InvitedTenantAudiencePolicy(app(AudiencePolicy::class), $invited->tenant_id));
+
+        $session = $this->sessions(self::GUARD)->choose($this->offer(), $own)->session;
+
+        self::assertNotNull($session);
+
+        $row = (array) DB::table('devices')->sole();
+
+        self::assertSame('email', $row['sign_in_identifier_type']);
+
+        $switch = $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $invited);
+
+        self::assertTrue($switch->isFailed());
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $switch->reason);
+        self::assertEquals($row, (array) DB::table('devices')->sole());
+    }
+
+    /**
      * When the policy refuses every principal to the identifier the sign-in
      * used, the sign-in fails with the policy's reason rather than as if the
      * identity had no principal, storing and reporting no choice.
