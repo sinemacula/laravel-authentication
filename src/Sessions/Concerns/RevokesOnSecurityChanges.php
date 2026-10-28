@@ -10,6 +10,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
@@ -117,9 +118,10 @@ trait RevokesOnSecurityChanges
      * devices record principals, not tenants. Every principal must act within
      * the tenant (the same class and identifier, read on the write connection),
      * or nothing is written and an `InvalidArgumentException` is thrown; a
-     * principal listed twice counts once. All devices and pending sign-ins are
-     * ended in one transaction, after each principal's cutoff moved, with one
-     * `SignedOutEverywhere` per principal.
+     * principal listed twice counts once. A tenant that is already deleted or
+     * soft-deleted works too: a principal naming it acts within it. All devices
+     * and pending sign-ins are ended in one transaction, after each principal's
+     * cutoff moved, with one `SignedOutEverywhere` per principal.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  iterable<\SineMacula\Laravel\Authentication\Contracts\Principal>  $principals
@@ -144,7 +146,10 @@ trait RevokesOnSecurityChanges
     }
 
     /**
-     * Refuse a principal that does not act within the tenant.
+     * Refuse a principal that does not act within the tenant. A principal whose
+     * tenant cannot be loaded any more (deleted, soft-deleted, hidden by a
+     * scope) acts within the tenant when it names that very tenant: its class
+     * and key.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
@@ -154,7 +159,11 @@ trait RevokesOnSecurityChanges
      */
     private static function assertActsWithin(Principal $principal, Tenant $tenant): void
     {
-        $actual = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+        try {
+            $actual = WriteConnection::during($principal, static fn (): ?Tenant => $principal->getTenant());
+        } catch (TenantUnavailableException $exception) {
+            $actual = $exception->isFor($tenant) ? $tenant : null;
+        }
 
         if ($actual !== null && $actual::class === $tenant::class && IdentifierCoercion::matches($actual->getTenantIdentifier(), $tenant->getTenantIdentifier())) {
             return;

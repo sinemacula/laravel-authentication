@@ -295,6 +295,31 @@ final class ActsAsPrincipalTest extends TestCase
     }
 
     /**
+     * The exception names the tenant the principal holds a key for, its class
+     * and that key, so a caller holding the tenant can tell it is that one.
+     *
+     * @return void
+     */
+    public function testTheUnloadableTenantsExceptionNamesItsClassAndKey(): void
+    {
+        $principal = $this->principalWithTenantRelation($this->belongsTo(new StubActivatableTenant), ['tenant_id' => 5]);
+
+        $named = new StubActivatableTenant;
+        $named->setRawAttributes(['id' => 5]);
+
+        $other = new StubActivatableTenant;
+        $other->setRawAttributes(['id' => 6]);
+
+        try {
+            $principal->getTenant();
+            self::fail('The tenant that cannot be loaded was not reported.');
+        } catch (TenantUnavailableException $exception) {
+            self::assertTrue($exception->isFor($named));
+            self::assertFalse($exception->isFor($other));
+        }
+    }
+
+    /**
      * A tenant that does not implement `CanBeActive` is never checked, so one
      * that cannot be loaded reads as no tenant.
      *
@@ -706,6 +731,7 @@ final class ActsAsPrincipalTest extends TestCase
     private function principalWithTenantRelation(Relation $relation, array $attributes): Stub3dPrincipal
     {
         $relation->shouldReceive('getForeignKeyName')->andReturn('tenant_id');
+        $relation->shouldReceive('getOwnerKeyName')->andReturn('id');
 
         // A subclass of its own, so the resolved relation stays off the shared
         // stub class.

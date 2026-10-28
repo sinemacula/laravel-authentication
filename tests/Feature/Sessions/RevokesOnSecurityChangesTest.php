@@ -6,6 +6,7 @@ namespace Tests\Feature\Sessions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
@@ -302,6 +303,83 @@ final class RevokesOnSecurityChangesTest extends TestCase
         $this->expectExceptionMessage('does not act within tenant');
 
         $this->sessions('members')->tenantDeactivated($tenant, [$identity]);
+    }
+
+    /**
+     * A tenant already soft-deleted, or deleted outright, can no longer be
+     * loaded through its principals, but a principal naming it still acts
+     * within it: its sessions end, so restoring the tenant revives none. A
+     * principal naming another deleted tenant is still refused.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeletedTenantsDeactivationEndsItsPrincipalsSessions(): void
+    {
+        [, $member, $tenant]   = $this->seedMember();
+        [, $other, $elsewhere] = $this->seedMember('other@example.test');
+
+        $this->memberSignIn('member@example.test');
+
+        $tenant->delete();
+        $elsewhere->forceDelete();
+
+        try {
+            $this->sessions('members')->tenantDeactivated($tenant, [$other->fresh()]);
+            self::fail('A principal of another deleted tenant was accepted.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('does not act within tenant', $exception->getMessage());
+        }
+
+        self::assertSame(1, $this->sessions('members')->tenantDeactivated($tenant, [$member->fresh()]));
+        self::assertSame('tenant_deactivated', DB::table('devices')->value('revoked_reason'));
+
+        [, $last, $gone] = $this->seedMember('last@example.test');
+
+        $this->memberSignIn('last@example.test');
+
+        $gone->forceDelete();
+
+        self::assertSame(1, $this->sessions('members')->tenantDeactivated($gone, [$last->fresh()]));
+    }
+
+    /**
+     * Two principals whose recorded type and identifier run together into the
+     * same string (`member` with `12`, `member1` with `2`) are two principals,
+     * both ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testPrincipalsWhoseTypeAndIdentifierRunTogetherAreBothEnded(): void
+    {
+        Relation::morphMap(['member' => ActivatableTenantMembership::class, 'member1' => EagerTenantMembership::class]);
+
+        try {
+            $tenant = ActivatableTenant::query()->create(['name' => 'Tenant', 'is_active' => true]);
+
+            foreach ([12, 2] as $id) {
+                DB::table('activatable_tenant_memberships')->insert(['id' => $id, 'identity_id' => $id, 'tenant_id' => $tenant->getKey()]);
+            }
+
+            $this->recordEvents([SignedOutEverywhere::class]);
+
+            $this->sessions('members')->tenantDeactivated($tenant, [
+                ActivatableTenantMembership::query()->findOrFail(12),
+                EagerTenantMembership::query()->findOrFail(2),
+            ]);
+
+            $principals = array_map(
+                static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalType . ':' . $event->context->principalId : null,
+                $this->recorded,
+            );
+
+            self::assertSame(['member:12', 'member1:2'], $principals);
+        } finally {
+            Relation::morphMap([], false);
+        }
     }
 
     /**

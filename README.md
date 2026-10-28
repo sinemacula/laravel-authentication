@@ -1755,11 +1755,12 @@ affected sessions as a bulk revocation, with its own reason, moves the scope's c
 Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change.
 `factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. Devices record
 principals, not tenants, so `tenantDeactivated()` takes the tenant's principals from you: each must act within the
-tenant (read on the write connection), or an `InvalidArgumentException` is thrown before anything is written; a
-principal listed twice counts once, and every principal's sessions end in one device transaction, with one
-`SignedOutEverywhere` per principal. Deactivation already stops every token at once through the live activity checks
-(see [Active-state enforcement](#active-state-enforcement)); revoking makes the end outlast a reactivation and records
-why.
+tenant (read on the write connection), or an `InvalidArgumentException` is thrown before anything is written; a tenant
+already deleted or soft-deleted still works, since a principal naming that very tenant (its class and key) acts within
+it, so restoring the tenant later revives no session; a principal listed twice counts once, and every principal's
+sessions end in one device transaction, with one `SignedOutEverywhere` per principal. Deactivation already stops every
+token at once through the live activity checks (see [Active-state enforcement](#active-state-enforcement)); revoking
+makes the end outlast a reactivation and records why.
 
 Three optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
 triggered it is committed on the changed model's connection, so a change that is rolled back revokes nothing:

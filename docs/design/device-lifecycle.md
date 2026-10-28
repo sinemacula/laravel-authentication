@@ -44,8 +44,9 @@ deleted. Starting a session is in
 - The security-change methods (`RevokesOnSecurityChanges`: `passwordChanged()`, `passwordReset()`, `factorRemoved()`,
   `identityDeactivated()`, `principalDeactivated()`, `tenantDeactivated()`) are bulk revocations with their own reason.
   `tenantDeactivated()` checks every listed principal acts within the tenant (`getTenant()` on the writer, same class
-  and identifier) before anything is written, de-duplicates by recorded type and id, and ends all of them in one device
-  transaction with one `SignedOutEverywhere` each.
+  and identifier; for a tenant that can no longer be loaded, the class and key the `TenantUnavailableException` carries,
+  so a deleted or soft-deleted tenant still ends its principals' sessions) before anything is written, de-duplicates by
+  recorded type and id, and ends all of them in one device transaction with one `SignedOutEverywhere` each.
 - The optional listeners (`RevokeDevicesOnPasswordReset`, `RevokeDevicesOnPasswordChange`,
   `RevokeDevicesOnDeactivation`) run their revocation through `AfterCommit` on the changed model's connection, so a
   rolled-back change revokes nothing. They act through a jwt guard's session service: the guard bound to the
