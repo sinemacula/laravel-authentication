@@ -10,9 +10,11 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 
 /**
  * Dispatched when the package revokes a device, ending its session everywhere
- * at once; today that is the refresh exchange revoking a device whose rotated
- * refresh token was replayed. A device an application revokes by writing
- * `revoked_at` itself is not reported.
+ * at once: a sign-out (`signOut()`, `logout()`), a revocation the application
+ * asks the session service for (`revokeDevice()`, `revokeDevices()`,
+ * `revokePrincipalDevices()`, `signOutEverywhere()` and the security-change
+ * methods), and a refresh or switch that caught a replayed refresh token. A
+ * device an application revokes by writing `revoked_at` itself is not reported.
  *
  * Fired only by the call that revoked the device, not for one that was already
  * revoked, and only once the revocation is committed on the device's own
@@ -20,9 +22,13 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
  * transaction commits otherwise, and never for a revocation that is rolled
  * back. A transaction on another connection neither delays nor cancels it.
  *
- * The context's guard is the device's own and its device is never `null`; the
- * identity, principal and tenant are carried when the revoking flow knew them
- * (a replay is caught before the owner is loaded, so it carries none).
+ * The context's guard is the device's own and its device is never `null`. The
+ * identity, principal and tenant are those the revoking flow holds; the
+ * snapshot of an identity or principal it does not hold is the owner or
+ * principal the device row records (a replay is caught before the owner is
+ * loaded, so its models are `null` and its snapshots name what the row
+ * records). The tenant is carried only by `signOut()` and
+ * `tenantDeactivated()`, since devices record none.
  *
  * @api
  *

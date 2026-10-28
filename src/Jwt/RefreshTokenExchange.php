@@ -335,7 +335,10 @@ final class RefreshTokenExchange
     /**
      * The context of an exchange on the device: the guard exchanging, the
      * client, the device and the method its session records, and whatever of
-     * the session's identity, principal and tenant the exchange resolved.
+     * the session's identity, principal and tenant the exchange resolved. A
+     * failure before the owner was read (the row's own state, an owner that no
+     * longer loads) is about the row, so it names the owner and principal the
+     * row records.
      *
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
@@ -351,7 +354,7 @@ final class RefreshTokenExchange
         ?Principal $principal = null,
         ?Tenant $tenant = null,
     ): EventContext {
-        return new EventContext($this->guardName, $client, $identity, $principal, $tenant, $device, $device->getSignInMethod());
+        return new EventContext($this->guardName, $client, $identity, $principal, $tenant, $device, $device->getSignInMethod(), fromDevice: $identity === null);
     }
 
     /**
@@ -392,7 +395,7 @@ final class RefreshTokenExchange
 
         if ($revoked) {
 
-            $event = new DeviceRevoked(new EventContext($device->getGuard(), $client, device: $device, method: $device->getSignInMethod()), $reason);
+            $event = new DeviceRevoked(new EventContext($device->getGuard(), $client, device: $device, method: $device->getSignInMethod(), fromDevice: true), $reason);
 
             $this->afterCommit->run($device, function () use ($event): void {
                 $this->events->dispatch($event);

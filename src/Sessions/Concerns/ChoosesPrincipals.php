@@ -206,7 +206,7 @@ trait ChoosesPrincipals
         $revoke = function (EloquentDevice&Model $device, CarbonImmutable $now) use ($client): bool {
 
             $event = new DeviceRevoked(
-                new EventContext($device->getGuard(), $client, device: $device, method: $device->getSignInMethod()),
+                new EventContext($device->getGuard(), $client, device: $device, method: $device->getSignInMethod(), fromDevice: true),
                 RevocationReason::ROTATION_REUSE,
             );
 

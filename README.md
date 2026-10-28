@@ -1861,13 +1861,14 @@ class User extends Model implements HasTokensValidAfter, Identity, Principal
 ```
 
 Every bulk revocation of its sessions (including the security-change methods above) then moves its cutoff to the
-revocation's second first, and the bearer path rejects a device-less access token whose `iat` is at or before the
-identity's or the principal's cutoff (`issued_before_cutoff`). The whole second is cut off, because a token's
-whole-second `iat` cannot tell an earlier token from one issued after the call in the same second, so a device-less
-token issued in that second is rejected too. Tokens that name a device are not checked against the cutoff (revoking the
-device ends them, and the device a sign-out everywhere keeps must keep working). The cutoff only ever moves forward,
-with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column must be loaded,
-or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
+revocation's second first, except `signOutEverywhere(keepCurrentDevice: true)` from a session without a device, which
+keeps the identity's cutoff where it is (see above), and the bearer path rejects a device-less access token whose `iat`
+is at or before the identity's or the principal's cutoff (`issued_before_cutoff`). The whole second is cut off, because
+a token's whole-second `iat` cannot tell an earlier token from one issued after the call in the same second, so a
+device-less token issued in that second is rejected too. Tokens that name a device are not checked against the cutoff
+(revoking the device ends them, and the device a sign-out everywhere keeps must keep working). The cutoff only ever
+moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
+must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
 
 ### Long-running processes
 
@@ -1981,13 +1982,15 @@ columns are), and as much as the event's flow established of the identity, the p
 device and the sign-in method (for a device's events, the method its session records); what was not established is
 `null`. It also snapshots, when the event is built, the identity's auth identifier (`identityId`), the principal's
 recorded type and identifier (`principalType`, `principalId`), and the tenant's and the device's identifiers
-(`tenantId`, `deviceId`, which keeps the device id a token named even when no device was found). When a device row was
-loaded but its identity or principal was not (a device revoked from a device list or by an administrator, a refresh
-refused before the owner was read), `identityId`, `principalType` and `principalId` are the owner and principal the row
-records; a device records no tenant, so a revocation's `tenantId` is known only when the tenant's deactivation or the
-request's own session is why. The snapshots, the client, the method and the other values are fixed facts that survive a
-queue unchanged. The models are live references: a synchronous listener gets the package's own instances, and a queued
-listener gets them re-fetched in their state when it runs, as Laravel's `SerializesModels` does, or a
+(`tenantId`, `deviceId`, which keeps the device id a token named even when no device was found). An event about a device
+row itself (every `DeviceRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
+such as a revoked or ended device or a replay) names the owner and principal the row records in `identityId`,
+`principalType` and `principalId` when the flow did not load them; a device records no tenant, so a revocation's
+`tenantId` is known only when the tenant's deactivation or the request's own session is why. Other events name only what
+they hold, even when they carry a device: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch
+refused for its target have no principal. The snapshots, the client, the method and the other values are fixed facts
+that survive a queue unchanged. The models are live references: a synchronous listener gets the package's own instances,
+and a queued listener gets them re-fetched in their state when it runs, as Laravel's `SerializesModels` does, or a
 `ModelNotFoundException` when one was deleted meanwhile (a pruned device, say). Audit sinks should record the snapshots.
 No event carries a token, a digest, a password or any other secret. An event that reports a write is dispatched once the
 write is committed on the written row's own connection: at once when it has no open transaction, on its commit

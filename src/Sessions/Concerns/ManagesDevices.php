@@ -95,7 +95,16 @@ trait ManagesDevices
         if ($device instanceof EloquentDevice && $device instanceof Model) {
 
             $event = new DeviceRevoked(
-                new EventContext($device->getGuard(), $this->client(), $identity, $this->guard->principal(), $this->boundTenant(), $device, $device->getSignInMethod()),
+                new EventContext(
+                    $device->getGuard(),
+                    $this->client(),
+                    $identity,
+                    $this->guard->principal(),
+                    $this->boundTenant(),
+                    $device,
+                    $device->getSignInMethod(),
+                    fromDevice: true,
+                ),
                 RevocationReason::SIGNED_OUT,
             );
 
@@ -168,7 +177,7 @@ trait ManagesDevices
             return false;
         }
 
-        $event = new DeviceRevoked(new EventContext($device->getGuard(), $this->client(), $owner, null, null, $device, $device->getSignInMethod()), $reason);
+        $event = new DeviceRevoked(new EventContext($device->getGuard(), $this->client(), $owner, device: $device, method: $device->getSignInMethod(), fromDevice: true), $reason);
 
         return $this->revocations->revoke($device, $reason, CarbonImmutable::now()->startOfSecond(), fn () => $this->dispatch($event));
     }
@@ -235,7 +244,8 @@ trait ManagesDevices
             $except,
             CarbonImmutable::now()->startOfSecond(),
             function (EloquentDevice&Model $device, RevocationScope $scope) use ($client, $reason): void {
-                $context = new EventContext($device->getGuard(), $client, $scope->identity, $scope->principal, $scope->tenant, $device, $device->getSignInMethod());
+                $method  = $device->getSignInMethod();
+                $context = new EventContext($device->getGuard(), $client, $scope->identity, $scope->principal, $scope->tenant, $device, $method, fromDevice: true);
 
                 $this->dispatch(new DeviceRevoked($context, $reason));
             },

@@ -514,8 +514,9 @@ final class ChoosesPrincipalsTest extends TestCase
 
     /**
      * A sign-in that proves the client holds a device for the identity offers
-     * the choice with that device; choosing the principal the device records
-     * continues it, while choosing another starts a new one.
+     * the choice with that device, reported with no principal although the
+     * device records one; choosing the principal the device records continues
+     * it, while choosing another starts a new one.
      *
      * @return void
      *
@@ -523,7 +524,7 @@ final class ChoosesPrincipalsTest extends TestCase
      */
     public function testAProvenDeviceIsContinuedOnlyForThePrincipalItRecords(): void
     {
-        [, $first, $second] = $this->seedChooser();
+        [$identity, $first, $second] = $this->seedChooser();
 
         $session = $this->sessions(self::GUARD)->choose($this->offer(), $first)->session;
 
@@ -531,9 +532,14 @@ final class ChoosesPrincipalsTest extends TestCase
 
         $this->recordEvents([PrincipalChoiceRequired::class]);
 
-        $again = $this->offer($session->tokens->refreshToken);
+        $again   = $this->offer($session->tokens->refreshToken);
+        $pending = $this->recordedEvent(PrincipalChoiceRequired::class)->context;
 
-        self::assertSame(IdentifierCoercion::stringify($session->device->getDeviceIdentifier()), $this->recordedEvent(PrincipalChoiceRequired::class)->context->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($session->device->getDeviceIdentifier()), $pending->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $pending->identityId);
+        self::assertNull($pending->principal);
+        self::assertNull($pending->principalType);
+        self::assertNull($pending->principalId);
 
         $continued = $this->sessions(self::GUARD)->choose($again, $first)->session;
 

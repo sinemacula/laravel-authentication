@@ -377,6 +377,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertSame([DeviceRevoked::class, AuthenticationFailed::class], $this->recordedClasses());
         self::assertSame(RevocationReason::ROTATION_REUSE, $this->recordedEvent(DeviceRevoked::class)->reason);
         self::assertSame(self::CLIENT_IP, $this->recordedEvent(DeviceRevoked::class)->context->client->ip);
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), $this->recordedEvent(DeviceRevoked::class)->context->principalId);
 
         $failed = $this->recordedEvent(AuthenticationFailed::class);
 
@@ -569,7 +570,8 @@ final class PrincipalSwitchTest extends TestCase
      * A target that is not the identity's, one of another type that shares a
      * key with one of the identity's own, one whose tenant was deactivated, and
      * one the factor policy would ask a further factor of are refused, and the
-     * session is left as it was.
+     * session is left as it was. Each refusal names the device's owner and the
+     * target resolved for it, if any, never the principal the device acts as.
      *
      * @return void
      *
@@ -577,14 +579,21 @@ final class PrincipalSwitchTest extends TestCase
      */
     public function testATargetTheIdentityMayNotActAsIsRefused(): void
     {
-        [, $second, , $tenant] = $this->seedMemberships();
+        [, $second, $member, $tenant] = $this->seedMemberships();
 
         [, $theirs] = $this->seedMember('other@example.test', $tenant);
 
         $session = $this->signIn();
         $row     = (array) DB::table('devices')->sole();
 
-        $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, $theirs);
+        $mismatch = $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, $theirs);
+
+        self::assertSame(IdentifierCoercion::stringify($member->getKey()), $mismatch->context->identityId);
+        self::assertNull($mismatch->context->principal);
+        self::assertNull($mismatch->context->principalType);
+        self::assertNull($mismatch->context->principalId);
+        self::assertSame(IdentifierCoercion::stringify($session->device->getDeviceIdentifier()), $mismatch->context->deviceId);
+
         $this->assertSwitchFails(FailureReason::PRINCIPAL_MISMATCH, $session, ChoosingMembership::query()->findOrFail($second->getKey()));
 
         $factors = \Mockery::mock(AdditionalFactorPolicy::class);
@@ -603,8 +612,9 @@ final class PrincipalSwitchTest extends TestCase
 
         ActivatableTenant::query()->whereKey($second->tenant_id)->update(['is_active' => false]);
 
-        $this->assertSwitchFails(FailureReason::TENANT_INACTIVE, $session, $second);
+        $inactive = $this->assertSwitchFails(FailureReason::TENANT_INACTIVE, $session, $second);
 
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), $inactive->context->principalId);
         self::assertEquals($row, (array) DB::table('devices')->sole());
     }
 
@@ -656,7 +666,9 @@ final class PrincipalSwitchTest extends TestCase
 
     /**
      * A switch on a revoked device or an ended session fails for that reason
-     * and revokes nothing further.
+     * and revokes nothing further. The failure is about the device row, read
+     * before its owner, so it names the owner and the principal the row
+     * records.
      *
      * @return void
      *
@@ -664,7 +676,7 @@ final class PrincipalSwitchTest extends TestCase
      */
     public function testASwitchOnAnEndedSessionIsRefused(): void
     {
-        [, $second] = $this->seedMemberships();
+        [$first, $second, $member] = $this->seedMemberships();
 
         $session = $this->signIn();
 
@@ -674,7 +686,13 @@ final class PrincipalSwitchTest extends TestCase
 
         DB::table('devices')->update(['revoked_at' => $this->now, 'revoked_reason' => 'revoked']);
 
-        $this->assertSwitchFails(FailureReason::DEVICE_REVOKED, $session, $second);
+        $revoked = $this->assertSwitchFails(FailureReason::DEVICE_REVOKED, $session, $second);
+
+        self::assertNull($revoked->context->identity);
+        self::assertNull($revoked->context->principal);
+        self::assertSame(IdentifierCoercion::stringify($member->getKey()), $revoked->context->identityId);
+        self::assertSame($first->getMorphClass(), $revoked->context->principalType);
+        self::assertSame(IdentifierCoercion::stringify($first->getKey()), $revoked->context->principalId);
     }
 
     /**
@@ -888,17 +906,17 @@ final class PrincipalSwitchTest extends TestCase
 
     /**
      * Assert a switch of the session to the target fails for the reason,
-     * reported as a `principal_switch` failure.
+     * reported as a `principal_switch` failure, and return that report.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
      * @param  ?string  $token
-     * @return void
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      *
      * @throws \Throwable
      */
-    private function assertSwitchFails(FailureReason $reason, SignedInSession $session, Principal $target, ?string $token = null): void
+    private function assertSwitchFails(FailureReason $reason, SignedInSession $session, Principal $target, ?string $token = null): AuthenticationFailed
     {
         $this->recordEvents([AuthenticationFailed::class]);
 
@@ -911,6 +929,8 @@ final class PrincipalSwitchTest extends TestCase
         self::assertSame(AuthenticationFlow::PRINCIPAL_SWITCH, $this->recordedEvent(AuthenticationFailed::class)->flow);
         self::assertSame($reason, $this->recordedEvent(AuthenticationFailed::class)->reason);
         self::assertTrue(Auth::guard(self::GUARD)->guest());
+
+        return $this->recordedEvent(AuthenticationFailed::class);
     }
 
     /**

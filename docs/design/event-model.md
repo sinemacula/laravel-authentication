@@ -18,6 +18,13 @@ to these events, so the shape and the timing are a contract.
 - A context snapshots, when it is built, the identity's auth identifier, the principal's recorded type (its morph class,
   or its class name) and identifier, the tenant's identifier and the device's identifier, all as strings. A device id a
   token named is kept as the device snapshot when no device row was loaded.
+- An event about a device row itself is built with `fromDevice`: every `DeviceRevoked`, and a refresh or switch refused
+  on the row's own state before its owner was read (a `RefreshJudgement` verdict, `identity_unknown`, a row that
+  changed under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner
+  and the principal the row records, read from its attributes without a query; devices record no tenant. Every other
+  event keeps the snapshots of what it holds, even when it carries a device: an identity's `SignedOutEverywhere` (its
+  device is the one kept), `PrincipalChoiceRequired` (the proven device) and a switch refused for its target name no
+  principal.
 - The snapshots, the enums, the client and the other strings are facts fixed at event time and survive a queue
   unchanged. The models are live references: a synchronous listener gets the instances the package holds, and a
   queued listener gets them re-fetched in their state when it runs, or Laravel's `ModelNotFoundException` when one was
@@ -58,9 +65,12 @@ to these events, so the shape and the timing are a contract.
   tenant the exchange's activity check loaded and the method the device records, after the rotation commits on the
   device's connection.
 - Revocation: each `DeviceRevoked` carries the revoked device, the device's own guard and the method its session
-  records, with the identity, principal and tenant the revocation knew; a bulk revocation then dispatches one
-  `SignedOutEverywhere` per scope with the acting guard, the scope's identity or principal, the kept device, the reason,
-  the count and the cutoff it set, all after the device transaction commits (see `device-lifecycle.md`).
+  records, with the identity, principal and tenant the revocation knew, and the snapshots of the owner and principal
+  the row records for those it did not; a bulk revocation then dispatches one `SignedOutEverywhere` per scope with the
+  acting guard, the scope's identity (for a principal's scope, its owner read afresh, or none when that cannot be
+  read), the principal scope or none, the kept device, the reason, the count and the cutoff it set (none when a
+  device-less session kept the identity's cutoff), all after the device transaction commits (see
+  `device-lifecycle.md`).
 - Verification: `IdentifierVerified` carries the identity, the guard it was made for, and the client the caller passed,
   or the client of the request being served.
 
@@ -68,8 +78,13 @@ to these events, so the shape and the timing are a contract.
 
 - A refresh failure carries the device once the token's `did` loaded one, the identity once the owner reloaded, the
   principal once resolved, and the tenant only when it was admitted; before the device loads, the context keeps the
-  token's `did` as the device snapshot (`deviceId`). A replay's `DeviceRevoked` carries the device and its own guard
-  and method, but no identity: the replay is caught before the owner is loaded.
+  token's `did` as the device snapshot (`deviceId`). A failure on the row's own state, before the owner was read, holds
+  no identity or principal model, and its snapshots name the owner and principal the row records. A replay's
+  `DeviceRevoked` likewise carries the device and its own guard and method, no identity or principal model (the replay
+  is caught before the owner is loaded), and the snapshots of what the row records.
+- A switch failure follows the same rule up to its target: once the owner is read, a refusal of the target (not the
+  principal named, inactive, ineligible, a factor required) names the principal resolved for it, if any, never the
+  one the device acts as.
 - A refresh refused by the limits (`rate_limited`) carries the wait in `retryAfter`, and the guard then throws its 429.
 - A queued listener of an event whose device was pruned before it ran cannot restore the event; the snapshots are the
   record to keep.
@@ -84,7 +99,8 @@ to these events, so the shape and the timing are a contract.
 - `src/Guards/AbstractGuard.php`: `bindVerifiedContext()`, `authenticateAs()`, and the `attempt()` failure.
 - `src/Guards/JwtGuard.php`: `refresh()`, `refuseRefresh()` and `reportRefresh()`; `src/Guards/BearerAuthentication.php`:
   `failed()`, the bearer failure's context.
-- `src/Jwt/RefreshTokenExchange.php`: `refused()`, `deviceContext()`, and the `DeviceRevoked` dispatch.
+- `src/Jwt/RefreshTokenExchange.php`: `refused()`, `deviceContext()`, and the `DeviceRevoked` dispatch;
+  `src/Sessions/PrincipalSwitch.php`: `context()`.
 - `src/Sessions/SessionService.php`: `signedIn()`, `fail()`; `src/Sessions/SessionPreconditions.php`: `methodReason()`.
 - `src/Sessions/Concerns/ManagesDevices.php`: `endSessions()`, the `DeviceRevoked` and `SignedOutEverywhere` contexts.
 - `src/Database/AfterCommit.php`: the commit-bound dispatch.
@@ -94,6 +110,8 @@ to these events, so the shape and the timing are a contract.
 - `tests/Unit/Events/EventContextTest.php`
   `testSnapshotsEveryIdentifierAsAString`, `testSnapshotsDoNotFollowLaterChanges`,
   `testKeepsANamedDeviceIdWithoutADevice`
+- `tests/Feature/Events/EventContextTest.php`
+  `testALoadedDeviceRowStandsInForAnUnloadedIdentityAndPrincipal`, `testWithoutFromDeviceTheRowStandsInForNothing`
 - `tests/Unit/Events/Enums/FailureReasonTest.php`
   `testOnlyInvalidCredentialsIsASignInMethodReason`
 - `tests/Unit/Contracts/ContractDeclarationTest.php`

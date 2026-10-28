@@ -23,10 +23,14 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  *
  * A part the event's flow did not establish is `null`: a failure carries only
  * as much as it got to before it failed, and a device id a token named is kept
- * even when no device row was loaded. When a device row is loaded but its
- * identity or principal is not (a device revoked from a device list or by an
- * administrator, a refresh refused before the owner was read), the snapshot
- * takes the owner and the principal the row records; devices record no tenant.
+ * even when no device row was loaded. An event about the device row itself (a
+ * revocation, or a refresh or switch refused on the row's own state before its
+ * owner was read) is built with `fromDevice`: an identity or principal it does
+ * not hold then takes the snapshot of the owner and the principal the row
+ * records; devices record no tenant. Every other event keeps the snapshots of
+ * what it holds, so an identity's sign-out everywhere, a pending choice of
+ * principal or a refused switch to another principal names no principal, even
+ * when it carries a device.
  *
  * The identifiers are snapshots taken when the event is built, as strings: the
  * identity's auth identifier, the principal's recorded type and identifier, the
@@ -74,6 +78,7 @@ final readonly class EventContext
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  ?string  $method
      * @param  ?string  $deviceId
+     * @param  bool  $fromDevice
      */
     public function __construct(
 
@@ -100,10 +105,16 @@ final readonly class EventContext
 
         // A device id a token or pin named, kept when no device row was loaded.
         ?string $deviceId = null,
+
+        // Whether the event is about the device row itself, so the owner and
+        // principal the row records stand in for those not given.
+        bool $fromDevice = false,
     ) {
-        $this->identityId    = $identity  === null ? self::recordedOn($device, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
-        $this->principalType = $principal === null ? self::recordedOn($device, 'type') : PrincipalReference::type($principal);
-        $this->principalId   = $principal === null ? self::recordedOn($device, 'id') : PrincipalReference::id($principal);
+        $recorded = $fromDevice ? $device : null;
+
+        $this->identityId    = $identity  === null ? self::recordedOn($recorded, 'owner') : IdentifierCoercion::stringify($identity->getAuthIdentifier());
+        $this->principalType = $principal === null ? self::recordedOn($recorded, 'type') : PrincipalReference::type($principal);
+        $this->principalId   = $principal === null ? self::recordedOn($recorded, 'id') : PrincipalReference::id($principal);
         $this->tenantId      = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
         $this->deviceId      = $device === null ? $deviceId : IdentifierCoercion::stringify($device->getDeviceIdentifier());
     }

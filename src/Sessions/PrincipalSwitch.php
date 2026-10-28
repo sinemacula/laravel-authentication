@@ -475,7 +475,11 @@ final readonly class PrincipalSwitch
     /**
      * The context of a switch on the device: the guard, the client, the device
      * and the method its session records, and whatever of the identity,
-     * principal and tenant the switch resolved.
+     * principal and tenant the switch resolved. A failure before the owner was
+     * read (the row's own state, an owner that no longer loads) is about the
+     * row, so it names the owner and principal the row records; a refusal of
+     * the target names the principal resolved for it, if any, never the one the
+     * device acts as.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn|null  $outcome
@@ -491,6 +495,7 @@ final readonly class PrincipalSwitch
             $outcome?->tenant,
             $device,
             $device->getSignInMethod(),
+            fromDevice: $outcome?->identity === null,
         );
     }
 

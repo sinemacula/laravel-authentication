@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
@@ -141,15 +142,48 @@ final class ManagesDevicesTest extends TestCase
     }
 
     /**
+     * Signing out a request whose guard holds only a device (bound with
+     * `setDevice()`, no identity) revokes it without `Logout`, and the
+     * revocation names the owner and the principal the device row records.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testSigningOutADeviceBoundWithoutAnIdentityNamesWhatTheRowRecords(): void
+    {
+        $identity = $this->seedIdentity();
+        $session  = $this->signIn('Phone');
+        $guard    = $this->freshGuard();
+
+        $guard->setDevice(Device::query()->findOrFail(self::idOf($session)));
+
+        $this->recordEvents([DeviceRevoked::class, Logout::class]);
+
+        self::assertTrue($guard->sessions()->signOut());
+        self::assertSame([DeviceRevoked::class], $this->recordedClasses());
+
+        $context = $this->recordedEvent(DeviceRevoked::class)->context;
+
+        self::assertNull($context->identity);
+        self::assertNull($context->principal);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->identityId);
+        self::assertSame($identity->getMorphClass(), $context->principalType);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $context->principalId);
+    }
+
+    /**
      * Signing out everywhere while keeping the current device ends every other
      * session of the identity, of every guard, and keeps the request's own
-     * session working; without keeping it, every session ends.
+     * session working; without keeping it, every session ends. Each revoked
+     * device names the principal its row records, while the identity's sign-out
+     * everywhere names none, although it carries the kept device.
      *
      * @return void
      */
     public function testSigningOutEverywhereEndsTheOtherSessions(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $current = $this->signIn('Phone');
         $other   = $this->signIn('Laptop');
@@ -166,7 +200,21 @@ final class ManagesDevicesTest extends TestCase
         self::assertSame(2, $everywhere->revoked);
         self::assertSame(RevocationReason::SIGNED_OUT_EVERYWHERE, $everywhere->reason);
         self::assertSame(self::idOf($current), $everywhere->context->deviceId);
+        self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $everywhere->context->identityId);
+        self::assertNull($everywhere->context->principal);
+        self::assertNull($everywhere->context->principalType);
+        self::assertNull($everywhere->context->principalId);
         self::assertNull($everywhere->tokensValidAfter);
+
+        foreach (array_slice($this->recorded, 0, 2) as $revoked) {
+
+            assert($revoked instanceof DeviceRevoked);
+
+            self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->context->identityId);
+            self::assertSame($identity->getMorphClass(), $revoked->context->principalType);
+            self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $revoked->context->principalId);
+        }
+
         self::assertEqualsCanonicalizing(['api', 'admin'], array_map(static fn (DeviceRevoked $event): ?string => $event->context->guard, array_slice($this->recorded, 0, 2)));
 
         $this->send('get', '/me', $current)->assertOk();
@@ -181,7 +229,8 @@ final class ManagesDevicesTest extends TestCase
     /**
      * A device list revokes only the signed-in identity's own devices: another
      * identity's device, an unknown one and a malformed id are all simply not
-     * found, and revoking a device twice reports it once.
+     * found, and revoking a device twice reports it once, naming the owner and
+     * the principal the device row records.
      *
      * @return void
      */
@@ -210,6 +259,10 @@ final class ManagesDevicesTest extends TestCase
 
         self::assertSame(RevocationReason::REVOKED, $revoked->reason);
         self::assertSame(self::idOf($laptop), $revoked->context->deviceId);
+        self::assertNull($revoked->context->principal);
+        self::assertSame(IdentifierCoercion::stringify($current->identity->getAuthIdentifier()), $revoked->context->identityId);
+        self::assertSame(DB::table('devices')->where('id', self::idOf($laptop))->value('principal_type'), $revoked->context->principalType);
+        self::assertSame(IdentifierCoercion::stringify($current->identity->getAuthIdentifier()), $revoked->context->principalId);
         self::assertSame('revoked', DB::table('devices')->where('id', self::idOf($laptop))->value('revoked_reason'));
 
         $this->send('get', '/me', $laptop)->assertUnauthorized();

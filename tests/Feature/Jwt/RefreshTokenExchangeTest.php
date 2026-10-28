@@ -407,7 +407,9 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * The device owner is reloaded through the provider and must be that exact
      * owner: no identity, or an identity of another model that shares the owner
-     * key, fails as `identity_unknown` before any principal is resolved.
+     * key, fails as `identity_unknown` before any principal is resolved. The
+     * failure is about the device row, so it names the owner and the principal
+     * the row records.
      *
      * @param  \Closure(): mixed  $answer
      * @return void
@@ -422,7 +424,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(self::GUARD_NAME),
+            ...self::liveSession(self::GUARD_NAME, new PlainPrincipalFixture('p-9')),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -446,6 +448,10 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertSame(FailureReason::IDENTITY_UNKNOWN, $failure->reason);
         self::assertSame($device->id, $failure->context->deviceId);
+        self::assertNull($failure->context->identity);
+        self::assertSame('9', $failure->context->identityId);
+        self::assertSame(PlainPrincipalFixture::class, $failure->context->principalType);
+        self::assertSame('p-9', $failure->context->principalId);
     }
 
     /**
@@ -696,7 +702,9 @@ final class RefreshTokenExchangeTest extends TestCase
     /**
      * Fail-closed: when the resolver resolves nothing for a hinted `pid`, the
      * exchange reports `principal_mismatch` rather than falling through to the
-     * unresolved-principal branch, and no rotation happens.
+     * unresolved-principal branch, and no rotation happens. Once the owner is
+     * read the failure names it, and no principal: the one the device records
+     * does not stand in for the one that did not resolve.
      *
      * @return void
      *
@@ -712,7 +720,7 @@ final class RefreshTokenExchangeTest extends TestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(self::GUARD_NAME),
+            ...self::liveSession(self::GUARD_NAME, new PlainPrincipalFixture('p-recorded')),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '15',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -740,6 +748,9 @@ final class RefreshTokenExchangeTest extends TestCase
 
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $failure->reason);
         self::assertSame($device->id, $failure->context->deviceId);
+        self::assertSame('15', $failure->context->identityId);
+        self::assertNull($failure->context->principalType);
+        self::assertNull($failure->context->principalId);
         self::assertSame(RefreshTokenHasher::hash($plainRotationId), $device->fresh()?->getRefreshKey());
     }
 
@@ -1964,6 +1975,12 @@ final class RefreshTokenExchangeTest extends TestCase
         self::assertSame($device->id, $revocations[0]->context->device?->getDeviceIdentifier());
         self::assertSame($device->id, $revocations[0]->context->deviceId);
         self::assertNull($revocations[0]->context->identity);
+
+        foreach ([$revocations[0]->context, $this->failures[0]->context] as $context) {
+            self::assertSame($device->getAttribute('authenticatable_id'), $context->identityId);
+            self::assertSame(PlainPrincipalFixture::class, $context->principalType);
+            self::assertSame($device->getAttribute('principal_id'), $context->principalId);
+        }
     }
 
     /**

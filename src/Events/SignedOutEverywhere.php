@@ -19,15 +19,18 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
  * the revocation is committed on the device connection, and also when it
  * revoked none, so the action itself is recorded. `$tokensValidAfter` is the
  * cutoff the call moved the scope's "tokens valid after" to, ending its access
- * tokens issued without a device; `null` when the scope records no cutoff or
- * already had a later one. That cutoff is written on the scope's own connection
- * before the devices are revoked, so it stands even when the device transaction
- * rolls back.
+ * tokens issued without a device; `null` when the scope records no cutoff,
+ * already had a later one, or was kept on purpose: `signOutEverywhere(true)`
+ * from a session without a device leaves the identity's cutoff where it is,
+ * since that session's access token could only be ended through it. That cutoff
+ * is written on the scope's own connection before the devices are revoked, so
+ * it stands even when the device transaction rolls back.
  *
  * The context's guard is the guard that acted; its identity is the identity
- * whose sessions ended (for a principal's scope, the principal when it is also
- * the identity, otherwise `null`); its principal is the principal scope, or
- * `null` for an identity's; its device is the device kept signed in, if any.
+ * whose sessions ended (for a principal's scope, the principal's owner, read
+ * afresh on the write connection, or `null` when it cannot be read); its
+ * principal is the principal scope, or `null` for an identity's; its device is
+ * the device kept signed in, if any, which never stands in for the principal.
  *
  * @api
  *
