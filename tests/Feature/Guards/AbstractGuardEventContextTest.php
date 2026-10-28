@@ -8,6 +8,7 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Validated;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\EventContext;
@@ -28,7 +29,7 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
  * @internal
  */
 #[CoversClass(AbstractGuard::class)]
-#[CoversClass(BindsContextualState::class)]
+#[CoversTrait(BindsContextualState::class)]
 final class AbstractGuardEventContextTest extends AbstractGuardTestCase
 {
     /**
