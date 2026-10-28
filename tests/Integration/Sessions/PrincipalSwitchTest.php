@@ -10,12 +10,17 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
@@ -49,7 +54,7 @@ final class PrincipalSwitchTest extends TestCase
     private CarbonImmutable $now;
 
     /**
-     * Freeze the clocks and create the tables.
+     * Freeze the clocks, create the tables and register the route.
      *
      * @return void
      */
@@ -61,6 +66,8 @@ final class PrincipalSwitchTest extends TestCase
         $this->freezeAt(CarbonImmutable::createStrict(2026, 4, 6, 12, 0, 0));
 
         $this->createSessionTables();
+
+        Route::middleware('auth:' . self::GUARD)->get('/me', static fn (): array => ['principal' => Auth::principal()?->getPrincipalIdentifier()]);
     }
 
     /**
@@ -305,6 +312,66 @@ final class PrincipalSwitchTest extends TestCase
     }
 
     /**
+     * A switch that loses its swap to a refresh of the same token, with the
+     * grace window off, finds its token replayed when it judges the row again:
+     * the device is revoked as `rotation_reuse`, as a refresh revokes it, and
+     * `DeviceRevoked` is reported once the caller's transaction commits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALostSwapToARefreshWithoutAGraceWindowRevokesTheDevice(): void
+    {
+        config()->set('auth.guards.' . self::GUARD . '.jwt.refresh_grace_seconds', 0);
+
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $refreshed = [];
+
+        $this->beforeTheSwap(function () use ($session, &$refreshed): void {
+            $refreshed[] = $this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken);
+        });
+
+        $this->assertALostSwapRevokesTheDevice($session, $second, $refreshed);
+    }
+
+    /**
+     * A switch that loses its swap to two refreshes in a row finds its token
+     * two rotations old, which no grace window honours: the device is revoked
+     * as `rotation_reuse`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testALostSwapToTwoRotationsRevokesTheDevice(): void
+    {
+        [, $second] = $this->seedMemberships();
+
+        $session = $this->signIn();
+
+        $this->advance(5);
+
+        $refreshed = [];
+
+        $this->beforeTheSwap(function () use ($session, &$refreshed): void {
+
+            $refreshed[] = $first = $this->freshGuard(self::GUARD)->refresh($session->tokens->refreshToken);
+
+            self::assertNotNull($first);
+
+            $refreshed[] = $this->freshGuard(self::GUARD)->refresh($first->refreshToken);
+        });
+
+        $this->assertALostSwapRevokesTheDevice($session, $second, $refreshed);
+    }
+
+    /**
      * Register the guards.
      *
      * @param  mixed  $app
@@ -372,6 +439,72 @@ final class PrincipalSwitchTest extends TestCase
     private function switch(SignedInSession $session, ActivatableTenantMembership $target): SwitchResult
     {
         return $this->sessions(self::GUARD)->switchPrincipal($session->tokens->refreshToken, $target);
+    }
+
+    /**
+     * Run the switch inside a transaction and assert that, losing its swap to
+     * the given refreshes, it revoked the device as a replay: `DeviceRevoked`
+     * only once committed, both digests cleared, nothing switched, and every
+     * token of the session refused at the `auth` middleware and by a refresh.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
+     * @param  \Tests\Integration\Fixtures\ActivatableTenantMembership  $target
+     * @param  list<?\SineMacula\Laravel\Authentication\Jwt\RefreshResult>  $refreshed
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    private function assertALostSwapRevokesTheDevice(SignedInSession $session, ActivatableTenantMembership $target, array &$refreshed): void
+    {
+        $this->recordEvents([PrincipalSwitched::class, DeviceRevoked::class]);
+
+        $result = DB::transaction(function () use ($session, $target): SwitchResult {
+
+            $result = $this->switch($session, $target);
+
+            self::assertSame([], $this->recordedClasses());
+
+            return $result;
+        });
+
+        self::assertSame(FailureReason::ROTATION_REUSE, $result->reason);
+        self::assertSame([DeviceRevoked::class], $this->recordedClasses());
+        self::assertSame(RevocationReason::ROTATION_REUSE, $this->recordedEvent(DeviceRevoked::class)->reason);
+
+        $row = DB::table('devices')->sole();
+
+        self::assertSame('rotation_reuse', $row->revoked_reason);
+        self::assertNotNull($row->revoked_at);
+        self::assertNull($row->refresh_key);
+        self::assertNull($row->previous_refresh_key);
+        self::assertNull($row->principal_switched_at);
+
+        $tokens = array_map(static function (?RefreshResult $tokens): RefreshResult {
+
+            self::assertNotNull($tokens);
+
+            return $tokens;
+        }, $refreshed);
+
+        self::assertNotSame([], $tokens);
+
+        foreach ([$session->tokens, ...$tokens] as $pair) {
+            $this->bearer($pair->accessToken)->assertUnauthorized();
+            self::assertNull($this->freshGuard(self::GUARD)->refresh($pair->refreshToken));
+        }
+    }
+
+    /**
+     * Send a request with the bearer token to the protected route.
+     *
+     * @param  string  $token
+     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     */
+    private function bearer(#[\SensitiveParameter] string $token): TestResponse
+    {
+        Auth::forgetGuards();
+
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $token])->getJson('/me');
     }
 
     /**

@@ -66,7 +66,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   `rotation_conflict`, without revoking.
 - A missed swap re-reads the row with a lock and judges it once: a still-current id is `rotation_conflict`, a previous
   id is answered by the retry rule against the row as it now is (after the owner is checked again), and anything else
-  fails for its reason. There is never a second swap.
+  fails for its reason, a replay (`rotation_reuse`) revoking the device as a first judgement does. There is never a
+  second swap.
 - `PrincipalChoiceRequired` and `PrincipalSwitched` are dispatched through `AfterCommit` on the device model's
   connection. `PrincipalSwitched` carries the device's recorded previous type and identifier and the previous
   principal only when the hinted path still returns that very principal (same type and identifier).
@@ -121,7 +122,8 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
   A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a
   switch read from the request and the transport's refusals, and a switch screen's listing)
 - `tests/Integration/Sessions/PrincipalSwitchTest.php` (the switch racing a refresh, a revocation, an identical switch,
-  a different switch, a deadline change, a deletion and an owner change)
+  a different switch, a deadline change, a deletion and an owner change, and a swap lost to a refresh with no grace
+  window or to two refreshes, which revokes the device)
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php` (on PostgreSQL and MySQL, two processes: a switch
   waiting on a revocation, on a refresh of its token and on an identical switch, after a commit and after a rollback)
 - `tests/Integration/Sessions/TransactionalChoosesPrincipalsTest.php` (`PrincipalSwitched` and

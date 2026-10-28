@@ -409,9 +409,10 @@ final readonly class PrincipalSwitch
 
     /**
      * Judge the presented rotation id again against the row as it now is, after
-     * the compare-and-swap missed, read with a lock: a retry is answered as
-     * `retry()` answers it, a still-current id is a conflict, and anything else
-     * fails for its reason. There is never a second swap.
+     * the compare-and-swap missed, read with a lock, by the rules the first
+     * judgement used: a retry is answered as `retry()` answers it, a
+     * still-current id is a conflict, and anything else fails for its reason, a
+     * replay revoking the device. There is never a second swap.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
@@ -439,8 +440,11 @@ final readonly class PrincipalSwitch
 
         $verdict = RefreshJudgement::classify($fresh, $presented[0], $now, $this->tokens->lifetimes());
 
+        if ($verdict instanceof FailureReason) {
+            return $this->fail($fresh, $verdict, $now);
+        }
+
         $refusal = match (true) {
-            $verdict instanceof FailureReason                      => $verdict,
             $verdict[0] === RotationMatch::CURRENT                 => FailureReason::ROTATION_CONFLICT,
             !DeviceOwnership::isOwner($fresh, $admitted->identity) => FailureReason::IDENTITY_UNKNOWN,
             default                                                => null,
