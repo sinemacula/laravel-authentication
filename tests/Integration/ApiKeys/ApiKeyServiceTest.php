@@ -722,7 +722,8 @@ final class ApiKeyServiceTest extends TestCase
 
     /**
      * A key that expires before the overlap ends keeps its own expiry; one that
-     * expires after it is cut to the overlap's end.
+     * expires after it is cut to the overlap's end. The replacement does not
+     * inherit the replaced key's expiry: given none, it never expires.
      *
      * @return void
      *
@@ -735,10 +736,12 @@ final class ApiKeyServiceTest extends TestCase
         $later   = $this->apiKeys()->issue($machine, $machine, expiresAt: CarbonImmutable::now()->addDays(10));
 
         $this->apiKeys()->rotate($machine, $soon->id, 3600);
-        $this->apiKeys()->rotate($machine, $later->id, 3600);
+
+        $replacement = $this->apiKeys()->rotate($machine, $later->id, 3600);
 
         self::assertSame('2026-04-06 12:10:00', DB::table('api_keys')->where('id', $soon->id)->value('expires_at'));
         self::assertSame('2026-04-06 13:00:00', DB::table('api_keys')->where('id', $later->id)->value('expires_at'));
+        self::assertNull($replacement?->summary->expiresAt);
     }
 
     /**

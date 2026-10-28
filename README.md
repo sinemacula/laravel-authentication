@@ -1315,6 +1315,7 @@ Auth::principal();      // Principal|null  - the acting principal
 Auth::device();         // Device|null     - the issuing device
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
 Auth::type();           // string|null     - the principal's type, else its tenant's
+Auth::scopes();         // list<string>|null - the credential's scope ceiling (null: no credential limits the request)
 ```
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
@@ -1573,19 +1574,20 @@ $this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) 
 No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
 yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
 
-| Flow                 | Same outcome for an unknown identifier                                                                                                                                      | Delivery                       | Timing                                                                                                       |
-|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|--------------------------------------------------------------------------------------------------------------|
-| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                      | None                           | Padded to the credential timebox                                                                             |
-| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                   | Queued job, after the response | No identity work at all, so nothing to pad                                                                   |
-| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                             | None                           | Padded to the credential timebox                                                                             |
-| Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job, after the response | Not applicable                                                                                               |
-| Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                           | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
-| API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                           | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
-| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited       | None                           | As API key                                                                                                   |
+| Flow                 | Same outcome for an unknown identifier                                                                                                                                      | Delivery                                  | Timing                                                                                                       |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                      | None                                      | Padded to the credential timebox                                                                             |
+| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                   | Queued job (after the response on `sync`) | No identity work at all, so nothing to pad                                                                   |
+| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                             | None                                      | Padded to the credential timebox                                                                             |
+| Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job (after the response on `sync`) | Not applicable                                                                                               |
+| Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                                      | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
+| API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                                      | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
+| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited        | None                                      | As API key                                                                                                   |
 
 The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
-looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity. Answer `sent` the same
-way whatever happens next, and do not tell the client whether a message went out.
+looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity, or to one that holds
+only a look-alike of it. Answer `sent` the same way whatever happens next, and do not tell the client whether a message
+went out.
 
 #### Writing a sign-in method
 
@@ -2611,12 +2613,14 @@ A summary is safe to return from a route as it is: `toArray()` and its JSON use 
 neither holds the secret or its digest.
 
 Rotating issues a replacement with the same guard, owner, principal, tenant, name and scopes (held to the scope registry
-again), and ends the replaced key once the overlap passes (`rotation_overlap_seconds` by default, at most
-`max_rotation_overlap_seconds`), or at its own expiry when that comes sooner; both keys work during the overlap, and the
-replaced one then fails as `credential_expired`. Only a live key that has not been rotated rotates: `null` otherwise,
-and of two concurrent rotations only one replaces the key. A key's scopes are fixed for its life; to change them, issue
-a new key and revoke the old one. `ApiKeyIssued`, `ApiKeyRotated` (with `previousKeyId`) and `ApiKeyRevoked` report
-each change once it is committed on the key's own connection, never the key or its digest.
+again), but not the same expiry: the replacement expires at the `expiresAt` you pass, and never without one, so pass it
+when you rotate a key that expires, or the replacement will not. The rotation ends the replaced key once the overlap
+passes (`rotation_overlap_seconds` by default, at most `max_rotation_overlap_seconds`), or at its own expiry when that
+comes sooner; both keys work during the overlap, and the replaced one then fails as `credential_expired`. Only a live
+key that has not been rotated rotates: `null` otherwise, and of two concurrent rotations only one replaces the key. A
+key's scopes are fixed for its life; to change them, issue a new key and revoke the old one. `ApiKeyIssued`,
+`ApiKeyRotated` (with `previousKeyId`) and `ApiKeyRevoked` report each change once it is committed on the key's own
+connection, never the key or its digest.
 
 Schedule pruning of keys revoked or expired more than `prune_after_days` ago:
 
@@ -2960,8 +2964,8 @@ $this->postJson('/sign-in/code', ['phone' => '+447700900123', 'code' => $code])-
 
 The message arrives when the delivery job runs: on a `sync` queue connection once the response is sent (a test's HTTP
 request ends with it; call `$this->app->terminate()` after calling the service directly), on a faked queue when the test
-runs the pushed job. `sent()`, `hasSent()` and `count()` take an optional filter over the messages, and `forget()`
-clears them.
+runs the pushed job. `sent()` and `hasSent()` take an optional filter over the messages, `count()` counts them all, and
+`forget()` clears them.
 
 ```bash
 composer test               # all suites in parallel (Paratest)
