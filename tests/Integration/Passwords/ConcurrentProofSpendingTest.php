@@ -425,6 +425,40 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
+     * Requests for two identities made inside transactions of their callers,
+     * none of whose counters exist yet, the first held right after its first
+     * limiter statement, both go through once the counters live on a connection
+     * of their own, as README.md tells callers on MySQL to do: on the callers'
+     * connection, the counters' missing keys would keep their gaps locked until
+     * each caller commits.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRequestsInCallerTransactionsWithCountersOnTheirOwnConnectionDoNotDeadlock(): void
+    {
+        $connection = DB::getDefaultConnection();
+
+        config()->set('database.connections.counters', config("database.connections.{$connection}"));
+        config()->set('authentication.rate_limits.connection', 'counters');
+
+        $ada   = self::seedChangeable();
+        $grace = self::seedChangeable('grace@example.test');
+        $proof = Reauthentication::confirmedAt($this->now);
+
+        [$first, $second] = $this->race(
+            'update',
+            'rate_limits',
+            fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value),
+            fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value),
+        );
+
+        self::assertSame(['sent', 'sent'], [$first, $second['result']]);
+        self::assertSame(2, DB::table('identifier_changes')->count());
+    }
+
+    /**
      * A request held inside its transaction once it wrote its code and its
      * pending change does not hold up a request for another identity: the
      * second creates its own counters, code and pending change without waiting,

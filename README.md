@@ -2113,14 +2113,16 @@ timestamps) on its own row, without its scopes: nothing else you changed on the 
 model event fires, so an observer neither cancels the write nor revokes again behind it (`RevokeDevicesOnPasswordChange`
 does not undo the device a change kept). The model then holds the new hash. The hash is bound into that update as any
 Eloquent write binds it: every query listener sees it, and a failed update's `QueryException` carries it in
-`getBindings()` and, unless the connection sets `mask_bindings_in_exception_messages` (an option of recent Laravel
-versions), in its message. Keep query logs and error reports as you keep the hashes themselves. Only a registration may
-set the password of an identity not stored yet, which is then inserted with `save()`; a model event that cancels that
-save throws a `LogicException`. A registration sets only a first password: given a stored identity, it updates the row
-only while its password column is `null` or empty, in the same statement, and throws a `LogicException` otherwise, since
-replacing a password without ending any session would be a change that leaves a stolen session signed in. So does a
-change or a reset of an identity not stored, or one whose row is gone, and an identity that is not an Eloquent model; a
-non-human identity (`MachineIdentity`) has no password and throws an `InvalidArgumentException`.
+`getBindings()` and in the SQL its message quotes, unless the connection sets `mask_bindings_in_exception_messages` (an
+option of recent Laravel versions). That option masks only the SQL: the driver's own message, which PostgreSQL's
+`DETAIL` can fill with the failing row, is kept. Keep query logs and error reports as you keep the hashes themselves.
+Only a registration may set the password of an identity not stored yet, which is then inserted with `save()`; a model
+event that cancels that save throws a `LogicException`. A registration sets only a first password: given a stored
+identity, it updates the row only while its password column is `null` or empty, in the same statement, and throws a
+`LogicException` otherwise, since replacing a password without ending any session would be a change that leaves a stolen
+session signed in. So does a change or a reset of an identity not stored, or one whose row is gone, and an identity that
+is not an Eloquent model; a non-human identity (`MachineIdentity`) has no password and throws an
+`InvalidArgumentException`.
 
 `PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
 never for one rolled back; its context names the guard, the client and the identity, and, for a change, the device kept.
@@ -2343,7 +2345,8 @@ revocation of the device that proves one, come either before the check under the
 change is written, which they then cancel. A `confirmedAt()` proof, and a password proof racing a revocation that leaves
 the password as it is, are not serialised. The current identifier is read from the row as locked. The limits are counted
 before the transaction, never inside it, so no counter's row stays locked until its commit: on MySQL, two transactions
-that each create a counter in the same gap of the index deadlock.
+that each create a counter in the same gap of the index deadlock (inside a transaction of yours, see the note on
+transactions under [Rate limits](#rate-limits)).
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -3421,7 +3424,9 @@ exception is giving back a completed further factor's slots after its commit, wh
 > the same connection as a transaction you open around a sign-in are rolled back with it, so a sign-in that your code
 > rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in transactions you may
 > roll back, point `rate_limits.connection` at a connection of its own (a second connection to the same database will
-> do).
+> do). Do the same on MySQL when you call a limited flow, such as an identifier change request, inside a transaction of
+> yours: until your commit, a counter's row stays locked, and so does the gap of the index a counter not created yet
+> would go in, so two such transactions that each create a counter in one gap deadlock.
 
 Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
 [Additional factors](#additional-factors)). Schedule Laravel's pruning command with both models, and the device model,
