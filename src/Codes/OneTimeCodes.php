@@ -225,7 +225,7 @@ final readonly class OneTimeCodes
             $digests[] = $this->keys->binding($binding);
         }
 
-        return $digests === [] ? 0 : $this->table()->whereIn('id', array_values(array_unique($digests)))->delete();
+        return $digests === [] ? 0 : $this->table()->whereIn('id', $digests)->delete();
     }
 
     /**

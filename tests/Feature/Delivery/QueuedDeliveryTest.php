@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Models\OneTimeCode;
@@ -107,18 +108,64 @@ final class QueuedDeliveryTest extends TestCase
     }
 
     /**
+     * Jobs that lack one or more of the methods `Queueable` gives: none of
+     * them, the queue, or the dispatch before commit.
+     *
+     * @return iterable<string, array{0: \Illuminate\Contracts\Queue\ShouldQueue}>
+     */
+    public static function provideJobsWithoutQueueable(): iterable
+    {
+        yield from [
+            'no method' => [new class implements ShouldQueue {}],
+            'no queue'  => [new class implements ShouldQueue {
+                /**
+                 * Accept a connection.
+                 *
+                 * @param  ?string  $connection
+                 * @return void
+                 */
+                public function onConnection(?string $connection): void {}
+
+                /**
+                 * Accept a dispatch before commit.
+                 *
+                 * @return void
+                 */
+                public function beforeCommit(): void {}
+            }],
+            'no dispatch before commit' => [new class implements ShouldQueue {
+                /**
+                 * Accept a connection.
+                 *
+                 * @param  ?string  $connection
+                 * @return void
+                 */
+                public function onConnection(?string $connection): void {}
+
+                /**
+                 * Accept a queue.
+                 *
+                 * @param  ?string  $queue
+                 * @return void
+                 */
+                public function onQueue(?string $queue): void {}
+            }],
+        ];
+    }
+
+    /**
      * A job that cannot carry a connection and a queue is a misconfiguration,
      * refused before anything is pushed.
      *
+     * @param  \Illuminate\Contracts\Queue\ShouldQueue  $job
      * @return void
      *
      * @throws \Throwable
      */
-    public function testAJobWithoutQueueableIsRefused(): void
+    #[DataProvider('provideJobsWithoutQueueable')]
+    public function testAJobWithoutQueueableIsRefused(ShouldQueue $job): void
     {
         Queue::fake();
-
-        $job = new class implements ShouldQueue {};
 
         try {
             self::delivery()->dispatch($job, new OneTimeCode);
