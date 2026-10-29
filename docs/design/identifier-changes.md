@@ -145,7 +145,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `src/IdentifierChanges/SendIdentifierChangeCode.php`, `SendIdentifierChangeNotice.php`.
 - `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`, `src/Jwt/DeviceLookup.php` (`lock()`),
   `src/Database/IdentityLock.php`.
-- `src/Contracts/HasChangeableIdentifiers.php`, `src/Concerns/ProvidesIdentifierVerification.php`
+- `src/Contracts/HasChangeableIdentifiers.php`, `src/Concerns/ProvidesIdentifierChanges.php`
   (`replaceIdentifier()`), `src/Contracts/IdentifierChangeNotifier.php`, `src/Testing/FakeIdentifierChangeNotifier.php`.
 - `src/Models/IdentifierChange.php`, `database/migrations/2026_04_06_000007_create_identifier_changes_table.php`.
 - `src/Events/IdentifierChangeRequested.php`, `src/Events/IdentifierChanged.php`.

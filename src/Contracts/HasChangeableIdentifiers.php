@@ -10,7 +10,7 @@ namespace SineMacula\Laravel\Authentication\Contracts;
  *
  * Optional supplement to `Identity`, required by `Auth::identifierChanges()`.
  * It extends `HasVerifiableIdentifiers`, since a replacement is recorded as
- * verified: it was proven before it was set. `ProvidesIdentifierVerification`
+ * verified: it was proven before it was set. `ProvidesIdentifierChanges`
  * implements it from a column per type and a `<type>_verified_at` column beside
  * it.
  *

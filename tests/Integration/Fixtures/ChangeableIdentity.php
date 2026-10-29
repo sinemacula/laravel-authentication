@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -38,7 +38,7 @@ use SineMacula\Laravel\Authentication\Models\Device;
  */
 final class ChangeableIdentity extends Model implements HasChangeableIdentifiers, HasDevices, Identity, Principal
 {
-    use ActsAsPrincipal, Authenticatable, ProvidesIdentifierVerification;
+    use ActsAsPrincipal, Authenticatable, ProvidesIdentifierChanges;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'changeable_identities';

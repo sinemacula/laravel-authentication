@@ -10,13 +10,11 @@ use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 
 /**
- * Provides a default `HasVerifiableIdentifiers` and `HasChangeableIdentifiers`
- * implementation on an Eloquent identity: the identifier of a type is the
- * attribute named after the type (`email`), and its verification time is
- * `<type>_verified_at` (`email_verified_at`, the column Laravel's own email
- * verification uses). Override `getVerifiedAtName()` to use other columns.
- * Declare `HasChangeableIdentifiers` on the model to change its identifiers
- * through `Auth::identifierChanges()`.
+ * Provides a default `HasVerifiableIdentifiers` implementation on an Eloquent
+ * identity: the identifier of a type is the attribute named after the type
+ * (`email`), and its verification time is `<type>_verified_at`
+ * (`email_verified_at`, the column Laravel's own email verification uses).
+ * Override `getVerifiedAtName()` to use other columns.
  *
  * Both attributes must be loaded: a model selected without one throws rather
  * than being read as unverified or as having no identifier, so a partial select
@@ -24,7 +22,8 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
  *
  * When an identifier changes, its verification no longer applies: set its
  * `<type>_verified_at` to `null` with it, unless the change replaces it with
- * one already proven (`replaceIdentifier()` records that one as verified).
+ * one already proven (`ProvidesIdentifierChanges::replaceIdentifier()` records
+ * that one as verified).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -109,57 +108,6 @@ trait ProvidesIdentifierVerification
     }
 
     /**
-     * Replace the identifier with one already proven and record it as verified
-     * now, in one transaction on the identity's connection: the row is read
-     * again under a lock (`FOR UPDATE` where the database has one), and written
-     * only when its identifier is `$current` byte for byte (not merely equal
-     * under the column's collation; `null` stands for none, a `null` or empty
-     * column). `updated_at` is set too when the model keeps timestamps. The
-     * model is updated to match only when the row changed. The write fires no
-     * model events, and a violation of a unique index on the column propagates.
-     *
-     * @param  string  $type
-     * @param  ?string  $current
-     * @param  string  $replacement
-     * @return bool
-     *
-     * @throws \InvalidArgumentException
-     * @throws \Throwable
-     *
-     * @imperative
-     */
-    public function replaceIdentifier(string $type, ?string $current, string $replacement): bool
-    {
-        $column = $this->getVerifiedAtName(IdentifierType::assertValid($type));
-
-        $values = $this->getConnection()->transaction(function () use ($type, $current, $replacement, $column): ?array {
-
-            $stored = (array) $this->identityRow()->lockForUpdate()->first([$type]);
-
-            if ($stored === [] || !self::isIdentifier($stored[$type], $current)) {
-                return null;
-            }
-
-            $values = [$type => $replacement, $column => $this->fromDateTime(Carbon::now())];
-            $stamp  = $this->usesTimestamps() ? $this->getUpdatedAtColumn() : null;
-
-            if ($stamp !== null) {
-                $values[$stamp] = $values[$column];
-            }
-
-            return $this->identityRow()->update($values) === 1 ? $values : null;
-        });
-
-        if ($values === null) {
-            return false;
-        }
-
-        $this->forceFill($values)->syncOriginalAttributes(array_keys($values));
-
-        return true;
-    }
-
-    /**
      * The column holding when the identifier of the type was verified.
      *
      * @param  string  $type
@@ -178,20 +126,6 @@ trait ProvidesIdentifierVerification
     private function identityRow(): Builder
     {
         return $this->newQueryWithoutScopes()->whereKey($this->getKey())->toBase();
-    }
-
-    /**
-     * Whether the stored value of an identifier column is the identifier given,
-     * byte for byte; `null` stands for none, which a `null` or empty column
-     * holds.
-     *
-     * @param  mixed  $stored
-     * @param  ?string  $identifier
-     * @return bool
-     */
-    private static function isIdentifier(mixed $stored, ?string $identifier): bool
-    {
-        return $identifier === null ? $stored === null || $stored === '' : $stored === $identifier;
     }
 
     /**

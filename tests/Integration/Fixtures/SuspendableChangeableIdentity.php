@@ -9,7 +9,7 @@ use SineMacula\Laravel\Authentication\Casts\NormalisedIdentifier;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\Authenticatable;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -32,7 +32,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  */
 final class SuspendableChangeableIdentity extends Model implements CanBeActive, HasChangeableIdentifiers, Identity, Principal
 {
-    use ActsAsPrincipal, Authenticatable, ProvidesActiveState, ProvidesIdentifierVerification;
+    use ActsAsPrincipal, Authenticatable, ProvidesActiveState, ProvidesIdentifierChanges;
 
     /** @var string|null The table associated with the model. */
     protected $table = 'changeable_identities';

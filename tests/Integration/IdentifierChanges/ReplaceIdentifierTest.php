@@ -13,10 +13,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
-use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
 use Tests\Concerns\InteractsWithChangeableIdentities;
 use Tests\TestCase;
-use Tests\Unit\Stubs\StubVerifiableModel;
+use Tests\Unit\Stubs\StubChangeableModel;
 
 /**
  * Integration tests for the default `replaceIdentifier()` of an Eloquent
@@ -29,7 +29,7 @@ use Tests\Unit\Stubs\StubVerifiableModel;
  *
  * @internal
  */
-#[CoversTrait(ProvidesIdentifierVerification::class)]
+#[CoversTrait(ProvidesIdentifierChanges::class)]
 final class ReplaceIdentifierTest extends TestCase
 {
     use InteractsWithChangeableIdentities;
@@ -203,7 +203,7 @@ final class ReplaceIdentifierTest extends TestCase
     {
         DB::table('changeable_identities')->insert(['email' => self::EMAIL, 'updated_at' => '2026-01-01 00:00:00']);
 
-        $model = new class extends StubVerifiableModel {
+        $model = new class extends StubChangeableModel {
             /** @var bool Whether the model keeps `created_at` and `updated_at`. */
             public $timestamps = false;
 

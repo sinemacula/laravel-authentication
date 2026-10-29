@@ -2267,23 +2267,25 @@ by a signed link the application sends there; the confirmation replaces the iden
 verified, and tells the old one. The application owns the routes, the messages and their delivery.
 
 The identity implements `HasChangeableIdentifiers` (it extends `HasVerifiableIdentifiers`); the
-`ProvidesIdentifierVerification` trait already implements it from the identifier's column and `<type>_verified_at`, so
-the model only declares it. The application binds an `IdentifierChangeNotifier`, which tells the old identifier: no
-change is requested or confirmed while none is bound. The notice says whether the old identifier was verified when the
-change was requested (`previousVerified`): one never verified, such as an address mistyped at registration, may belong
-to a stranger, whom a notice would tell that the account exists and, if it named the new identifier, where its owner
-now is. The package queues the notice either way and leaves that choice to the notifier; the one below sends nothing to
-an unverified address and names only part of the new one.
+`ProvidesIdentifierChanges` trait implements it from the identifier's column and `<type>_verified_at`, and brings
+`ProvidesIdentifierVerification` with it, so the model uses it in place of that trait. The application binds an
+`IdentifierChangeNotifier`, which tells the old identifier: no change is requested or confirmed while none is bound. The
+notice says whether the old identifier was verified when the change was requested (`previousVerified`): one never
+verified, such as an address mistyped at registration, may belong to a stranger, whom a notice would tell that the
+account exists and, if it named the new identifier, where its owner now is. The package queues the notice either way and
+leaves that choice to the notifier; the one below sends nothing to an unverified address and names only part of the new
+one.
 
 ```php
 use Illuminate\Support\Str;
+use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierChanges;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
 
 class User extends Model implements HasChangeableIdentifiers, Identity, Principal
 {
-    use ActsAsPrincipal, Authenticatable, ProvidesIdentifierVerification;
+    use ActsAsPrincipal, Authenticatable, ProvidesIdentifierChanges;
 }
 
 final class MailIdentifierChangeNotifier implements IdentifierChangeNotifier
