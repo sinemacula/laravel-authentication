@@ -92,6 +92,10 @@ final readonly class Reauthentication
      * @param  \Closure(\Carbon\CarbonImmutable): TResult  $confirmedAt
      * @return TResult
      *
+     * @param-immediately-invoked-callable  $device
+     * @param-immediately-invoked-callable  $password
+     * @param-immediately-invoked-callable  $confirmedAt
+     *
      * @internal
      */
     public function apply(\Closure $device, \Closure $password, \Closure $confirmedAt): mixed

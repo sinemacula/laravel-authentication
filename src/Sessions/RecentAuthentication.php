@@ -82,6 +82,11 @@ final readonly class RecentAuthentication
      * @param  \SineMacula\Laravel\Authentication\Sessions\Reauthentication  $proof
      * @param  ?string  $ip
      * @return int|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason|null
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public function refusal(Identity $identity, Reauthentication $proof, ?string $ip): FailureReason|int|null
     {
@@ -133,6 +138,7 @@ final readonly class RecentAuthentication
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \Throwable
      */
     private function isCurrentPassword(Identity $identity, #[\SensitiveParameter] string $password, ?string $ip): bool|int
     {
