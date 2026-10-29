@@ -8,6 +8,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -16,6 +17,9 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
+use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
+use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Testing\FakeIdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
@@ -23,7 +27,8 @@ use Tests\Concerns\InteractsWithChangeableIdentities;
 
 /**
  * Query-budget contracts for changing identifiers: a request and a confirmation
- * each cost a fixed number of statements, whatever proves them.
+ * each cost a fixed number of statements, whatever proves them, and a new
+ * password cancels every pending change in one.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -33,6 +38,7 @@ use Tests\Concerns\InteractsWithChangeableIdentities;
 #[CoversClass(IdentifierChangeService::class)]
 #[CoversClass(ChangeRequests::class)]
 #[CoversClass(ChangeConfirmation::class)]
+#[CoversClass(OutdatedProofs::class)]
 final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
 {
     use InteractsWithChangeableIdentities;
@@ -155,6 +161,31 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $outcome = $this->assertQueryBudget(4, 3, static fn (): IdentifierChangeOutcome => $changes->confirmByLink(Request::create($link)));
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $outcome);
+    }
+
+    /**
+     * A change of password of an identity whose identifiers can change, with
+     * two changes pending, cancels them both in one `DELETE`, beside the
+     * password's `UPDATE`, the read of its row, the `DELETE` of the codes it
+     * outdates, the read of its devices and the end of its pending sign-ins.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testANewPasswordCancelsThePendingChangesInOneStatement(): void
+    {
+        $identity = self::seedChangeable(self::EMAIL, self::PHONE);
+        $changes  = Auth::identifierChanges('web');
+
+        $changes->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt(now()), 'confirm');
+        $changes->requestByLink($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt(now()), 'confirm');
+
+        $passwords = Auth::passwords('web');
+        $result    = $this->assertQueryBudget(2, 4, static fn (): PasswordResult => $passwords->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE));
+
+        self::assertTrue($result->isSet());
+        self::assertSame(0, DB::table('identifier_changes')->count());
     }
 
     /**

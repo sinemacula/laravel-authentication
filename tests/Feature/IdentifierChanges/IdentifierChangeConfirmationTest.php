@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
@@ -20,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\IdentifierChanged;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
+use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeConfirmation;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused;
@@ -29,6 +31,8 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PresentedChangeLink;
 use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeNotice;
+use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\ChangesIdentifiers;
@@ -55,6 +59,7 @@ use Tests\TestCase;
 #[CoversClass(PresentedChangeLink::class)]
 #[CoversClass(SendIdentifierChangeNotice::class)]
 #[CoversClass(IdentifierChangeNotice::class)]
+#[CoversClass(OutdatedProofs::class)]
 final class IdentifierChangeConfirmationTest extends TestCase
 {
     use ChangesIdentifiers;
@@ -491,6 +496,69 @@ final class IdentifierChangeConfirmationTest extends TestCase
         }
 
         self::assertCount(5, $left);
+    }
+
+    /**
+     * The flows of a new password that end the identity's sessions.
+     *
+     * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow}>
+     */
+    public static function provideSecurityChanges(): iterable
+    {
+        yield from [
+            'change' => [PasswordFlow::CHANGE],
+            'reset'  => [PasswordFlow::RESET],
+        ];
+    }
+
+    /**
+     * A change or a reset of the password cancels every identifier change the
+     * identity has pending, of each type and through each guard: neither the
+     * link nor the code of one requested from a session the new password ended
+     * makes it, though a link needs no session. Another identity's pending
+     * change is kept.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideSecurityChanges')]
+    public function testANewPasswordCancelsEveryPendingChange(PasswordFlow $flow): void
+    {
+        $identity = self::seedChangeable(self::EMAIL, self::PHONE);
+        $other    = self::seedChangeable('grace@example.test');
+        $link     = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+
+        self::assertIsString($link);
+        self::assertTrue($this->changes('admin')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertTrue($this->changes()->requestByCode($other, 'email', 'grace@new.example.test', Reauthentication::confirmedAt($this->now))->isSent());
+
+        self::assertTrue(Auth::passwords('web')->set($identity, 'a brand new passphrase', $flow)->set);
+        self::assertSame(1, self::rows('identifier_changes'));
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('admin')->confirmByCode($identity, 'phone', self::CODE));
+        self::assertSame([self::EMAIL, self::PHONE], [$identity->fresh()?->email, $identity->fresh()?->phone]);
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($other, 'email', '246802'));
+    }
+
+    /**
+     * A registration ends no session, so it leaves the identity's pending
+     * change, which its link still makes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARegistrationKeepsThePendingChange(): void
+    {
+        [$identity, $link] = $this->requestedByLink();
+
+        DB::table('changeable_identities')->update(['password' => null]);
+
+        self::assertTrue(Auth::passwords('web')->set($identity->fresh() ?? $identity, 'a brand new passphrase', PasswordFlow::REGISTRATION)->set);
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByLink(Request::create($link)));
     }
 
     /**

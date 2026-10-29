@@ -92,6 +92,13 @@ outdates, and why the change stands when the notice to the old identifier fails.
   request recently authenticated, so rolling back on a mail outage would block the owner while protecting nothing the
   proof did not, and notices are dispatched after commit by design, outside the atomic unit.
 - Sessions are not revoked by a change; the application may sign the identity out everywhere if it wants that.
+- A change or a reset of the password (`PasswordService::set()`, a reset by link or code) deletes every pending change
+  of the identity, of each type with a registered normaliser and through any guard, in one `DELETE` by key inside the
+  password's transaction (`PendingChanges::forget()`, from `Passwords\OutdatedProofs`). A link needs no session, so a
+  change requested from a session the new password ended (an attacker's) would otherwise still move the account to the
+  requester's address once its owner had recovered it. The change's code needs nothing: it is checked only against its
+  pending change's binding, so without the row it confirms nothing until it is pruned. A registration ends no session
+  and keeps them.
 
 ## Implementation Anchors
 

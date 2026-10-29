@@ -1788,7 +1788,11 @@ affected sessions as a bulk revocation, with its own reason, moves the scope's c
 | `principalDeactivated($principal)`                 | Every session acting as the principal      | `principal_deactivated` |
 | `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal | `tenant_deactivated`    |
 
-Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change.
+Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change. These
+methods end sessions only. A new password set through `Auth::passwords()->set()` (see
+[Setting a password](#setting-a-password)) calls them and also ends what could take the account back without a session:
+the reset links and codes, the sign-in codes and the pending identifier changes of the identity; a password your own
+flow saves another way leaves those as they are.
 `factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. Devices record
 principals, not tenants, so `tenantDeactivated()` takes the tenant's principals from you: each must act within the
 tenant (read on the write connection from the principal as stored, so a `tenant` relation you loaded does not decide and
@@ -2071,7 +2075,8 @@ and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flo
 password reset link and code still waiting for the identity's identifiers, through every guard whose provider returns
 the identity (see [Password reset](#password-reset)): a link or code someone else obtained before cannot take the
 account back once its owner has set a new password. A change or a reset also invalidates the sign-in codes waiting for
-those identifiers, which would open a session after the ones it ended; a registration ends no session and leaves them.
+those identifiers, which would open a session after the ones it ended, and cancels every identifier change the identity
+has pending (see [Changing identifiers](#changing-identifiers)); a registration ends no session and leaves them.
 The identifiers are those its row holds, read again inside the
 transaction, so a model you loaded with only some columns, or before its identifier changed, outdates them all. A
 guard whose provider reads another table binds its links and codes to the identities there, so they are left alone.
@@ -2331,6 +2336,10 @@ One change waits per identity and type, in `identifier_changes.table`: a newer r
 so the code and the link of an earlier one stop working at once. It waits `identifier_changes.ttl_seconds` (3600 by
 default), and a change proven by code no longer than its code works (`codes.ttl_seconds`). `pending($identity, $type)`
 reports the change waiting through this guard (its new identifier and times) and `cancel($identity, $type)` drops it.
+A change or a reset of the password through `Auth::passwords()->set()` (or a reset by link or code) drops every change
+the identity has waiting, of each type and through each guard, in the same transaction: a link needs no session, so
+one requested from a session the new password ended could otherwise still move the account to an address of the
+requester's. A registration keeps them.
 Prune expired changes with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
 
 **Confirming.** `confirmByCode($identity, $type, $code)` takes the code; `confirmByLink($request)` takes the request to

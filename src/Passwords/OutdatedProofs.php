@@ -9,8 +9,10 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
+use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Guards\JwtGuards;
+use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -25,20 +27,24 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * Whatever the flow, the password reset links and codes are outdated: the
  * password they would set is set. A change or a reset, which end sessions (see
  * `RevokesOnSecurityChanges`), also outdates the sign-in codes, which would
- * open a new one; a registration ends no session, so it leaves them. Each is
- * outdated through every `jwt` guard whose provider can return the identity
- * (see `JwtGuards::namesFor()`), for each identifier the identity holds, in
- * canonical form (see `ResetRecipient`), of a type a proof can be bound to: a
- * guard's password identifier, and any type with a registered normaliser. The
- * identifiers are read from the identity's row as it is stored, on the write
- * connection inside the transaction, never from the caller's model, which may
- * have loaded only some columns or be older than the row: a reset finds the
- * identity by its row, so an identifier left out would leave its links working.
- * A type the row cannot report at all (its `HasVerifiableIdentifiers` throws a
- * `LogicException`, as `ProvidesIdentifierVerification` does for a column the
- * table does not have) has nothing to outdate: a reset of it fails the same way
- * before its proof is checked. Misconfiguration (an `InvalidArgumentException`,
- * a normaliser that cannot be built, say) still fails closed.
+ * open a new one, and cancels every identifier change the identity has pending,
+ * of any type and through any guard: its link needs no session, so whoever
+ * requested it from a session the new password ended could otherwise still move
+ * the account to an identifier of theirs. A registration ends no session, so it
+ * leaves them. Each is outdated through every `jwt` guard whose provider can
+ * return the identity (see `JwtGuards::namesFor()`), for each identifier the
+ * identity holds, in canonical form (see `ResetRecipient`), of a type a proof
+ * can be bound to: a guard's password identifier, and any type with a
+ * registered normaliser. The identifiers are read from the identity's row as it
+ * is stored, on the write connection inside the transaction, never from the
+ * caller's model, which may have loaded only some columns or be older than the
+ * row: a reset finds the identity by its row, so an identifier left out would
+ * leave its links working. A type the row cannot report at all (its
+ * `HasVerifiableIdentifiers` throws a `LogicException`, as
+ * `ProvidesIdentifierVerification` does for a column the table does not have)
+ * has nothing to outdate: a reset of it fails the same way before its proof is
+ * checked. Misconfiguration (an `InvalidArgumentException`, a normaliser that
+ * cannot be built, say) still fails closed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -61,7 +67,8 @@ final readonly class OutdatedProofs
     /**
      * Invalidate every proof the identity's new password, set in the flow,
      * outdates, in one statement on the codes' connection, once its stored row
-     * is read.
+     * is read; for a change or a reset of an identity whose identifiers can be
+     * changed, delete its pending changes in one more.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
@@ -78,7 +85,7 @@ final readonly class OutdatedProofs
         $stored   = $identity->fresh() ?? $identity;
         $guards   = JwtGuards::namesFor($stored, $this->container->make(Repository::class));
         $verifier = $this->container->make(IdentifierVerifier::class);
-        $signIns  = $flow !== PasswordFlow::REGISTRATION;
+        $ends     = $flow !== PasswordFlow::REGISTRATION;
         $bindings = [];
 
         foreach ($this->types($guards) as $type) {
@@ -93,7 +100,7 @@ final readonly class OutdatedProofs
                 $bindings[] = CodeBinding::passwordReset($guard, $type, $identifier);
                 $bindings[] = CodeBinding::passwordResetLink($guard, $type, $identifier);
 
-                if (!$signIns) {
+                if (!$ends) {
                     continue;
                 }
 
@@ -102,6 +109,12 @@ final readonly class OutdatedProofs
         }
 
         $this->container->make(OneTimeCodes::class)->invalidate($bindings);
+
+        if (!$ends || !$stored instanceof HasChangeableIdentifiers) {
+            return;
+        }
+
+        PendingChanges::forget($stored, $this->container->make(IdentifierNormalisers::class)->types());
     }
 
     /**
