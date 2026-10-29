@@ -15,12 +15,14 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\Device as DeviceContract;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
@@ -145,10 +147,10 @@ final class CustomEventsIntegrationTest extends TestCase
         Event::assertDispatched(PrincipalAssigned::class, 1);
         Event::assertDispatched(PrincipalAssigned::class, function (PrincipalAssigned $event): bool {
 
-            self::assertSame(self::JWT_GUARD, $event->guard);
-            self::assertInstanceOf(Principal::class, $event->principal);
+            self::assertSame(self::JWT_GUARD, $event->context->guard);
+            self::assertInstanceOf(Principal::class, $event->context->principal);
 
-            $identity = $event->principal->getIdentity();
+            $identity = $event->context->principal->getIdentity();
 
             self::assertInstanceOf(StubPrincipal::class, $identity);
             self::assertSame(self::USER_EMAIL, $identity->getAttribute('email'));
@@ -177,6 +179,8 @@ final class CustomEventsIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $user->getMorphClass(),
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash('rotation-' . (string) $user->getKey()), // @phpstan-ignore cast.string
         ])->save();
 
@@ -195,9 +199,9 @@ final class CustomEventsIntegrationTest extends TestCase
         Event::assertDispatched(DeviceAuthenticated::class, 1);
         Event::assertDispatched(DeviceAuthenticated::class, function (DeviceAuthenticated $event) use ($device): bool {
 
-            self::assertSame(self::JWT_GUARD, $event->guard);
-            self::assertInstanceOf(DeviceContract::class, $event->device);
-            self::assertSame($device->getKey(), $event->device->getDeviceIdentifier());
+            self::assertSame(self::JWT_GUARD, $event->context->guard);
+            self::assertInstanceOf(DeviceContract::class, $event->context->device);
+            self::assertSame($device->getKey(), $event->context->device->getDeviceIdentifier());
 
             return true;
         });
@@ -246,6 +250,8 @@ final class CustomEventsIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $user->getMorphClass(),
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
@@ -276,10 +282,10 @@ final class CustomEventsIntegrationTest extends TestCase
         Event::assertDispatched(Refreshed::class, 1);
         Event::assertDispatched(Refreshed::class, function (Refreshed $event): bool {
 
-            self::assertSame(self::JWT_GUARD, $event->guard);
-            self::assertInstanceOf(Identity::class, $event->identity);
-            self::assertInstanceOf(StubPrincipal::class, $event->identity);
-            self::assertSame(self::USER_EMAIL, $event->identity->getAttribute('email'));
+            self::assertSame(self::JWT_GUARD, $event->context->guard);
+            self::assertInstanceOf(Identity::class, $event->context->identity);
+            self::assertInstanceOf(StubPrincipal::class, $event->context->identity);
+            self::assertSame(self::USER_EMAIL, $event->context->identity->getAttribute('email'));
 
             return true;
         });
@@ -307,7 +313,55 @@ final class CustomEventsIntegrationTest extends TestCase
         ]));
 
         self::assertCount(1, $captured);
-        self::assertSame(self::JWT_GUARD, $captured[0]->guard);
+        self::assertSame(self::JWT_GUARD, $captured[0]->context->guard);
+    }
+
+    /**
+     * One listener registered for the `AuthenticationEvent` contract receives
+     * every package event of a flow, and only those: a failed attempt reports
+     * its failure, a successful refresh its binds and its rotation.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testOneListenerOnTheContractReceivesEveryPackageEvent(): void
+    {
+        $user = $this->freshSeededUser();
+
+        $device = new Device;
+        $device->forceFill([
+            ...self::liveSession(),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => StubPrincipal::class,
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
+        ])->save();
+
+        /** @var list<string> $captured */
+        $captured = [];
+
+        Event::listen(AuthenticationEvent::class, static function (AuthenticationEvent $event) use (&$captured): void {
+            $captured[] = class_basename($event) . ':' . $event->context()->guard;
+        });
+
+        self::assertFalse(Auth::guard(self::JWT_GUARD)->attempt(['email' => self::USER_EMAIL, 'password' => 'wrong']));
+
+        $guard  = app('auth')->guard(self::JWT_GUARD);
+        $tokens = PackageAuth::jwt(self::JWT_GUARD);
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertNotNull($tokens);
+        self::assertInstanceOf(RefreshResult::class, $guard->refresh($tokens->issueRefreshToken($device, 'stored-rotation-id', $user)));
+
+        self::assertSame([
+            'AuthenticationFailed:api',
+            'PrincipalAssigned:api',
+            'DeviceAuthenticated:api',
+            'Refreshed:api',
+            'SignedIn:api',
+        ], $captured);
     }
 
     /**

@@ -116,6 +116,7 @@ final class BenchSchema
         $blueprint->string('authenticatable_id')->nullable();
         $blueprint->string('principal_type')->nullable();
         $blueprint->string('principal_id')->nullable();
+        $blueprint->dateTime('principal_switched_at', 0)->nullable();
         $blueprint->string('guard')->nullable();
         $blueprint->string('sign_in_method')->nullable();
         $blueprint->string('client_name')->nullable();
@@ -128,6 +129,7 @@ final class BenchSchema
         $blueprint->string('refresh_key', 64)->nullable();
         $blueprint->string('previous_refresh_key', 64)->nullable();
         $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+        $blueprint->dateTime('signed_in_at', 0);
         $blueprint->dateTime('idle_expires_at', 0);
         $blueprint->dateTime('absolute_expires_at', 0);
         $blueprint->dateTime('revoked_at', 0)->nullable();
@@ -142,14 +144,15 @@ final class BenchSchema
     }
 
     /**
-     * The deadlines of a session that starts now, with the package's default
-     * lifetimes.
+     * The start and deadlines of a session that starts now, with the package's
+     * default lifetimes.
      *
-     * @return array{idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      */
     public static function liveSession(): array
     {
         return [
+            'signed_in_at'        => Carbon::now(),
             'idle_expires_at'     => Carbon::now()->addDays(90),
             'absolute_expires_at' => Carbon::now()->addDays(180),
         ];

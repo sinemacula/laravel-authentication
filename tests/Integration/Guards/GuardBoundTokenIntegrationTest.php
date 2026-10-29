@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
@@ -155,14 +155,14 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         $token = $this->authManager()->jwt(self::STAFF_GUARD)->issueRefreshToken($device, self::ROTATION_ID, $identity);
 
-        Event::fake([RefreshFailed::class]);
+        Event::fake([AuthenticationFailed::class]);
 
         self::assertNull($this->guard(self::SUPPORT_GUARD)->refresh($token));
 
         Event::assertDispatched(
-            RefreshFailed::class,
-            static fn (RefreshFailed $event): bool => $event->guard === self::SUPPORT_GUARD
-                && $event->reason                                   === RefreshFailureReason::TOKEN_INVALID,
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->context->guard === self::SUPPORT_GUARD
+                && $event->reason                                                   === FailureReason::TOKEN_INVALID,
         );
 
         self::assertNotNull($this->guard(self::STAFF_GUARD)->refresh($token));
@@ -192,7 +192,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     /**
      * Refresh reloads the device owner through the refreshing guard's provider:
      * when that provider maps the owner key to a row of another model, the
-     * owner does not match and refresh fails with `authenticatable_missing`.
+     * owner does not match and refresh fails with `identity_unknown`.
      *
      * @return void
      *
@@ -207,13 +207,13 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
         $token = $this->authManager()->jwt(self::PARTNER_GUARD)->issueRefreshToken($device, self::ROTATION_ID);
 
-        $this->assertRefreshFailsWith(self::PARTNER_GUARD, $token, RefreshFailureReason::AUTHENTICATABLE_MISSING);
+        $this->assertRefreshFailsWith(self::PARTNER_GUARD, $token, FailureReason::IDENTITY_UNKNOWN);
     }
 
     /**
      * Refresh honours the guard provider's scope: an owner the provider does
-     * not serve is rejected with `authenticatable_missing`, and one it does
-     * serve rotates.
+     * not serve is rejected with `identity_unknown`, and one it does serve
+     * rotates.
      *
      * @return void
      *
@@ -229,7 +229,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
         $outsideToken = $jwt->issueRefreshToken($this->seedDevice($outside, self::CUSTOMER_GUARD), self::ROTATION_ID);
         $insideToken  = $jwt->issueRefreshToken($this->seedDevice($inside, self::CUSTOMER_GUARD), self::ROTATION_ID);
 
-        $this->assertRefreshFailsWith(self::CUSTOMER_GUARD, $outsideToken, RefreshFailureReason::AUTHENTICATABLE_MISSING);
+        $this->assertRefreshFailsWith(self::CUSTOMER_GUARD, $outsideToken, FailureReason::IDENTITY_UNKNOWN);
 
         $guard = $this->guard(self::CUSTOMER_GUARD);
 
@@ -267,24 +267,24 @@ final class GuardBoundTokenIntegrationTest extends TestCase
 
     /**
      * Assert that refreshing on the guard returns `null` and dispatches
-     * `RefreshFailed` with the expected reason.
+     * `AuthenticationFailed` with the expected reason.
      *
      * @param  string  $guard
      * @param  string  $token
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @return void
      *
      * @throws \Random\RandomException
      */
-    private function assertRefreshFailsWith(string $guard, string $token, RefreshFailureReason $reason): void
+    private function assertRefreshFailsWith(string $guard, string $token, FailureReason $reason): void
     {
-        Event::fake([RefreshFailed::class]);
+        Event::fake([AuthenticationFailed::class]);
 
         self::assertNull($this->guard($guard)->refresh($token));
 
         Event::assertDispatched(
-            RefreshFailed::class,
-            static fn (RefreshFailed $event): bool => $event->guard === $guard && $event->reason === $reason,
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->context->guard === $guard && $event->reason === $reason,
         );
     }
 
@@ -334,7 +334,7 @@ final class GuardBoundTokenIntegrationTest extends TestCase
     {
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession($guard),
+            ...self::liveSession($guard, $identity),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

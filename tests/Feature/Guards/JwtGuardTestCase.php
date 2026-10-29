@@ -20,6 +20,7 @@ use Orchestra\Testbench\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -214,6 +215,7 @@ abstract class JwtGuardTestCase extends TestCase
                 $app->make(ConnectionResolverInterface::class),
                 static fn (): mixed => $app->make('db.transactions'),
             ),
+            static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard(self::GUARD_NAME, config()),
         );
     }
 

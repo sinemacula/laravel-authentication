@@ -4,7 +4,6 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
-use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -61,16 +60,12 @@ final class PinnedPrincipal
      * class with the same auth identifier. In 2D mode the principal is its own
      * identity.
      *
-     * An Eloquent principal's owner is read from its own stored key on a copy
-     * without loaded relations, so an identity relation the resolver already
+     * An Eloquent principal's owner is read from its own stored key through
+     * `WriteConnection::stored()`, so an identity relation the resolver already
      * set (for example the inverse of the lookup it made) cannot vouch for the
      * principal. A principal whose owner cannot be read (`getIdentity()` throws
      * a `LogicException`, as `ActsAsPrincipal` does for a deleted owner or a
-     * model without an identity relation) is not owned. The copy may lazy-load
-     * its owner even when the principal was hydrated with lazy loading
-     * prevented (Eloquent strict mode), because the package re-reads the owner
-     * on purpose. The owner is read inside `WriteConnection::during()` for the
-     * principal.
+     * model without an identity relation) is not owned.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -78,16 +73,8 @@ final class PinnedPrincipal
      */
     public static function isOwnedBy(Principal $principal, Identity $identity): bool
     {
-        $stored = $principal;
-
-        if ($principal instanceof Model) {
-            $stored = $principal->withoutRelations();
-
-            $stored->preventsLazyLoading = false;
-        }
-
         try {
-            $owner = WriteConnection::during($stored, static fn (): Identity => $stored->getIdentity());
+            $owner = WriteConnection::stored($principal, static fn (Principal $stored): Identity => $stored->getIdentity());
         } catch (\LogicException) {
             return false;
         }

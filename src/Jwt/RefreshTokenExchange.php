@@ -12,25 +12,29 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
-use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
-use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
+use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 
 /**
  * Refresh-token exchange service.
@@ -40,8 +44,11 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * token is honoured only for a device of the guard exchanging it, and only
  * while the guard's audience policy still lets the method that started the
  * session start one and still admits the owner as the principal; none of these
- * failures revokes the device. The next idle deadline follows the lifetimes the
- * policy gives the principal's type.
+ * failures revokes the device. The principal the token names must be the one
+ * the device records: after the session switched principal, the refresh tokens
+ * of the principal it left fail as `device_principal_mismatch`, without
+ * revoking the device. The next idle deadline follows the lifetimes the policy
+ * gives the principal's type.
  *
  * Failed exchanges are counted against the token's device and the client's IP
  * address; once either count is full the exchange is refused as `rate_limited`
@@ -60,8 +67,9 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  *   revoking it.
  *
  * Every check uses one time per exchange, taken after the token is parsed and
- * cut to the whole second. Failure paths dispatch `RefreshFailed` events with
- * machine-readable reason codes for SIEM attribution.
+ * cut to the whole second. A failure is returned as the `AuthenticationFailed`
+ * event that reports it, with a machine-readable reason and as much context as
+ * the exchange established, for the caller to dispatch.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -99,13 +107,13 @@ final class RefreshTokenExchange
         // Returns the current transactions manager, if any, when called.
         \Closure $transactions,
 
-        /** Event dispatcher for RefreshFailed and DeviceRevoked events. */
+        /** Event dispatcher for DeviceRevoked events. */
         private Dispatcher $events,
 
         /** Resolver mapping identity to acting principal. */
         private PrincipalResolver $resolver,
 
-        /** Guard name carried on every RefreshFailed and DeviceRevoked event. */
+        /** Name of the guard whose refresh tokens the exchange accepts. */
         private readonly string $guardName,
     ) {
         $this->store       = new RefreshRotationStore($connections);
@@ -126,10 +134,9 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Rebind the event dispatcher that receives `RefreshFailed` and
-     * `DeviceRevoked`, so a dispatcher swapped in after the guard resolved
-     * (e.g. `Event::fake()`) receives the exchange's events as well as the
-     * guard's.
+     * Rebind the event dispatcher that receives `DeviceRevoked`, so a
+     * dispatcher swapped in after the guard resolved (e.g. `Event::fake()`)
+     * receives the exchange's events as well as the guard's.
      *
      * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @return self
@@ -143,9 +150,9 @@ final class RefreshTokenExchange
 
     /**
      * Exchange a refresh token for a new access + refresh token pair. On any
-     * failure, the `RefreshFailed` event is dispatched and returned, and the
-     * failure is counted against the token's device and the client's IP
-     * address.
+     * failure the `AuthenticationFailed` event that reports it is returned, not
+     * dispatched, and the failure is counted against the token's device and the
+     * client's IP address.
      *
      * Refreshing cannot guess a secret, so only failures are counted. Once
      * either count is full the exchange stops before looking the device up and
@@ -154,7 +161,7 @@ final class RefreshTokenExchange
      *
      * @param  string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Events\RefreshFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -163,7 +170,7 @@ final class RefreshTokenExchange
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function exchange(#[\SensitiveParameter] string $refreshToken, ClientContext $client): ExchangedRefresh|RefreshFailed
+    public function exchange(#[\SensitiveParameter] string $refreshToken, ClientContext $client): AuthenticationFailed|ExchangedRefresh
     {
         $claims  = $this->tokens->parse($refreshToken, TokenType::REFRESH);
         $subject = new AttemptSubject($this->guardName, AttemptFlow::REFRESH, IdentifierCoercion::stringify($claims[Claims::DEVICE_ID->value] ?? null), null, $client->ip);
@@ -171,15 +178,11 @@ final class RefreshTokenExchange
         $wait    = $limiter->blocked($subject);
 
         $outcome = $wait === null
-            ? $this->exchangeClaims($claims)
-            : $this->failure(RefreshFailureReason::RATE_LIMITED, $subject->identifier, $wait);
+            ? $this->exchangeClaims($claims, $client)
+            : $this->refused(FailureReason::RATE_LIMITED, new EventContext($this->guardName, $client, deviceId: $subject->identifier), $wait);
 
-        if ($outcome instanceof RefreshFailed && $wait === null) {
+        if ($outcome instanceof AuthenticationFailed && $wait === null) {
             $limiter->recordFailure($subject);
-        }
-
-        if ($outcome instanceof RefreshFailed) {
-            $this->events->dispatch($outcome);
         }
 
         return $outcome;
@@ -190,28 +193,30 @@ final class RefreshTokenExchange
      * on the bearer path and on refresh. Idempotent: an already revoked device
      * keeps its first revocation's time and reason. Returns whether this call
      * revoked the device; when it did, the revocation is mirrored on the
-     * in-memory device and `DeviceRevoked` is dispatched once the revocation is
-     * committed on the device's connection.
+     * in-memory device and `DeviceRevoked`, carrying the client, is dispatched
+     * once the revocation is committed on the device's connection.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return bool
      *
      * @imperative
      */
-    public function revokeDevice(EloquentDevice&Model $device, RevocationReason $reason): bool
+    public function revokeDevice(EloquentDevice&Model $device, RevocationReason $reason, ClientContext $client): bool
     {
-        return $this->revoke($device, $reason, CarbonImmutable::now()->startOfSecond());
+        return $this->revoke($device, $reason, CarbonImmutable::now()->startOfSecond(), $client);
     }
 
     /**
      * Run the exchange for the parsed claims: the device the token names, its
      * guard, the rotation id against it, its owner and principal, and the
      * guard's audience policy, then the rotation or the grace reissue. Returns
-     * the `RefreshFailed` event of the first check that fails.
+     * the `AuthenticationFailed` event of the first check that fails.
      *
      * @param  ?array<string, mixed>  $claims
-     * @return \SineMacula\Laravel\Authentication\Events\RefreshFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -220,11 +225,11 @@ final class RefreshTokenExchange
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function exchangeClaims(#[\SensitiveParameter] ?array $claims): ExchangedRefresh|RefreshFailed
+    private function exchangeClaims(#[\SensitiveParameter] ?array $claims, ClientContext $client): AuthenticationFailed|ExchangedRefresh
     {
-        $claims = $this->extractRefreshClaims($claims);
+        $claims = $this->extractRefreshClaims($claims, $client);
 
-        if ($claims instanceof RefreshFailed) {
+        if ($claims instanceof AuthenticationFailed) {
             return $claims;
         }
 
@@ -233,8 +238,8 @@ final class RefreshTokenExchange
         $device = DeviceLookup::find($rawDeviceId);
 
         return $device === null
-            ? $this->failure(RefreshFailureReason::DEVICE_UNKNOWN, IdentifierCoercion::stringify($rawDeviceId))
-            : $this->exchangeOn($device, $rotationId, $principalHint, CarbonImmutable::now()->startOfSecond());
+            ? $this->refused(FailureReason::DEVICE_UNKNOWN, new EventContext($this->guardName, $client, deviceId: IdentifierCoercion::stringify($rawDeviceId)))
+            : $this->exchangeOn($device, $rotationId, $principalHint, CarbonImmutable::now()->startOfSecond(), $client);
     }
 
     /**
@@ -248,7 +253,8 @@ final class RefreshTokenExchange
      * @param  string  $rotationId
      * @param  mixed  $principalHint
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Events\RefreshFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -256,28 +262,31 @@ final class RefreshTokenExchange
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function exchangeOn(EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, mixed $principalHint, CarbonImmutable $now): ExchangedRefresh|RefreshFailed
-    {
+    private function exchangeOn(
+        EloquentDevice&Model $device,
+        #[\SensitiveParameter] string $rotationId,
+        mixed $principalHint,
+        CarbonImmutable $now,
+        ClientContext $client,
+    ): AuthenticationFailed|ExchangedRefresh {
         $guard   = WriteConnection::during($device, static fn (): ?string => $device->getGuard());
         $verdict = $guard === $this->guardName
-            ? $this->classify($device, $rotationId, $now)
-            : RefreshFailureReason::DEVICE_GUARD_MISMATCH;
+            ? RefreshJudgement::classify($device, $rotationId, $now, $this->tokens->lifetimes())
+            : FailureReason::DEVICE_GUARD_MISMATCH;
 
-        if ($verdict instanceof RefreshFailureReason) {
-            return $this->fail($device, $verdict, $now);
+        if ($verdict instanceof FailureReason) {
+            return $this->fail($device, $verdict, $now, $client);
         }
 
-        $context = $this->hydrateRefreshContext($device, $principalHint);
+        $session = $this->hydrateRefreshContext($device, $principalHint, $client);
 
-        if ($context instanceof RefreshFailureReason) {
-            return $this->failure($context, IdentifierCoercion::stringify($device->getDeviceIdentifier()));
+        if ($session instanceof AuthenticationFailed) {
+            return $session;
         }
-
-        [$identity, $principal] = $context;
 
         return $verdict[0] === RotationMatch::CURRENT
-            ? $this->rotate($device, $identity, $principal, $rotationId, $now, $verdict[1])
-            : $this->reissue($device, $identity, $principal, $rotationId, $now);
+            ? $this->rotate($device, $session, $rotationId, $now, $verdict[1], $client)
+            : $this->reissue($device, $session, $rotationId, $now);
     }
 
     /**
@@ -287,12 +296,13 @@ final class RefreshTokenExchange
      * payload.
      *
      * @param  ?array<string, mixed>  $claims
-     * @return array{0: mixed, 1: string, 2: mixed}|\SineMacula\Laravel\Authentication\Events\RefreshFailed
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return array{0: mixed, 1: string, 2: mixed}|\SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function extractRefreshClaims(#[\SensitiveParameter] ?array $claims): array|RefreshFailed
+    private function extractRefreshClaims(#[\SensitiveParameter] ?array $claims, ClientContext $client): array|AuthenticationFailed
     {
         if ($claims === null) {
-            return $this->failure(RefreshFailureReason::TOKEN_INVALID, null);
+            return $this->refused(FailureReason::TOKEN_INVALID, new EventContext($this->guardName, $client));
         }
 
         $rawDeviceId   = $claims[Claims::DEVICE_ID->value];
@@ -300,7 +310,7 @@ final class RefreshTokenExchange
         $principalHint = $claims[Claims::PRINCIPAL_ID->value] ?? null;
 
         if (!is_string($rotationId)) {
-            return $this->failure(RefreshFailureReason::TOKEN_INVALID, is_string($rawDeviceId) ? $rawDeviceId : null);
+            return $this->refused(FailureReason::TOKEN_INVALID, new EventContext($this->guardName, $client, deviceId: is_string($rawDeviceId) ? $rawDeviceId : null));
         }
 
         /** @var non-empty-string $rotationId */
@@ -308,17 +318,43 @@ final class RefreshTokenExchange
     }
 
     /**
-     * The `RefreshFailed` event for the reason and device id, and the wait of a
-     * rate-limited failure.
+     * The `AuthenticationFailed` event of a refresh that failed for the reason,
+     * with the context the exchange established, and the wait of a rate-limited
+     * failure.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
-     * @param  ?string  $deviceId
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  ?int  $retryAfter
-     * @return \SineMacula\Laravel\Authentication\Events\RefreshFailed
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function failure(RefreshFailureReason $reason, ?string $deviceId, ?int $retryAfter = null): RefreshFailed
+    private function refused(FailureReason $reason, EventContext $context, ?int $retryAfter = null): AuthenticationFailed
     {
-        return new RefreshFailed($this->guardName, $reason, $deviceId, $retryAfter);
+        return new AuthenticationFailed($context, AuthenticationFlow::REFRESH, $reason, retryAfter: $retryAfter);
+    }
+
+    /**
+     * The context of an exchange on the device: the guard exchanging, the
+     * client, the device and the method its session records, and whatever of
+     * the session's identity, principal and tenant the exchange resolved. A
+     * failure before the owner was read (the row's own state, an owner that no
+     * longer loads) is about the row, so it names the owner and principal the
+     * row records.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
+     */
+    private function deviceContext(
+        ClientContext $client,
+        EloquentDevice&Model $device,
+        ?Identity $identity = null,
+        ?Principal $principal = null,
+        ?Tenant $tenant = null,
+    ): EventContext {
+        return new EventContext($this->guardName, $client, $identity, $principal, $tenant, $device, $device->getSignInMethod(), fromDevice: $identity === null);
     }
 
     /**
@@ -326,37 +362,40 @@ final class RefreshTokenExchange
      * the failure proves its refresh token was replayed.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Events\RefreshFailed
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function fail(EloquentDevice&Model $device, RefreshFailureReason $reason, CarbonImmutable $now): RefreshFailed
+    private function fail(EloquentDevice&Model $device, FailureReason $reason, CarbonImmutable $now, ClientContext $client): AuthenticationFailed
     {
-        if ($reason === RefreshFailureReason::ROTATION_REUSE) {
-            $this->revoke($device, RevocationReason::ROTATION_REUSE, $now);
+        if ($reason === FailureReason::ROTATION_REUSE) {
+            $this->revoke($device, RevocationReason::ROTATION_REUSE, $now, $client);
         }
 
-        return $this->failure($reason, IdentifierCoercion::stringify($device->getDeviceIdentifier()));
+        return $this->refused($reason, $this->deviceContext($client, $device));
     }
 
     /**
      * Revoke the device at the given time, and report it when this call did,
-     * once the revocation is committed on the device's own connection.
+     * once the revocation is committed on the device's own connection. The
+     * event's guard is the device's own.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RevocationReason  $reason
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return bool
      *
      * @imperative
      */
-    private function revoke(EloquentDevice&Model $device, RevocationReason $reason, CarbonImmutable $now): bool
+    private function revoke(EloquentDevice&Model $device, RevocationReason $reason, CarbonImmutable $now, ClientContext $client): bool
     {
         $revoked = $this->store->revoke($device, $reason, $now);
 
         if ($revoked) {
 
-            $event = new DeviceRevoked($this->guardName, $device, $reason);
+            $event = new DeviceRevoked(new EventContext($device->getGuard(), $client, device: $device, method: $device->getSignInMethod(), fromDevice: true), $reason);
 
             $this->afterCommit->run($device, function () use ($event): void {
                 $this->events->dispatch($event);
@@ -367,199 +406,34 @@ final class RefreshTokenExchange
     }
 
     /**
-     * Judge the presented rotation id against the device at `$now`.
-     *
-     * In order: a revoked device fails as `device_revoked`; a session past
-     * either deadline, or without one, as `session_expired` (an ended session
-     * is not revoked: it simply cannot be refreshed); a device holding no
-     * refresh credential as `refresh_key_missing`. Only then is the rotation id
-     * compared, in constant time: the current one, with the absolute
-     * deadline the rotation keeps; the previous one inside the grace window;
-     * or anything else, which is a replay (`rotation_reuse`). Nothing is
-     * compared before the device is known to be live, so such a row cannot be
-     * used to time-probe the valid rotation-id space.
-     *
-     * The device's state is read inside `WriteConnection::during()` for the
-     * device, so a device that derives any of it from a relation or another
-     * table reads it from the writer as well.
-     *
-     * @formatter:off
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  string  $rotationId
-     * @param  \Carbon\CarbonImmutable  $now
-     * @return array{0: \SineMacula\Laravel\Authentication\Jwt\Enums\RotationMatch, 1: \Carbon\CarbonInterface}|\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
-     *
-     * @formatter:on
-     *
-     * @throws \LogicException
-     */
-    private function classify(EloquentDevice&Model $device, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): array|RefreshFailureReason
-    {
-        $lifetimes = $this->tokens->lifetimes();
-
-        return WriteConnection::during($device, static function () use ($device, $rotationId, $now, $lifetimes): array|RefreshFailureReason {
-
-            if ($device->getRevokedAt() !== null) {
-                return RefreshFailureReason::DEVICE_REVOKED;
-            }
-
-            $deadlines = TokenLifetimes::liveDeadlines($device, $now);
-            $current   = $device->getRefreshKey();
-
-            if ($deadlines === null || $current === null) {
-                return $deadlines === null ? RefreshFailureReason::SESSION_EXPIRED : RefreshFailureReason::REFRESH_KEY_MISSING;
-            }
-
-            $match = match (true) {
-                RefreshTokenHasher::verify($rotationId, $current)                    => RotationMatch::CURRENT,
-                self::isGraceRetry($device, $rotationId, $current, $lifetimes, $now) => RotationMatch::PREVIOUS,
-                default                                                              => null,
-            };
-
-            return $match === null ? RefreshFailureReason::ROTATION_REUSE : [$match, $deadlines[1]];
-        });
-    }
-
-    /**
-     * Whether the rotation id is the one the device's current id replaced,
-     * presented inside the grace window. The current id must also be its
-     * successor: a row whose digests were changed outside a rotation does not
-     * honour the previous id.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @param  string  $rotationId
-     * @param  string  $current
-     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
-     * @param  \Carbon\CarbonImmutable  $now
-     * @return bool
-     *
-     * @throws \LogicException
-     */
-    private static function isGraceRetry(Device $device, #[\SensitiveParameter] string $rotationId, string $current, TokenLifetimes $lifetimes, CarbonImmutable $now): bool
-    {
-        $previous  = $device->getPreviousRefreshKey();
-        $rotatedAt = $device->getRefreshRotatedAt();
-
-        if ($previous === null || $rotatedAt === null || !$lifetimes->isWithinGrace($rotatedAt, $now)) {
-            return false;
-        }
-
-        return RefreshTokenHasher::verify($rotationId, $previous)
-            && RefreshTokenHasher::verify(RefreshTokenHasher::successor($rotationId), $current);
-    }
-
-    /**
      * Hydrate identity + principal from a verified device row, and hold them to
-     * the guard's audience policy: the method that started the session must
-     * still be allowed to (a device that records none fails closed, as
-     * `method_not_allowed`), and the policy must still admit the identity as
-     * the principal (`principal_ineligible`). A refresh names no identifier, so
-     * the verified-identifier requirement does not apply to it. The method is
-     * read on the write connection, so a lagging replica cannot allow a method
-     * the primary no longer records for the device.
-     *
-     * @formatter:off
-     *
-     * @phpcs:disable Generic.Files.LineLength.TooLong
+     * the guard's audience policy (see `RefreshAdmission`); the principal must
+     * be the one the device records (`device_principal_mismatch`). Returns the
+     * admitted session (the identity, the principal, the tenant its activity
+     * check loaded, and the device), or the failure with as much of it as was
+     * resolved.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  mixed  $principalHint
-     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal}|\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
-     *
-     * @phpcs:enable Generic.Files.LineLength.TooLong
-     *
-     * @formatter:on
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function hydrateRefreshContext(EloquentDevice&Model $device, mixed $principalHint): array|RefreshFailureReason
+    private function hydrateRefreshContext(EloquentDevice&Model $device, mixed $principalHint, ClientContext $client): AdmittedSignIn|AuthenticationFailed
     {
-        $identity = $this->resolveRefreshIdentity($device);
+        $admitted = (new RefreshAdmission($this->guardName, $this->provider, $this->resolver))->admit($device, $principalHint);
 
-        if ($identity instanceof RefreshFailureReason) {
-            return $identity;
+        if ($admitted instanceof AdmittedSignIn && !PrincipalReference::isRecordedOn($device, $admitted->principal)) {
+            $admitted = RefusedSignIn::after(FailureReason::DEVICE_PRINCIPAL_MISMATCH, $admitted);
         }
 
-        $principal = $this->resolveRefreshPrincipal($identity, $principalHint);
-
-        if ($principal instanceof RefreshFailureReason) {
-            return $principal;
-        }
-
-        $policy  = Container::getInstance()->make(AudiencePolicy::class);
-        $method  = WriteConnection::during($device, static fn (): ?string => $device->getSignInMethod());
-        $allowed = $method !== null && $policy->allowsMethod($this->guardName, $method);
-
-        return match (true) {
-            !$allowed                                                              => RefreshFailureReason::METHOD_NOT_ALLOWED,
-            $policy->admit($this->guardName, $identity, $principal, null) !== null => RefreshFailureReason::PRINCIPAL_INELIGIBLE,
-            default                                                                => [$identity, $principal],
-        };
-    }
-
-    /**
-     * Reload the device's owner through the guard's identity provider, so the
-     * provider's own scoping applies, and confirm it is that exact owner and
-     * currently active. A device row with no owner key, or a provider answer
-     * that is not the owner (no row through this provider, or another model
-     * sharing the key), fails as `authenticatable_missing`.
-     *
-     * The provider is asked for the owner key the device row stores, which is
-     * the identity's primary key; providers find identities by their auth
-     * identifier, which is the primary key unless the identity model overrides
-     * `getAuthIdentifierName()`.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
-     */
-    private function resolveRefreshIdentity(EloquentDevice&Model $device): Identity|RefreshFailureReason
-    {
-        $ownerKey = DeviceOwnership::ownerKey($device);
-        $identity = $ownerKey === null ? null : $this->provider->retrieveById($ownerKey);
-
-        if (!$identity instanceof Identity || !DeviceOwnership::isOwner($device, $identity)) {
-            return RefreshFailureReason::AUTHENTICATABLE_MISSING;
-        }
-
-        return ActivationPolicy::isActive($identity) ? $identity : RefreshFailureReason::IDENTITY_INACTIVE;
-    }
-
-    /**
-     * Resolve a principal for the refresh-flow identity through the bound
-     * resolver, with the token's hint when it carries one, and verify it and
-     * the tenant it acts within are currently active. An
-     * `UnresolvableIdentityException` is a misconfiguration and propagates as a
-     * server error rather than being reported as a refresh failure.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  mixed  $hint
-     * @return \SineMacula\Laravel\Authentication\Contracts\Principal|\SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    private function resolveRefreshPrincipal(Identity $identity, mixed $hint): Principal|RefreshFailureReason
-    {
-        $principal = $hint === null
-            ? $this->resolver->resolve($identity)
-            : $this->resolver->resolve($identity, $hint);
-
-        if ($hint !== null && !IdentifierCoercion::matches($principal?->getPrincipalIdentifier(), $hint)) {
-            return RefreshFailureReason::PRINCIPAL_MISMATCH;
-        }
-
-        if (!$principal instanceof Principal) {
-            return RefreshFailureReason::PRINCIPAL_UNRESOLVED;
-        }
-
-        return match (true) {
-            !ActivationPolicy::isActive($principal)       => RefreshFailureReason::PRINCIPAL_INACTIVE,
-            !ActivationPolicy::isTenantActive($principal) => RefreshFailureReason::TENANT_INACTIVE,
-            default                                       => $principal,
-        };
+        return $admitted instanceof RefusedSignIn
+            ? $this->refused($admitted->reason, $this->deviceContext($client, $device, $admitted->identity, $admitted->principal, $admitted->tenant))
+            : $admitted;
     }
 
     /**
@@ -575,13 +449,21 @@ final class RefreshTokenExchange
      * compare-and-swap has committed; when the swap misses, the row changed
      * under the exchange and is judged again.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $session
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
      * @param  \Carbon\CarbonInterface  $absolute
-     * @return \SineMacula\Laravel\Authentication\Events\RefreshFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -590,27 +472,27 @@ final class RefreshTokenExchange
      */
     private function rotate(
         EloquentDevice&Model $device,
-        Identity $identity,
-        Principal $principal,
+        AdmittedSignIn $session,
         #[\SensitiveParameter] string $rotationId,
         CarbonImmutable $now,
         CarbonInterface $absolute,
-    ): ExchangedRefresh|RefreshFailed {
+        ClientContext $client,
+    ): AuthenticationFailed|ExchangedRefresh {
         $next = RefreshTokenHasher::successor($rotationId);
-        $idle = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->guardName, $principal)->idleDeadline($now, $absolute);
+        $idle = Container::getInstance()->make(AudiencePolicy::class)->lifetimes($this->guardName, $session->principal)->idleDeadline($now, $absolute);
 
         $device->setAttribute($device->getIdleExpiresAtName(), $idle);
 
         $tokens = new RefreshResult(
-            $this->tokens->issueAccessToken($identity, $principal, $device, $now),
-            $this->tokens->issueRefreshToken($device, $next, $principal, $now),
+            $this->tokens->issueAccessToken($session->identity, $session->principal, $device, $now),
+            $this->tokens->issueRefreshToken($device, $next, $session->principal, $now),
         );
 
         if ($this->store->rotate($device, $rotationId, $next, $idle, $now)) {
-            return new ExchangedRefresh($identity, $principal, $device, $tokens);
+            return self::exchanged($device, $session, $tokens);
         }
 
-        return $this->afterLostRotation($device, $identity, $principal, $rotationId, $now);
+        return $this->afterLostRotation($device, $session, $rotationId, $now, $client);
     }
 
     /**
@@ -627,12 +509,20 @@ final class RefreshTokenExchange
      * without revoking, and the client can retry. Before any success the fresh
      * row must still belong to the identity the exchange hydrated.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $session
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
-     * @return \SineMacula\Laravel\Authentication\Events\RefreshFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
@@ -640,30 +530,34 @@ final class RefreshTokenExchange
      */
     private function afterLostRotation(
         EloquentDevice&Model $device,
-        Identity $identity,
-        Principal $principal,
+        AdmittedSignIn $session,
         #[\SensitiveParameter] string $rotationId,
         CarbonImmutable $now,
-    ): ExchangedRefresh|RefreshFailed {
+        ClientContext $client,
+    ): AuthenticationFailed|ExchangedRefresh {
         $fresh = $this->store->reload($device);
 
         if ($fresh === null) {
-            return $this->failure(RefreshFailureReason::DEVICE_UNKNOWN, IdentifierCoercion::stringify($device->getDeviceIdentifier()));
+
+            $context = new EventContext($this->guardName, $client, deviceId: IdentifierCoercion::stringify($device->getDeviceIdentifier()));
+
+            return $this->refused(FailureReason::DEVICE_UNKNOWN, $context);
         }
 
-        $verdict = $this->classify($fresh, $rotationId, $now);
+        $verdict = RefreshJudgement::classify($fresh, $rotationId, $now, $this->tokens->lifetimes());
 
         if (is_array($verdict)) {
             $verdict = match (true) {
-                $verdict[0] === RotationMatch::CURRENT       => RefreshFailureReason::ROTATION_CONFLICT,
-                !DeviceOwnership::isOwner($fresh, $identity) => RefreshFailureReason::AUTHENTICATABLE_MISSING,
-                default                                      => null,
+                $verdict[0] === RotationMatch::CURRENT                         => FailureReason::ROTATION_CONFLICT,
+                !DeviceOwnership::isOwner($fresh, $session->identity)          => FailureReason::IDENTITY_UNKNOWN,
+                !PrincipalReference::isRecordedOn($fresh, $session->principal) => FailureReason::DEVICE_PRINCIPAL_MISMATCH,
+                default                                                        => null,
             };
         }
 
         return $verdict === null
-            ? $this->reissue($fresh, $identity, $principal, $rotationId, $now)
-            : $this->fail($fresh, $verdict, $now);
+            ? $this->reissue($fresh, $session, $rotationId, $now)
+            : $this->fail($fresh, $verdict, $now, $client);
     }
 
     /**
@@ -673,29 +567,46 @@ final class RefreshTokenExchange
      * No rotation state is written, so the grace window stays anchored at the
      * rotation that opened it.
      *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $session
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Random\RandomException
      */
-    private function reissue(
-        EloquentDevice&Model $device,
-        Identity $identity,
-        Principal $principal,
-        #[\SensitiveParameter] string $rotationId,
-        CarbonImmutable $now,
-    ): ExchangedRefresh {
+    private function reissue(EloquentDevice&Model $device, AdmittedSignIn $session, #[\SensitiveParameter] string $rotationId, CarbonImmutable $now): ExchangedRefresh
+    {
         $tokens = new RefreshResult(
-            $this->tokens->issueAccessToken($identity, $principal, $device, $now),
-            $this->tokens->issueRefreshToken($device, RefreshTokenHasher::successor($rotationId), $principal, $now),
+            $this->tokens->issueAccessToken($session->identity, $session->principal, $device, $now),
+            $this->tokens->issueRefreshToken($device, RefreshTokenHasher::successor($rotationId), $session->principal, $now),
         );
 
-        return new ExchangedRefresh($identity, $principal, $device, $tokens);
+        return self::exchanged($device, $session, $tokens);
+    }
+
+    /**
+     * The exchanged session on the device, with its new pair: the identity,
+     * principal and tenant it was admitted as, and the method the device's
+     * session records.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $session
+     * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshResult  $tokens
+     * @return \SineMacula\Laravel\Authentication\Jwt\ExchangedRefresh
+     */
+    private static function exchanged(EloquentDevice&Model $device, AdmittedSignIn $session, RefreshResult $tokens): ExchangedRefresh
+    {
+        return new ExchangedRefresh($session->identity, $session->principal, $device, $tokens, $session->tenant, $device->getSignInMethod());
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Jwt;
 
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+
 /**
  * Immutable token pair: the first pair of a session the session service
  * started, or the pair a refresh exchange rotated in.
@@ -25,6 +27,7 @@ final readonly class RefreshResult
      *
      * @param  string  $accessToken
      * @param  string  $refreshToken
+     * @param  ?\SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource  $source
      */
     public function __construct(
 
@@ -33,5 +36,8 @@ final readonly class RefreshResult
 
         /** Newly issued refresh token carrying the device's current rotation id. */
         #[\SensitiveParameter] public string $refreshToken,
+
+        /** Where the refreshed token was read from, when `refreshFromRequest()` read it, so a cookie refresh is answered with a cookie. */
+        public ?RefreshTokenSource $source = null,
     ) {}
 }

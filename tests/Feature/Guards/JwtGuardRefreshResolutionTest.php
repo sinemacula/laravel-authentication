@@ -16,11 +16,12 @@ use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -56,7 +57,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * When the bound identity reports `isActive() === false`, refresh fails
-     * with `identity_inactive` and dispatches `RefreshFailed`.
+     * with `identity_inactive` and dispatches `AuthenticationFailed`.
      *
      * @return void
      *
@@ -105,8 +106,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::IDENTITY_INACTIVE),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason === FailureReason::IDENTITY_INACTIVE),
             );
 
         self::assertNull($guard->refresh($token));
@@ -132,8 +133,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     /**
      * Refresh reloads the device owner through the guard's provider by the
      * owner key on the device row and accepts only that exact owner; any other
-     * answer fails with `authenticatable_missing` before a principal is
-     * resolved.
+     * answer fails with `identity_unknown` before a principal is resolved.
      *
      * @param  \Closure(): mixed  $answer
      * @return void
@@ -170,9 +170,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::AUTHENTICATABLE_MISSING
-                    && $event->deviceId === $device->id),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason            === FailureReason::IDENTITY_UNKNOWN
+                    && $event->context->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));
@@ -180,7 +180,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * A device row with no owner key has no owner to reload: refresh fails with
-     * `authenticatable_missing` without asking the provider.
+     * `identity_unknown` without asking the provider.
      *
      * @return void
      *
@@ -214,8 +214,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::AUTHENTICATABLE_MISSING),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason === FailureReason::IDENTITY_UNKNOWN),
             );
 
         self::assertNull($guard->refresh($token));
@@ -266,9 +266,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
-                    && $event->deviceId === $device->id),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason            === FailureReason::PRINCIPAL_MISMATCH
+                    && $event->context->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));
@@ -323,9 +323,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
-                    && $event->deviceId === $device->id),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason            === FailureReason::PRINCIPAL_MISMATCH
+                    && $event->context->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));
@@ -380,9 +380,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::PRINCIPAL_MISMATCH
-                    && $event->deviceId === $device->id),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason            === FailureReason::PRINCIPAL_MISMATCH
+                    && $event->context->deviceId === $device->id),
             );
 
         self::assertNull($guard->refresh($token));
@@ -390,7 +390,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
     /**
      * When the hinted principal reports `isActive() === false`, refresh fails
-     * with `principal_inactive` and dispatches `RefreshFailed`.
+     * with `principal_inactive` and dispatches `AuthenticationFailed`.
      *
      * @return void
      *
@@ -418,7 +418,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest(null));
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
-        $principal->shouldReceive('getPrincipalIdentifier')->once()->andReturn('p-11');
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-11');
         $principal->shouldReceive('isActive')->once()->andReturnFalse();
 
         $this->resolver->shouldReceive('resolve')
@@ -436,8 +436,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_INACTIVE),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason === FailureReason::PRINCIPAL_INACTIVE),
             );
 
         self::assertNull($guard->refresh($token));
@@ -489,8 +489,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason === RefreshFailureReason::PRINCIPAL_MISMATCH),
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                    && $event->reason === FailureReason::PRINCIPAL_MISMATCH),
             );
 
         self::assertNull($guard->refresh($token));
@@ -541,6 +541,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-1')
             ->andReturn($principal);
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $token = $this->encodeRefreshToken([
             'pid' => 'p-1',
             'did' => $device->id,
@@ -584,15 +586,16 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         self::assertCount(1, $refreshed);
         self::assertInstanceOf(Refreshed::class, $refreshed[0]);
-        self::assertSame(self::GUARD_NAME, $refreshed[0]->guard);
-        self::assertSame($identity, $refreshed[0]->identity);
-        self::assertSame($principal, $refreshed[0]->principal);
-        self::assertSame($device, $refreshed[0]->device);
+        self::assertSame(self::GUARD_NAME, $refreshed[0]->context->guard);
+        self::assertSame($identity, $refreshed[0]->context->identity);
+        self::assertSame($principal, $refreshed[0]->context->principal);
+        self::assertSame($device, $refreshed[0]->context->device);
     }
 
     /**
-     * A successful refresh routes through `login()` and then dispatches the
-     * package `Refreshed` event, yielding the full ordered success sequence.
+     * A successful refresh is a sign-in: `Attempting`, `Validated`, `Login` and
+     * the bind events, then the package `Refreshed` and `SignedIn` (a refresh,
+     * on the device it continued), yielding the full ordered success sequence.
      *
      * @return void
      *
@@ -633,6 +636,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with($identity, 'p-19')
             ->andReturn($principal);
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $token = $this->encodeRefreshToken([
             'pid' => 'p-19',
             'did' => $device->id,
@@ -642,9 +647,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $dispatched = [];
 
         $this->events->shouldReceive('dispatch')
-            ->times(7)
+            ->times(8)
             ->andReturnUsing(static function (object $event) use (&$dispatched): void {
-                $dispatched[] = $event::class;
+                $dispatched[] = $event;
             });
 
         self::assertInstanceOf(RefreshResult::class, $guard->refresh($token));
@@ -656,7 +661,19 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             PrincipalAssigned::class,
             DeviceAuthenticated::class,
             Refreshed::class,
-        ], $dispatched);
+            SignedIn::class,
+        ], array_map(static fn (object $event): string => $event::class, $dispatched));
+
+        $refreshed = $dispatched[6];
+        $signedIn  = $dispatched[7];
+
+        self::assertInstanceOf(Refreshed::class, $refreshed);
+        self::assertInstanceOf(SignedIn::class, $signedIn);
+        self::assertSame($refreshed->context, $signedIn->context);
+        self::assertFalse($signedIn->deviceCreated);
+        self::assertTrue($signedIn->refresh);
+        self::assertSame('password', $signedIn->context->method);
+        self::assertSame($device, $signedIn->context->device);
     }
 
     /**
@@ -701,6 +718,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->once()
             ->with($identity)
             ->andReturn($principal);
+
+        $device->forceFill(self::recordedPrincipal($principal))->save();
 
         $token = $this->encodeRefreshToken([
             'did' => $device->id,
@@ -765,6 +784,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $guard->setPrincipalResolver($replacement);
 
+        $device->forceFill(self::recordedPrincipal($principal))->save();
+
         $token = $this->encodeRefreshToken([
             'did' => $device->id,
             'jti' => $plainRotationId,
@@ -794,6 +815,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
         $guard = $this->makeGuard($this->makeRequest($token));
 
         $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn('i-1');
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
@@ -827,7 +849,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     /**
      * `setDispatcher()` returns the guard and rebinds the refresh exchange as
      * well as the guard: a later failed refresh reports `Attempting`,
-     * `RefreshFailed` and `Failed` to the new dispatcher only.
+     * `AuthenticationFailed` and `Failed` to the new dispatcher only.
      *
      * @return void
      *
@@ -844,8 +866,8 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
             ->with(\Mockery::type(Attempting::class));
         $replacement->shouldReceive('dispatch')
             ->once()
-            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                && $event->reason === RefreshFailureReason::TOKEN_INVALID));
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                && $event->reason === FailureReason::TOKEN_INVALID));
         $replacement->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::type(Failed::class));
@@ -859,9 +881,9 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
     /**
      * Allow the standard `Attempting` + `Failed` events that every failed
      * `JwtGuard::refresh()` call now dispatches (alongside the package-specific
-     * `RefreshFailed` event). Tests that assert a specific `RefreshFailed`
-     * reason call this helper first to permit the standard events without
-     * constraining them.
+     * `AuthenticationFailed` event). Tests that assert a specific
+     * `AuthenticationFailed` reason call this helper first to permit the
+     * standard events without constraining them.
      *
      * @return void
      */

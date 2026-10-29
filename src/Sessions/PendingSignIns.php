@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -110,36 +111,58 @@ final readonly class PendingSignIns
         CarbonImmutable $now,
         ?array $attemptWindows = null,
     ): PendingFactor {
-        $identity  = self::eloquentIdentity($admitted);
-        $device    = $admitted->device;
-        $secret    = RefreshTokenHasher::generate();
-        $expiresAt = $now->addSeconds($this->ttlSeconds());
-        $pending   = new PendingSignIn;
+        $identity = self::eloquentIdentity($admitted->identity, 'wait for a further factor');
 
-        $pending->forceFill([
-            'id'                   => Str::uuid7()->toString(),
-            'token_digest'         => RefreshTokenHasher::hash($secret),
-            'purpose'              => PendingSignIn::ADDITIONAL_FACTOR,
-            'guard'                => $guard,
-            'sign_in_method'       => $method,
-            'identifier_type'      => $identifierType,
-            'authenticatable_type' => $identity->getMorphClass(),
-            'authenticatable_id'   => IdentifierCoercion::stringify($identity->getKey()),
-            'principal_type'       => PrincipalReference::type($admitted->principal),
-            'principal_id'         => PrincipalReference::id($admitted->principal),
-            'client_name'          => $context->clientName,
-            'platform'             => $context->platform,
-            'created_ip'           => $context->client->ip,
-            'created_user_agent'   => $context->client->userAgent,
-            'device_id'            => $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier()),
-            'device_refresh_key'   => $device?->getRefreshKey(),
-            'attempt_windows'      => $attemptWindows,
-            'expires_at'           => $expiresAt,
-        ])->save();
+        [$token, $expiresAt] = $this->store(
+            PendingSignIn::ADDITIONAL_FACTOR,
+            $guard,
+            $identity,
+            $admitted->principal,
+            $admitted->device,
+            $method,
+            $identifierType,
+            $context,
+            $now,
+            $attemptWindows,
+        );
 
-        $token = $pending->id . '.' . $secret;
+        return new PendingFactor($token, $guard, $identity, $admitted->principal, $admitted->tenant, $method, $expiresAt, $admitted->device);
+    }
 
-        return new PendingFactor($token, $guard, $identity, $admitted->principal, $admitted->tenant, $method, $expiresAt, $device);
+    /**
+     * Store a pending sign-in waiting for the identity to choose a principal,
+     * recording no principal yet, the device the client proved it holds for the
+     * identity, and the windows of the attempt-limit reservations the sign-in
+     * holds, and return its token and expiry.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  string  $method
+     * @param  ?string  $identifierType
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?list<array<string, string>>  $attemptWindows
+     * @return array{0: string, 1: \Carbon\CarbonImmutable}
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    public function issueChoice(
+        string $guard,
+        Identity $identity,
+        ?Device $device,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        CarbonImmutable $now,
+        ?array $attemptWindows,
+    ): array {
+        $identity = self::eloquentIdentity($identity, 'wait for a choice of principal');
+
+        return $this->store(PendingSignIn::PRINCIPAL_CHOICE, $guard, $identity, null, $device, $method, $identifierType, $context, $now, $attemptWindows);
     }
 
     /**
@@ -165,7 +188,7 @@ final readonly class PendingSignIns
      */
     public function find(string $guard, #[\SensitiveParameter] string $token, IdentityProvider $provider, PrincipalResolver $resolver, CarbonImmutable $now): ?FoundPendingSignIn
     {
-        [$pending, $secret] = self::live($guard, $token, $now) ?? [null, ''];
+        [$pending, $secret] = self::live($guard, $token, $now, PendingSignIn::ADDITIONAL_FACTOR) ?? [null, ''];
 
         if ($pending === null) {
             return null;
@@ -194,10 +217,11 @@ final readonly class PendingSignIns
     }
 
     /**
-     * Use up the live pending sign-in of the guard the token names, without
-     * reloading anything it records, so a sign-in whose factor failed can be
-     * ended whatever has changed since. Returns the pending sign-in this call
-     * used up, or `null`.
+     * Use up the live pending sign-in of the guard the token names, whatever it
+     * waits for, without reloading anything it records, so a sign-in whose
+     * factor failed, or whose choice of principal was abandoned, can be ended
+     * whatever has changed since. Returns the pending sign-in this call used
+     * up, or `null`.
      *
      * @param  string  $guard
      * @param  string  $token
@@ -208,7 +232,7 @@ final readonly class PendingSignIns
      */
     public function discard(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now): ?PendingSignIn
     {
-        [$pending, $secret] = self::live($guard, $token, $now) ?? [null, ''];
+        [$pending, $secret] = self::live($guard, $token, $now, null) ?? [null, ''];
 
         return $pending !== null && self::delete($pending, $secret, $now) ? $pending : null;
     }
@@ -281,33 +305,89 @@ final readonly class PendingSignIns
     }
 
     /**
-     * The admitted identity, which must be an Eloquent model to wait for a
-     * factor.
+     * The live pending sign-in of the guard and purpose (any purpose for
+     * `null`) the token names, with the token's secret: `null` for a token that
+     * cannot name one (no UUID, or no secret), without a query, and for one
+     * that names no live pending sign-in of the guard and purpose holding the
+     * secret's digest.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
-     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
+     * @param  string  $guard
+     * @param  string  $token
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?string  $purpose
+     * @return ?array{0: \SineMacula\Laravel\Authentication\Models\PendingSignIn, 1: string}
      *
-     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
-    private static function eloquentIdentity(AdmittedSignIn $admitted): Identity&Model
+    public static function live(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now, ?string $purpose): ?array
     {
-        $identity = $admitted->identity;
+        $parts  = explode('.', $token, 2);
+        $secret = $parts[1] ?? '';
 
-        if (!$identity instanceof Model) {
-            throw new \LogicException(sprintf('A sign-in can only wait for a further factor for an Eloquent identity; %s is not a model.', $identity::class));
-        }
+        $pending = $secret !== '' && Str::isUuid($parts[0]) ? self::load($parts[0]) : null;
 
-        return $identity;
+        return $pending !== null && self::isLive($pending, $guard, $secret, $now, $purpose) ? [$pending, $secret] : null;
     }
 
     /**
-     * The configured lifetime of a pending credential, in seconds.
+     * Delete the pending sign-in while it still holds the secret's digest and
+     * has not expired. Returns whether this call deleted it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @param  string  $secret
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return bool
+     *
+     * @imperative
+     */
+    public static function delete(PendingSignIn $pending, #[\SensitiveParameter] string $secret, CarbonImmutable $now): bool
+    {
+        return $pending->newQueryWithoutScopes()
+            ->toBase()
+            ->where($pending->getKeyName(), $pending->getKey())
+            ->where('token_digest', RefreshTokenHasher::hash($secret))
+            ->where('expires_at', '>', $pending->fromDateTime($now))
+            ->delete() === 1;
+    }
+
+    /**
+     * The device the client proved it holds, when it is still the identity's
+     * live session of the pending sign-in's guard for the principal, at the
+     * digest it was proven against.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
+     *
+     * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    public static function provenDevice(PendingSignIn $pending, Identity $identity, Principal $principal): (EloquentDevice&Model)|null
+    {
+        $device = $pending->device_id === null ? null : DeviceLookup::find($pending->device_id);
+
+        if ($device === null || !DeviceOwnership::isOwner($device, $identity) || !PrincipalReference::isRecordedOn($device, $principal)) {
+            return null;
+        }
+
+        $proven = WriteConnection::during($device, static fn (): bool => $device->getGuard() === $pending->guard
+            && $device->getRevokedAt()                                                       === null
+            && $device->getRefreshKey() !== null
+            && $device->getRefreshKey() === $pending->device_refresh_key);
+
+        return $proven ? $device : null;
+    }
+
+    /**
+     * The configured lifetime of a pending credential, in seconds, read as
+     * every issue reads it; `authentication:check` validates it the same way.
      *
      * @return int
      *
      * @throws \InvalidArgumentException
      */
-    private function ttlSeconds(): int
+    public function ttlSeconds(): int
     {
         $ttl = $this->config->get(self::TTL_KEY, self::DEFAULT_TTL_SECONDS);
 
@@ -323,47 +403,90 @@ final readonly class PendingSignIns
     }
 
     /**
-     * The live pending sign-in of the guard the token names, with the token's
-     * secret: `null` for a token that cannot name one (no UUID, or no secret),
-     * without a query, and for one that names no live pending sign-in of the
-     * guard holding the secret's digest.
+     * The identity, which must be an Eloquent model to wait.
      *
-     * @param  string  $guard
-     * @param  string  $token
-     * @param  \Carbon\CarbonImmutable  $now
-     * @return ?array{0: \SineMacula\Laravel\Authentication\Models\PendingSignIn, 1: string}
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $waitsFor
+     * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \LogicException
      */
-    private static function live(string $guard, #[\SensitiveParameter] string $token, CarbonImmutable $now): ?array
+    private static function eloquentIdentity(Identity $identity, string $waitsFor): Identity&Model
     {
-        $parts  = explode('.', $token, 2);
-        $secret = $parts[1] ?? '';
+        if (!$identity instanceof Model) {
+            throw new \LogicException(sprintf('A sign-in can only %s for an Eloquent identity; %s is not a model.', $waitsFor, $identity::class));
+        }
 
-        $pending = $secret !== '' && Str::isUuid($parts[0]) ? self::load($parts[0]) : null;
-
-        return $pending !== null && self::isLive($pending, $guard, $secret, $now) ? [$pending, $secret] : null;
+        return $identity;
     }
 
     /**
-     * Delete the pending sign-in while it still holds the secret's digest and
-     * has not expired. Returns whether this call deleted it.
+     * Store a pending sign-in of the purpose and return its token and expiry:
+     * the token's secret is kept only as its digest.
      *
-     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
-     * @param  string  $secret
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  string  $purpose
+     * @param  string  $guard
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  string  $method
+     * @param  ?string  $identifierType
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
-     * @return bool
+     * @param  ?list<array<string, string>>  $attemptWindows
+     * @return array{0: string, 1: \Carbon\CarbonImmutable}
      *
-     * @imperative
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
-    private static function delete(PendingSignIn $pending, #[\SensitiveParameter] string $secret, CarbonImmutable $now): bool
-    {
-        return $pending->newQueryWithoutScopes()
-            ->toBase()
-            ->where($pending->getKeyName(), $pending->getKey())
-            ->where('token_digest', RefreshTokenHasher::hash($secret))
-            ->where('expires_at', '>', $pending->fromDateTime($now))
-            ->delete() === 1;
+    private function store(
+        string $purpose,
+        string $guard,
+        Identity&Model $identity,
+        ?Principal $principal,
+        ?Device $device,
+        string $method,
+        ?string $identifierType,
+        SignInContext $context,
+        CarbonImmutable $now,
+        ?array $attemptWindows,
+    ): array {
+        $secret    = RefreshTokenHasher::generate();
+        $expiresAt = $now->addSeconds($this->ttlSeconds());
+        $pending   = new PendingSignIn;
+
+        $pending->forceFill([
+            'id'                   => Str::uuid7()->toString(),
+            'token_digest'         => RefreshTokenHasher::hash($secret),
+            'purpose'              => $purpose,
+            'guard'                => $guard,
+            'sign_in_method'       => $method,
+            'identifier_type'      => $identifierType,
+            'authenticatable_type' => $identity->getMorphClass(),
+            'authenticatable_id'   => IdentifierCoercion::stringify($identity->getKey()),
+            'principal_type'       => $principal === null ? null : PrincipalReference::type($principal),
+            'principal_id'         => $principal === null ? null : PrincipalReference::id($principal),
+            'client_name'          => $context->clientName,
+            'platform'             => $context->platform,
+            'created_ip'           => $context->client->ip,
+            'created_user_agent'   => $context->client->userAgent,
+            'device_id'            => $device === null ? null : IdentifierCoercion::stringify($device->getDeviceIdentifier()),
+            'device_refresh_key'   => $device?->getRefreshKey(),
+            'attempt_windows'      => $attemptWindows,
+            'expires_at'           => $expiresAt,
+        ])->save();
+
+        return [$pending->id . '.' . $secret, $expiresAt];
     }
 
     /**
@@ -384,20 +507,21 @@ final readonly class PendingSignIns
     }
 
     /**
-     * Whether the pending sign-in is one waiting for a factor, of the guard,
-     * unexpired, and holds the digest of the secret.
+     * Whether the pending sign-in is of the purpose (any for `null`), of the
+     * guard, unexpired, and holds the digest of the secret.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
      * @param  string  $guard
      * @param  string  $secret
      * @param  \Carbon\CarbonImmutable  $now
+     * @param  ?string  $purpose
      * @return bool
      */
-    private static function isLive(PendingSignIn $pending, string $guard, #[\SensitiveParameter] string $secret, CarbonImmutable $now): bool
+    private static function isLive(PendingSignIn $pending, string $guard, #[\SensitiveParameter] string $secret, CarbonImmutable $now, ?string $purpose): bool
     {
         return RefreshTokenHasher::verify($secret, $pending->token_digest)
-            && $pending->purpose === PendingSignIn::ADDITIONAL_FACTOR
-            && $pending->guard   === $guard
+            && in_array($purpose, [null, $pending->purpose], true)
+            && $pending->guard === $guard
             && $pending->expires_at->getTimestamp() > $now->getTimestamp();
     }
 
@@ -460,34 +584,5 @@ final readonly class PendingSignIns
         );
 
         return new FoundPendingSignIn($pending, $secret, $factor, $device);
-    }
-
-    /**
-     * The device the client proved it holds, when it is still the identity's
-     * live session of the pending sign-in's guard for the principal, at the
-     * digest it was proven against.
-     *
-     * @param  \SineMacula\Laravel\Authentication\Models\PendingSignIn  $pending
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
-     *
-     * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
-     */
-    private static function provenDevice(PendingSignIn $pending, Identity $identity, Principal $principal): (EloquentDevice&Model)|null
-    {
-        $device = $pending->device_id === null ? null : DeviceLookup::find($pending->device_id);
-
-        if ($device === null || !DeviceOwnership::isOwner($device, $identity) || !PrincipalReference::isRecordedOn($device, $principal)) {
-            return null;
-        }
-
-        $proven = WriteConnection::during($device, static fn (): bool => $device->getGuard() === $pending->guard
-            && $device->getRevokedAt()                                                       === null
-            && $device->getRefreshKey() !== null
-            && $device->getRefreshKey() === $pending->device_refresh_key);
-
-        return $proven ? $device : null;
     }
 }

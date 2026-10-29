@@ -448,6 +448,7 @@ final class DeviceUsageIntegrationTest extends TestCase
                 'created_ip'           => $client->ip,
                 'created_user_agent'   => $client->userAgent,
                 'refresh_key'          => RefreshTokenHasher::hash($rotation),
+                'signed_in_at'         => Carbon::now(),
                 'idle_expires_at'      => $lifetimes->idleDeadline(Carbon::now(), $absolute),
                 'absolute_expires_at'  => $absolute,
             ])->save();
@@ -525,6 +526,8 @@ final class DeviceUsageIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             ...$state,
         ])->save();
 

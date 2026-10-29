@@ -6,7 +6,7 @@ namespace Tests\Fixtures\Sessions;
 
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 /**
@@ -51,22 +51,22 @@ final readonly class RefusalIgnoringSignIn implements SignInMethod
      * refusal.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): Identity|SignInFailureReason
+    public function authenticate(SignInRequest $request): FailureReason|Identity
     {
         $email    = $this->identifier($request->guard, $request->input);
         $identity = $email === null ? null : $request->provider->retrieveByCredentials(['email' => $email]);
 
         if (!$identity instanceof Identity) {
-            return SignInFailureReason::INVALID_CREDENTIALS;
+            return FailureReason::INVALID_CREDENTIALS;
         }
 
         $request->reserveAccountAttempt($identity);
 
         return $request->provider->validateCredentials($identity, ['password' => $request->input['password'] ?? null])
             ? $identity
-            : SignInFailureReason::INVALID_CREDENTIALS;
+            : FailureReason::INVALID_CREDENTIALS;
     }
 }

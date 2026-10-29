@@ -20,7 +20,14 @@ return [
     | a column ships its own migration. Every authentication that binds a
     | persisted EloquentDevice records when, from which IP address, and with
     | which user agent it was last used, at most once per
-    | `last_used_throttle_seconds` (0 records every use).
+    | `last_used_throttle_seconds` (0 records every use). Laravel's
+    | `model:prune` deletes devices whose session ended (revoked, or past its
+    | idle or absolute deadline) more than `prune_after_days` ago (0 to 3650,
+    | counted from that end, not from creation; 0 prunes them as soon as they
+    | end; an integer, or a digit string as `env()` returns one; anything else
+    | fails closed when pruning runs, and `authentication:check` reports it).
+    | The shipped model opts in with the `PrunesDevices` trait, as a custom
+    | model does.
     |
     */
 
@@ -28,6 +35,7 @@ return [
         'model'                      => env('AUTHENTICATION_DEVICE_MODEL', Device::class),
         'table'                      => env('AUTHENTICATION_DEVICE_TABLE', 'devices'),
         'last_used_throttle_seconds' => (int) env('AUTHENTICATION_DEVICE_LAST_USED_THROTTLE_SECONDS', 60),
+        'prune_after_days'           => env('AUTHENTICATION_DEVICE_PRUNE_AFTER_DAYS', 30),
     ],
 
     /*
@@ -44,11 +52,13 @@ return [
     | letter, then letters, digits, or underscores) that does not contain
     | `password`; anything else fails closed when a password sign-in runs.
     |
-    | A sign-in the additional-factor policy asks a further factor of waits in
-    | `pending_table` (on the device model's connection) for at most
-    | `pending_ttl_seconds` (30 to 3600; an integer, or a digit string as
-    | `env()` returns one); anything else fails closed when a pending sign-in
-    | is issued. Prune expired pending sign-ins with `model:prune`.
+    | A sign-in the additional-factor policy asks a further factor of, or that
+    | waits for the identity to choose its principal, waits in `pending_table`
+    | (on the device model's connection) for at most `pending_ttl_seconds` (30
+    | to 3600; an integer, or a digit string as `env()` returns one); anything
+    | else fails closed when a pending sign-in is issued, and
+    | `authentication:check` reports it. Prune expired pending sign-ins with
+    | `model:prune`.
     |
     */
 
@@ -256,6 +266,51 @@ return [
         'refresh' => [
             'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
             'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Refresh token transport
+    |---------------------------------------------------------------------------
+    |
+    | Where `JwtGuard::refreshFromRequest()` reads a refresh token from: any of
+    | `cookie`, `body` (`body_field` of the JSON or form body, never the query
+    | string) and `header`. Only the listed sources are read, and a request
+    | that carries a token in more than one of them, or the cookie twice, is
+    | refused (`refresh_token_conflict`), so the cookie's cross-site checks
+    | cannot be side-stepped by also sending the token another way. A token
+    | read from the cookie must come with an `Origin` that is the request's own
+    | or one of `allowed_origins` (each exactly `scheme://host[:port]`, in
+    | lower case) and a non-empty `csrf_header` header (a custom one: a
+    | header a browser sends on its own is refused), else
+    | `cross_site_request`. The cookie's `path`, the path the sign-in, refresh
+    | and switch routes live under, is required when the cookie is a source;
+    | `domain` is `null` for the request's host only. A `__Host-` name needs
+    | the `path` `/` and no `domain` on a guard that reads the cookie. Names
+    | PHP renames in a request are refused: a `.` in a header or cookie name,
+    | and a `.`, a space or a bracket in `body_field`.
+    | `Auth::refreshTransport($guard)->cookie()` makes the cookie (`HttpOnly`,
+    | `Secure`, `SameSite=Strict`, expiring with the session) and
+    | `forgetCookie()` the one that clears it. A guard overrides any key in a
+    | `refresh_token` block on its `config/auth.php` entry, where a key that is
+    | present wins, inside `cookie` too. A malformed value or an unknown key
+    | fails closed with an `InvalidArgumentException` naming the guard and the
+    | key.
+    |
+    */
+
+    'refresh_token' => [
+        'sources'    => ['body', 'header'],
+        'body_field' => 'refresh_token',
+        'header'     => 'X-Refresh-Token',
+
+        'cookie' => [
+            'name'            => '__Secure-refresh_token',
+            'path'            => null,
+            'domain'          => null,
+            'allowed_origins' => [],
+            'csrf_header'     => 'X-Requested-With',
         ],
     ],
 

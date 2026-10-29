@@ -161,6 +161,7 @@ final class SessionServiceTest extends TestCase
         self::assertFalse($again->deviceCreated);
         self::assertSame([SignedIn::class], $this->recordedClasses());
         self::assertFalse($this->recordedEvent(SignedIn::class)->deviceCreated);
+        self::assertFalse($this->recordedEvent(SignedIn::class)->refresh);
 
         $device = Device::query()->whereKey($first->device->getKey())->firstOrFail();
 
@@ -327,7 +328,8 @@ final class SessionServiceTest extends TestCase
      * When the proven device changes before it can be continued (here a
      * parallel refresh rotates it while the factor policy deliberates), the
      * sign-in is reconsidered without it, factor policy included, and starts on
-     * a new device; the changed device is left as the refresh made it.
+     * a new device that records the sign-in's identifier type; the changed
+     * device is left as the refresh made it.
      *
      * @return void
      *
@@ -359,6 +361,7 @@ final class SessionServiceTest extends TestCase
         self::assertSame([$first->device->getKey(), null], $proven);
         self::assertTrue($again->deviceCreated);
         self::assertNotSame($first->device->getKey(), $again->device->getKey());
+        self::assertSame('email', Device::query()->whereKey($again->device->getKey())->value('sign_in_identifier_type'));
         self::assertSame(RefreshTokenHasher::hash('rotated-in-parallel'), Device::query()->whereKey($first->device->getKey())->firstOrFail()->getRefreshKey());
     }
 

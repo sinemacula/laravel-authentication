@@ -311,6 +311,8 @@ final class LazyContextResolutionIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $membership->getMorphClass(),
+            'principal_id'         => (string) $membership->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
         return [$member, $membership, $tenant, $device];

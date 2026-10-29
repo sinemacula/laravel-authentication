@@ -4,15 +4,16 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 
 /**
- * How a sign-in through the session service ended: a started session, a
- * pending sign-in waiting for a further factor, or a failure with its reason
- * (and, for `rate_limited`, the seconds until the next attempt may be made). A
- * failure is a result rather than an exception, so the caller answers it as it
- * chooses; exceptions are kept for misconfiguration and server errors.
+ * How a sign-in through the session service ended: a started session, a pending
+ * sign-in waiting for a further factor, a sign-in waiting for its identity to
+ * choose a principal, or a failure with its reason (and, for `rate_limited`,
+ * the seconds until the next attempt may be made). A failure is a result rather
+ * than an exception, so the caller answers it as it chooses; exceptions are
+ * kept for misconfiguration and server errors.
  *
  * @api
  *
@@ -27,8 +28,9 @@ final readonly class SignInResult
      * @param  \SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus  $status
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  ?\SineMacula\Laravel\Authentication\Sessions\PendingFactor  $pending
-     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
+     * @param  ?\SineMacula\Laravel\Authentication\Sessions\PrincipalChoice  $choice
      */
     private function __construct(
 
@@ -42,10 +44,13 @@ final readonly class SignInResult
         public ?PendingFactor $pending = null,
 
         /** Why the sign-in failed, when it did. */
-        public ?SignInFailureReason $reason = null,
+        public ?FailureReason $reason = null,
 
         /** Seconds until another attempt may be made, for `rate_limited` only. */
         public ?int $retryAfter = null,
+
+        /** The choice of principal the identity must make, when one is required. */
+        public ?PrincipalChoice $choice = null,
     ) {}
 
     /**
@@ -71,19 +76,31 @@ final readonly class SignInResult
     }
 
     /**
+     * A sign-in that waits for its identity to choose the principal its session
+     * acts as.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\PrincipalChoice  $choice
+     * @return self
+     */
+    public static function principalRequired(PrincipalChoice $choice): self
+    {
+        return new self(SignInStatus::PRINCIPAL_REQUIRED, choice: $choice);
+    }
+
+    /**
      * A sign-in that failed. A refusal by the account's own limit is answered
      * as `invalid_credentials`, with no wait, as a wrong secret would be, so
      * the result never reveals that the account exists; only the server-side
-     * `SignInFailed` event says why.
+     * `AuthenticationFailed` event says why.
      *
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $reason
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
      * @param  ?int  $retryAfter
      * @return self
      */
-    public static function failed(SignInFailureReason $reason, ?int $retryAfter = null): self
+    public static function failed(FailureReason $reason, ?int $retryAfter = null): self
     {
-        if ($reason === SignInFailureReason::ACCOUNT_RATE_LIMITED) {
-            return new self(SignInStatus::FAILED, reason: SignInFailureReason::INVALID_CREDENTIALS);
+        if ($reason === FailureReason::ACCOUNT_RATE_LIMITED) {
+            return new self(SignInStatus::FAILED, reason: FailureReason::INVALID_CREDENTIALS);
         }
 
         return new self(SignInStatus::FAILED, reason: $reason, retryAfter: $retryAfter);
@@ -107,6 +124,17 @@ final readonly class SignInResult
     public function requiresFactor(): bool
     {
         return $this->status === SignInStatus::FACTOR_REQUIRED;
+    }
+
+    /**
+     * Whether the identity must choose a principal before the session may
+     * start.
+     *
+     * @return bool
+     */
+    public function requiresPrincipal(): bool
+    {
+        return $this->status === SignInStatus::PRINCIPAL_REQUIRED;
     }
 
     /**

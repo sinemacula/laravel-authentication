@@ -143,6 +143,8 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
             ...self::liveSession(self::STAFF_GUARD),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $principal->getMorphClass(),
+            'principal_id'         => (string) $principal->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 

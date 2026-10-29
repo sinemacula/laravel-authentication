@@ -12,10 +12,11 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 
@@ -29,6 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInResult;
  */
 #[CoversClass(SignInResult::class)]
 #[CoversClass(SignedInSession::class)]
+#[CoversClass(PrincipalChoice::class)]
 final class SignInResultTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
@@ -84,7 +86,44 @@ final class SignInResultTest extends TestCase
         self::assertNull($result->session);
         self::assertNull($result->reason);
         self::assertNull($result->retryAfter);
-        self::assertFalse(SignInResult::failed(SignInFailureReason::INVALID_CREDENTIALS)->requiresFactor());
+        self::assertFalse(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->requiresFactor());
+    }
+
+    /**
+     * A sign-in that waits for a choice of principal carries the choice, and
+     * neither a session, a pending factor nor a reason; no other result
+     * requires a principal.
+     *
+     * @return void
+     */
+    public function testAPrincipalRequiredResultCarriesTheChoice(): void
+    {
+        $identity   = \Mockery::mock(Identity::class);
+        $principals = [\Mockery::mock(Principal::class)];
+        $expiresAt  = CarbonImmutable::now();
+        $choice     = new PrincipalChoice('token', 'api', $identity, $principals, 'password', $expiresAt);
+        $result     = SignInResult::principalRequired($choice);
+
+        self::assertSame(SignInStatus::PRINCIPAL_REQUIRED, $result->status);
+        self::assertTrue($result->requiresPrincipal());
+        self::assertFalse($result->requiresFactor());
+        self::assertFalse($result->isSignedIn());
+        self::assertFalse($result->isFailed());
+        self::assertSame($choice, $result->choice);
+        self::assertNull($result->session);
+        self::assertNull($result->pending);
+        self::assertNull($result->reason);
+        self::assertNull($result->retryAfter);
+
+        self::assertSame('token', $choice->token);
+        self::assertSame('api', $choice->guard);
+        self::assertSame($identity, $choice->identity);
+        self::assertSame($principals, $choice->principals);
+        self::assertSame('password', $choice->method);
+        self::assertSame($expiresAt, $choice->expiresAt);
+
+        self::assertFalse(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->requiresPrincipal());
+        self::assertNull(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->choice);
     }
 
     /**
@@ -94,16 +133,16 @@ final class SignInResultTest extends TestCase
      */
     public function testAFailedResultCarriesItsReason(): void
     {
-        $limited = SignInResult::failed(SignInFailureReason::RATE_LIMITED, 30);
+        $limited = SignInResult::failed(FailureReason::RATE_LIMITED, 30);
 
         self::assertSame(SignInStatus::FAILED, $limited->status);
         self::assertTrue($limited->isFailed());
         self::assertFalse($limited->isSignedIn());
         self::assertNull($limited->session);
-        self::assertSame(SignInFailureReason::RATE_LIMITED, $limited->reason);
+        self::assertSame(FailureReason::RATE_LIMITED, $limited->reason);
         self::assertSame(30, $limited->retryAfter);
 
-        self::assertNull(SignInResult::failed(SignInFailureReason::INVALID_CREDENTIALS)->retryAfter);
+        self::assertNull(SignInResult::failed(FailureReason::INVALID_CREDENTIALS)->retryAfter);
     }
 
     /**
@@ -114,10 +153,10 @@ final class SignInResultTest extends TestCase
      */
     public function testAnAccountsOwnLimitIsAnsweredAsInvalidCredentials(): void
     {
-        $refused = SignInResult::failed(SignInFailureReason::ACCOUNT_RATE_LIMITED, 30);
+        $refused = SignInResult::failed(FailureReason::ACCOUNT_RATE_LIMITED, 30);
 
         self::assertTrue($refused->isFailed());
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $refused->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $refused->reason);
         self::assertNull($refused->retryAfter);
     }
 
@@ -138,6 +177,8 @@ final class SignInResultTest extends TestCase
      */
     public function testStatusValues(): void
     {
-        self::assertSame(['signed_in', 'factor_required', 'failed'], array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases()));
+        $values = array_map(static fn (SignInStatus $status): string => $status->value, SignInStatus::cases());
+
+        self::assertSame(['signed_in', 'factor_required', 'principal_required', 'failed'], $values);
     }
 }

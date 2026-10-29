@@ -271,6 +271,8 @@ final class DeviceRelationWriteConnectionIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => GrantedDevicesIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
         return $device;

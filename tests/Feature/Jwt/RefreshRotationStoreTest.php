@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
@@ -141,6 +142,101 @@ final class RefreshRotationStoreTest extends TestCase
         self::assertSame($before, $this->row($device));
         self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $device->getRefreshKey());
         self::assertNull($device->getPreviousRefreshKey());
+    }
+
+    /**
+     * A switch records the target, the switch time, the rotation and both
+     * deadlines, on the row and on the in-memory device.
+     *
+     * @return void
+     */
+    public function testSwitchPrincipalRecordsTheTargetAndMirrorsIt(): void
+    {
+        $device   = $this->device([...self::recordedPrincipal(new PlainPrincipalFixture('p-1')), 'principal_type' => 'previous-type']);
+        $idle     = $this->now->addDays(30);
+        $absolute = $this->now->addDays(60);
+
+        self::assertTrue($this->store()->switchPrincipal($device, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, [$idle, $absolute], $this->now));
+
+        $row = $this->row($device);
+
+        self::assertSame(PlainPrincipalFixture::class, $row['principal_type']);
+        self::assertSame('p-2', $row['principal_id']);
+        self::assertSame($this->now->getTimestamp(), Carbon::parse($row['principal_switched_at'])->getTimestamp()); // @phpstan-ignore argument.type
+        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $row['refresh_key']);
+        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $row['previous_refresh_key']);
+        self::assertSame($this->now->getTimestamp(), Carbon::parse($row['refresh_rotated_at'])->getTimestamp()); // @phpstan-ignore argument.type
+        self::assertSame($idle->getTimestamp(), Carbon::parse($row['idle_expires_at'])->getTimestamp()); // @phpstan-ignore argument.type
+        self::assertSame($absolute->getTimestamp(), Carbon::parse($row['absolute_expires_at'])->getTimestamp()); // @phpstan-ignore argument.type
+
+        self::assertSame('p-2', $device->getAttribute('principal_id'));
+        self::assertSame($this->now->getTimestamp(), $device->getPrincipalSwitchedAt()?->getTimestamp());
+        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $device->getRefreshKey());
+        self::assertSame($absolute->getTimestamp(), $device->getAbsoluteExpiresAt()?->getTimestamp());
+        self::assertFalse($device->isDirty());
+    }
+
+    /**
+     * A rotation for the principal the device already records moves the
+     * rotation and the deadlines but records no switch.
+     *
+     * @return void
+     */
+    public function testSwitchPrincipalWithoutSwitchingOnlyRotates(): void
+    {
+        $device = $this->device(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
+
+        $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
+
+        self::assertTrue($this->store()->switchPrincipal($device, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), false, $deadlines, $this->now));
+
+        $row = $this->row($device);
+
+        self::assertSame('p-1', $row['principal_id']);
+        self::assertNull($row['principal_switched_at']);
+        self::assertSame(RefreshTokenHasher::hash(self::NEXT), $row['refresh_key']);
+    }
+
+    /**
+     * Rows of `[change committed since the device was loaded]` for a switch.
+     *
+     * @return iterable<string, array{0: array<string, mixed>}>
+     */
+    public static function provideChangesBeforeASwitch(): iterable
+    {
+        yield from [
+            'rotated elsewhere'       => [['refresh_key' => RefreshTokenHasher::hash('elsewhere')]],
+            'revoked'                 => [['revoked_at' => '2026-04-06 11:59:00']],
+            'idle deadline moved'     => [['idle_expires_at' => '2026-07-06 12:00:00']],
+            'absolute deadline moved' => [['absolute_expires_at' => '2026-05-06 12:00:00']],
+            'switched elsewhere'      => [['principal_id' => 'p-3']],
+            'principal type changed'  => [['principal_type' => 'other']],
+        ];
+    }
+
+    /**
+     * The switch applies only to the state the device was loaded with: after a
+     * concurrent rotation, revocation, deadline change or switch it affects no
+     * row, reports so, and leaves the in-memory device as it was.
+     *
+     * @param  array<string, mixed>  $change
+     * @return void
+     */
+    #[DataProvider('provideChangesBeforeASwitch')]
+    public function testSwitchPrincipalMissesAfterAChangeSinceTheDeviceWasLoaded(array $change): void
+    {
+        $device = $this->device(self::recordedPrincipal(new PlainPrincipalFixture('p-1')));
+
+        DB::table('stub_devices')->where('id', $device->id)->update($change);
+
+        $before = $this->row($device);
+
+        $deadlines = [$this->now->addDays(30), $this->now->addDays(60)];
+
+        self::assertFalse($this->store()->switchPrincipal($device, self::CURRENT, self::NEXT, new PlainPrincipalFixture('p-2'), true, $deadlines, $this->now));
+        self::assertSame($before, $this->row($device));
+        self::assertSame('p-1', $device->getAttribute('principal_id'));
+        self::assertSame(RefreshTokenHasher::hash(self::CURRENT), $device->getRefreshKey());
     }
 
     /**

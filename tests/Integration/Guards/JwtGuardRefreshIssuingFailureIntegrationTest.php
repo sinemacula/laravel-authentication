@@ -7,6 +7,7 @@ namespace Tests\Integration\Guards;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -74,10 +75,11 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
     }
 
     /**
-     * The resolver hands back a principal that was never saved, so the token
-     * service refuses to issue the access token: the refresh throws, the stored
+     * The resolver hands back a principal whose identifier can be read once,
+     * which the check that the device records it uses up, so the token service
+     * fails while issuing the access token: the refresh throws, the stored
      * digest is unchanged in the database, and the same refresh token rotates
-     * once the resolver returns a saved principal.
+     * once the resolver returns a principal that can be read again.
      *
      * @return void
      *
@@ -85,25 +87,12 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
      */
     public function testRefreshTokenStaysValidWhenIssuingTheAccessTokenFails(): void
     {
-        [$identity, $device, $refreshToken] = $this->seedRefreshableDevice();
-
-        $resolver = new StubMutablePrincipalResolver;
-        $resolver->setDefaultPrincipal(new StubPrincipal);
-
-        try {
-            $this->guard($resolver)->refresh($refreshToken);
-
-            self::fail('The issuing failure should have propagated.');
-        } catch (\InvalidArgumentException $exception) {
-            self::assertStringContainsString('without its `pid` claim', $exception->getMessage());
-        }
-
-        $this->assertRefreshTokenStillRotates($identity, $device, $refreshToken, $resolver);
+        $this->assertIssuingFailureLeavesTheTokenValid(1);
     }
 
     /**
-     * The resolver hands back a principal whose identifier can be read once, so
-     * the access token is issued and the refresh token is not: the refresh
+     * The resolver hands back a principal whose identifier can be read twice,
+     * so the access token is issued and the refresh token is not: the refresh
      * throws after the first token exists, the stored digest is unchanged in
      * the database, and the same refresh token rotates once the resolver
      * returns a principal that can be read again.
@@ -114,26 +103,7 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
      */
     public function testRefreshTokenStaysValidWhenIssuingTheRefreshTokenFails(): void
     {
-        [$identity, $device, $refreshToken] = $this->seedRefreshableDevice();
-
-        $principal = SingleIdentifierReadPrincipal::query()->findOrFail($identity->getKey());
-
-        assert($principal instanceof SingleIdentifierReadPrincipal);
-
-        $resolver = new StubMutablePrincipalResolver;
-        $resolver->setDefaultPrincipal($principal);
-
-        try {
-            $this->guard($resolver)->refresh($refreshToken);
-
-            self::fail('The issuing failure should have propagated.');
-        } catch (\RuntimeException $exception) {
-            self::assertSame('The principal identifier can be read only once.', $exception->getMessage());
-        }
-
-        self::assertSame(2, $principal->identifierReads);
-
-        $this->assertRefreshTokenStillRotates($identity, $device, $refreshToken, $resolver);
+        $this->assertIssuingFailureLeavesTheTokenValid(2);
     }
 
     /**
@@ -174,13 +144,53 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
         return [$identity, $device, $this->authManager()->jwt('api')->issueRefreshToken($device, self::ROTATION_ID)];
+    }
+
+    /**
+     * Refresh with a principal whose identifier fails after the given number of
+     * reads, and assert the failure propagated after one more read and left the
+     * presented refresh token valid.
+     *
+     * @param  int  $readsAllowed
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    private function assertIssuingFailureLeavesTheTokenValid(int $readsAllowed): void
+    {
+        [$identity, $device, $refreshToken] = $this->seedRefreshableDevice();
+
+        $principal = SingleIdentifierReadPrincipal::query()->findOrFail($identity->getKey());
+
+        assert($principal instanceof SingleIdentifierReadPrincipal);
+
+        $principal->readsAllowed = $readsAllowed;
+
+        DB::table('devices')->where('id', $device->getKey())->update(['principal_type' => SingleIdentifierReadPrincipal::class]);
+
+        $resolver = new StubMutablePrincipalResolver;
+        $resolver->setDefaultPrincipal($principal);
+
+        try {
+            $this->guard($resolver)->refresh($refreshToken);
+
+            self::fail('The issuing failure should have propagated.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('The principal identifier cannot be read again.', $exception->getMessage());
+        }
+
+        self::assertSame($readsAllowed + 1, $principal->identifierReads);
+
+        DB::table('devices')->where('id', $device->getKey())->update(['principal_type' => StubPrincipal::class]);
+
+        $this->assertRefreshTokenStillRotates($identity, $device, $refreshToken, $resolver);
     }
 
     /**

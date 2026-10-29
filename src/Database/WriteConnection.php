@@ -107,6 +107,38 @@ final class WriteConnection
     }
 
     /**
+     * Run the callback against the subject as it is stored, with reads routed
+     * to the write PDO as `during()` routes them. An Eloquent model is handed
+     * to the callback as a copy without its loaded relations, so a relation
+     * whoever loaded the model set (an inverse a resolver filled, an eager load
+     * from a replica) cannot stand in for the stored one; the copy may
+     * lazy-load even when the model was hydrated with lazy loading prevented
+     * (Eloquent strict mode), because the package re-reads it on purpose. Any
+     * other subject is handed over as it is.
+     *
+     * @template TSubject of object
+     * @template TReturn
+     *
+     * @param  TSubject  $subject
+     * @param  \Closure(TSubject): TReturn  $callback
+     * @return TReturn
+     *
+     * @param-immediately-invoked-callable $callback
+     */
+    public static function stored(object $subject, \Closure $callback): mixed
+    {
+        $stored = $subject;
+
+        if ($subject instanceof Model) {
+            $stored = $subject->withoutRelations();
+
+            $stored->preventsLazyLoading = false;
+        }
+
+        return self::during($stored, static fn (): mixed => $callback($stored));
+    }
+
+    /**
      * Reinstate the model connection resolver `during()` replaced, if any, and
      * return each pinned connection to the read mode it had before.
      *

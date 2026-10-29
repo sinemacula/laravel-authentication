@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\DeviceKeyShape;
@@ -73,11 +73,15 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             $blueprint->string('id')->primary();
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
+            $blueprint->string('principal_type')->nullable();
+            $blueprint->string('principal_id')->nullable();
+            $blueprint->dateTime('principal_switched_at', 0)->nullable();
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
             $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->string('previous_refresh_key', 64)->nullable();
             $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+            $blueprint->dateTime('signed_in_at', 0);
             $blueprint->dateTime('idle_expires_at', 0);
             $blueprint->dateTime('absolute_expires_at', 0);
             $blueprint->dateTime('revoked_at', 0)->nullable();
@@ -143,13 +147,13 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
 
         $reasons = [];
 
-        Event::listen(RefreshFailed::class, static function (RefreshFailed $event) use (&$reasons): void {
+        Event::listen(AuthenticationFailed::class, static function (AuthenticationFailed $event) use (&$reasons): void {
             $reasons[] = $event->reason;
         });
 
         self::assertNotNull($this->refreshGuard()->refresh($this->authManager()->jwt('api')->issueRefreshToken($valid, self::ROTATION_ID, $identity)));
         self::assertNull($this->refreshGuard()->refresh($this->authManager()->jwt('api')->issueRefreshToken($legacy, self::ROTATION_ID, $identity)));
-        self::assertSame([RefreshFailureReason::DEVICE_UNKNOWN], $reasons);
+        self::assertSame([FailureReason::DEVICE_UNKNOWN], $reasons);
 
         self::assertSame(RefreshTokenHasher::hash(self::ROTATION_ID), PrefixedKeyDevice::query()->findOrFail(self::LEGACY_KEY)->getRefreshKey());
     }
@@ -210,6 +214,8 @@ final class DeviceKeyValidationIntegrationTest extends TestCase
             'id'                   => $key,
             'authenticatable_type' => PrefixedKeyDeviceIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

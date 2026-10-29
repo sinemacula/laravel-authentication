@@ -9,8 +9,10 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 
 /**
  * The writes and the locking re-read behind a refresh: each a single statement
@@ -82,6 +84,76 @@ final readonly class RefreshRotationStore
             ->update($rotated);
 
         return $this->mirror($device, $affected, $rotated);
+    }
+
+    /**
+     * Rotate the device from the presented rotation id to the next one for a
+     * switch of principal, and move both deadlines, in one compare-and-swap
+     * UPDATE; when `$switching`, also record the target as the principal the
+     * session acts as, with `$now` as the time of the switch.
+     *
+     * The swap applies only while the row still holds the presented id as its
+     * current one, is not revoked, has both deadlines and records the principal
+     * exactly as they were loaded: any concurrent rotation, switch, revocation
+     * or deadline change makes it affect no row. Returns whether the row was
+     * switched.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
+     * @param  string  $presentedRotationId
+     * @param  string  $nextRotationId
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $target
+     * @param  bool  $switching
+     * @param  array{0: \Carbon\CarbonImmutable, 1: \Carbon\CarbonImmutable}  $deadlines
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return bool
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     *
+     * @imperative
+     */
+    public function switchPrincipal(
+        EloquentDevice&Model $device,
+        #[\SensitiveParameter] string $presentedRotationId,
+        #[\SensitiveParameter] string $nextRotationId,
+        Principal $target,
+        bool $switching,
+        array $deadlines,
+        CarbonImmutable $now,
+    ): bool {
+        [$type, $id]       = PrincipalReference::columns($device);
+        [$idle, $absolute] = $deadlines;
+        $presentedDigest   = RefreshTokenHasher::hash($presentedRotationId);
+
+        $switched = [
+            $device->getRefreshKeyName()         => RefreshTokenHasher::hash($nextRotationId),
+            $device->getPreviousRefreshKeyName() => $presentedDigest,
+            $device->getRefreshRotatedAtName()   => $device->fromDateTime($now),
+            $device->getIdleExpiresAtName()      => $device->fromDateTime($idle),
+            $device->getAbsoluteExpiresAtName()  => $device->fromDateTime($absolute),
+        ];
+
+        if ($switching) {
+            $switched += [
+                $type                                 => PrincipalReference::type($target),
+                $id                                   => PrincipalReference::id($target),
+                $device->getPrincipalSwitchedAtName() => $device->fromDateTime($now),
+            ];
+        }
+
+        $affected = $this->table($device)
+            ->where($device->getRefreshKeyName(), $presentedDigest)
+            ->whereNull($device->getRevokedAtName())
+            ->where($this->loadedDeadlines($device))
+            ->where([$type => $device->getRawOriginal($type), $id => $device->getRawOriginal($id)])
+            ->update($switched);
+
+        return $this->mirror($device, $affected, $switched);
     }
 
     /**

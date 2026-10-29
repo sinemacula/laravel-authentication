@@ -80,6 +80,29 @@ interface Device
     public function getRefreshRotatedAt(): ?CarbonInterface;
 
     /**
+     * Return when the device's session started: the sign-in that created the
+     * device, or the last one that continued it on the same client. The
+     * absolute deadline is counted from it. `null` only for a device with no
+     * session.
+     *
+     * @return ?\Carbon\CarbonInterface
+     *
+     * @throws \LogicException
+     */
+    public function getSignedInAt(): ?CarbonInterface;
+
+    /**
+     * Return when the session last switched the principal it acts as, or `null`
+     * when it never did. Access tokens naming the device that were issued
+     * before it are rejected.
+     *
+     * @return ?\Carbon\CarbonInterface
+     *
+     * @throws \LogicException
+     */
+    public function getPrincipalSwitchedAt(): ?CarbonInterface;
+
+    /**
      * Return the idle deadline: the session ends at this time unless a refresh
      * extends it. `null` means the device has no session and fails closed
      * everywhere.
@@ -137,4 +160,17 @@ interface Device
      * @return ?string
      */
     public function getSignInMethod(): ?string;
+
+    /**
+     * Return the type of identifier the sign-in that started the device's
+     * session (or last restarted it on the same client) used, such as `email`,
+     * or `null` when it used none or none was recorded. A switch of principal
+     * admits its target with it, as that sign-in admitted its principal, so a
+     * value that cannot be read throws rather than reading as `null`.
+     *
+     * @return ?string
+     *
+     * @throws \LogicException
+     */
+    public function getSignInIdentifierType(): ?string;
 }

@@ -323,6 +323,26 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
     }
 
     /**
+     * The member's own live device fails the attempt when its session acts as
+     * another principal than the one being bound.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testDeviceActingAsAnotherPrincipalFailsTheAttempt(): void
+    {
+        [$member, $membership, $device] = $this->seedMember('switched@example.test');
+
+        Device::query()->whereKey($device->getKey())->update(['principal_id' => 'another-membership']);
+
+        $guard = $this->freshGuard();
+
+        self::assertFalse($guard->attempt($this->credentials($member), $membership, $device));
+        self::assertFalse($guard->hasUser());
+    }
+
+    /**
      * Configure the JWT guard against the member provider.
      *
      * @param  mixed  $app
@@ -398,6 +418,8 @@ final class PinnedContextOwnershipIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $membership->getMorphClass(),
+            'principal_id'         => (string) $membership->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
         return [$member, $membership, $device];

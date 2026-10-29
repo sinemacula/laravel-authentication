@@ -186,6 +186,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             ...self::liveSession(self::DEVICE_GUARD),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => null,
             'last_used_at'         => $this->now,
         ])->save();
@@ -227,6 +229,8 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
             ...self::liveSession(self::DEVICE_GUARD),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => null,
             'last_used_at'         => null,
         ])->save();

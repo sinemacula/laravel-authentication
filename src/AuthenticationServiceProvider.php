@@ -5,6 +5,12 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\OtherDeviceLogout;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -13,11 +19,13 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Exceptions\Handler;
+use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -30,21 +38,25 @@ use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
+use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
  * Package service provider: registers the package's configuration, auth
  * manager, guard and provider drivers, sign-in collaborators and policies,
- * middleware, listener and publishing tags.
+ * middleware, listener, publishing tags and console command.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -76,6 +88,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(IdentifierNormalisers::class);
         $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
         $this->app->singleton(SignInMethodManager::class);
+        $this->app->scoped(Rehashing::class);
         $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
@@ -100,6 +113,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->registerListeners();
         $this->registerUnauthenticatedResponse();
         $this->registerPublishing();
+        $this->registerCommands();
     }
 
     /**
@@ -160,11 +174,66 @@ final class AuthenticationServiceProvider extends ServiceProvider
                 $app->make(ConnectionResolverInterface::class),
                 static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
             ),
+            static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard($name, $app->make(ConfigRepository::class)),
         );
 
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
 
         return $guard;
+    }
+
+    /**
+     * Resolve the effective principal resolver for the guard; the guard driver
+     * and `authentication:check` both use it, which is the only reason it is
+     * public: it is not part of the package's API.
+     *
+     * Guards without a `principal_resolver` override track the global
+     * `PrincipalResolver::class` binding and should therefore receive future
+     * container refreshes. Guard-local overrides resolve once at construction
+     * time and are fixed thereafter.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  string  $name
+     * @param  array<string, mixed>  $config
+     * @return array{resolver: \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver, tracks_global: bool}
+     *
+     * @throws \InvalidArgumentException
+     *
+     * @internal
+     */
+    public static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
+    {
+        if (!array_key_exists('principal_resolver', $config)) {
+            return [
+                'resolver'      => $app->make(PrincipalResolver::class),
+                'tracks_global' => true,
+            ];
+        }
+
+        $abstract = $config['principal_resolver'];
+
+        if (!is_string($abstract) || $abstract === '') {
+            throw new \InvalidArgumentException("Auth guard [{$name}] principal_resolver must be a non-empty string container abstract.");
+        }
+
+        $resolver = $app->make($abstract);
+
+        if (!$resolver instanceof PrincipalResolver) {
+
+            $resolvedType = get_debug_type($resolver);
+
+            $message = "Auth guard [{$name}] principal_resolver [{$abstract}]"
+                . " resolved to [{$resolvedType}] instead of ["
+                . PrincipalResolver::class
+                . '].';
+
+            throw new \InvalidArgumentException($message);
+        }
+
+        return [
+            'resolver'      => $resolver,
+            'tracks_global' => false,
+        ];
     }
 
     /**
@@ -217,13 +286,17 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `DeviceAuthenticated` event listener.
+     * Register the `DeviceAuthenticated` listener, the reset of the package
+     * guards before each queued job, and the tracking of credential attempts
+     * that marks an automatic rehash.
      *
      * @return void
      */
     protected function registerListeners(): void
     {
         Event::listen(DeviceAuthenticated::class, RecordDeviceUsage::class);
+        Event::listen(JobProcessing::class, ForgetGuardStateBeforeJob::class);
+        Event::listen([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class], TrackCredentialAttempts::class);
     }
 
     /**
@@ -269,53 +342,17 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Resolve the effective principal resolver for the guard.
+     * Register the package's console commands when running in the console.
      *
-     * Guards without a `principal_resolver` override track the global
-     * `PrincipalResolver::class` binding and should therefore receive future
-     * container refreshes. Guard-local overrides resolve once at construction
-     * time and are fixed thereafter.
-     *
-     * @param  \Illuminate\Foundation\Application  $app
-     * @param  string  $name
-     * @param  array<string, mixed>  $config
-     * @return array{resolver: \SineMacula\Laravel\Authentication\Contracts\PrincipalResolver, tracks_global: bool}
-     *
-     * @throws \InvalidArgumentException
+     * @return void
      */
-    private static function resolveGuardPrincipalResolver(Application $app, string $name, array $config): array
+    protected function registerCommands(): void
     {
-        if (!array_key_exists('principal_resolver', $config)) {
-            return [
-                'resolver'      => $app->make(PrincipalResolver::class),
-                'tracks_global' => true,
-            ];
+        if (!$this->app->runningInConsole()) {
+            return;
         }
 
-        $abstract = $config['principal_resolver'];
-
-        if (!is_string($abstract) || $abstract === '') {
-            throw new \InvalidArgumentException("Auth guard [{$name}] principal_resolver must be a non-empty string container abstract.");
-        }
-
-        $resolver = $app->make($abstract);
-
-        if (!$resolver instanceof PrincipalResolver) {
-
-            $resolvedType = is_object($resolver) ? $resolver::class : get_debug_type($resolver);
-
-            $message = "Auth guard [{$name}] principal_resolver [{$abstract}]"
-                . " resolved to [{$resolvedType}] instead of ["
-                . PrincipalResolver::class
-                . '].';
-
-            throw new \InvalidArgumentException($message);
-        }
-
-        return [
-            'resolver'      => $resolver,
-            'tracks_global' => false,
-        ];
+        $this->commands([CheckConfigurationCommand::class]);
     }
 
     /**

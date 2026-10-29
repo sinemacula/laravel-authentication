@@ -187,7 +187,7 @@ final class JwtGuardDeviceRelationIntegrationTest extends TestCase
     private function seedDevice(RelationDevicesIdentity $identity): Device
     {
         $device = $identity->devices()->make();
-        $device->forceFill(self::liveSession())->save();
+        $device->forceFill(self::liveSession(principal: $identity))->save();
 
         return $device;
     }

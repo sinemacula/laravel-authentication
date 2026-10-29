@@ -9,7 +9,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -70,39 +70,58 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
      * `principal_ineligible`. A principal without a type is refused by a guard
      * that lists types.
      *
-     * Then, for a guard that sets `require_verified_identifier` and a sign-in
-     * that used an identifier of a type, refuse it as `identifier_unverified`
-     * unless the identity reports that identifier verified (read on the write
-     * connection). The identity must implement `HasVerifiableIdentifiers`
-     * then; one that does not is a misconfiguration (`LogicException`).
+     * Then hold the identity to the verified-identifier requirement
+     * (`admitIdentifier()`).
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?string  $identifierType
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
     #[\Override]
-    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?SignInFailureReason
+    public function admit(string $guard, Identity $identity, Principal $principal, ?string $identifierType): ?FailureReason
     {
         $settings = $this->settings($guard);
         $types    = $settings['principal_types'];
 
         if ($types !== null && !in_array(PrincipalType::of($principal), $types, true)) {
-            return SignInFailureReason::PRINCIPAL_INELIGIBLE;
+            return FailureReason::PRINCIPAL_INELIGIBLE;
         }
 
-        if (!$settings['require_verified_identifier'] || $identifierType === null) {
+        return $this->admitIdentifier($guard, $identity, $identifierType);
+    }
+
+    /**
+     * For a guard that sets `require_verified_identifier` and a sign-in that
+     * used an identifier of a type, refuse the identity as
+     * `identifier_unverified` unless it reports that identifier verified (read
+     * on the write connection); otherwise admit it (`null`). The identity must
+     * implement `HasVerifiableIdentifiers` then; one that does not is a
+     * misconfiguration (`LogicException`). `admit()` asks it too.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?string  $identifierType
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    #[\Override]
+    public function admitIdentifier(string $guard, Identity $identity, ?string $identifierType): ?FailureReason
+    {
+        if ($identifierType === null || !$this->settings($guard)['require_verified_identifier']) {
             return null;
         }
 
         $verifiable = IdentifierVerifier::verifiable($identity);
 
-        return WriteConnection::during($verifiable, static fn (): bool => $verifiable->hasVerifiedIdentifier($identifierType)) ? null : SignInFailureReason::IDENTIFIER_UNVERIFIED;
+        return WriteConnection::during($verifiable, static fn (): bool => $verifiable->hasVerifiedIdentifier($identifierType)) ? null : FailureReason::IDENTIFIER_UNVERIFIED;
     }
 
     /**
@@ -122,6 +141,20 @@ final readonly class GuardAudiencePolicy implements AudiencePolicy
     public function lifetimes(string $guard, Principal $principal): TokenLifetimes
     {
         return $this->tokens->forGuard($guard)->lifetimesFor($principal);
+    }
+
+    /**
+     * Validate every audience setting of the guard, failing closed as any check
+     * would, without deciding anything; `authentication:check` runs it.
+     *
+     * @param  string  $guard
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function validate(string $guard): void
+    {
+        $this->settings($guard);
     }
 
     /**

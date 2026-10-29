@@ -71,6 +71,11 @@ other rotated token as a replay that revokes the device.
   successful ones are not. Once either count is full, the exchange stops before the device lookup.
 - Refresh preserves principal continuity by carrying `pid` forward into both the new refresh token and the new access
   token.
+- A refresh is accepted only for the principal its device records (`PrincipalReference::isRecordedOn()`), on the
+  current, the grace and the lost-rotation paths alike: after a switch of principal, the refresh token of the principal
+  switched from fails with `device_principal_mismatch` and is not a replay, so the device is left alone, while the same
+  token after the grace window is judged a replay as any rotated token is. The switch itself runs the same judgement
+  (`RefreshJudgement::classify()`) with its own retry rule; see `principal-choice-and-switch.md`.
 - The package opens no transaction around a refresh.
 
 ## Success Path
@@ -100,13 +105,14 @@ other rotated token as a replay that revokes the device.
   presented one) and whose `exp` is the stored idle deadline (capped at the absolute deadline), and return them. Both
   holders of the replaced token now hold the current id: the next refresh by either rotates normally, and the other
   becomes a grace retry or, after the window, a replay.
-- A grace retry is a successful refresh and fires the same events as a rotation (`Attempting`, the `login()` events,
-  `Refreshed`). The last-use listener may still record the use, as on any authentication.
+- A grace retry is a successful refresh and fires the same events as a rotation (`Attempting`, `Validated` and the
+  bind events, `Refreshed`). The last-use listener may still record the use, as on any authentication.
 
 ## Failure / Edge Cases
 
-- Every failure below dispatches `RefreshFailed`, is returned by `exchange()`, and is counted against the token's device
-  and the client's IP address before it is dispatched; `refresh()` then dispatches `Failed` and returns `null`.
+- Every failure below is returned by `exchange()` as an `AuthenticationFailed` (flow `refresh`), undispatched, after it
+  is counted against the token's device and the client's IP address; `refresh()` then dispatches `Failed` and the
+  `AuthenticationFailed`, and returns `null`.
 - Once the device's or the IP address's count is full, the exchange fails with `rate_limited` before the lookup,
   carrying the seconds until the full count's window ends (`retryAfter`), and that failure is not counted itself, so a
   blocked client costs one read. `refresh()` dispatches `Failed` and then throws Laravel's `ThrottleRequestsException`,
@@ -131,10 +137,10 @@ other rotated token as a replay that revokes the device.
   token for it cannot be classified as a replay, and the device is not revoked.
 - A replay (an older id, the previous id after the window or with a grace window of 0, the previous id when the current
   digest is not its successor, or any id the device never held) revokes the device with reason `rotation_reuse` and
-  dispatches `DeviceRevoked`, `RefreshFailed` (`rotation_reuse`), and the guard's `Failed`. With no transaction open on
-  the device's connection they come in that order; inside one, `RefreshFailed` and `Failed` come first and
-  `DeviceRevoked` follows the commit (the transaction Laravel's testing traits wrap around each test is not counted, as
-  it never commits). Nothing is hydrated. Every token of the device then fails: access tokens on the bearer path,
+  dispatches `DeviceRevoked`, the guard's `Failed`, and `AuthenticationFailed` (`rotation_reuse`). With no transaction
+  open on the device's connection they come in that order; inside one, `Failed` and `AuthenticationFailed` come first
+  and `DeviceRevoked` follows the commit (the transaction Laravel's testing traits wrap around each test is not counted,
+  as it never commits). Nothing is hydrated. Every token of the device then fails: access tokens on the bearer path,
   refresh tokens with `device_revoked`.
 - "Any id the device never held" includes a validly signed token from an earlier credential of the same row. A device
   is given a refresh credential outside a rotation only by the session service: when it creates the device, and when a
@@ -153,7 +159,7 @@ other rotated token as a replay that revokes the device.
   writer with a locking read (`lockForUpdate()`, a no-op on SQLite) and classifies it again at the same `$now`:
   - GRACE, the usual case (a parallel refresh with the same token rotated first, and its successor is this exchange's):
     the exchange returns the current credential as above, after confirming the fresh row still belongs to the hydrated
-    identity (`authenticatable_missing` otherwise);
+    identity (`identity_unknown` otherwise);
   - a replay (for example with a grace window of 0): the device is revoked, `rotation_reuse`;
   - revoked, deleted, ended, or credential cleared meanwhile: `device_revoked`, `device_unknown`, `session_expired`, or
     `refresh_key_missing`;
@@ -171,18 +177,19 @@ other rotated token as a replay that revokes the device.
   server error for the caller to retry, with nothing revoked. A caller that rolls back a transaction on the device's
   connection around `refresh()` also rolls back a replay revocation, and `DeviceRevoked` is then never dispatched; do
   not roll back around refresh.
-- An exception while issuing the new pair propagates without a `RefreshFailed` event and without touching the device
-  row, so the client can retry with the same refresh token.
-- After the swap commits, `refresh()` binds the new context through `login()` and dispatches `Refreshed`, so an
-  exception from a listener at that point (on `Login`, `Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, or
-  `Refreshed`, including the package's own last-use write) propagates after the presented token has been rotated and the
-  new pair is lost. A retry with the presented token inside the grace window gets the current credential; after the
-  window it is a replay and revokes the device. Listeners on these events should not throw, or should be queued.
+- An exception while issuing the new pair propagates without an `AuthenticationFailed` event and without touching the
+  device row, so the client can retry with the same refresh token.
+- After the swap commits, `refresh()` binds the new context (`Validated`, `Login` and the bind events) and dispatches
+  `Refreshed` once the rotation is committed on the device's connection, so an exception from a listener at that point
+  (on `Login`, `Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, or `Refreshed`, including the package's own
+  last-use write) propagates after the presented token has been rotated and the new pair is lost. A retry with the
+  presented token inside the grace window gets the current credential; after the window it is a replay and revokes the
+  device. Listeners on these events should not throw, or should be queued.
 - An inactive owner, principal, or tenant produces `identity_inactive`, `principal_inactive`, or `tenant_inactive`. A
   principal whose tenant key names a tenant that implements `CanBeActive` but cannot be loaded (deleted or
   soft-deleted) also produces `tenant_inactive`.
 - An `UnresolvableIdentityException` from the principal resolver is a misconfiguration, not a failure reason: it
-  propagates as a server error without a `RefreshFailed` event, and the stored digests are left as they were.
+  propagates as a server error without an `AuthenticationFailed` event, and the stored digests are left as they were.
 - Device times are stored as wall-clock times in the application timezone without an offset, as Laravel stores
   `datetime` columns, so the package expects `app.timezone` to be UTC (Laravel's default) or another zone without
   daylight saving. In a zone with daylight saving, both passes through the hour that repeats when the clocks go back
@@ -199,15 +206,19 @@ other rotated token as a replay that revokes the device.
   its own timezone) and any custom device model that keeps Laravel's `datetime` cast would then disagree with the stored
   values whenever the timezone's offset is not zero.
 - Refresh does not rely on Eloquent observers. The swap and the revocation are query-builder updates that deliberately
-  bypass them; consumers should hang side effects off `RefreshFailed`, `Refreshed`, and `DeviceRevoked` instead.
+  bypass them; consumers should hang side effects off `AuthenticationFailed`, `Refreshed`, and `DeviceRevoked` instead.
 
 ## Implementation Anchors
 
 - `src/Jwt/RefreshTokenExchange.php`: `exchange()` (the limiter check and the failure count), `exchangeClaims()`,
-  `exchangeOn()` (the guard check), `extractRefreshClaims()`, `classify()`, `isGraceRetry()`, `hydrateRefreshContext()`
-  (the audience policy), `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeDevice()`.
-- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `revoke()` (the guarded revocation), and
-  `reload()` (the locking re-read on the writer).
+  `exchangeOn()` (the guard check), `extractRefreshClaims()`, `hydrateRefreshContext()` (the recorded principal),
+  `rotate()`, `afterLostRotation()`, `reissue()`, `fail()`, `revokeDevice()`.
+- `src/Jwt/RefreshJudgement.php`: `classify()` and `isGraceRetry()`, the verdict a refresh and a switch of principal
+  share.
+- `src/Jwt/RefreshAdmission.php`: `admit()` (the owner reload, the principal, activity), `admitByPolicy()` (the
+  audience policy).
+- `src/Jwt/RefreshRotationStore.php`: `rotate()` (the compare-and-swap), `switchPrincipal()` (the switch's
+  compare-and-swap), `revoke()` (the guarded revocation), and `reload()` (the locking re-read on the writer).
 - `src/Database/AfterCommit.php`: defers `DeviceRevoked` to the commit of the device's own connection.
 - `src/Jwt/DeviceLookup.php`: `find()`, the device lookup on the writer.
 - `src/Contracts/AudiencePolicy.php` and `src/Contracts/AttemptLimiter.php`: the policy and the limiter each exchange
@@ -223,17 +234,25 @@ other rotated token as a replay that revokes the device.
 - `src/Database/WriteConnection.php`: pins the device and owner reads to the write connection (the principal and tenant
   reads are pinned by the resolver and by `ActivationPolicy`).
 - `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
-- `src/Events/Enums/RefreshFailureReason.php` and `src/Events/Enums/RevocationReason.php`: failure and revocation
-  taxonomies; `src/Events/DeviceRevoked.php`.
-- `src/Guards/JwtGuard.php`: `refresh()` delegates to the live refresh exchange with the request's client, and turns a
-  `rate_limited` failure into the 429 (`refuseIfRateLimited()`).
-- `src/Guards/Concerns/VerifiesPinnedContext.php`: `resolveDeviceFromHint()`, which treats a device of another guard
-  as missing on the bearer path and for sign-in pins.
+- `src/Events/Enums/FailureReason.php` and `src/Events/Enums/RevocationReason.php`: failure and revocation
+  taxonomies; `src/Events/AuthenticationFailed.php`, `src/Events/DeviceRevoked.php`.
+- `src/Guards/JwtGuard.php`: `refresh()` and `refreshFromRequest()` go through `exchangeRefresh()`, which runs the live
+  refresh exchange with the request's client, and `refuseRefresh()` reports a refusal and turns a `rate_limited` one
+  into the 429.
+- `src/Guards/OwnedDevice.php`: `refusal()`, which refuses a device of another guard on the bearer path
+  (`device_guard_mismatch`) and for sign-in pins (`resolveDeviceFromHint()` in
+  `src/Guards/Concerns/VerifiesPinnedContext.php`).
 - `src/Concerns/ReadsDeviceAttributes.php`: `toDeviceTimestamp()` and `earliestInstantOf()`, which read a device time
   in the repeated daylight saving hour as its first pass.
 
 ## Authoritative Tests
 
+- `tests/Feature/Jwt/RefreshJudgementTest.php` (every verdict, and the order the session's state is judged in)
+- `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
+  `testARefreshAsAPrincipalTheDeviceNoLongerRecordsIsRefused`, `testLostRotationFailsWithWhatTheRowNowSays`
+- `tests/Feature/Sessions/PrincipalSwitchTest.php`
+  `testTheOldRefreshTokenInsideTheGraceWindowFailsWithoutRevoking`,
+  `testTheOldRefreshTokenAfterTheGraceWindowRevokesTheDevice`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`
   `testExchangeRotatesTheCurrentRotationIdToItsSuccessor`
 - `tests/Feature/Jwt/RefreshTokenExchangeTest.php`

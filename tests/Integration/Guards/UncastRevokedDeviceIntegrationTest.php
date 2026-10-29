@@ -17,8 +17,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsDevice;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use Tests\Concerns\InteractsWithDevices;
@@ -147,13 +147,13 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
 
         $this->revoke($device);
 
-        Event::fake([RefreshFailed::class]);
+        Event::fake([AuthenticationFailed::class]);
 
         self::assertNull($this->guardForRequest(Request::create('/refresh', 'POST'))->refresh($refreshToken));
 
         Event::assertDispatched(
-            RefreshFailed::class,
-            static fn (RefreshFailed $event): bool => $event->reason === RefreshFailureReason::DEVICE_REVOKED,
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->reason === FailureReason::DEVICE_REVOKED,
         );
     }
 
@@ -193,7 +193,7 @@ final class UncastRevokedDeviceIntegrationTest extends TestCase
         ])->save();
 
         $device = $identity->devices()->make();
-        $device->forceFill([...self::liveSession(), 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)])->save();
+        $device->forceFill([...self::liveSession(principal: $identity), 'refresh_key' => RefreshTokenHasher::hash(self::ROTATION_ID)])->save();
 
         return [$identity, $device];
     }

@@ -91,6 +91,28 @@ final class StubBareDevice extends Model implements Device
     }
 
     /**
+     * Inert session start accessor.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getSignedInAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Inert principal switch accessor.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getPrincipalSwitchedAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
      * Inert idle deadline accessor.
      *
      * @return ?\Carbon\CarbonInterface
@@ -152,6 +174,17 @@ final class StubBareDevice extends Model implements Device
      */
     #[\Override]
     public function getSignInMethod(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Inert sign-in identifier type accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getSignInIdentifierType(): ?string
     {
         return null;
     }

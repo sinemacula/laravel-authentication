@@ -11,6 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
@@ -77,7 +78,7 @@ final readonly class IdentifierVerifier
 
         if ($verifiable->markIdentifierAsVerified($type, $current)) {
 
-            $this->dispatchAfterCommit($identity, new IdentifierVerified($guard, $identity, $type, $client));
+            $this->dispatchAfterCommit($identity, new IdentifierVerified(new EventContext($guard, $client ?? $this->servedClient(), $identity), $type));
 
             return IdentifierVerification::VERIFIED;
         }
@@ -169,6 +170,17 @@ final readonly class IdentifierVerifier
         }
 
         return WriteConnection::during($fresh, static fn (): bool => $fresh->getIdentifierForVerification($type) === $identifier && $fresh->hasVerifiedIdentifier($type));
+    }
+
+    /**
+     * The client of the request being served, for a verification whose caller
+     * named none.
+     *
+     * @return \SineMacula\Laravel\Authentication\Http\ClientContext
+     */
+    private function servedClient(): ClientContext
+    {
+        return ClientContext::fromRequest($this->container->make('request'));
     }
 
     /**

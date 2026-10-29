@@ -223,6 +223,8 @@ final class JwtGuardIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $user->getMorphClass(),
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 
@@ -272,6 +274,8 @@ final class JwtGuardIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $user->getMorphClass(),
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
         ])->save();
 
         $token = $this->encodeAccessToken([
@@ -314,6 +318,8 @@ final class JwtGuardIntegrationTest extends TestCase
             ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $user->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $user->getMorphClass(),
+            'principal_id'         => (string) $user->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
         ])->save();
 

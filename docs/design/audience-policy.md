@@ -27,7 +27,14 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   in `attempt()` cannot skip it. The identity must then implement `HasVerifiableIdentifiers` (otherwise a
   `LogicException`: a misconfiguration) and report that identifier verified, read on the write connection; otherwise
   `identifier_unverified`. `start()`, `complete()` without a stored type, and refresh carry no identifier type and are
-  never gated: an external verifier or an existing session vouches for them.
+  never gated: an external verifier or an existing session vouches for them. A switch of principal is admitted with the
+  type the session's sign-in used (recorded on the device), as that sign-in was.
+- The gate depends on the identity alone, so it is the contract's `admitIdentifier($guard, $identity,
+  $identifierType)`, which every sign-in (`attempt()` included) asks of whatever policy is bound after the identity's
+  activity check and before resolving any principal: an unverified identifier is refused alike whether the identity
+  has principals or not. A switch of principal asks it with the session's identifier type before `admit()`. The
+  package's `admit()` also asks its own `admitIdentifier()`; a policy that wraps another asks the wrapped one's, and a
+  policy with no identity-level rule returns `null`.
 - `admit()` is asked only after the identity, the principal and its tenant have passed their activity checks, and runs
   eligibility before the gate.
 - Lifetimes come from `jwt.by_principal_type.<type>` on the guard (any of `access_ttl_minutes`,
@@ -44,11 +51,13 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 ## Success Path
 
 - `signIn()` and `attempt()`: `Attempting`; `allowsMethod()` (nothing counted when it refuses); the attempt limiter's
-  reservation; inside the credential timebox, the method's verification, activity, the principal, then
-  `admit($guard, $identity, $principal, $identifierType)`; the session's device takes its deadlines from
+  reservation; inside the credential timebox, the method's verification, activity, `admitIdentifier($guard,
+  $identity, $identifierType)`, the principal, then `admit($guard, $identity, $principal, $identifierType)`; the
+  session's device takes its deadlines from
   `lifetimes($guard, $principal)`.
 - `start()`: `allowsMethod()` and `admit()` with no identifier type; no limiter, no timebox.
-- `complete()`: `allowsMethod()` for the stored method and `admit()` with the stored identifier type, rechecked when
+- `complete()`: `allowsMethod()` for the stored method, and `admitIdentifier()` and `admit()` with the stored
+  identifier type, rechecked when
   the pending sign-in is used, so a policy change while a factor is verified still applies.
 - Refresh: right after the device lookup, the device must record this guard (`device_guard_mismatch`); after the owner
   and principal are reloaded, the recorded method must still be allowed (`method_not_allowed`, also when the device
@@ -82,18 +91,20 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   guards that check it, at most the largest `max` in each window of the shortest `decay_seconds`: a guard with a looser
   limit raises the bound for every guard, a stricter one only stops its own sign-ins sooner, and another guard with the
   same limit adds no guesses. An account with no attempts left is not checked and fails as `invalid_credentials`, so the
-  refusal is no existence oracle; only `SignInFailed`, which goes to server-side listeners, says `account_rate_limited`,
-  with the wait. `attempt()` refuses an identifier that is neither a string, a `Stringable`, an integer nor a query
-  closure before any lookup, and an IPv6 client is counted per /64 network, except that an address carrying an IPv4
-  client's address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4 address.
+  refusal is no existence oracle; only `AuthenticationFailed`, which goes to server-side listeners, says
+  `account_rate_limited`, with the wait. `attempt()` refuses an identifier that is neither a string, a `Stringable`, an
+  integer nor a query closure before any lookup, and an IPv6 client is counted per /64 network, except that an address
+  carrying an IPv4 client's address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) is counted as that IPv4
+  address.
 - A custom `AudiencePolicy` decides the session's deadlines (the device's on sign-in, the idle deadline on each
   rotation) through `lifetimes()`; the access token's expiry is still computed by the guard's token service from
   `jwt.by_principal_type`, and is capped at the session's end. A policy that returns lifetimes the guard's
   configuration does not describe therefore shortens or lengthens sessions, not access tokens.
 - The policy is resolved from the container on every call, on every path, so a binding an application makes at any
   time is the one used.
-- Principal switching (not in the package yet) is designed to ask `admit()` and `lifetimes()` for the new principal and
-  to keep the session's absolute deadline.
+- A switch of principal asks `admitIdentifier()` and `admit()` with the identifier type its session's sign-in used
+  (recorded on the device), besides the refresh's own `admit()` with none, and `lifetimes()` for the target, and never
+  extends the session's absolute deadline (see `principal-choice-and-switch.md`).
 
 ## Implementation Anchors
 
@@ -102,8 +113,8 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
   `pty` in `issueAccessToken()`).
 - `src/Sessions/SessionService.php` and `src/Sessions/Admission/SignInAdmission.php`, shared with
   `src/Guards/Concerns/SignsInWithCredentials.php` (`attempt()`).
-- `src/Jwt/RefreshTokenExchange.php` (`exchangeOn()`, `hydrateRefreshContext()`, `rotate()`) and
-  `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
+- `src/Jwt/RefreshTokenExchange.php` (`exchangeOn()`, `rotate()`), `src/Jwt/RefreshAdmission.php` (`admitByPolicy()`)
+  and `src/Guards/Concerns/VerifiesPinnedContext.php` (`resolveDeviceFromHint()`).
 - `src/Contracts/AttemptLimiter.php`, `src/RateLimiting/DatabaseAttemptLimiter.php`,
   `src/RateLimiting/AttemptLimits.php`, `src/RateLimiting/RateLimitStore.php`.
 - `src/Identifiers/IdentifierNormalisers.php`, `src/Casts/NormalisedIdentifier.php`, `src/Providers/ModelProvider.php`.
@@ -112,6 +123,7 @@ and the identifier normalisers meet that policy, since a sign-in passes through 
 ## Authoritative Tests
 
 - `tests/Integration/Sessions/SignInPolicyEndToEndTest.php` (every piece above, through the shipped bindings)
+- `tests/Unit/Sessions/Admission/SignInAdmissionTest.php` `testAnyPolicysRefusalOfTheIdentityComesBeforeItsPrincipal`
 - `tests/Feature/Audience/GuardAudiencePolicyTest.php`, `tests/Integration/Guards/AudiencePolicyIntegrationTest.php`
 - `tests/Unit/Audience/PrincipalTypeTest.php`
 - `tests/Integration/Guards/RefreshAudienceIntegrationTest.php`

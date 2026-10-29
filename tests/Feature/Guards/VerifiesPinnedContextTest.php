@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use Tests\Unit\Stubs\Stub3dPrincipal;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPinnedContextGuard;
@@ -372,13 +373,47 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
      */
     public function testOwnedLivePinnedDeviceBindsTheIdentitysOwnRow(): void
     {
-        $pinned = $this->device(self::DEVICE_ID, null);
-        $owned  = $this->device(self::DEVICE_ID, null);
+        $principal = $this->principal('p-1');
+        $pinned    = $this->device(self::DEVICE_ID, null, $principal);
+        $owned     = $this->device(self::DEVICE_ID, null, $principal);
 
-        $guard = $this->guardWithDevices($owned);
+        $guard = $this->guardWithDevices($owned, $principal);
 
         self::assertTrue($guard->attempt(['email' => 'x'], null, $pinned));
         self::assertSame($owned, $guard->device());
+    }
+
+    /**
+     * Rows of `[identifier of the principal the device records, or null for
+     * none]` other than the principal being bound.
+     *
+     * @return iterable<string, array{0: ?string}>
+     */
+    public static function provideOtherPrincipals(): iterable
+    {
+        yield from [
+            'another principal' => ['p-2'],
+            'no principal'      => [null],
+        ];
+    }
+
+    /**
+     * An owned, live pinned device whose session acts as another principal, or
+     * as none, fails the attempt: a device is bound only for the principal it
+     * records.
+     *
+     * @param  ?string  $recorded
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideOtherPrincipals')]
+    public function testPinnedDeviceActingAsAnotherPrincipalFailsTheAttempt(?string $recorded): void
+    {
+        $owned = $this->device(self::DEVICE_ID, null, $recorded === null ? null : $this->principal($recorded));
+        $guard = $this->guardWithDevices($owned, $this->principal('p-1'));
+
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $owned), $guard);
     }
 
     /**
@@ -556,24 +591,6 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
-     * The hint check matches a resolved principal only on an equal, non-null
-     * identifier, comparing integer and string forms alike.
-     *
-     * @return void
-     */
-    public function testPrincipalHintMatchesOnlyAnEqualIdentifier(): void
-    {
-        $guard = $this->makeStubGuard();
-
-        self::assertTrue($guard->matches($this->principal('5'), 5));
-        self::assertTrue($guard->matches($this->principal('p-1'), 'p-1'));
-        self::assertFalse($guard->matches($this->principal('p-1'), 'p-2'));
-        self::assertFalse($guard->matches($this->principal(null), 'p-1'));
-        self::assertFalse($guard->matches($this->principal('p-1'), null));
-        self::assertFalse($guard->matches(null, 'p-1'));
-    }
-
-    /**
      * The pinned-principal, pinned-device, and device-hint checks are callable
      * from a guard subclass, as `JwtGuard` calls the device-hint lookup, and
      * return the identity's own instances.
@@ -586,7 +603,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
         $identity  = $this->mockIdentity(HasDevices::class);
         $principal = $this->principal('p-1', $identity);
-        $device    = $this->device(self::DEVICE_ID, null);
+        $device    = $this->device(self::DEVICE_ID, null, $principal);
 
         $identity->shouldReceive('getAuthIdentifier')->andReturn(7);
 
@@ -600,7 +617,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')->once()->with($identity, 'p-1')->andReturn($principal);
 
         self::assertSame($principal, $guard->pinnedPrincipal($identity, $principal));
-        self::assertSame($device, $guard->pinnedDevice($identity, $device));
+        self::assertSame($device, $guard->pinnedDevice($identity, $principal, $device));
         self::assertSame($device, $guard->deviceFromHint($identity, self::DEVICE_ID));
     }
 
@@ -664,12 +681,13 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
     /**
      * Build a guard whose authenticated identity owns the supplied device (or
-     * none) and resolves an active principal.
+     * none) and resolves the principal, or an active one.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $owned
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Guards\AbstractGuard
      */
-    private function guardWithDevices(?Device $owned): AbstractGuard
+    private function guardWithDevices(?Device $owned, ?Principal $principal = null): AbstractGuard
     {
         $devices = $this->writerDevices();
         $devices->shouldReceive('find')->once()->with(self::DEVICE_ID)->andReturn($owned);
@@ -678,7 +696,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $this->acceptIdentity($identity);
-        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($this->principal('p-1'));
+        $this->resolver->shouldReceive('resolve')->once()->with($identity)->andReturn($principal ?? $this->principal('p-1'));
 
         return $this->makeGuard();
     }
@@ -721,21 +739,24 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
     /**
      * Build a device with the supplied identifier and revocation time, in a
-     * session that started now.
+     * session of the guard that started now, acting as the principal when one
+     * is given.
      *
      * @param  ?string  $identifier
      * @param  ?\Carbon\CarbonImmutable  $revokedAt
-     * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return \Tests\Unit\Stubs\StubDevice
      */
-    private function device(?string $identifier, ?CarbonImmutable $revokedAt): MockInterface
+    private function device(?string $identifier, ?CarbonImmutable $revokedAt, ?Principal $principal = null): StubDevice
     {
-        $device = \Mockery::mock(Device::class);
-        $device->shouldReceive('getDeviceIdentifier')->andReturn($identifier);
-        $device->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
-        $device->shouldReceive('getRevokedAt')->andReturn($revokedAt);
-        $device->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now()->addDays(90));
-        $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDays(180));
-
-        return $device;
+        return new StubDevice([
+            'id'                  => $identifier,
+            'guard'               => self::GUARD_NAME,
+            'principal_type'      => $principal === null ? null : PrincipalReference::type($principal),
+            'principal_id'        => $principal === null ? null : PrincipalReference::id($principal),
+            'revoked_at'          => $revokedAt,
+            'idle_expires_at'     => CarbonImmutable::now()->addDays(90),
+            'absolute_expires_at' => CarbonImmutable::now()->addDays(180),
+        ]);
     }
 }

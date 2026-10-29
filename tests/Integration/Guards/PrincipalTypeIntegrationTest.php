@@ -166,7 +166,7 @@ final class PrincipalTypeIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $membership),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

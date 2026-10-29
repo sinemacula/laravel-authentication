@@ -11,7 +11,7 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 
@@ -36,9 +36,9 @@ final class RefusedSignInTest extends TestCase
      */
     public function testARefusalBeforeVerificationCarriesNoContext(): void
     {
-        $refused = new RefusedSignIn(SignInFailureReason::RATE_LIMITED, retryAfter: 42);
+        $refused = new RefusedSignIn(FailureReason::RATE_LIMITED, retryAfter: 42);
 
-        self::assertSame(SignInFailureReason::RATE_LIMITED, $refused->reason);
+        self::assertSame(FailureReason::RATE_LIMITED, $refused->reason);
         self::assertNull($refused->identity);
         self::assertNull($refused->principal);
         self::assertNull($refused->tenant);
@@ -57,14 +57,14 @@ final class RefusedSignInTest extends TestCase
         $admitted = new AdmittedSignIn(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), \Mockery::mock(Tenant::class));
         $device   = \Mockery::mock(Device::class);
 
-        $refused = RefusedSignIn::after(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted->on($device));
+        $refused = RefusedSignIn::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted->on($device));
 
-        self::assertSame(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $refused->reason);
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $refused->reason);
         self::assertSame($admitted->identity, $refused->identity);
         self::assertSame($admitted->principal, $refused->principal);
         self::assertSame($admitted->tenant, $refused->tenant);
         self::assertSame($device, $refused->device);
         self::assertNull($refused->retryAfter);
-        self::assertNull(RefusedSignIn::after(SignInFailureReason::DEVICE_MISMATCH, $admitted)->device);
+        self::assertNull(RefusedSignIn::after(FailureReason::DEVICE_MISMATCH, $admitted)->device);
     }
 }

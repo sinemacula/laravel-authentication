@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -135,7 +135,7 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
         self::assertTrue($this->sessions()->complete($token)->isSignedIn());
         self::assertSame([1, 1, 1], $this->hits($identity));
 
-        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->sessions()->complete($token)->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->sessions()->complete($token)->reason);
         self::assertSame([1, 1, 1], $this->hits($identity));
         self::assertSame(1, Device::query()->count());
     }
@@ -327,7 +327,7 @@ final class SeparateCounterConnectionCompletionTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong'])->reason);
         self::assertSame([1, 1, 1], $this->hits($identity));
 
         return $identity;

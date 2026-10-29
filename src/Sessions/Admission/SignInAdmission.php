@@ -7,7 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions\Admission;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 
 /**
@@ -19,6 +19,11 @@ use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
  * Shared by `attempt()` and the session service, so a password sign-in, a
  * sign-in started for an externally verified identity, and the completion of a
  * pending one are held to the same rules in the same order.
+ *
+ * The audience policy's identity-level answer (`admitIdentifier()`: with the
+ * package's policy, an identifier the guard requires verified and is not) is
+ * asked before any principal is resolved, so its refusal is the same whether
+ * the identity has principals or not.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -41,13 +46,14 @@ final readonly class SignInAdmission
     /**
      * Admit the identity to the guard as the principal the callback resolves,
      * or say why not. The callback runs only once the identity is known to be
-     * active; when it resolves no principal, the sign-in fails with
-     * `$unresolved`.
+     * active and the audience policy admits it with the identifier type
+     * (`admitIdentifier()`); when it resolves no principal, the sign-in fails
+     * with `$unresolved`.
      *
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Closure(): ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  \SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason  $unresolved
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $unresolved
      * @param  ?string  $identifierType
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
      *
@@ -55,10 +61,16 @@ final readonly class SignInAdmission
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function admit(string $guard, Identity $identity, \Closure $principal, SignInFailureReason $unresolved, ?string $identifierType): AdmittedSignIn|RefusedSignIn
+    public function admit(string $guard, Identity $identity, \Closure $principal, FailureReason $unresolved, ?string $identifierType): AdmittedSignIn|RefusedSignIn
     {
         if (!ActivationPolicy::isActive($identity)) {
-            return new RefusedSignIn(SignInFailureReason::IDENTITY_INACTIVE, $identity);
+            return new RefusedSignIn(FailureReason::IDENTITY_INACTIVE, $identity);
+        }
+
+        $unverified = $this->audience->admitIdentifier($guard, $identity, $identifierType);
+
+        if ($unverified !== null) {
+            return new RefusedSignIn($unverified, $identity);
         }
 
         $resolved = $principal();
@@ -84,13 +96,13 @@ final readonly class SignInAdmission
     private function admitAs(string $guard, Identity $identity, Principal $principal, ?string $identifierType): AdmittedSignIn|RefusedSignIn
     {
         if (!ActivationPolicy::isActive($principal)) {
-            return new RefusedSignIn(SignInFailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
+            return new RefusedSignIn(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
         }
 
         $tenant = ActivationPolicy::activeTenant($principal);
 
         if ($tenant === false) {
-            return new RefusedSignIn(SignInFailureReason::TENANT_INACTIVE, $identity, $principal);
+            return new RefusedSignIn(FailureReason::TENANT_INACTIVE, $identity, $principal);
         }
 
         $admitted = new AdmittedSignIn($identity, $principal, $tenant);

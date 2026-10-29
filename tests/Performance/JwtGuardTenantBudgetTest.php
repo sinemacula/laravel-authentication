@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
@@ -197,7 +198,7 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     {
         [$member, $membership] = $this->seedMembership($guard);
 
-        $device = $this->seedDevice($member, $guard);
+        $device = $this->seedDevice($member, $guard, $membership);
         $token  = $this->tokensFor($guard)->issueRefreshToken($device, self::ROTATION_ID, $membership);
 
         app()->instance('request', Request::create('/refresh', 'POST'));
@@ -324,17 +325,19 @@ final class JwtGuardTenantBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * Persist a device of the guard for the member holding the stored rotation.
+     * Persist a device of the guard for the member holding the stored rotation,
+     * acting as the principal when one is given.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $member
      * @param  string  $guard
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @return \SineMacula\Laravel\Authentication\Models\Device
      */
-    private function seedDevice(Identity&Model $member, string $guard): Device
+    private function seedDevice(Identity&Model $member, string $guard, ?Principal $principal = null): Device
     {
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession($guard),
+            ...self::liveSession($guard, $principal),
             'authenticatable_type' => $member::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),

@@ -161,8 +161,9 @@ trait ActsAsPrincipal
     /**
      * Throw when the principal, having loaded no tenant, names a tenant that
      * opts into activation: `TenantUnavailableException` when its key is set
-     * but the tenant cannot be loaded, and a `LogicException` when the key
-     * itself was not loaded, so neither reads as acting within no tenant.
+     * but the tenant cannot be loaded, carrying the tenant's class and the key,
+     * and a `LogicException` when the key itself was not loaded, so neither
+     * reads as acting within no tenant.
      *
      * @param  string  $name
      * @return void
@@ -194,7 +195,7 @@ trait ActsAsPrincipal
             $name,
         );
 
-        throw new TenantUnavailableException($message);
+        throw new TenantUnavailableException($message, $relation->getRelated()::class, $relation->getOwnerKeyName(), $this->getAttribute($key));
     }
 
     /**

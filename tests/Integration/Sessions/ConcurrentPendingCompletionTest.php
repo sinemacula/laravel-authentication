@@ -13,10 +13,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
@@ -155,8 +155,8 @@ final class ConcurrentPendingCompletionTest extends TestCase
         self::assertTrue($first->isSignedIn());
         self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
 
-        self::assertSame(['status' => 'failed', 'reason' => SignInFailureReason::PENDING_INVALID->value], $second['result']);
-        self::assertSame([Failed::class, SignInFailed::class], $second['events']);
+        self::assertSame(['status' => 'failed', 'reason' => FailureReason::PENDING_INVALID->value], $second['result']);
+        self::assertSame([Failed::class, AuthenticationFailed::class], $second['events']);
         self::assertSame('password', $second['failedMethod']);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
 
@@ -222,7 +222,7 @@ final class ConcurrentPendingCompletionTest extends TestCase
 
         $failed = $this->sessions()->signIn('password', ['email' => 'ada@example.test', 'password' => 'wrong']);
 
-        self::assertSame(SignInFailureReason::INVALID_CREDENTIALS, $failed->reason);
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $failed->reason);
 
         return $identity;
     }
@@ -259,7 +259,7 @@ final class ConcurrentPendingCompletionTest extends TestCase
      */
     private function raceCompletions(#[\SensitiveParameter] string $token, bool $commitFirst): array
     {
-        $this->recordEvents([Failed::class, SignInFailed::class, DeviceCreated::class, SignedIn::class]);
+        $this->recordEvents([Failed::class, AuthenticationFailed::class, DeviceCreated::class, SignedIn::class]);
 
         DB::disconnect();
 
@@ -307,12 +307,12 @@ final class ConcurrentPendingCompletionTest extends TestCase
 
             $started = microtime(true);
             $result  = $this->sessions()->complete($token);
-            $failed  = array_values(array_filter($this->recorded, static fn (object $event): bool => $event instanceof SignInFailed));
+            $failed  = array_values(array_filter($this->recorded, static fn (object $event): bool => $event instanceof AuthenticationFailed));
 
             $outcome = [
                 'result'       => self::describe($result),
                 'events'       => $this->recordedClasses(),
-                'failedMethod' => $failed === [] ? null : $failed[0]->method,
+                'failedMethod' => $failed === [] ? null : $failed[0]->context->method,
                 'waited'       => microtime(true) - $started,
             ];
         } catch (\Throwable $e) {

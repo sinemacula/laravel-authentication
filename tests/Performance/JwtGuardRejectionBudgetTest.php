@@ -99,19 +99,20 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public static function provideTokensRejectedAfterALookup(): iterable
     {
         yield from [
-            'unknown subject'        => ['unknown', 1],
-            'inactive identity'      => ['inactive', 1],
-            'revoked device'         => ['revoked', 2],
-            'idle deadline reached'  => ['idle', 2],
-            'absolute deadline past' => ['absolute', 2],
+            'unknown subject'         => ['unknown', 1],
+            'inactive identity'       => ['inactive', 1],
+            'revoked device'          => ['revoked', 2],
+            'idle deadline reached'   => ['idle', 2],
+            'absolute deadline past'  => ['absolute', 2],
+            'principal switched away' => ['switched', 2],
         ];
     }
 
     /**
      * A bearer token that fails after a lookup is resolved once per request:
      * asking the guard again through every accessor costs no further query. A
-     * revoked or ended device is rejected from the row the device lookup
-     * already loaded.
+     * revoked or ended device, or one whose session switched to another
+     * principal, is rejected from the row the device lookup already loaded.
      *
      * @param  string  $rejection
      * @param  int  $reads
@@ -132,6 +133,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'inactive' => $identity->forceFill(['is_active' => false])->save(),
             'idle'     => $device->forceFill(['idle_expires_at' => $this->now])->save(),
             'absolute' => $device->forceFill(['absolute_expires_at' => $this->now->copy()->subSecond()])->save(),
+            'switched' => $device->forceFill(['principal_id' => 'another principal', 'principal_switched_at' => $this->now])->save(),
             default    => $device->forceFill(['revoked_at' => $this->now])->save(),
         };
 
@@ -335,6 +337,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'principal_type'       => $identity->getMorphClass(),
+            'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

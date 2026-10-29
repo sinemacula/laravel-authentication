@@ -21,18 +21,6 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 final class StubPinnedContextGuard extends AbstractGuard
 {
     /**
-     * Expose `matchesPidHint()`.
-     *
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $resolved
-     * @param  mixed  $hint
-     * @return bool
-     */
-    public function matches(?Principal $resolved, mixed $hint): bool
-    {
-        return $this->matchesPidHint($resolved, $hint);
-    }
-
-    /**
      * Expose `resolvePinnedPrincipal()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -60,11 +48,12 @@ final class StubPinnedContextGuard extends AbstractGuard
      * Expose `resolvePinnedDevice()`.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $pinned
      * @return ?\SineMacula\Laravel\Authentication\Contracts\Device
      */
-    public function pinnedDevice(Identity $identity, Device $pinned): ?Device
+    public function pinnedDevice(Identity $identity, Principal $principal, Device $pinned): ?Device
     {
-        return $this->resolvePinnedDevice($identity, $pinned);
+        return $this->resolvePinnedDevice($identity, $principal, $pinned);
     }
 }

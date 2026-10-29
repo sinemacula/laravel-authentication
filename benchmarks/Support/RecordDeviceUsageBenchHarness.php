@@ -10,6 +10,8 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Facade;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use Tests\Unit\Stubs\StubDevice;
 
@@ -61,7 +63,7 @@ final class RecordDeviceUsageBenchHarness
         $container->instance('config', $config);
         Facade::setFacadeApplication($container);
 
-        $this->listener = new RecordDeviceUsage(BenchRequest::client());
+        $this->listener = new RecordDeviceUsage;
 
         $this->createSchema();
 
@@ -98,7 +100,7 @@ final class RecordDeviceUsageBenchHarness
      */
     public function runWithinThrottleSkip(): void
     {
-        ($this->listener)(new DeviceAuthenticated('api', $this->freshDevice));
+        ($this->listener)(self::bound($this->freshDevice));
     }
 
     /**
@@ -111,7 +113,7 @@ final class RecordDeviceUsageBenchHarness
         $device = $this->staleDevices[$this->staleDeviceIndex % count($this->staleDevices)];
         $this->staleDeviceIndex++;
 
-        ($this->listener)(new DeviceAuthenticated('api', $device));
+        ($this->listener)(self::bound($device));
     }
 
     /**
@@ -137,7 +139,7 @@ final class RecordDeviceUsageBenchHarness
             ])->save();
 
             $statements = BenchOutcome::statementsOf(function () use ($device): void {
-                ($this->listener)(new DeviceAuthenticated('api', $device));
+                ($this->listener)(self::bound($device));
             });
             $wrote = array_filter($statements, static fn (string $statement): bool => str_starts_with($statement, 'update')) !== [];
 
@@ -161,5 +163,16 @@ final class RecordDeviceUsageBenchHarness
         $schema->create('stub_devices', static function (Blueprint $blueprint): void {
             BenchSchema::defineDeviceColumns($blueprint);
         });
+    }
+
+    /**
+     * The event of the device bound for the benchmark's client.
+     *
+     * @param  \Tests\Unit\Stubs\StubDevice  $device
+     * @return \SineMacula\Laravel\Authentication\Events\DeviceAuthenticated
+     */
+    private static function bound(StubDevice $device): DeviceAuthenticated
+    {
+        return new DeviceAuthenticated(new EventContext('api', ClientContext::fromRequest(BenchRequest::client()), device: $device));
     }
 }

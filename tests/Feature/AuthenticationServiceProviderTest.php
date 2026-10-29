@@ -7,39 +7,50 @@ namespace Tests\Feature;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\OtherDeviceLogout;
+use Illuminate\Auth\Events\Validated;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Console\Application as ConsoleApplication;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
+use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
@@ -138,6 +149,33 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * The package guards are reset before each queued job, so a worker does not
+     * carry one job's identity into the next.
+     *
+     * @return void
+     */
+    public function testTheGuardsAreResetBeforeEachQueuedJob(): void
+    {
+        self::assertContains(ForgetGuardStateBeforeJob::class, Event::getRawListeners()[JobProcessing::class] ?? []);
+    }
+
+    /**
+     * Every guard's credential attempt is followed through Laravel's auth
+     * events, so the rehash a guard runs during one is marked, and the forced
+     * rehash of `logoutOtherDevices()` is told apart from it.
+     *
+     * @return void
+     */
+    public function testCredentialAttemptsAreTracked(): void
+    {
+        $listeners = Event::getRawListeners();
+
+        foreach ([Attempting::class, Validated::class, Login::class, Authenticated::class, Failed::class, OtherDeviceLogout::class] as $event) {
+            self::assertContains(TrackCredentialAttempts::class, $listeners[$event] ?? [], $event);
+        }
+    }
+
+    /**
      * The contextual accessors return `null` when the active guard is not
      * contextual.
      *
@@ -168,6 +206,100 @@ final class AuthenticationServiceProviderTest extends TestCase
             DefaultPrincipalResolver::class,
             app(PrincipalResolver::class),
         );
+    }
+
+    /**
+     * The configuration check is registered as an Artisan command when the
+     * application runs in the console.
+     *
+     * @return void
+     */
+    public function testTheConfigurationCheckIsRegisteredInTheConsole(): void
+    {
+        self::assertArrayHasKey('authentication:check', Artisan::all());
+        self::assertInstanceOf(CheckConfigurationCommand::class, Artisan::all()['authentication:check']);
+    }
+
+    /**
+     * Outside the console no command is registered.
+     *
+     * @return void
+     *
+     * @throws \ReflectionException
+     */
+    public function testNoCommandIsRegisteredOutsideTheConsole(): void
+    {
+        $app = \Mockery::mock(Application::class)->makePartial();
+        $app->shouldReceive('runningInConsole')->andReturnFalse();
+
+        $bootstrappers = new \ReflectionProperty(ConsoleApplication::class, 'bootstrappers');
+        $before        = $bootstrappers->getValue();
+
+        (new \ReflectionMethod(AuthenticationServiceProvider::class, 'registerCommands'))->invoke(new AuthenticationServiceProvider($app));
+
+        self::assertSame($before, $bootstrappers->getValue());
+    }
+
+    /**
+     * The principal resolver selection is public, for the configuration check:
+     * a guard without an override takes the bound resolver and tracks its
+     * rebinds, and one with an override takes that, fixed.
+     *
+     * @return void
+     */
+    public function testTheGuardsPrincipalResolverIsSelectedForTheConfigurationCheck(): void
+    {
+        $app = $this->app;
+
+        assert($app instanceof Application);
+
+        $global   = AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, 'api', []);
+        $override = AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, 'api', ['principal_resolver' => StubReplacementPrincipalResolver::class]);
+
+        self::assertSame(app(PrincipalResolver::class), $global['resolver']);
+        self::assertTrue($global['tracks_global']);
+        self::assertInstanceOf(StubReplacementPrincipalResolver::class, $override['resolver']);
+        self::assertFalse($override['tracks_global']);
+    }
+
+    /**
+     * Rows of `[an override, the problem it is reported as]`.
+     *
+     * @return iterable<string, array{0: mixed, 1: string}>
+     */
+    public static function provideUnusableResolverOverrides(): iterable
+    {
+        $notAnAbstract = 'Auth guard [api] principal_resolver must be a non-empty string container abstract.';
+
+        yield 'an empty abstract' => ['', $notAnAbstract];
+        yield 'an abstract that is not a string' => [[StubReplacementPrincipalResolver::class], $notAnAbstract];
+        $notAResolver = 'Auth guard [api] principal_resolver [stdClass] resolved to [stdClass] instead of [' . PrincipalResolver::class . '].';
+
+        yield 'an abstract that is not a resolver' => [\stdClass::class, $notAResolver];
+        yield 'an abstract bound to a value' => ['config.resolver-value', 'Auth guard [api] principal_resolver [config.resolver-value] resolved to [string] instead of ['];
+    }
+
+    /**
+     * An override that cannot be the guard's resolver is reported, naming the
+     * guard and what it resolved to.
+     *
+     * @param  mixed  $override
+     * @param  string  $message
+     * @return void
+     */
+    #[DataProvider('provideUnusableResolverOverrides')]
+    public function testAnUnusableResolverOverrideIsReported(mixed $override, string $message): void
+    {
+        $app = $this->app;
+
+        assert($app instanceof Application);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage($message);
+
+        $app->instance('config.resolver-value', 'not a resolver');
+
+        AuthenticationServiceProvider::resolveGuardPrincipalResolver($app, 'api', ['principal_resolver' => $override]);
     }
 
     /**
@@ -268,9 +400,11 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * The sign-in method registry is a container singleton, and the default
-     * additional-factor policy, which never asks for a factor, is bound as one
-     * so an application or an MFA package can rebind it.
+     * The sign-in method registry is a container singleton, the mark of an
+     * automatic password rehash it and the password-change listener share is
+     * scoped (one per request or job), and the default additional-factor
+     * policy, which never asks for a factor, is bound as one so an application
+     * or an MFA package can rebind it.
      *
      * @return void
      */
@@ -282,6 +416,15 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertTrue($app->isShared(SignInMethodManager::class));
         self::assertSame(app(SignInMethodManager::class), app(SignInMethodManager::class));
+        self::assertTrue($app->isShared(Rehashing::class));
+
+        $rehashing = app(Rehashing::class);
+
+        self::assertSame($rehashing, app(Rehashing::class));
+
+        $app->forgetScopedInstances();
+
+        self::assertNotSame($rehashing, app(Rehashing::class));
 
         self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
         self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));
@@ -307,20 +450,20 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        Event::fake([Attempting::class, Failed::class, SignInFailed::class]);
+        Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
         self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
-        Event::assertDispatched(SignInFailed::class, static fn (SignInFailed $event): bool => $event->guard === 'api');
+        Event::assertDispatched(AuthenticationFailed::class, static fn (AuthenticationFailed $event): bool => $event->context->guard === 'api');
     }
 
     /**
      * The refresh exchange follows the same `events` rebind as its guard: after
      * an `Event::fake()` made once the guard has resolved, a failed refresh
-     * dispatches `RefreshFailed` to the fake, alongside the guard's own
+     * dispatches `AuthenticationFailed` to the fake, alongside the guard's own
      * `Attempting` and `Failed`.
      *
      * @return void
@@ -336,14 +479,14 @@ final class AuthenticationServiceProviderTest extends TestCase
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        Event::fake([Attempting::class, Failed::class, RefreshFailed::class]);
+        Event::fake([Attempting::class, Failed::class, AuthenticationFailed::class]);
 
         self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($this->readObjectProperty($guard, 'exchange'), 'events'));
         self::assertNull($guard->refresh('not-a-jwt'));
 
         Event::assertDispatched(
-            RefreshFailed::class,
-            static fn (RefreshFailed $event): bool => $event->guard === 'api' && $event->reason === RefreshFailureReason::TOKEN_INVALID,
+            AuthenticationFailed::class,
+            static fn (AuthenticationFailed $event): bool => $event->context->guard === 'api' && $event->reason === FailureReason::TOKEN_INVALID,
         );
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
     }

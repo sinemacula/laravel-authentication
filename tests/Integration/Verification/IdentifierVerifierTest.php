@@ -7,6 +7,7 @@ namespace Tests\Integration\Verification;
 use Carbon\Carbon;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
@@ -100,13 +101,31 @@ final class IdentifierVerifierTest extends TestCase
         self::assertNotNull(DB::table('verifiable_identities')->value('email_verified_at'));
 
         Event::assertDispatchedTimes(IdentifierVerified::class, 1);
-        Event::assertDispatched(IdentifierVerified::class, static fn (IdentifierVerified $event): bool => $event->guard === self::GUARD
-            && $event->identity                                                                                         === $identity
-            && $event->type                                                                                             === 'email'
-            && $event->client                                                                                           === $client);
+        Event::assertDispatched(IdentifierVerified::class, static fn (IdentifierVerified $event): bool => $event->context->guard === self::GUARD
+            && $event->context->identity                                                                                         === $identity
+            && $event->type                                                                                                      === 'email'
+            && $event->context->client                                                                                           === $client);
 
         self::assertFalse(Auth::guard(self::GUARD)->hasUser());
         self::assertSame(0, DB::table('devices')->count());
+    }
+
+    /**
+     * A verification whose caller names no client reports the client of the
+     * request being served.
+     *
+     * @return void
+     */
+    public function testAVerificationWithoutAClientReportsTheServedRequest(): void
+    {
+        Event::fake([IdentifierVerified::class]);
+
+        $this->app?->instance('request', Request::create('/verify', 'GET', server: ['REMOTE_ADDR' => '198.51.100.4', 'HTTP_USER_AGENT' => 'Served/1.0']));
+
+        self::assertSame(IdentifierVerification::VERIFIED, $this->verifier()->verify(self::GUARD, self::seedVerifiableIdentity(), 'email', 'ben@example.com'));
+
+        Event::assertDispatched(IdentifierVerified::class, static fn (IdentifierVerified $event): bool => $event->context->client->ip === '198.51.100.4'
+            && $event->context->client->userAgent                                                                                     === 'Served/1.0');
     }
 
     /**

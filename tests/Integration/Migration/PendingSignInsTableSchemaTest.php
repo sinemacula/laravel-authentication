@@ -79,7 +79,8 @@ final class PendingSignInsTableSchemaTest extends TestCase
      * The table holds the token digest and purpose, the guard, method and
      * identifier type, the owner and principal, the client, the proven device,
      * the windows of the attempt-limit slots the sign-in holds, the expiry and
-     * the timestamps; only what a sign-in may lack is nullable.
+     * the timestamps; only what a sign-in may lack is nullable, the principal
+     * included, which a sign-in waiting for a choice of principal lacks.
      *
      * @return void
      */
@@ -104,8 +105,8 @@ final class PendingSignInsTableSchemaTest extends TestCase
             'id'                   => false,
             'identifier_type'      => true,
             'platform'             => true,
-            'principal_id'         => false,
-            'principal_type'       => false,
+            'principal_id'         => true,
+            'principal_type'       => true,
             'purpose'              => false,
             'sign_in_method'       => false,
             'token_digest'         => false,
@@ -170,18 +171,23 @@ final class PendingSignInsTableSchemaTest extends TestCase
     }
 
     /**
-     * The only other index is on the expiry, for pruning, named after the
-     * configured table.
+     * The other indexes are on the expiry, for pruning, and on the owner and
+     * the principal, for ending their pending sign-ins when their sessions are
+     * revoked, each named after the configured table.
      *
      * @return void
      */
-    public function testIndexesTheExpiryForPruningOnly(): void
+    public function testIndexesTheExpiryTheOwnerAndThePrincipal(): void
     {
         $secondary = array_values(array_filter(Schema::getIndexes(self::TABLE), static fn (array $index): bool => !$index['primary']));
+        $columns   = array_map(static fn (array $index): array => $index['columns'], $secondary);
 
-        self::assertCount(1, $secondary);
-        self::assertSame(['expires_at'], $secondary[0]['columns']);
-        self::assertStringStartsWith(self::TABLE . '_', $secondary[0]['name']);
+        self::assertEqualsCanonicalizing([['expires_at'], ['authenticatable_type', 'authenticatable_id'], ['principal_type', 'principal_id']], $columns);
+
+        self::assertEqualsCanonicalizing(
+            [self::TABLE . '_expires_at_index', self::TABLE . '_owner_index', self::TABLE . '_principal_index'],
+            array_column($secondary, 'name'),
+        );
     }
 
     /**

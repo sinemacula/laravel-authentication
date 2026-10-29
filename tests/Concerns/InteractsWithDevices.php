@@ -8,6 +8,8 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 
 /**
  * Shared device helpers for test cases that create device tables and rows.
@@ -24,30 +26,64 @@ trait InteractsWithDevices
 {
     /**
      * A session of the guard that starts now, signed in with a password, with
-     * the package's default lifetimes (90 days idle, 180 days absolute).
+     * the package's default lifetimes (90 days idle, 180 days absolute), acting
+     * as the principal when one is given (a bearer token naming the device is
+     * accepted only for the principal the device records).
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $guard
-     * @return array{guard: string, sign_in_method: string, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return array<string, mixed>
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
-    protected static function liveSession(string $guard = 'api'): array
+    protected static function liveSession(string $guard = 'api', ?Principal $principal = null): array
     {
-        return self::sessionEndingAt(Carbon::now()->addDays(90), Carbon::now()->addDays(180), $guard);
+        $session = self::sessionEndingAt(Carbon::now()->addDays(90), Carbon::now()->addDays(180), $guard);
+
+        return $principal === null ? $session : [...$session, ...self::recordedPrincipal($principal)];
     }
 
     /**
-     * A session of the guard, signed in with a password, that ends at the given
-     * times.
+     * The device columns that record the principal a session acts as, as the
+     * session service writes them at sign-in: the principal, and no switch.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return array{principal_type: string, principal_id: ?string, principal_switched_at: null}
+     */
+    protected static function recordedPrincipal(Principal $principal): array
+    {
+        return ['principal_type' => PrincipalReference::type($principal), 'principal_id' => PrincipalReference::id($principal), 'principal_switched_at' => null];
+    }
+
+    /**
+     * A session of the guard, signed in with a password now, that ends at the
+     * given times.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  \Carbon\CarbonInterface  $idle
      * @param  \Carbon\CarbonInterface  $absolute
      * @param  string  $guard
-     * @return array{guard: string, sign_in_method: string, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @return array{guard: string, sign_in_method: string, signed_in_at: \Carbon\CarbonInterface, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     protected static function sessionEndingAt(CarbonInterface $idle, CarbonInterface $absolute, string $guard = 'api'): array
     {
         return [
             'guard'               => $guard,
             'sign_in_method'      => 'password',
+            'signed_in_at'        => Carbon::now(),
             'idle_expires_at'     => $idle,
             'absolute_expires_at' => $absolute,
         ];
@@ -72,8 +108,10 @@ trait InteractsWithDevices
             $blueprint->string('authenticatable_id')->nullable();
             $blueprint->string('principal_type')->nullable();
             $blueprint->string('principal_id')->nullable();
+            $blueprint->dateTime('principal_switched_at', 0)->nullable();
             $blueprint->string('guard')->nullable();
             $blueprint->string('sign_in_method')->nullable();
+            $blueprint->string('sign_in_identifier_type')->nullable();
             $blueprint->string('client_name')->nullable();
             $blueprint->string('platform')->nullable();
             $blueprint->string('created_ip', 45)->nullable();
@@ -84,6 +122,7 @@ trait InteractsWithDevices
             $blueprint->string('refresh_key', 64)->nullable();
             $blueprint->string('previous_refresh_key', 64)->nullable();
             $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+            $blueprint->dateTime('signed_in_at', 0)->nullable();
             $blueprint->dateTime('idle_expires_at', 0)->nullable();
             $blueprint->dateTime('absolute_expires_at', 0)->nullable();
             $blueprint->dateTime('revoked_at', 0)->nullable();

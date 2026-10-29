@@ -11,8 +11,6 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 
@@ -53,7 +51,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
@@ -82,7 +80,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
-        $guard->login($this->mockIdentity(), \Mockery::mock(Principal::class));
+        $guard->login($this->mockIdentity(), $this->mockPrincipal());
 
         self::assertFalse($guard->guest());
     }
@@ -97,7 +95,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
@@ -119,7 +117,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $identity->shouldReceive('getAuthIdentifier')
             ->andReturn(42);
 
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
@@ -158,7 +156,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
-        $guard->login($this->mockIdentity(), \Mockery::mock(Principal::class));
+        $guard->login($this->mockIdentity(), $this->mockPrincipal());
 
         self::assertTrue($guard->hasUser());
     }
@@ -174,7 +172,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $this->resolver->shouldReceive('resolve')
             ->once()
@@ -227,8 +225,8 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
-        $device    = \Mockery::mock(Device::class);
+        $principal = $this->mockPrincipal();
+        $device    = $this->mockDevice();
 
         $dispatched = [];
 
@@ -287,7 +285,7 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
         $guard = $this->makeGuard();
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $dispatched = [];
 
@@ -347,8 +345,8 @@ final class AbstractGuardLifecycleTest extends AbstractGuardTestCase
 
         $guard->login(
             $this->mockIdentity(),
-            \Mockery::mock(Principal::class),
-            \Mockery::mock(Device::class),
+            $this->mockPrincipal(),
+            $this->mockDevice(),
         );
 
         $guard->setRequest(Request::create('/swap', 'GET'));

@@ -6,18 +6,22 @@ namespace Tests\Feature\Guards;
 
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Timebox;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use Tests\Concerns\BindsSignInPolicyDoubles;
+use Tests\Unit\Stubs\StubDevice;
 
 /**
  * Shared base case for the AbstractGuard split tests.
@@ -126,9 +130,75 @@ abstract class AbstractGuardTestCase extends TestCase
     }
 
     /**
+     * Build a Mockery mock of the Principal contract, with any further
+     * capabilities, whose identifier (which the events snapshot) is
+     * `principal-1` and which acts within no tenant, unless a test says
+     * otherwise.
+     *
+     * @param  class-string  ...$capabilities
+     * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    protected function mockPrincipal(string ...$capabilities): MockInterface
+    {
+        $principal = \Mockery::mock(Principal::class, ...$capabilities);
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->byDefault()
+            ->andReturn('principal-1');
+        $principal->shouldReceive('getTenant')
+            ->byDefault()
+            ->andReturnNull();
+
+        return $principal;
+    }
+
+    /**
+     * Build a Mockery mock of the Device contract whose identifier is
+     * `device-1` and whose session records no sign-in method, unless a test
+     * says otherwise.
+     *
+     * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Device
+     */
+    protected function mockDevice(): MockInterface
+    {
+        $device = \Mockery::mock(Device::class);
+        $device->shouldReceive('getDeviceIdentifier')
+            ->byDefault()
+            ->andReturn('device-1');
+        $device->shouldReceive('getSignInMethod')
+            ->byDefault()
+            ->andReturnNull();
+
+        return $device;
+    }
+
+    /**
+     * A live device of the guard, as a stored row would load, whose session
+     * acts as the principal (so it can be pinned for it).
+     *
+     * @param  string  $id
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return \Tests\Unit\Stubs\StubDevice
+     */
+    protected function pinnableDevice(string $id, Principal $principal): StubDevice
+    {
+        return new StubDevice([
+            'id'                  => $id,
+            'guard'               => self::GUARD_NAME,
+            'sign_in_method'      => 'password',
+            'principal_type'      => PrincipalReference::type($principal),
+            'principal_id'        => PrincipalReference::id($principal),
+            'revoked_at'          => null,
+            'idle_expires_at'     => Carbon::now()->addDays(90),
+            'absolute_expires_at' => Carbon::now()->addDays(180),
+        ]);
+    }
+
+    /**
      * Build a Mockery mock of a `CanBeActive` principal whose `isActive()`
-     * returns `true` and that acts within no tenant - used by any attempt-path
-     * test where the guard checks activation after the resolver returns.
+     * returns `true`, that acts within no tenant, and whose identifier (which
+     * the events snapshot) is `principal-1` unless a test says otherwise - used
+     * by any attempt-path test where the guard checks activation after the
+     * resolver returns.
      *
      * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\Principal
      */
@@ -141,6 +211,9 @@ abstract class AbstractGuardTestCase extends TestCase
         $principal->shouldReceive('getTenant')
             ->byDefault()
             ->andReturnNull();
+        $principal->shouldReceive('getPrincipalIdentifier')
+            ->byDefault()
+            ->andReturn('principal-1');
 
         return $principal;
     }

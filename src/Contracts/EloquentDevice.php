@@ -12,12 +12,13 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * Extends the generic `Device` read surface with the relations and the
  * column-name accessors behind each persisted device attribute, which the
  * package's session creation, refresh rotation, revocation, and last-use
- * persistence paths rely on.
+ * persistence paths rely on. The columns that record what the session started
+ * with are named through `EloquentDeviceOrigin`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
-interface EloquentDevice extends Device
+interface EloquentDevice extends Device, EloquentDeviceOrigin
 {
     /**
      * Polymorphic relation to the owning authenticatable identity.
@@ -40,48 +41,6 @@ interface EloquentDevice extends Device
      * @formatter:on
      */
     public function principal(): MorphTo;
-
-    /**
-     * Column name holding the guard whose session the device holds.
-     *
-     * @return string
-     */
-    public function getGuardName(): string;
-
-    /**
-     * Column name holding the sign-in method that started the session.
-     *
-     * @return string
-     */
-    public function getSignInMethodName(): string;
-
-    /**
-     * Column name holding the name the client gave itself.
-     *
-     * @return string
-     */
-    public function getClientNameName(): string;
-
-    /**
-     * Column name holding the platform the client reported.
-     *
-     * @return string
-     */
-    public function getPlatformName(): string;
-
-    /**
-     * Column name holding the IP address the session was created from.
-     *
-     * @return string
-     */
-    public function getCreatedIpName(): string;
-
-    /**
-     * Column name holding the user agent the session was created with.
-     *
-     * @return string
-     */
-    public function getCreatedUserAgentName(): string;
 
     /**
      * Column name holding when the device was last used.
@@ -125,6 +84,20 @@ interface EloquentDevice extends Device
      * @return string
      */
     public function getRefreshRotatedAtName(): string;
+
+    /**
+     * Column name holding when the session started.
+     *
+     * @return string
+     */
+    public function getSignedInAtName(): string;
+
+    /**
+     * Column name holding when the session last switched its principal.
+     *
+     * @return string
+     */
+    public function getPrincipalSwitchedAtName(): string;
 
     /**
      * Column name holding the idle deadline.

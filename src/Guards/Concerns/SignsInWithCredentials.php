@@ -12,7 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
@@ -64,7 +64,7 @@ trait SignsInWithCredentials
         $audience = self::signInCollaborator(AudiencePolicy::class);
 
         if (!$audience->allowsMethod($this->name, PasswordSignIn::NAME)) {
-            return new RefusedSignIn(SignInFailureReason::METHOD_NOT_ALLOWED);
+            return new RefusedSignIn(FailureReason::METHOD_NOT_ALLOWED);
         }
 
         $type        = $password->identifierType($this->name);
@@ -72,7 +72,7 @@ trait SignsInWithCredentials
         $reservation = $limiter->acquire(new AttemptSubject($this->name, AttemptFlow::SIGN_IN, $password->identifier($this->name, $credentials), $type, $client->ip));
 
         if (!$reservation->granted()) {
-            return new RefusedSignIn(SignInFailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
+            return new RefusedSignIn(FailureReason::RATE_LIMITED, retryAfter: $reservation->retryAfter);
         }
 
         $accounts = new AccountAttempts($limiter, $this->name);
@@ -157,8 +157,8 @@ trait SignsInWithCredentials
         $wait = $accounts->refusedFor();
 
         return $wait === null
-            ? new RefusedSignIn(SignInFailureReason::INVALID_CREDENTIALS)
-            : new RefusedSignIn(SignInFailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $wait);
+            ? new RefusedSignIn(FailureReason::INVALID_CREDENTIALS)
+            : new RefusedSignIn(FailureReason::ACCOUNT_RATE_LIMITED, retryAfter: $wait);
     }
 
     /**
@@ -188,7 +188,7 @@ trait SignsInWithCredentials
             $this->name,
             $identity,
             fn (): ?Principal => $principal === null ? $this->resolvePrincipal($identity) : $this->resolvePinnedPrincipal($identity, $principal),
-            $principal === null ? SignInFailureReason::PRINCIPAL_UNRESOLVED : SignInFailureReason::PRINCIPAL_MISMATCH,
+            $principal === null ? FailureReason::PRINCIPAL_UNRESOLVED : FailureReason::PRINCIPAL_MISMATCH,
             $identifierType,
         );
 
@@ -200,10 +200,10 @@ trait SignsInWithCredentials
             return $admitted;
         }
 
-        $resolvedDevice = $this->resolvePinnedDevice($identity, $device);
+        $resolvedDevice = $this->resolvePinnedDevice($identity, $admitted->principal, $device);
 
         return $resolvedDevice === null
-            ? RefusedSignIn::after(SignInFailureReason::DEVICE_MISMATCH, $admitted)
+            ? RefusedSignIn::after(FailureReason::DEVICE_MISMATCH, $admitted)
             : $admitted->on($resolvedDevice);
     }
 
@@ -233,7 +233,7 @@ trait SignsInWithCredentials
             null,
         ));
 
-        return $required ? RefusedSignIn::after(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted) : $admitted;
+        return $required ? RefusedSignIn::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted) : $admitted;
     }
 
     /**

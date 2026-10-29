@@ -9,7 +9,7 @@ use Illuminate\Foundation\Application;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
@@ -213,8 +213,8 @@ final class SessionServiceQueryBudgetTest extends PerformanceContractTestCase
 
         $sessions = $this->sessions();
 
-        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->assertQueryBudget(1, 0, static fn (): SignInResult => $sessions->complete($pending->token))->reason);
-        self::assertSame(SignInFailureReason::PENDING_INVALID, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->complete('not-a-pending-token'))->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->assertQueryBudget(1, 0, static fn (): SignInResult => $sessions->complete($pending->token))->reason);
+        self::assertSame(FailureReason::PENDING_INVALID, $this->assertQueryBudget(0, 0, static fn (): SignInResult => $sessions->complete('not-a-pending-token'))->reason);
     }
 
     /**

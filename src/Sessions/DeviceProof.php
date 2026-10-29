@@ -6,6 +6,8 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
@@ -60,6 +62,25 @@ final readonly class DeviceProof
      */
     public function provenDevice(string $guard, AdmittedSignIn $admitted, #[\SensitiveParameter] string $refreshToken): (EloquentDevice&Model)|null
     {
+        return $this->provenDeviceOf($guard, $admitted->identity, $admitted->principal, $refreshToken);
+    }
+
+    /**
+     * Return the device the refresh token proves the client holds for the
+     * identity, as the principal when one is given (any principal otherwise, as
+     * for a sign-in still to choose one), or `null` when it proves none.
+     *
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $refreshToken
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \LogicException
+     */
+    public function provenDeviceOf(string $guard, Identity $identity, ?Principal $principal, #[\SensitiveParameter] string $refreshToken): (EloquentDevice&Model)|null
+    {
         $claims     = $this->tokens->parseRefreshProof($refreshToken);
         $rotationId = $claims[Claims::JWT_ID->value] ?? null;
 
@@ -69,25 +90,27 @@ final readonly class DeviceProof
 
         $device = DeviceLookup::find($claims[Claims::DEVICE_ID->value]);
 
-        return $device !== null && self::proves($device, $guard, $admitted, $rotationId) ? $device : null;
+        return $device !== null && self::proves($device, $guard, $identity, $principal, $rotationId) ? $device : null;
     }
 
     /**
-     * Whether the device is the admitted sign-in's live session of the guard
-     * and holds the rotation id as its current one. The device's state is read
-     * inside `WriteConnection::during()` for the device.
+     * Whether the device is the identity's live session of the guard, for the
+     * principal when one is given, and holds the rotation id as its current
+     * one. The device's state is read inside `WriteConnection::during()` for
+     * the device.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
      * @param  string  $guard
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $rotationId
      * @return bool
      *
      * @throws \LogicException
      */
-    private static function proves(EloquentDevice&Model $device, string $guard, AdmittedSignIn $admitted, #[\SensitiveParameter] string $rotationId): bool
+    private static function proves(EloquentDevice&Model $device, string $guard, Identity $identity, ?Principal $principal, #[\SensitiveParameter] string $rotationId): bool
     {
-        if (!DeviceOwnership::isOwner($device, $admitted->identity) || !PrincipalReference::isRecordedOn($device, $admitted->principal)) {
+        if (!DeviceOwnership::isOwner($device, $identity) || ($principal !== null && !PrincipalReference::isRecordedOn($device, $principal))) {
             return false;
         }
 

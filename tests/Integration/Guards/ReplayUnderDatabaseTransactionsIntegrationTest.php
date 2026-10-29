@@ -119,7 +119,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
 
         self::assertNull($this->guard()->refresh($this->replay($device)));
         self::assertSame([$device->getKey()], array_map(
-            static fn (DeviceRevoked $event): mixed => $event->device->getDeviceIdentifier(),
+            static fn (DeviceRevoked $event): mixed => $event->context->deviceId,
             $this->revoked->getArrayCopy(),
         ));
         self::assertSame('rotation_reuse', $this->stored($device)->getRevokedReason());

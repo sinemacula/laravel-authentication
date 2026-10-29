@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
 
 /**
- * Create the pending sign-ins table: sign-ins waiting for a further factor.
+ * Create the pending sign-ins table: sign-ins waiting for a further factor, and
+ * sign-ins waiting for a choice of principal, which record none.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -29,7 +30,7 @@ return new class extends Migration {
 
         (new MigrationCollisionGuard(Schema::getConnection()->getSchemaBuilder()))->ensureNotExists($table, 'sign_in.pending_table');
 
-        Schema::create($table, static function (Blueprint $blueprint): void {
+        Schema::create($table, static function (Blueprint $blueprint) use ($table): void {
             $blueprint->uuid('id')->primary();
 
             // SHA-256 hex digest of the token's secret, compared in constant
@@ -42,11 +43,12 @@ return new class extends Migration {
             $blueprint->string('identifier_type')->nullable();
 
             // Plain string polymorphic columns, as on the devices table, so any
-            // key type fits.
+            // key type fits. A sign-in waiting for its identity to choose a
+            // principal records none yet.
             $blueprint->string('authenticatable_type');
             $blueprint->string('authenticatable_id');
-            $blueprint->string('principal_type');
-            $blueprint->string('principal_id');
+            $blueprint->string('principal_type')->nullable();
+            $blueprint->string('principal_id')->nullable();
 
             $blueprint->string('client_name')->nullable();
             $blueprint->string('platform')->nullable();
@@ -67,6 +69,13 @@ return new class extends Migration {
             $blueprint->datetimes(0);
 
             $blueprint->index('expires_at');
+
+            // Signing an identity or a principal out everywhere deletes the
+            // pending sign-ins that record it, in the same transaction as its
+            // devices. Named short, so a long configured table name still fits
+            // MySQL's 64-character identifiers.
+            $blueprint->index(['authenticatable_type', 'authenticatable_id'], $table . '_owner_index');
+            $blueprint->index(['principal_type', 'principal_id'], $table . '_principal_index');
         });
     }
 

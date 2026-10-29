@@ -7,7 +7,6 @@ namespace Tests\Feature\Guards;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Contracts\Events\Dispatcher;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
@@ -43,7 +42,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
         $replacement = \Mockery::mock(Dispatcher::class);
 
         $identity  = $this->mockIdentity();
-        $principal = \Mockery::mock(Principal::class);
+        $principal = $this->mockPrincipal();
 
         $this->resolver->shouldReceive('resolve')
             ->once()
@@ -119,7 +118,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertNull($guard->id());
     }
@@ -140,7 +139,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertSame('user-42', $guard->id());
     }
@@ -162,7 +161,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertSame(0, $guard->id());
     }
@@ -183,7 +182,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertSame('0', $guard->id());
     }
@@ -204,7 +203,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertNull($guard->id());
     }
@@ -225,7 +224,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertNull($guard->id());
     }
@@ -246,7 +245,7 @@ final class AbstractGuardWiringTest extends AbstractGuardTestCase
 
         $this->events->shouldReceive('dispatch')->andReturnNull();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertNull($guard->id());
     }

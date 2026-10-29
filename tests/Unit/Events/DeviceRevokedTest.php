@@ -8,9 +8,14 @@ use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Queue\SerializesModels;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use Tests\Unit\Stubs\PlainDeviceFixture;
+use Tests\Unit\Stubs\PlainIdentityFixture;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * DeviceRevoked event unit tests.
@@ -24,50 +29,56 @@ use Tests\Unit\Stubs\PlainDeviceFixture;
 final class DeviceRevokedTest extends TestCase
 {
     /**
-     * The event carries the guard, the device, and the reason it was revoked.
+     * The event keeps its context and why the device was revoked.
      *
      * @return void
      */
-    public function testCarriesTheGuardDeviceAndReason(): void
+    public function testKeepsItsContextAndReason(): void
     {
-        $device = new PlainDeviceFixture('device-1');
+        $context = self::context();
+        $event   = new DeviceRevoked($context, RevocationReason::ROTATION_REUSE);
 
-        $event = new DeviceRevoked('api', $device, RevocationReason::ROTATION_REUSE);
-
-        self::assertSame('api', $event->guard);
-        self::assertSame($device, $event->device);
+        self::assertInstanceOf(AuthenticationEvent::class, $event);
+        self::assertSame($context, $event->context);
+        self::assertSame($context, $event->context());
         self::assertSame(RevocationReason::ROTATION_REUSE, $event->reason);
     }
 
     /**
-     * The event serialises its models for queued listeners. It does not ask the
-     * dispatcher to wait for a transaction: that would wait for whichever
-     * transaction is open last on any connection, so the exchange instead
-     * dispatches it once the device's own connection commits.
+     * The event serialises its models for queued listeners and survives a round
+     * trip. It does not ask the dispatcher to wait for a transaction: that
+     * would wait for whichever transaction is open last on any connection, so
+     * the package dispatches it once the written row's own connection commits.
      *
      * @return void
      */
-    public function testSerialisesModelsAndLeavesTheCommitToTheExchange(): void
+    public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        $event = new DeviceRevoked('api', new PlainDeviceFixture('device-1'), RevocationReason::ROTATION_REUSE);
+        $context = self::context();
+        $event   = new DeviceRevoked($context, RevocationReason::ROTATION_REUSE);
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses($event));
+        self::assertContains(SerializesModels::class, class_uses_recursive($event));
 
-        $roundTripped = unserialize(serialize($event));
+        $copy = unserialize(serialize($event));
 
-        self::assertInstanceOf(DeviceRevoked::class, $roundTripped);
-        self::assertSame('device-1', $roundTripped->device->getDeviceIdentifier());
-        self::assertSame(RevocationReason::ROTATION_REUSE, $roundTripped->reason);
+        self::assertInstanceOf(DeviceRevoked::class, $copy);
+        self::assertSame('api', $copy->context->guard);
+        self::assertSame('7', $copy->context->identityId);
+        self::assertSame('device-1', $copy->context->deviceId);
+        self::assertSame(RevocationReason::ROTATION_REUSE, $copy->reason);
     }
 
     /**
-     * The revocation reasons and the values stored on the device row.
+     * A context with an identity, principal and device, signed in with a
+     * password from a known client.
      *
-     * @return void
+     * @return \SineMacula\Laravel\Authentication\Events\EventContext
      */
-    public function testRevocationReasonsAreTheStoredValues(): void
+    private static function context(): EventContext
     {
-        self::assertSame(['rotation_reuse'], array_map(static fn (RevocationReason $reason): string => $reason->value, RevocationReason::cases()));
+        $client = new ClientContext('203.0.113.7', 'agent');
+
+        return new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null, new PlainDeviceFixture('device-1'), 'password');
     }
 }

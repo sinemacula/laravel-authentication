@@ -12,9 +12,10 @@ use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 
 /**
- * A sign-in waiting for a further factor: who signed in, as which principal,
- * through which guard and method, from which client, on which proven device,
- * and until when the pending credential that completes it is valid.
+ * A sign-in waiting for a further factor, or for its identity to choose the
+ * principal it acts as: who signed in, as which principal (none yet for a
+ * choice), through which guard and method, from which client, on which proven
+ * device, and until when the pending credential that continues it is valid.
  *
  * Kept on the device model's connection, so completing it and writing the
  * session are one transaction, in the table named by
@@ -37,8 +38,8 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * @property ?string $identifier_type
  * @property string $authenticatable_type
  * @property string $authenticatable_id
- * @property string $principal_type
- * @property string $principal_id
+ * @property ?string $principal_type
+ * @property ?string $principal_id
  * @property ?string $client_name
  * @property ?string $platform
  * @property ?string $created_ip
@@ -54,6 +55,9 @@ final class PendingSignIn extends Model
 
     /** @var string Purpose of a pending sign-in waiting for a further factor. */
     public const string ADDITIONAL_FACTOR = 'additional_factor';
+
+    /** @var string Purpose of a pending sign-in waiting for its identity to choose a principal. */
+    public const string PRINCIPAL_CHOICE = 'principal_choice';
 
     /** @var bool Whether the primary key auto-increments. */
     public $incrementing = false;

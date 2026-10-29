@@ -134,7 +134,7 @@ final class VerificationLinksTest extends TestCase
         Event::assertDispatchedTimes(IdentifierVerified::class, 1);
         Event::assertDispatched(
             IdentifierVerified::class,
-            static fn (IdentifierVerified $event): bool => $event->client?->userAgent === 'Mail/1.0' && $event->guard === self::GUARD,
+            static fn (IdentifierVerified $event): bool => $event->context->client->userAgent === 'Mail/1.0' && $event->context->guard === self::GUARD,
         );
     }
 

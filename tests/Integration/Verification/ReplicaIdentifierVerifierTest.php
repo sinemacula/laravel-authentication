@@ -15,7 +15,7 @@ use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesIdentifierVerification;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
@@ -112,7 +112,7 @@ final class ReplicaIdentifierVerifierTest extends TestCase
 
         DB::connection(self::PRIMARY_CONNECTION)->table('verifiable_identities')->update(['email_verified_at' => null]);
 
-        self::assertSame(SignInFailureReason::IDENTIFIER_UNVERIFIED, app(AudiencePolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, app(AudiencePolicy::class)->admit('api', $identity, new PlainPrincipalFixture(1), 'email'));
     }
 
     /**

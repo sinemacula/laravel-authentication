@@ -9,7 +9,6 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Http\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use Tests\Unit\Stubs\StubRequestResolvingGuard;
 
@@ -107,7 +106,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
 
         $identity = $this->mockIdentity();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertSame($identity, $guard->user());
         self::assertTrue($guard->check());
@@ -130,7 +129,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')
             ->once()
             ->with($identity)
-            ->andReturn(\Mockery::mock(Principal::class));
+            ->andReturn($this->mockPrincipal());
 
         $guard->setUser($identity);
 
@@ -185,7 +184,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
 
         $identity = $this->mockIdentity();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertSame([null], $seen);
         self::assertSame(0, $guard->resolutions);
@@ -202,7 +201,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
     {
         $guard = $this->makeResolvingGuard($this->mockIdentity());
 
-        $guard->login($this->mockIdentity(), \Mockery::mock(Principal::class));
+        $guard->login($this->mockIdentity(), $this->mockPrincipal());
         $guard->logout();
 
         self::assertNull($guard->user());
@@ -224,7 +223,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')
             ->once()
             ->with($identity)
-            ->andReturn(\Mockery::mock(Principal::class));
+            ->andReturn($this->mockPrincipal());
 
         $guard->setUser($identity);
         $guard->logout();
@@ -272,7 +271,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
 
         $identity = $this->mockIdentity();
 
-        $guard->login($identity, \Mockery::mock(Principal::class));
+        $guard->login($identity, $this->mockPrincipal());
 
         self::assertSame($identity, $guard->user());
     }
@@ -293,7 +292,7 @@ final class AbstractGuardRequestResolutionTest extends AbstractGuardTestCase
         $this->resolver->shouldReceive('resolve')
             ->once()
             ->with($identity)
-            ->andReturn(\Mockery::mock(Principal::class));
+            ->andReturn($this->mockPrincipal());
 
         $guard->setUser($identity);
 

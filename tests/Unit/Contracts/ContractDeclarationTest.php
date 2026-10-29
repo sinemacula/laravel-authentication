@@ -15,12 +15,15 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDeviceOrigin;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
@@ -30,6 +33,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
 /**
@@ -95,11 +99,14 @@ final class ContractDeclarationTest extends TestCase
             'getIdleExpiresAt',
             'getLastUsedAt',
             'getPreviousRefreshKey',
+            'getPrincipalSwitchedAt',
             'getRefreshKey',
             'getRefreshRotatedAt',
             'getRevokedAt',
             'getRevokedReason',
+            'getSignInIdentifierType',
             'getSignInMethod',
+            'getSignedInAt',
         ], self::declaredMethods(Device::class));
     }
 
@@ -115,13 +122,17 @@ final class ContractDeclarationTest extends TestCase
             Device::class,
             (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
         );
+        self::assertContains(
+            EloquentDeviceOrigin::class,
+            (new \ReflectionClass(EloquentDevice::class))->getInterfaceNames(),
+        );
     }
 
     /**
      * `EloquentDevice` adds exactly the owner and principal relations and the
      * column names the session creation, refresh, revocation, and last-use
-     * writes need. The identifier has no column name: it is always the primary
-     * key.
+     * writes need, besides those of the session's origin. The identifier has no
+     * column name: it is always the primary key.
      *
      * @return void
      */
@@ -130,28 +141,44 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame([
             'authenticatable',
             'getAbsoluteExpiresAtName',
-            'getClientNameName',
-            'getCreatedIpName',
-            'getCreatedUserAgentName',
-            'getGuardName',
             'getIdleExpiresAtName',
             'getLastUsedAtName',
             'getLastUsedIpName',
             'getLastUsedUserAgentName',
-            'getPlatformName',
             'getPreviousRefreshKeyName',
+            'getPrincipalSwitchedAtName',
             'getRefreshKeyName',
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
-            'getSignInMethodName',
+            'getSignedInAtName',
             'principal',
         ], self::declaredMethods(EloquentDevice::class));
     }
 
     /**
+     * `EloquentDeviceOrigin` declares exactly the column names of what a
+     * device's session started with, which the session service writes.
+     *
+     * @return void
+     */
+    public function testEloquentDeviceOriginDeclaresExactlyTheOriginColumns(): void
+    {
+        self::assertSame([
+            'getClientNameName',
+            'getCreatedIpName',
+            'getCreatedUserAgentName',
+            'getGuardName',
+            'getPlatformName',
+            'getSignInIdentifierTypeName',
+            'getSignInMethodName',
+        ], self::declaredMethods(EloquentDeviceOrigin::class));
+    }
+
+    /**
      * `EloquentDevice::authenticatable()` and `principal()` must return MorphTo
-     * relations, and the persistence column-name accessors must return strings.
+     * relations, and the persistence column-name accessors, its origin's
+     * included, must return strings.
      *
      * @return void
      */
@@ -163,7 +190,8 @@ final class ContractDeclarationTest extends TestCase
             self::assertSame(MorphTo::class, $relationReturn->getName());
         }
 
-        $columnNameAccessors = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable', 'principal']);
+        $persistence         = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable', 'principal']);
+        $columnNameAccessors = [...$persistence, ...self::declaredMethods(EloquentDeviceOrigin::class)];
 
         foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
@@ -229,15 +257,16 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `AudiencePolicy` declares exactly the three questions the session layer
+     * `AudiencePolicy` declares exactly the four questions the session layer
      * asks a guard's audience: may this method start a session, may this
-     * principal hold one, and for how long.
+     * identity sign in with this identifier, may this principal hold one, and
+     * for how long.
      *
      * @return void
      */
     public function testAudiencePolicyDeclaresExactlyItsChecks(): void
     {
-        self::assertSame(['admit', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
+        self::assertSame(['admit', 'admitIdentifier', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
     }
 
     /**
@@ -436,6 +465,55 @@ final class ContractDeclarationTest extends TestCase
     public function testAdditionalFactorPolicyDeclaresOneDecision(): void
     {
         self::assertSame(['requiresAdditionalFactor'], self::declaredMethods(AdditionalFactorPolicy::class));
+    }
+
+    /**
+     * `AuthenticationEvent` declares only the context every package event
+     * carries.
+     *
+     * @return void
+     */
+    public function testAuthenticationEventDeclaresOnlyItsContext(): void
+    {
+        self::assertSame(['context'], self::declaredMethods(AuthenticationEvent::class));
+    }
+
+    /**
+     * Every event the package ships implements `AuthenticationEvent`, so one
+     * listener on the contract receives them all.
+     *
+     * @return void
+     */
+    public function testEveryPackageEventImplementsAuthenticationEvent(): void
+    {
+        $events = [];
+
+        foreach (glob(__DIR__ . '/../../../src/Events/*.php') ?: [] as $file) {
+
+            $class = 'SineMacula\Laravel\Authentication\Events\\' . basename($file, '.php');
+
+            if ($class === EventContext::class) {
+                continue;
+            }
+
+            $events[$class] = (new \ReflectionClass($class))->implementsInterface(AuthenticationEvent::class);
+        }
+
+        self::assertNotEmpty($events);
+        self::assertSame(array_fill_keys(array_keys($events), true), $events);
+    }
+
+    /**
+     * "Tokens valid after" is a capability an identity or principal declares on
+     * its own: reading the time and moving it forward.
+     *
+     * @return void
+     */
+    public function testTokensValidAfterIsACapabilityOfItsOwn(): void
+    {
+        self::assertSame(['getTokensValidAfter', 'invalidateTokensIssuedBefore'], self::declaredMethods(HasTokensValidAfter::class));
+        self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Identity::class))->getInterfaceNames());
+        self::assertNotContains(HasTokensValidAfter::class, (new \ReflectionClass(Principal::class))->getInterfaceNames());
     }
 
     /**

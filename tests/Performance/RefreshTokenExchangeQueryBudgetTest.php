@@ -8,14 +8,15 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
-use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
-use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -55,6 +56,12 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /** @var string Guard name for standard refresh tests. */
     private const string GUARD = 'api';
+
+    /** @var string Guard that reads its refresh token from the cookie. */
+    private const string COOKIE_GUARD = 'browser';
+
+    /** @var string The refresh cookie's name. */
+    private const string COOKIE_NAME = '__Secure-refresh_token';
 
     /** @var int Runs of each path in the timing comparison. */
     private const int TIMED_RUNS = 5;
@@ -140,7 +147,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -156,6 +163,104 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $result = $this->assertQueryBudget(3, 1, static fn () => $guard->refresh($token));
 
         self::assertNotNull($result);
+    }
+
+    /**
+     * Reading the token through the guard's transport adds no query: a refresh
+     * with the token the request carries costs what `refresh()` costs.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testARefreshFromTheRequestCostsWhatARefreshCosts(): void
+    {
+        $identity   = $this->seedIdentity();
+        $rotationId = 'refresh-from-request-rotation-id';
+
+        $device = new Device;
+        $device->forceFill([
+            ...self::liveSession('api', $identity),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        $jwt = PackageAuth::jwt(self::GUARD);
+        self::assertNotNull($jwt);
+
+        app()->instance('request', Request::create('/auth/refresh', 'POST', ['refresh_token' => $jwt->issueRefreshToken($device, $rotationId, $identity)]));
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(3, 1, static fn () => $guard->refreshFromRequest()));
+    }
+
+    /**
+     * Reading the token from the refresh cookie, with its same-site checks and
+     * its count of the request's cookies, adds no query either.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testACookieRefreshCostsWhatARefreshCosts(): void
+    {
+        $identity   = $this->seedIdentity();
+        $rotationId = 'cookie-refresh-rotation-id';
+
+        $device = new Device;
+        $device->forceFill([
+            ...self::liveSession(self::COOKIE_GUARD, $identity),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'refresh_key'          => RefreshTokenHasher::hash($rotationId),
+            'last_used_at'         => $this->now,
+        ])->save();
+
+        $jwt = PackageAuth::jwt(self::COOKIE_GUARD);
+        self::assertNotNull($jwt);
+
+        app()->instance('request', self::cookieRequest($jwt->issueRefreshToken($device, $rotationId, $identity), 'http://localhost'));
+
+        $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
+
+        self::assertInstanceOf(RefreshResult::class, $this->assertQueryBudget(3, 1, static fn () => $guard->refreshFromRequest()));
+    }
+
+    /**
+     * A cookie sent from another site is refused before the exchange: no query,
+     * and no limit counted.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testACrossSiteCookieRequestCostsNoQuery(): void
+    {
+        app()->instance('request', self::cookieRequest('a', 'https://elsewhere.example'));
+
+        $guard = $this->freshJwtGuard(self::COOKIE_GUARD);
+
+        self::assertSame(FailureReason::CROSS_SITE_REQUEST, $this->assertQueryBudget(0, 0, static fn () => $guard->refreshFromRequest()));
+    }
+
+    /**
+     * A request the transport refuses is refused before the exchange: no query,
+     * and no limit counted.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testARequestTheTransportRefusesCostsNoQuery(): void
+    {
+        app()->instance('request', Request::create('/auth/refresh', 'POST', ['refresh_token' => 'a'], [], [], ['HTTP_X_REFRESH_TOKEN' => 'a']));
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        self::assertSame(FailureReason::REFRESH_TOKEN_CONFLICT, $this->assertQueryBudget(0, 0, static fn () => $guard->refreshFromRequest()));
     }
 
     /**
@@ -316,7 +421,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::REFRESH_KEY_MISSING, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::REFRESH_KEY_MISSING, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -343,7 +448,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_REVOKED, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::DEVICE_REVOKED, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -398,7 +503,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -415,7 +520,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::SESSION_EXPIRED, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::SESSION_EXPIRED, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -435,7 +540,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_GUARD_MISMATCH, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::DEVICE_GUARD_MISMATCH, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -455,7 +560,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events   = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::METHOD_NOT_ALLOWED, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::METHOD_NOT_ALLOWED, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -478,7 +583,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $events = $this->recordRefreshEvents();
 
         self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
-        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::PRINCIPAL_INELIGIBLE, $device->getKey())], $events->getArrayCopy());
+        self::assertSame([[FailureReason::PRINCIPAL_INELIGIBLE, $device->getKey()]], self::failures($events));
     }
 
     /**
@@ -516,7 +621,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         self::assertInstanceOf(ThrottleRequestsException::class, $thrown);
         self::assertCount(1, $events);
-        self::assertSame(RefreshFailureReason::RATE_LIMITED, $events[0]->reason ?? null);
+        self::assertSame(FailureReason::RATE_LIMITED, $events[0]->reason ?? null);
     }
 
     /**
@@ -535,7 +640,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(self::TENANT_AWARE_GUARD),
+            ...self::liveSession(self::TENANT_AWARE_GUARD, $principal),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -576,7 +681,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(self::TENANT_AWARE_GUARD),
+            ...self::liveSession(self::TENANT_AWARE_GUARD, $secondaryPrincipal),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -669,6 +774,12 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
             'provider' => 'identities',
         ]);
 
+        $config->set('auth.guards.' . self::COOKIE_GUARD, [
+            'driver'        => 'jwt',
+            'provider'      => 'identities',
+            'refresh_token' => ['sources' => ['cookie'], 'cookie' => ['path' => '/auth']],
+        ]);
+
         $config->set('auth.guards.' . self::TENANT_AWARE_GUARD, [
             'driver'   => 'jwt',
             'provider' => 'tenant_aware_identities',
@@ -685,6 +796,23 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         ]);
 
         $config->set('authentication.device.last_used_throttle_seconds', 60);
+    }
+
+    /**
+     * A refresh request to the cookie guard carrying the token in the refresh
+     * cookie, from the origin, with the custom header.
+     *
+     * @param  string  $token
+     * @param  string  $origin
+     * @return \Illuminate\Http\Request
+     */
+    private static function cookieRequest(#[\SensitiveParameter] string $token, string $origin): Request
+    {
+        return Request::create('/auth/refresh', 'POST', [], [self::COOKIE_NAME => $token], [], [
+            'HTTP_COOKIE'           => self::COOKIE_NAME . '=' . $token,
+            'HTTP_ORIGIN'           => $origin,
+            'HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest',
+        ]);
     }
 
     /**
@@ -780,7 +908,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     {
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('api', $identity),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             ...$state,
@@ -790,8 +918,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Record every `RefreshFailed` and `DeviceRevoked` event dispatched from
-     * here on.
+     * Record every `AuthenticationFailed` and `DeviceRevoked` event dispatched
+     * from here on.
      *
      * @return \ArrayObject<int, object>
      */
@@ -800,11 +928,34 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         /** @var \ArrayObject<int, object> $events */
         $events = new \ArrayObject;
 
-        Event::listen([RefreshFailed::class, DeviceRevoked::class], static function (object $event) use ($events): void {
+        Event::listen([AuthenticationFailed::class, DeviceRevoked::class], static function (object $event) use ($events): void {
             $events->append($event);
         });
 
         return $events;
+    }
+
+    /**
+     * The reason and device id of each recorded failure, and nothing for any
+     * other recorded event.
+     *
+     * @param  \ArrayObject<int, object>  $events
+     * @return list<array{0: \SineMacula\Laravel\Authentication\Events\Enums\FailureReason, 1: ?string}>
+     */
+    private static function failures(\ArrayObject $events): array
+    {
+        $failures = [];
+
+        foreach ($events as $event) {
+
+            if (!$event instanceof AuthenticationFailed) {
+                continue;
+            }
+
+            $failures[] = [$event->reason, $event->context->deviceId];
+        }
+
+        return $failures;
     }
 
     /**

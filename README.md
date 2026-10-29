@@ -50,10 +50,14 @@ device record live in the `devices` table so replay and stale credentials can be
   type in `pty` on access tokens when it has one, and fail-closed behaviour on empty or short keys, unsupported
   algorithms, type confusion, tokens from another guard, missing claims, and `pid` / `did` mismatches.
 - **Refresh-token rotation with replay detection**: constant-time digest verification, atomic per-device rotation, a
-  short grace window for lost responses and parallel refreshes, revocation of the device when a rotated refresh token
-  is replayed, and machine-readable `RefreshFailed` and `DeviceRevoked` events for SIEM attribution. Every refresh is
-  held to the device's guard and the guard's audience policy, and failed refreshes are counted, with a 429 past the
+  short grace window for lost responses and parallel refreshes, revocation of the device when a rotated refresh token is
+  replayed, and machine-readable `AuthenticationFailed` and `DeviceRevoked` events for SIEM attribution. Every refresh
+  is held to the device's guard and the guard's audience policy, and failed refreshes are counted, with a 429 past the
   limit.
+- **One refresh token transport per guard**: the token is read from the cookie, the body or a header as the guard
+  allows, a request carrying it more than once is refused, and the result says where it came from. Browsers keep it in
+  an `HttpOnly`, `Secure`, `SameSite=Strict` cookie the API sets and clears on its own responses, read only with an
+  allowed origin and a custom header; nothing is stored on the server.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
   it, so keys rotate without signing anyone out.
 - **A session service** per JWT guard, `Auth::sessions('api')`, that signs in through a method or starts a session for
@@ -61,10 +65,22 @@ device record live in the `devices` table so replay and stale credentials can be
   token pair, binds the guard, and reports `DeviceCreated` and `SignedIn` once committed.
 - **Device records**, one per signed-in session: owner, principal, guard, sign-in method and client metadata, the last
   use (time, IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a
-  reason. Refresh digests are hidden from serialisation.
-- **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
-  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
-  `AdditionalFactorRequired` / `SignInFailed` / `Refreshed` / `RefreshFailed` / `DeviceRevoked` / `IdentifierVerified`.
+  reason. Refresh digests are hidden from serialisation. An identity's active devices list as safe, paginated
+  summaries with the current device marked, and ended devices are pruned with `model:prune`.
+- **Signing out and revoking sessions**: `logout()` revokes the session's device, so its tokens stop at once; the
+  session service signs an identity out everywhere, optionally keeping the current device, revokes one of its devices or
+  every session of a principal, and ends the affected sessions when a password changes or is reset, a factor is removed,
+  or an identity, principal or tenant is deactivated, with optional listeners for identities and principals. Access
+  tokens issued without a device end at a "tokens valid after" time the identity or principal records.
+- **Choosing and switching principal**: a sign-in that names no principal, for an identity that has no default
+  principal, waits for it to choose one of those it may act as, and a session switches to another principal on its
+  device, proven by its refresh token, ending the previous principal's access tokens at once.
+- **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed` /
+  `Logout` alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
+  `AdditionalFactorRequired` / `PrincipalChoiceRequired` / `PrincipalSwitched` / `Refreshed` / `DeviceRevoked` /
+  `SignedOutEverywhere` / `IdentifierVerified` and one `AuthenticationFailed` with a reason, each carrying the same
+  context (guard, client, identity, principal, tenant, device, method) and never a secret. A bearer request is not a
+  sign-in: it fires only `Authenticated` and the contextual events.
 - **Audiences per guard**: the sign-in methods and principal types each guard admits, and token and session lifetimes
   per principal type.
 - **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email by
@@ -73,6 +89,10 @@ device record live in the `devices` table so replay and stale credentials can be
   the write connection without a cache.
 - **Identifier verification**: signed verification links bound to their purpose and identifier, and an opt-in,
   per-guard requirement that sign-in identifiers be verified.
+- **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` guard's settings and fails
+  the deploy on a problem, listing all of them.
+- **Safe in long-running processes**: nothing one request or queued job binds reaches the next under Octane or a queue
+  worker.
 - **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
   policy, audience policy, attempt limiter, identifier normalisers, table names.
 
@@ -82,11 +102,15 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 `docs/design/`:
 
 - `docs/design/guard-lifecycle-and-events.md`
+- `docs/design/event-model.md`
 - `docs/design/refresh-rotation-and-replay.md`
+- `docs/design/refresh-token-transport.md`
 - `docs/design/fail-closed-pid-did.md`
 - `docs/design/access-only-mode.md`
 - `docs/design/guard-bound-tokens.md`
 - `docs/design/session-service.md`
+- `docs/design/device-lifecycle.md`
+- `docs/design/principal-choice-and-switch.md`
 - `docs/design/audience-policy.md`
 
 ## Installation
@@ -130,13 +154,21 @@ Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-
 
 1. Do not implement `HasDevices` on your identity model.
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-3. Do not call `$guard->refresh(...)` or the session service, which throws a `LogicException` for an identity without
-   `HasDevices`. Clients re-authenticate when the access token expires.
+3. Do not call `$guard->refresh(...)` or start sessions through the session service (`signIn()`, `start()`), which
+   throws a `LogicException` for an identity without `HasDevices`. Clients re-authenticate when the access token
+   expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens valid after"
+   time (below): the session service's revocation methods (`revokeDevices()`, `signOutEverywhere()`,
+   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalDevices()`) move it,
+   and need none of the package's tables for such an identity, or call `invalidateTokensIssuedBefore()` yourself.
 
-`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Bearer requests need
-none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the `rate_limits` table (see
-[Rate limits](#rate-limits)), so publish and run the migrations for it, or set the guard's `rate_limits.sign_in` to
-`null`; the `devices` and `pending_sign_ins` tables then stay empty. See `docs/design/access-only-mode.md`.
+`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
+device to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
+whose `iat` is at or before either one's `getTokensValidAfter()` is rejected (`issued_before_cutoff`), counted in whole
+seconds, so a token issued in the cutoff's own second is rejected too. Tokens that name a device are not held to it.
+Bearer requests need none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the
+`rate_limits` table (see [Rate limits](#rate-limits)), so publish and run the migrations for it, or set the guard's
+`rate_limits.sign_in` to `null`; the `devices` and `pending_sign_ins` tables then stay empty. See
+`docs/design/access-only-mode.md`.
 
 ## Configuration
 
@@ -208,7 +240,7 @@ audiences, as above, are optional defence in depth on top of that. On refresh, t
 through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The device
 row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
 identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
-with `authenticatable_missing`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
+with `identity_unknown`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
 `algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
 `leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
 should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
@@ -289,18 +321,25 @@ a type is refused. The session layer asks the guard before it issues anything: a
 not list fails with `method_not_allowed`, and a principal whose type it does not admit with `principal_ineligible`, at
 sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a session in another.
 With `require_verified_identifier`, a sign-in that used an identifier (an email address for the password method) fails
-with `identifier_unverified` unless the identity reports that identifier verified (see
-[Identifier verification](#identifier-verification)); sign-ins that used no identifier, such as SSO through `start()`,
-and refreshes are not gated, since the external provider or the existing session vouches for them.
+with `identifier_unverified` unless the identity reports that identifier verified (see [Identifier
+verification](#identifier-verification)); sign-ins that used no identifier, such as SSO through `start()`, and refreshes
+are not gated, since the external provider or the existing session vouches for them. The check is made before any
+principal is resolved, so an unverified identifier gets `identifier_unverified` whether or not the identity has a
+principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of principal is held to the
+identifier type its session's sign-in used, which the device records.
 
 A guard key that is present wins, `null` included, so a guard can admit any principal although the package default
 lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
 both blocks, a value of the wrong shape, an empty list, or a key the policy does not know fails closed with an
 `InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
-`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide
-differently. A policy of your own decides the session's deadlines through `lifetimes()`, while an access token's
-lifetime still comes from the guard's `jwt.by_principal_type` configuration (capped at the session's end). See
-`docs/design/audience-policy.md` for every point where the policy is enforced.
+`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide differently.
+Its `admitIdentifier()` is the check every sign-in makes before any principal is resolved, so a policy of your own keeps
+the guarantee above only by deciding verification there, for the identity as a whole; one that wraps the package's
+policy delegates `admitIdentifier()` to it like the other methods. A refusal from `admit()` comes only once a principal
+resolves, so an identity with none would get `principal_unresolved` instead. A policy of your own decides the session's
+deadlines through `lifetimes()`, while an access token's lifetime still comes from the guard's `jwt.by_principal_type`
+configuration (capped at the session's end). See `docs/design/audience-policy.md` for every point where the policy is
+enforced.
 
 Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
 `access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the
@@ -329,14 +368,15 @@ Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::cl
 
 ### Device
 
-The published `authentication.php` config controls the device model, table, and how often a device's last use is
-written:
+The published `authentication.php` config controls the device model, table, how often a device's last use is written,
+and how long a device whose session ended is kept before pruning:
 
 ```php
 'device' => [
     'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
     'table'                      => 'devices',
     'last_used_throttle_seconds' => 60,
+    'prune_after_days'           => 30,
 ],
 ```
 
@@ -347,12 +387,15 @@ A device is one signed-in session. The shipped migration creates these columns:
 | `id`                                                   | UUID v7 primary key, carried in every token as `did`   |
 | `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
 | `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
+| `principal_switched_at`                                | When the session last switched its principal           |
 | `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
+| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any       |
 | `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
 | `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
 | `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
 | `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids       |
 | `refresh_rotated_at`                                   | When the current rotation id replaced the previous one |
+| `signed_in_at`                                         | When the session started (required)                    |
 | `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
 | `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
 
@@ -378,10 +421,12 @@ The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticat
 `principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
 the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
 and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
-every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()` and
-`getSignInMethod()` read the guard and method it recorded. The bearer path and refresh honour a device only for the
-guard it records, and refresh only while that guard still allows the method it records, so a device written outside the
-session service must record both.
+every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()`,
+`getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
+bearer path and refresh honour a device only for the guard it records, refresh only while that guard still allows the
+method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
+sign-in that used none, which is held to no type), so a device written outside the session service must record all
+three.
 
 Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
 device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
@@ -392,17 +437,51 @@ that renames a column needs its own migration.
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
 than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
-both refresh digests; it never deletes the row. Today the package revokes a device only when the refresh exchange
-detects a replay; revoking is idempotent, so a device that is already revoked keeps its first revocation, and
-`DeviceRevoked` reports each revocation the package makes. The package has no revocation call for applications yet: to
-revoke a device yourself, set its `revoked_at` (and `revoked_reason`), which takes effect at once but fires no event. A
-device whose session has ended, past its idle or absolute deadline, is rejected the same way on the bearer path and as a
-sign-in pin, and fails refresh with `session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)).
-`ActsAsDevice` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and throws a
-`LogicException` when the device was loaded without one of its refresh or revocation state columns (both digests, the
-rotation time, both deadlines, and the revocation time), for example through a `devices()` relation or a global scope
-that selects other columns, so a partial select is reported instead of being read as a device that is not revoked or has
-no deadline.
+both refresh digests; it never deletes the row (pruning does, later). The package revokes a device when its session
+signs out, when the application revokes it or signs an identity or principal out everywhere (see [Signing out and
+revoking sessions](#signing-out-and-revoking-sessions)), and when the refresh exchange detects a replay. Revoking is
+idempotent, so a device that is already revoked keeps its first revocation, and `DeviceRevoked` reports each revocation
+the package makes. A device whose session has ended, past its idle or absolute deadline, is rejected the same way on the
+bearer path and as a sign-in pin, and fails refresh with `session_expired` (see [Token and session
+lifetimes](#token-and-session-lifetimes)). An access token that names a device is accepted only for the principal the
+device's session records (`principal_type`, `principal_id`), and only when it was issued no earlier than the second of
+the session's last principal switch (`principal_switched_at`); otherwise it fails with `device_principal_mismatch`. A
+switch therefore ends the access tokens of the principal it switched from at once, and switching back does not revive
+the ones issued before it. A device that records no principal accepts no token, and a device pinned on `attempt()` must
+record the principal being bound. Both checks read the row already loaded, with no extra query. `ActsAsDevice` reads any
+stored timestamp as a value, with or without a `datetime` cast on the column, and throws a `LogicException` when the
+device was loaded without one of its refresh or revocation state columns (both digests, the rotation time, the session's
+start, the principal switch time, both deadlines, and the revocation time) or without the sign-in's identifier type
+(`sign_in_identifier_type`), for example through a `devices()` relation or a global scope that selects other columns,
+so a partial select is reported instead of being read as a device that is not revoked, has no deadline, or whose
+sign-in used no identifier.
+
+#### Pruning devices
+
+Revoked and ended devices stay in the table, for audit, until Laravel's `model:prune` deletes them. A device is pruned
+once its session has been over for `prune_after_days` (default 30, from 0 to 3650): counted from when it was revoked or
+passed its idle or absolute deadline, whichever came first, never from when it was created, so a long session is kept
+as long after it ends as a short one. With 0, a device is pruned from the second its session ends. The value must be an
+integer, or a digit string as `env()` returns one; anything else fails with an `InvalidArgumentException` when pruning
+runs. Each chunk is one conditional `DELETE`, and nothing is read.
+
+The package's models live outside your application's `app/Models`, so name them when you schedule the command:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\RateLimit;
+
+Schedule::command('model:prune', ['--model' => [Device::class, PendingSignIn::class, RateLimit::class]])->hourly();
+```
+
+A custom device model opts in with the `PrunesDevices` trait alone (it brings Laravel's `MassPrunable` with it, and
+using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentDevice` name
+accessors; schedule it under its own class name. Run `php artisan model:prune --model="App\Models\Device" --pretend` to
+see how many devices would go. Pruning changes nothing about authentication: a pruned device's tokens fail as an unknown
+device, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a device that
+has since been pruned cannot re-fetch it (see [Events](#events)).
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
@@ -498,11 +577,11 @@ therefore raises the bound for every guard, while a stricter one only stops its 
 same limit allow no more guesses together than one alone. A guard whose `per_identifier` is `null` neither checks nor
 counts the account, so it adds guesses of its own. Once an account has no attempts left, its password is not checked
 until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal does
-not reveal that the account exists. Only your own listeners are told why: `SignInFailed` carries `account_rate_limited`
-and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A refresh cannot guess a
-secret (its tokens are signed and its rotation ids random), so it counts only its failures, per device and per IP
-address, and a successful refresh costs one read. A refresh refused for its failures answers `429` with a `Retry-After`
-header.
+not reveal that the account exists. Only your own listeners are told why: `AuthenticationFailed` carries
+`account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
+refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
+device and per IP address, and a successful refresh costs one read. A refresh refused for its failures answers `429`
+with a `Retry-After` header.
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
@@ -528,16 +607,8 @@ exception is giving back a completed further factor's slots after its commit, wh
 > do).
 
 Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
-[Additional factors](#additional-factors)). Both models live outside your application's `app/Models`, so name them when
-you schedule Laravel's pruning command:
-
-```php
-use Illuminate\Support\Facades\Schedule;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\Models\RateLimit;
-
-Schedule::command('model:prune', ['--model' => [PendingSignIn::class, RateLimit::class]])->hourly();
-```
+[Additional factors](#additional-factors)). Schedule Laravel's pruning command with both models, and the device model,
+as shown in [Pruning devices](#pruning-devices).
 
 ### Credential validation timing
 
@@ -587,6 +658,22 @@ $membership = WriteConnection::query(Membership::query()->where('identity_id', $
 $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
 ```
 
+### Checking the configuration
+
+`php artisan authentication:check` resolves every `jwt` guard's settings the way the guard would and exits `1` when any
+is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each guard's token service (keys, active
+kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and audience), that its
+provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the package's
+`AudiencePolicy` is bound, the rate limits of every flow, the password identifier and the refresh token transport, and,
+for the whole package, the configured device model and pruning retention (`authentication.device.prune_after_days`,
+otherwise checked only when `model:prune` runs) and the pending sign-in lifetime
+(`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
+choice of principal). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for
+the device model and retention, `[sign_in]` for the pending lifetime), and a subject without one as `[<guard>] OK`.
+`--guard=api --guard=admin` checks only the named guards; a named guard that is not configured, or not a `jwt` guard, is
+a problem. The command reads configuration only: it opens no database connection and never prints a key. The package
+does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+
 ## Identity Models
 
 ### 2D adoption (identity is the principal)
@@ -626,6 +713,10 @@ class AppUser extends User implements Identity, Principal, HasDevices
     }
 }
 ```
+
+The relation must query the configured device model, or another model that implements `EloquentDevice`: the bearer
+path, sign-in pins, the device list and revocations all read it, and a relation over any other model throws a
+`LogicException`.
 
 ### 3D adoption (separate identity, principal, tenant)
 
@@ -914,12 +1005,14 @@ tenant key names a `CanBeActive` tenant that is deleted, soft-deleted, or hidden
 `ActsAsPrincipal::getTenant()` throws a `TenantUnavailableException`, which the check reads as an inactive tenant,
 instead of returning `null` as if the principal acted within no tenant. The default model a `withDefault()` relation
 returns for such a missing row counts as missing too, rather than as a present tenant. A `Principal` that implements
-`getTenant()` itself should do the same. As with `ProvidesActiveState`, a principal loaded without the key of an
-opted-in tenant (a partial select) throws a `LogicException` rather than being read as acting within no tenant. A
-polymorphic (`MorphTo`) tenant relation names its model through its type column, so a principal loaded without that
-column throws a `LogicException` as well, and one whose type is empty while its key is set is rejected like a tenant
-that cannot be loaded. A tenant that does not implement `CanBeActive` is never checked, so a missing one reads as no
-tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
+`getTenant()` itself should do the same, and give the exception the tenant's class, the name of the attribute its key
+refers to and that key (`new TenantUnavailableException($message, Team::class, 'id', $this->team_id)`), as
+`ActsAsPrincipal` does, so `tenantDeactivated()` recognises the deleted tenant it names. As with `ProvidesActiveState`,
+a principal loaded without the key of an opted-in tenant (a partial select) throws a `LogicException` rather than being
+read as acting within no tenant. A polymorphic (`MorphTo`) tenant relation names its model through its type column, so a
+principal loaded without that column throws a `LogicException` as well, and one whose type is empty while its key is set
+is rejected like a tenant that cannot be loaded. A tenant that does not implement `CanBeActive` is never checked, so a
+missing one reads as no tenant, and a `tenant` relation to a model that is not a `Tenant` is not a tenant at all.
 
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
@@ -977,19 +1070,19 @@ rehashed when its stored hash no longer matches the hasher's algorithm or cost (
 `hashing.rehash_on_login` is off), and the additional-factor policy must not ask for a further factor: `attempt()`
 cannot hand out a pending sign-in, so a guard whose policy requires a factor fails it with `additional_factor_required`.
 A successful attempt gives its slots back; a failed one keeps them. Every failure fires Laravel's `Failed` and then
-`SignInFailed` with a reason (see [Events](#events)). `validate()` checks only the credentials and never rehashes, as
-with Laravel's own guards; neither does a bearer request or a refresh, which never see a password.
+`AuthenticationFailed` with a reason (see [Events](#events)). `validate()` checks only the credentials and never
+rehashes, as with Laravel's own guards; neither does a bearer request or a refresh, which never see a password.
 
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
-(through `HasDevices`, looked up the way a bearer `did` is), of this guard (a device of another guard, or of none, counts
-as missing), not revoked, and with a session that has not ended. A pin
-that fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
-only pass it a principal and device you have already proven belong to the identity. `setPrincipal()` and `setDevice()`
-are trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a
-principal or device taken from request input (a header that switches the acting membership, say) must be verified
-first, as `attempt()` verifies its pins.
+(through `HasDevices`, looked up the way a bearer `did` is), of this guard (a device of another guard, or of none,
+counts as missing), not revoked, with a session that has not ended, and acting as the principal being bound. A pin that
+fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only
+pass it a principal and device you have already proven belong to the identity. `setPrincipal()` and `setDevice()` are
+trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a principal or
+device taken from request input (a header that switches the acting membership, say) must be verified first, as
+`attempt()` verifies its pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
@@ -1004,7 +1097,7 @@ creates the device, issues the first token pair and binds the guard in one call:
 
 ```php
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 
@@ -1030,8 +1123,8 @@ $result = Auth::sessions('api')->signIn(
 );
 
 if ($result->isFailed()) {
-    // Failed and SignInFailed were dispatched; $result->reason says why.
-    if ($result->reason === SignInFailureReason::RATE_LIMITED) {
+    // Failed and AuthenticationFailed were dispatched; $result->reason says why.
+    if ($result->reason === FailureReason::RATE_LIMITED) {
         // A 429 with Retry-After, as a refused refresh answers, so clients wait.
         throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
     }
@@ -1042,6 +1135,14 @@ if ($result->isFailed()) {
 if ($result->requiresFactor()) {
     // No session yet: hand the client the pending token to complete it with.
     return ['pending_token' => $result->pending->token];
+}
+
+if ($result->requiresPrincipal()) {
+    // No principal named and none by default: the identity chooses one.
+    return [
+        'choice_token' => $result->choice->token,
+        'principals'   => array_map(fn ($principal) => $principal->getPrincipalIdentifier(), $result->choice->principals),
+    ];
 }
 
 return [
@@ -1057,8 +1158,9 @@ verify the input, the identity, the principal (the one the context names, verifi
 resolver's default) and its tenant must be active, and the audience policy must admit the identity as that principal; a
 password is rehashed when its hash is outdated; and the additional-factor policy is asked whether a further factor is
 required (see [Additional factors](#additional-factors)). Failures are results, not exceptions: Laravel's `Failed` and
-then `SignInFailed` report them, with the reason. A method name that is not registered (exactly: `Password` is not
-`password`), a misconfigured model and database errors still throw. A successful sign-in gives its attempt slots back.
+then `AuthenticationFailed` report them, with the reason. A method name that is not registered (exactly: `Password` is
+not `password`), a method that refuses with any reason but `invalid_credentials`, a misconfigured model and database
+errors still throw. A successful sign-in gives its attempt slots back.
 
 `start($identity, $principal, $method, $context)` begins a session for an identity something else verified, such as an
 external identity provider. The identity is reloaded through the guard's provider (`identity_unknown` when that does not
@@ -1089,6 +1191,12 @@ is reconsidered without it: it starts on a new device, or hands out a pending si
 now asks for a further factor without the device's trust. The additional-factor policy is told of the device the client
 proved, so a factor policy can trust a device it has seen a factor on.
 
+`attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. A session lives on a
+device, so the session service signs in only identities that implement `HasDevices`: for any other identity `signIn()`,
+`start()` and `complete()` throw a `LogicException` naming its class, since the access token it would issue names a
+device the guard could never find again. Access-only guards (identities without `HasDevices`) sign in with `attempt()`
+and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
+
 #### Writing a sign-in method
 
 A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why
@@ -1103,7 +1211,7 @@ timebox, since nothing is guessed there. A method signed in through `signIn()` g
 use Illuminate\Contracts\Hashing\Hasher;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 
 final readonly class BadgeSignIn implements SignInMethod
@@ -1120,17 +1228,17 @@ final readonly class BadgeSignIn implements SignInMethod
         return is_string($input['badge_number'] ?? null) ? $input['badge_number'] : null;
     }
 
-    public function authenticate(SignInRequest $request): Identity|SignInFailureReason
+    public function authenticate(SignInRequest $request): Identity|FailureReason
     {
         $badge    = $this->identifier($request->guard, $request->input);
         $pin      = $request->input['pin'] ?? null;
         $identity = $badge === null ? null : $request->provider->retrieveByCredentials(['badge_number' => $badge]);
 
         if (! $identity instanceof Identity || ! is_string($pin) || ! $request->reserveAccountAttempt($identity)) {
-            return SignInFailureReason::INVALID_CREDENTIALS;
+            return FailureReason::INVALID_CREDENTIALS;
         }
 
-        return $this->hasher->check($pin, $identity->pin_hash) ? $identity : SignInFailureReason::INVALID_CREDENTIALS;
+        return $this->hasher->check($pin, $identity->pin_hash) ? $identity : FailureReason::INVALID_CREDENTIALS;
     }
 }
 ```
@@ -1139,12 +1247,13 @@ final readonly class BadgeSignIn implements SignInMethod
 identifier a guard that requires verified identifiers checks. Return `null` for a method that uses no identifier (an
 assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
-never to look anyone up. `authenticate()` returns the identity, or a `SignInFailureReason` (`invalid_credentials` for
-anything the input did not prove); it must not bind a guard, issue tokens or write session state, and must hold no state
-between calls, since the manager keeps one instance per name for the life of the process. The credential timebox pads
-every refused sign-in, the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an
-unknown identifier at once, as the example does; keep the method's worst case under that budget, and only a method whose
-work can take longer needs to do the same work whether or not the identifier exists.
+never to look anyone up. `authenticate()` returns the identity, or `FailureReason::INVALID_CREDENTIALS` for anything the
+input did not prove (every other reason is the session service's to give, and a method that returns one throws a
+`LogicException`); it must not bind a guard, issue tokens or write session state, and must hold no state between calls,
+since the manager keeps one instance per name for the life of the process. The credential timebox pads every refused
+sign-in, the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an unknown
+identifier at once, as the example does; keep the method's worst case under that budget, and only a method whose work
+can take longer needs to do the same work whether or not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -1234,11 +1343,11 @@ Holding a sign-in for a factor is its outcome, so it is reported: `AdditionalFac
 identity, principal, tenant, the device the client proved (if any), the method, the client and the expiry, never the
 token, and is dispatched once the pending sign-in is committed (after your transaction, and never if you roll it back).
 
-`discard()` uses a pending sign-in up without starting a session, whatever has changed about its identity since; call
-it when the factor fails, so each pending sign-in allows one guess. It returns whether the token named a live pending
+`discard()` uses a pending sign-in up without starting a session, whatever has changed about its identity since; call it
+when the factor fails, so each pending sign-in allows one guess. It returns whether the token named a live pending
 sign-in of this guard and, when it did, reports the failure of the sign-in that waited: Laravel's `Failed` and then
-`SignInFailed` with `additional_factor_failed`, the method, the discarding request's client and the identity (when the
-guard's provider still returns it; no principal). A token that discards nothing reports nothing.
+`AuthenticationFailed` with `additional_factor_failed`, the method, the discarding request's client and the identity
+(when the guard's provider still returns it; no principal). A token that discards nothing reports nothing.
 
 `pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
 guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome,
@@ -1246,36 +1355,113 @@ with a delete only one completion can make, checks it again in the same transact
 identity, principal and tenant active, and the audience policy admitting them with the identifier type the sign-in
 used; the factor policy is not asked again), and starts the session on the device the client proved it holds when that
 is unchanged, otherwise on a new one, which records the client the sign-in came from as its creation and the completing
-request's client as its last use. The events of a completion, `SignInFailed` included, carry the completing request's
-client. A token that completes nothing fails
-as `pending_invalid`, without saying why.
+request's client as its last use. The events of a completion, `AuthenticationFailed` included, carry the completing
+request's client. A token that completes nothing fails as `pending_invalid`, without saying why.
 
 Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see
 [Rate limits](#rate-limits)).
 
-`attempt()` and `login()` remain for code that binds the guard itself; neither creates a device. A session lives on a
-device, so the session service signs in only identities that implement `HasDevices`: for any other identity `signIn()`,
-`start()` and `complete()` throw a `LogicException` naming its class, since the access token it would issue names a
-device the guard could never find again. Access-only guards (identities without `HasDevices`) sign in with `attempt()`
-and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
+#### Choosing a principal
 
-Exchange the refresh token through the guard:
+A sign-in (`signIn()` or `start()`) that names no principal, for an identity whose resolver has no default principal,
+waits for the identity to choose one when it may sign in as any: the result `requiresPrincipal()`, and its `choice` is a
+`PrincipalChoice` with a single-use `token`, the guard, the identity, the method, the expiry
+(`sign_in.pending_ttl_seconds`, as for a factor) and the `principals` it may choose from. Those are the identity's
+`principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
+by the guard's audience policy (for an identity that is its own principal, the resolver's default).
+`Auth::sessions('api')->principals($identity, $identifierType)` lists them the same way; a switch screen passes the
+type of identifier its session's sign-in used, `Auth::guard('api')->device()?->getSignInIdentifierType()`, so it lists
+only the targets the audience policy lets that session switch to (without a type, the list ignores the identifier and
+may hold targets a switch refuses). An identity with none fails as
+`principal_unresolved`, as before. The choice itself, and every later look-up of it, is admitted with the identifier
+type the sign-in used, as a sign-in naming a principal would be, so a principal your audience policy refuses to that
+identifier is neither offered nor listed, and a guard with `require_verified_identifier` offers no choice, and lists no
+principal, to an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing
+stored or reported. `attempt()` never waits for a choice.
+
+The choice is stored like a pending factor, in `pending_sign_ins` with `purpose = principal_choice` and no principal,
+with the device the client proved it holds (whatever principal that device records) and the sign-in's attempt slots,
+which stay taken until a session starts. `PrincipalChoiceRequired` reports it once committed, with the identity, method,
+client and that device, never the token or the list.
 
 ```php
-$guard = auth()->guard('api');
+['choice_token' => $token, 'principal' => $id] = $request->validate([
+    'choice_token' => ['required', 'string'],
+    'principal'    => ['required', 'string'],
+]);
 
-$rotated = $guard->refresh($refreshToken);
+$sessions = Auth::sessions('api');
+$choice   = $sessions->choice($token); // null: unknown, expired, used, or not this guard's
 
-if ($rotated === null) {
-    // RefreshFailed event already dispatched with a machine-readable reason
+$principal = collect($choice?->principals ?? [])
+    ->first(fn ($principal) => (string) $principal->getPrincipalIdentifier() === $id);
+
+if ($principal === null) {
+    abort(401);
+}
+
+$result = $sessions->choose($token, $principal);
+```
+
+`choice()` never uses the choice up. `choose()` uses it up whatever the outcome, with a delete only one call can make,
+then admits the chosen principal as any sign-in would: the method still allowed, the principal resolved through the
+resolver's hinted path as the very one named and the identity's own (`principal_mismatch`), active, in an active tenant,
+and admitted by the audience policy with the identifier type the sign-in used. The additional-factor policy is then
+asked: a required factor turns the choice into a pending factor for the chosen principal, carrying the same attempt
+slots (complete it as above). Otherwise the session starts, on the device the client proved when that device records the
+chosen principal and is unchanged, else on a new one, and the slots are given back once committed. A token that
+continues no live choice of this guard fails as `pending_invalid`; `pending()` and `complete()` refuse choice tokens,
+and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a discarded choice reports
+`AuthenticationFailed` with `principal_choice_abandoned`.
+
+### Refreshing
+
+Refresh with the token the request carries, read through the guard's refresh token transport:
+
+```php
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+
+$result = auth()->guard('api')->refreshFromRequest();
+
+if (!$result instanceof RefreshResult) {
+    // null: the request carried no refresh token, and nothing was dispatched.
+    // A FailureReason: refused, after Failed and AuthenticationFailed with that reason.
     abort(401);
 }
 
 return [
-    'access_token'  => $rotated->accessToken,
-    'refresh_token' => $rotated->refreshToken,
+    'access_token'  => $result->accessToken,
+    'refresh_token' => $result->refreshToken,
 ];
 ```
+
+The guard reads the token only from the sources its `refresh_token` settings list: `body` and `header` by default, the
+`refresh_token` field of the JSON or form body (never the query string) and the `X-Refresh-Token` header, or the
+`cookie` (see [Refresh token cookie](#refresh-token-cookie)). A request that carries a token in more than one of them,
+equal or not, is refused as `refresh_token_conflict`: the server never chooses between two tokens, and a request cannot
+get past the cookie's cross-site checks by also sending the token another way. A value that is not one non-empty string
+is `token_invalid`. A refusal by the transport dispatches `Attempting`, `Failed` and `AuthenticationFailed` (flow
+`refresh`) like any failed refresh, without touching a device or counting against a limit; a token the exchange refuses
+fails with the exchange's reason, the 429 for `rate_limited` included. The result's `source`
+(`RefreshTokenSource::COOKIE`, `BODY` or `HEADER`) says where the token came from, so a refresh read from the cookie can
+be answered with a cookie. `Auth::refreshTransport('api')->read($request)` reads a request the same way without
+refreshing.
+
+The package defaults are `authentication.refresh_token`; a guard overrides any of them in a `refresh_token` block on its
+`config/auth.php` entry, where a key it sets wins, inside `cookie` too:
+
+```php
+'api' => [
+    'driver'        => 'jwt',
+    'provider'      => 'users',
+    'refresh_token' => ['sources' => ['header'], 'header' => 'X-App-Refresh'],
+],
+```
+
+A malformed value or an unknown key fails closed with an `InvalidArgumentException` naming the guard and the key, read
+when the guard reads a token. `refresh($refreshToken)` remains for a token your code reads itself and returns the
+result or `null`; never pass it a token read from the refresh cookie, which only `refreshFromRequest()` reads with the
+cookie's cross-site checks.
 
 A refresh is held to the guard as well as the token. A device the row records for another guard (or for none) fails
 with `device_guard_mismatch` and is left alone, even for a token that would be a replay, and a bearer token naming it
@@ -1285,16 +1471,141 @@ that records none fails too), and the policy must still admit the owner as the p
 Neither revokes the device, so the session refreshes again once the policy allows it. Each rotation moves the idle
 deadline by the idle lifetime the policy gives the principal's type.
 
+A refresh token is accepted only for the principal its device records. After a switch (see [Switching
+principal](#switching-principal)), the refresh token of the principal switched from fails with
+`device_principal_mismatch`, even inside the grace window, and the device is left alone; a token presented after the
+grace window is a replay, as any rotated token is. A refresh that loses its write to a switch is judged the same way.
+
 Failed refreshes are counted against the token's device and the request's IP address by the bound `AttemptLimiter`;
-successful ones are not. Once either count is full, `refresh()` dispatches `RefreshFailed` (`rate_limited`) and
-`Failed` without looking the device up, then throws Laravel's `ThrottleRequestsException`, which renders as a 429 with
-`Retry-After`.
+successful ones are not. Once either count is full, a refresh dispatches `Failed` and `AuthenticationFailed`
+(`rate_limited`) without looking the device up, then throws Laravel's `ThrottleRequestsException`, which renders as a
+429 with `Retry-After`.
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
-token valid for a retry. After the commit, `refresh()` binds the new context and dispatches `Refreshed`; an exception
-from a listener on those events loses the new pair, but a retry with the presented token inside the grace window still
-gets the current credential (see [Refresh token replay](#refresh-token-replay)). Keep those listeners from throwing or
-queue them, so a retry is never needed.
+token valid for a retry. After the commit, the refresh binds the new context and dispatches `Refreshed` once the
+rotation is committed on the device's connection; an exception from a listener on those events loses the new pair, but a
+retry with the presented token inside the grace window still gets the current credential (see [Refresh token
+replay](#refresh-token-replay)). Keep those listeners from throwing or queue them, so a retry is never needed.
+
+### Refresh token cookie
+
+A browser application can keep its refresh token where its scripts cannot read it, in an `HttpOnly` cookie the API
+sets on its own responses. The token lives only in the browser; nothing is stored on the server, so the API stays
+stateless. List the cookie as the guard's source and give it the path its routes live under:
+
+```php
+'browser' => [
+    'driver'        => 'jwt',
+    'provider'      => 'users',
+    'refresh_token' => [
+        'sources' => ['cookie'],
+        'cookie'  => ['path' => '/auth'],
+    ],
+],
+```
+
+Put the routes that read the cookie under that path (refresh, a switch of principal, see [Switching
+principal](#switching-principal), and sign-in for a browser that proves its device), and set the cookie with the guard's
+transport whenever the API hands out a pair:
+
+```php
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
+use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
+use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+
+Route::post('/auth/sign-in', function (Request $request) {
+    $transport = Auth::refreshTransport('browser');
+
+    abort_unless($transport->isSameSiteRequest($request), 403);
+
+    // A browser that still holds a refresh cookie proves its device, which the sign-in then continues.
+    $presented = $transport->read($request);
+    $context   = SignInContext::fromRequest($request, refreshToken: $presented instanceof PresentedRefreshToken ? $presented->token : null);
+    $session   = Auth::sessions('browser')->signIn('password', $request->only('email', 'password'), $context)->session;
+
+    abort_if($session === null, 401);
+
+    return response()->json(['access_token' => $session->tokens->accessToken])
+        ->withCookie($transport->cookie($session->tokens->refreshToken, $session->device));
+});
+
+Route::post('/auth/refresh', function () {
+    $guard  = Auth::guard('browser');
+    $result = $guard->refreshFromRequest();
+
+    abort_unless($result instanceof RefreshResult && $result->source === RefreshTokenSource::COOKIE, 401);
+
+    return response()->json(['access_token' => $result->accessToken])
+        ->withCookie(Auth::refreshTransport('browser')->cookie($result->refreshToken, $guard->device()));
+});
+
+Route::post('/logout', function () {
+    Auth::guard('browser')->logout();
+
+    return response()->noContent()->withCookie(Auth::refreshTransport('browser')->forgetCookie());
+});
+```
+
+The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, named `__Secure-refresh_token` by default, scoped to the
+configured `path` and `domain` (`null`, the default, keeps it to the API's host), and expires when the device's session
+does, as the refresh token in it does. `forgetCookie()` returns the same cookie already expired; any route may send it,
+a logout route outside the cookie's path included, since a path limits where the browser sends a cookie, not which
+response may set it. On a guard that reads the cookie, a `__Host-` name is accepted only with the path `/` and no
+domain, as browsers require; a guard that reads only the body or a header never sets the cookie, so a package-wide
+`__Host-` name does not bind it. Setting or clearing the cookie on a guard that does not list `cookie` throws a
+`LogicException`. Names PHP renames when it parses a request are refused, as the token would never be found under
+them: a `.` in the cookie or a header name, and a `.`, a space or a bracket in `body_field`.
+
+A browser attaches the cookie by itself, to any request for its path, so a refresh read from it is held to two checks a
+cross-site page cannot pass: its `Origin` must be the API's own (the request's scheme and host) or one of
+`cookie.allowed_origins` (each exactly `scheme://host[:port]`), and it must carry the `cookie.csrf_header` header
+(`X-Requested-With` by default) with a value, which a form or a simple request cannot send; a header a browser sends on
+its own (`Content-Type`, `Origin`, any `Sec-` header and the like, also when spelled with `_` for `-`) is refused as the
+`csrf_header`. Anything else is `cross_site_request`. A route that sets the cookie must hold its request to the same
+checks, the sign-in above all: a cross-site page can auto-submit a form to it with an attacker's credentials, and a
+browser keeps a `SameSite=Strict` cookie set by the response to such a top-level navigation, so without the check the
+victim's browser would hold the attacker's refresh cookie and its own scripts would then pass the refresh checks inside
+the attacker's account. `Auth::refreshTransport('browser')->isSameSiteRequest($request)` is that check, as the sign-in
+route above uses it. A script refreshes with:
+
+```js
+await fetch('/auth/refresh', {method: 'POST', credentials: 'include', headers: {'X-Requested-With': 'fetch'}});
+```
+
+Another host of the same site, such as a marketing site, a subdomain serving user content or one taken over, can plant
+a cookie of the same name: a `__Secure-` cookie may name the parent `Domain`, and a browser sends one with a longer
+`Path` before the API's own. PHP keeps only the first cookie of a name, so a request that carries the refresh cookie
+twice (counted under the name PHP files each one under) is refused as `refresh_token_conflict`, and the server never
+refreshes with the planted one. The planted cookie still fails every refresh until it expires, though, and the API
+cannot clear it, since `forgetCookie()` names the guard's own domain and path, not the planter's; and a browser that
+holds no refresh cookie of its own would send the planted one alone. If you do not trust every host of the site, name
+the cookie `__Host-refresh_token` with the path `/`: a browser keeps a `__Host-` cookie only from the API's own host,
+with no `Domain`, so no other host can plant one. The cost is that the cookie then rides on every request to the API's
+host, not only the routes that read it.
+
+`SameSite=Strict` keeps the cookie from being sent from another site at all, so `allowed_origins` serves origins of
+the same site, such as an application on `app.example.com` calling an API on `api.example.com`. For such an origin,
+let Laravel's CORS middleware allow credentials only for the origins you list (`supports_credentials` set to `true`
+and `allowed_origins` naming them in `config/cors.php`, never `*`). Behind a proxy or load balancer that ends TLS,
+configure Laravel's trusted proxies, so the request knows its own scheme and host and the API's own origin matches.
+
+Laravel's `EncryptCookies` middleware, when it runs on these routes, encrypts the cookies a response sets and decrypts
+the ones a request sends. The refresh token is already signed, and only the API reads it, so the simplest setup leaves
+it out:
+
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->encryptCookies(except: ['__Secure-refresh_token']);
+})
+```
+
+If you keep it encrypted, set and read the cookie on routes that both run `EncryptCookies`, so the value the browser
+returns is the one the middleware made; a value it cannot decrypt reaches the guard as an invalid token
+(`token_invalid`), and the client signs in again. Routes in `routes/api.php` do not run `EncryptCookies` unless you
+add it.
 
 ### Refresh token replay
 
@@ -1308,7 +1619,7 @@ with the time of the rotation. A validly signed refresh token for a live device 
   lost the response, or a second tab that refreshed at the same moment, keeps its session, and retries never extend the
   window;
 - any other id: the token was rotated before, so it has been replayed, perhaps stolen. The device is revoked at once
-  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `DeviceRevoked` and `RefreshFailed`
+  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `DeviceRevoked` and `AuthenticationFailed`
   (`rotation_reuse`) are dispatched, and every token of the device stops working, access tokens included.
 
 Only the immediately previous id is honoured: after two quick refreshes, a delayed retry of the first token is a
@@ -1331,12 +1642,313 @@ service do it.
 Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
 clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back after
 a failed refresh: a rollback also undoes a replay revocation. `DeviceRevoked` is dispatched once the revocation is
-committed on the device's own connection: at once outside a transaction, so before `RefreshFailed` and `Failed`, and
-after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
+committed on the device's own connection: at once outside a transaction, so before `Failed` and `AuthenticationFailed`,
+and after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
 connection neither delays nor withdraws it. The transaction that Laravel's `DatabaseTransactions` and `RefreshDatabase`
 testing traits wrap around each test does not count either, so a test sees `DeviceRevoked` when the application would.
 Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
 error, which surfaces as a server error for you to retry.
+
+### Switching principal
+
+An identity that may act as several principals (memberships of several tenants, say) switches the session it is signed
+in with to another one, on the same device, proven by the session's refresh token:
+
+```php
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
+
+$target = Membership::findOrFail($request->input('membership'));
+$result = Auth::sessions('api')->switchPrincipalFromRequest($target);
+
+abort_if($result === null, 401); // no refresh token in the request
+
+if ($result->isFailed()) {
+    // AuthenticationFailed was dispatched (flow principal_switch); $result->reason says why.
+    if ($result->reason === FailureReason::RATE_LIMITED) {
+        // A 429 with Retry-After, as a refused refresh answers, so clients wait.
+        throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $result->retryAfter]);
+    }
+
+    abort(401);
+}
+
+$tokens = $result->session->tokens;
+
+return $result->source === RefreshTokenSource::COOKIE
+    ? response()->json(['access_token' => $tokens->accessToken])
+        ->withCookie(Auth::refreshTransport('api')->cookie($tokens->refreshToken, $result->session->device))
+    : response()->json(['access_token' => $tokens->accessToken, 'refresh_token' => $tokens->refreshToken]);
+```
+
+The refresh token proves the session, never an access token: a stolen access token lives minutes and must not mint a
+refresh credential. `switchPrincipalFromRequest()` reads it as `refreshFromRequest()` does, through the guard's refresh
+token transport, so it comes from the one source the guard allows and a token from the refresh cookie gets the cookie's
+cross-site checks; put the switch route under the cookie's path. It returns `null` when the request carries no token,
+and a token the transport refuses fails with its reason (`refresh_token_conflict`, `cross_site_request`,
+`token_invalid`, reported as an `AuthenticationFailed` of flow `principal_switch`) without the device being touched. The
+result's `source` says where the token came from, so a switch read from the cookie answers with the new refresh token
+in the cookie, as a refresh does. `switchPrincipal($refreshToken, $target)` remains for a token your code reads itself;
+never pass it one read from the refresh cookie.
+
+A switch is judged as a refresh is: counted against the same refresh limits (`rate_limited`, with the wait in the
+result's `retryAfter`: unlike `refreshFromRequest()`, which throws the 429 itself, a switch returns its refusal, so
+answer it with `Retry-After` as above), the token parsed for this guard, the device found, of this guard, live, and the
+rotation id current, or the previous one inside the grace window; any other id is a replay and revokes the device
+(`rotation_reuse`). On every path the device's owner must still be returned by the guard's provider and be active, the
+target must resolve through the resolver's hinted path as the very principal named, of its class, owned by that identity
+(read from the principal's own key, not trusted to the resolver), active, in an active tenant and admitted by the
+audience policy, also with the type of identifier the session's sign-in used (which the device records), so a principal
+your policy refuses to that identifier cannot be reached by switching to it, the session's sign-in method must still be
+allowed, and the additional-factor policy must not ask for a further factor (`additional_factor_required`: sign in again
+as the target).
+
+With the current rotation id, the token's principal must be the one the device records (`device_principal_mismatch`).
+The switch keeps the session's absolute deadline, held to the target type's absolute lifetime counted from the sign-in
+(`session_expired` when that has passed), restarts the idle one under the target's lifetimes, issues both tokens for the
+target, then records the target, the switch time (`principal_switched_at`), the rotation and both deadlines in one
+compare-and-swap. The access tokens of the principal switched from stop at once, and switching back does not revive them
+(see [Device](#device)). A switch to the principal the device already records rotates the credential like a refresh and
+reports no switch.
+
+With the previous rotation id inside the grace window, the current credential for the target is handed back, writing
+nothing, only when the device records the target and either its last rotation was the switch to it (a lost switch
+response, retried) or the token's own principal is the target; anything else is `rotation_conflict`, without revoking,
+and the client retries with its current token. When another request changes the device between the switch's read and its
+write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
+
+A switch binds the guard to the target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`) and
+dispatches `PrincipalSwitched` once committed on the device's connection, with the new principal and tenant in its
+context, and the previous principal as the device recorded it (`previousPrincipalType`, `previousPrincipalId`) and, when
+it still resolves for the identity, the principal itself (`previousPrincipal`).
+
+### Listing devices
+
+`devices()` returns one page of an identity's active devices for a "where you're signed in" screen: every session it
+holds on any guard that is not revoked and is before both its idle and absolute deadline, most recently used first
+(devices never used last), then newest first:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->get('/devices', fn () => Auth::sessions('api')->devices(Auth::identity(), perPage: 20));
+```
+
+Each item is a `DeviceSummary`, safe to return as it is: the device id (its `did`), guard, sign-in method, client name
+and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
+started (its latest sign-in on that device), the last use and its IP address and user agent, both deadlines, and
+`current`, which marks the device the request is authenticated with on that guard. It never holds a refresh digest, the
+rotation time, the revocation columns, the owner or the principal, and `toArray()` and JSON use snake_case keys and
+ISO-8601 times. A page holds 1 to 100 devices (15 by default; anything else is an `InvalidArgumentException`), and the
+page is the request's `page` parameter unless you pass one. The list is read on the write connection through the
+identity's `devices()` relation, in two queries (a count and a select), so a device revoked a moment ago is never shown.
+An identity that does not implement `HasDevices`, or whose `devices()` relation queries a model that is not an
+`EloquentDevice`, is a `LogicException`.
+
+The same rule is a query scope on any model that uses `ActsAsDevice`, for your own queries:
+
+```php
+Device::query()->active()->where('guard', 'api')->count();
+```
+
+### Signing out and revoking sessions
+
+`Auth::logout()` (or `Auth::guard('api')->logout()`) signs the request's session out through the session service: the
+device the guard is bound to is revoked with reason `signed_out`, `DeviceRevoked` reports it once committed, Laravel's
+`Logout` follows, and the guard stays signed out for the rest of the request. The session's access and refresh tokens
+stop at once. A session without a persisted device (an access-only token) has nothing to revoke and is only forgotten;
+a guest request does nothing. `Auth::sessions('api')->signOut()` does the same and returns whether it revoked a device.
+`logout()` cannot reach the response, so clear a browser's refresh cookie on it with
+`Auth::refreshTransport('api')->forgetCookie()` (see [Refresh token cookie](#refresh-token-cookie)).
+
+The session service also revokes sessions for the application's own screens and flows:
+
+```php
+use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$sessions = Auth::sessions('api');
+
+// "Sign out of all other devices": every session of the identity, of every guard, but this one.
+$sessions->signOutEverywhere(keepCurrentDevice: true);
+
+// A device list's "sign out" button: only the identity's own device is found.
+$sessions->revokeDevice(Auth::identity(), $deviceId, RevocationReason::REVOKED);
+
+// An administrator ends every session of an identity, or every session acting as a principal.
+$sessions->revokeDevices($identity, RevocationReason::REVOKED, except: null);
+$sessions->revokePrincipalDevices($membership, RevocationReason::REVOKED);
+```
+
+Each device is revoked by one conditional update that only applies while it is not revoked yet, so every call is
+idempotent: the first revocation's time and reason are kept, and of two calls racing for a device only the one that
+revoked it reports `DeviceRevoked`. `revokeDevice()` finds the device through the owner's `devices()` relation on the
+write connection, so another identity's device is simply not found and the call returns `false`, as it does for an
+unknown or already revoked one. `revokeDevices()` covers every device the identity's relation returns, of every guard;
+`revokePrincipalDevices()` every device of the configured model that records the principal. Both keep the `except`
+device when one is given, return how many devices they revoked, and also end the scope's pending sign-ins (a further
+factor or a principal choice waiting to be completed), so a credential issued before the revocation cannot start a
+session after it. `signOutEverywhere()` is `revokeDevices()` for the request's identity with reason
+`signed_out_everywhere`; it returns `0` on a guest request, and it leaves the guard bound for the rest of the request
+(call `signOut()` as well to end the current session too). With `keepCurrentDevice: true` on a request whose session has
+no device (an access-only token), the session is kept by leaving the identity's "tokens valid after" cutoff where it is,
+since a device-less token can only be ended through it: every device is still revoked, but the identity's other
+device-less tokens keep working too, until they expire.
+
+A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
+(`HasTokensValidAfter`), then, in one transaction on the device model's connection, revokes each unrevoked device, read
+on the write connection in key order 500 at a time, and deletes the pending sign-ins. Once that transaction commits,
+`DeviceRevoked` reports each device it revoked (with the device's own guard) and then `SignedOutEverywhere` reports the
+scope, with the acting guard, the reason, the count (also `0`, so the action itself is recorded), the cutoff it set (or
+`null`), and the device it kept. If the device transaction fails, the cutoff it already moved stands: more is cut off,
+never less, and calling again finishes the job. One window stays open: a sign-in that has already passed its credential
+check when a bulk revocation reads the devices can still create its device afterwards. Closing it would take a lock that
+every sign-in and every revocation take on the identity, which the package does not add.
+
+#### Revoking on security changes
+
+Call the session service from your own flows when something about an identity's security changes; each ends the
+affected sessions as a bulk revocation, with its own reason, moves the scope's cutoff, and ends its pending sign-ins:
+
+| Method                                              | Ends                                       | Reason                  |
+|-----------------------------------------------------|--------------------------------------------|-------------------------|
+| `passwordChanged($identity, ?Device $except)`       | The identity's sessions, but `$except`     | `password_changed`      |
+| `passwordReset($identity)`                          | Every session of the identity              | `password_reset`        |
+| `factorRemoved($identity, ?Device $except)`         | The identity's sessions, but `$except`     | `factor_removed`        |
+| `identityDeactivated($identity)`                    | Every session of the identity              | `identity_deactivated`  |
+| `principalDeactivated($principal)`                  | Every session acting as the principal      | `principal_deactivated` |
+| `tenantDeactivated($tenant, iterable $principals)`  | Every session acting as a listed principal | `tenant_deactivated`    |
+
+Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change.
+`factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. Devices record
+principals, not tenants, so `tenantDeactivated()` takes the tenant's principals from you: each must act within the
+tenant (read on the write connection from the principal as stored, so a `tenant` relation you loaded does not decide and
+Eloquent's strict mode does not stop the read), or an `InvalidArgumentException` is thrown before anything is written. A
+`CanBeActive` tenant already deleted or soft-deleted still works, since a principal whose `TenantUnavailableException`
+names that very tenant (its class and key, as `ActsAsPrincipal` reports it) acts within it, so restoring the tenant
+later revives no session; a tenant that does not implement `CanBeActive` reads as no tenant once it cannot be loaded, so
+call `tenantDeactivated()` before deleting it; a principal listed twice counts once, and every principal's sessions end
+in one device transaction, with one `SignedOutEverywhere` per principal. Deactivation already stops every token at once
+through the live activity checks (see [Active-state enforcement](#active-state-enforcement)); revoking makes the end
+outlast a reactivation and records why.
+
+Three optional listeners call them for you. Registering one is the opt-in, and each revokes only once the change that
+triggered it is committed on the changed model's connection, so a change that is rolled back revokes nothing:
+
+```php
+use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Support\Facades\Event;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnDeactivation;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
+
+Event::listen(PasswordReset::class, RevokeDevicesOnPasswordReset::class);
+User::observe(RevokeDevicesOnPasswordChange::class);
+User::observe(RevokeDevicesOnDeactivation::class);
+Membership::observe(RevokeDevicesOnDeactivation::class);
+```
+
+- `RevokeDevicesOnPasswordReset` answers Laravel's `PasswordReset` (the password broker's) with `passwordReset()`.
+- `RevokeDevicesOnPasswordChange` observes an identity model and answers a saved change of its password column with
+  `passwordChanged()`, revoking every device, the one the change was made from included; to keep that one, call
+  `passwordChanged($identity, Auth::device())` yourself instead. The automatic rehash on sign-in is not a change, and
+  the observer ignores it: the package's own sign-ins run it marked, and so do Laravel's guards (`attempt()`,
+  `attemptWhen()`, `once()`, as a web login over the same user model does), whose attempt the package follows through
+  Laravel's auth events. A save is the rehash only when it re-encodes the password signed in with (both the hash it
+  replaces and the hash it saves verify it) and no change of the user's password has run since the rehash or attempt
+  began; for an attempt, it must also save the very model instance the attempt validated. So a new password saved before
+  the attempt ends (by an `attemptWhen()` callback, say) revokes, and so does any later save of the user, a change back
+  to that password or a fresh hash of it through another instance included. An attempt made inside another attempt's
+  callback, or the session's user resolved there, leaves the outer attempt's rehash alone; two cases end the outer
+  attempt early, so its rehash then revokes: an `Auth::login()` of the very instance it validated inside its callback,
+  and a refused inner attempt that validated that same instance (from a provider that caches its users). Users are told
+  apart by the row they are stored in (connection, database, table and key), so the same key in another tenant's
+  database is another user. Confirming the current password with `validate()` before changing it is not an attempt, so
+  the change that follows revokes; so does Laravel's `logoutOtherDevices()`, whose forced rehash exists to sign the
+  other sessions out, even while an attempt for the user is open or the package's own rehash runs: the package holds a
+  save it takes for a rehash until the request or job ends, and the `OtherDeviceLogout` event that follows a forced
+  rehash runs it, so a sign-out after an attempt's rehash in the same request may revoke twice. Only changes saved
+  through Eloquent fire model events.
+- `RevokeDevicesOnDeactivation` observes a `CanBeActive` identity or principal model and answers an update that turns
+  it from active to inactive with `identityDeactivated()` or `principalDeactivated()` (a 2D model is treated as the
+  identity). It compares a copy holding the attributes from before the update with the model as it is now, so it suits
+  activity held in the model's own attributes (`ProvidesActiveState`); for activity derived from anything else, call
+  the method yourself. A tenant has no listener: devices record principals, not tenants, so call
+  `tenantDeactivated()` with the tenant's principals. Registering the observer on a model that is neither an identity
+  nor a principal throws a `LogicException` when that model is deactivated.
+
+A password reset through Laravel's broker saves the new password through Eloquent before your code fires
+`PasswordReset`, so with both password listeners registered the observer revokes every device first, as
+`password_changed`, and the reset listener then finds none left to revoke (its `SignedOutEverywhere` reports
+`password_reset` with a count of `0`). Register one of them for each flow: the observer alone ends sessions on every
+change of password, resets included, as `password_changed`; to record resets as `password_reset`, register the reset
+listener and call `passwordChanged()` from your password-change flow instead of registering the observer.
+
+Revocation covers every guard whichever session service acts; the acting guard only names the guard and request the
+events report. It is the current default guard when that is a `jwt` guard, else the first `jwt` guard in
+`auth.guards`, so a change made on a route guarded by another driver (whose middleware makes that guard the default)
+still revokes. To name it, bind the listener's `$guard`:
+
+```php
+$this->app->when(RevokeDevicesOnPasswordChange::class)->needs('$guard')->give('api');
+```
+
+With no `jwt` guard configured at all, a listener throws an `InvalidArgumentException`.
+
+#### Access tokens without a device
+
+An access token issued without a device (access-only mode, see
+[Access-only mode](#access-only-mode-no-devices-no-refresh)) has no device to revoke. To end those too, an identity or
+principal implements `HasTokensValidAfter`, with the `ProvidesTokensValidAfter` trait over a nullable whole-second
+column you add:
+
+```php
+Schema::table('users', function (Blueprint $table) {
+    $table->dateTime('tokens_valid_after', 0)->nullable();
+});
+```
+
+```php
+use SineMacula\Laravel\Authentication\Concerns\ProvidesTokensValidAfter;
+use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
+
+class User extends Model implements HasTokensValidAfter, Identity, Principal
+{
+    use ProvidesTokensValidAfter;
+}
+```
+
+Every bulk revocation of its sessions (including the security-change methods above) then moves its cutoff to the
+revocation's second first, except `signOutEverywhere(keepCurrentDevice: true)` from a session without a device, which
+keeps the identity's cutoff where it is (see above), and the bearer path rejects a device-less access token whose `iat`
+is at or before the identity's or the principal's cutoff (`issued_before_cutoff`). The whole second is cut off, because
+a token's whole-second `iat` cannot tell an earlier token from one issued after the call in the same second, so a
+device-less token issued in that second is rejected too. Tokens that name a device are not checked against the cutoff
+(revoking the device ends them, and the device a sign-out everywhere keeps must keep working). The cutoff only ever
+moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
+must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
+
+### Long-running processes
+
+One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
+may reach the next. Each request rebinds Laravel's `request`, which resets every package guard already resolved: the
+identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates from
+its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its guards
+when each job a worker runs starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a job signs
+in with `login()` or `setUser()` is signed out again for the next job. Only jobs a worker runs are reset: a job on the
+`sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the request that
+dispatched it and leaves its guards as they are, so a session the request just started stays bound and a request that
+signed out stays signed out. A dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a
+rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a
+switch of principal and the revocations), which read the guard's collaborators each time they run. The package's
+singletons hold configuration only: the token service factory memoises each guard's signing configuration, not any
+identity's data, and the mark the password-change listener reads during an automatic rehash is scoped, so it starts
+empty for each request and each job a worker runs. No package class keeps a request, an identity or a token in a static
+property. The sign-in methods you register are kept for the life of the process as well, so they must hold no state
+between calls (see [Writing a sign-in method](#writing-a-sign-in-method)), and so must a factor or audience policy you
+bind as a singleton.
 
 ## Key Rotation
 
@@ -1372,21 +1984,24 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 
 | Event                                            | Fired when                                                |
 |--------------------------------------------------|-----------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`              | Bearer, refresh, or credential attempt starts             |
-| `Illuminate\Auth\Events\Validated`               | A successful `login()` path is about to bind context      |
-| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard                               |
-| `Illuminate\Auth\Events\Login`                   | Full lifecycle complete                                   |
-| `Illuminate\Auth\Events\Failed`                  | Any bearer, refresh, or credential rejection              |
+| `Illuminate\Auth\Events\Attempting`              | A sign-in or refresh starts (never a bearer request)      |
+| `Illuminate\Auth\Events\Validated`               | A sign-in or refresh is about to bind context             |
+| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard, bearer requests included     |
+| `Illuminate\Auth\Events\Login`                   | A sign-in or refresh bound the guard                      |
+| `Illuminate\Auth\Events\Failed`                  | A sign-in or refresh was rejected (never a bearer token)  |
+| `Illuminate\Auth\Events\Logout`                  | `logout()` or `signOut()` ended a signed-in request       |
 | `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                              |
 | `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata |
-| `SineMacula\...\Events\Refreshed`                | Refresh exchange completed                                |
-| `SineMacula\...\Events\RefreshFailed`            | Refresh exchange failed (carries machine-readable reason) |
-| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device (a replay); carries reason   |
-| `SineMacula\...\Events\SignInFailed`             | A sign-in failed (carries machine-readable reason)        |
+| `SineMacula\...\Events\Refreshed`                | Refresh exchange completed, once committed                |
+| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device, once committed; with reason |
+| `SineMacula\...\Events\SignedOutEverywhere`      | A bulk revocation ended a scope's sessions, once committed|
 | `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed      |
-| `SineMacula\...\Events\SignedIn`                 | The session service started a session, once committed     |
+| `SineMacula\...\Events\SignedIn`                 | A session started or was refreshed, once committed        |
 | `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed      |
+| `SineMacula\...\Events\PrincipalChoiceRequired`  | A sign-in waits for a choice of principal, once committed |
+| `SineMacula\...\Events\PrincipalSwitched`        | A session switched its principal, once committed          |
 | `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type   |
+| `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh, switch or bearer token failed; reason |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -1399,64 +2014,113 @@ the published config:
 ],
 ```
 
-`SignedIn` reports a session the session service started (`signIn()`, `start()` or `complete()`), with the method that
-proved who signed in, unlike Laravel's `Login` and `Authenticated`, which also fire when a refresh or a bearer request
-binds the guard; a refresh dispatches `Refreshed` instead. `attempt()` starts no session and never dispatches it:
-Laravel's `Login` reports its sign-ins, and code that calls `start()` after `attempt()` reports the sign-in once.
-`DeviceCreated` precedes it for a new device. Both carry the guard, identity, principal, tenant, device, method and
-client (IP address and user agent), and never a token. A sign-in the additional-factor policy holds for a further
-factor dispatches `AdditionalFactorRequired` instead, once committed: from `signIn()` it answers the sign-in's
-`Attempting`, and from `start()`, which dispatches no `Attempting`, it is the only event. Completing it dispatches
-`SignedIn`, and discarding it `SignInFailed` with `additional_factor_failed`.
+Every package event implements `SineMacula\...\Contracts\AuthenticationEvent` and carries one `EventContext` in
+`$event->context` (also `$event->context()`), so one listener takes them all and attributes each the same way:
 
-`SignInFailed` follows Laravel's `Failed` on every failed sign-in. It carries the guard, the method, the request's
-client (IP address and user agent), the identifier as given, the identity only once its sign-in method verified it (a
-wrong password or an unknown identifier carries none), the principal and tenant once resolved, the wait for
-`rate_limited` and `account_rate_limited`, and a `SignInFailureReason`. It never carries a password, code or token. It
-says why a sign-in failed even where the client is not told: a refusal by the account's own limit is
-`account_rate_limited` on the event, while the sign-in's result says `invalid_credentials`:
+```php
+use Illuminate\Support\Facades\Event;
+use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 
-| Reason                       | Meaning                                                            |
-|------------------------------|--------------------------------------------------------------------|
-| `invalid_credentials`        | The sign-in method did not accept the input                        |
-| `method_not_allowed`         | The guard does not allow the sign-in method                        |
-| `rate_limited`               | The identifier or IP address used up its attempts for now          |
-| `account_rate_limited`       | The account used up its attempts; event only, not on the result    |
-| `identity_unknown`           | The guard's identity provider does not return the identity         |
-| `identity_inactive`          | The identity reported inactive                                     |
-| `principal_unresolved`       | No principal could be resolved for the identity                    |
-| `principal_mismatch`         | The requested principal does not belong to the identity            |
-| `device_mismatch`            | The requested device is not one of the identity's live devices     |
-| `principal_inactive`         | The principal reported inactive                                    |
-| `tenant_inactive`            | The principal's tenant inactive, or opted in and missing           |
-| `principal_ineligible`       | The guard does not accept principals of the principal's type       |
-| `identifier_unverified`      | The guard requires a verified identifier and it is not             |
-| `additional_factor_required` | A further factor is required, which only `signIn()` can ask        |
-| `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed         |
-| `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's |
+Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event): void {
+    $context = $event->context();
 
-`RefreshFailed` carries a `RefreshFailureReason` backed enum for SIEM attribution, and the wait in `retryAfter` for
-`rate_limited`:
+    AuditLog::record(
+        event: $event::class,
+        guard: $context->guard,
+        identity: $context->identityId,
+        principal: [$context->principalType, $context->principalId],
+        tenant: $context->tenantId,
+        device: $context->deviceId,
+        method: $context->method,
+        ip: $context->client->ip,
+        userAgent: $context->client->userAgent,
+    );
+});
+```
 
-| Reason                    | Meaning                                              |
-|---------------------------|------------------------------------------------------|
-| `token_invalid`           | Decode, expiry, missing claim, typ, guard, iss, aud  |
-| `rate_limited`            | Too many failed refreshes for the device or IP       |
-| `device_unknown`          | Device id is not a device key or names no device     |
-| `device_guard_mismatch`   | Device is another guard's (or none's); not revoked   |
-| `rotation_reuse`          | Rotated token replayed; device revoked               |
-| `rotation_conflict`       | Device changed during the refresh; retry             |
-| `refresh_key_missing`     | Device holds no refresh credential                   |
-| `device_revoked`          | Device row marked revoked                            |
-| `session_expired`         | Device's idle or absolute deadline reached, or unset |
-| `authenticatable_missing` | Guard's provider did not return the device owner     |
-| `identity_inactive`       | Resolved identity reported inactive                  |
-| `principal_unresolved`    | Principal resolver returned null                     |
-| `principal_mismatch`      | Resolved principal does not match refresh token hint |
-| `principal_inactive`      | Resolved principal reported inactive                 |
-| `tenant_inactive`         | Principal's tenant inactive, or opted in and missing |
-| `method_not_allowed`      | Guard no longer allows the method of the session     |
-| `principal_ineligible`    | Audience policy no longer admits the principal       |
+The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the device
+columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
+device and the sign-in method (for a device's events, the method its session records); what was not established is
+`null`. It also snapshots, when the event is built, the identity's auth identifier (`identityId`), the principal's
+recorded type and identifier (`principalType`, `principalId`), and the tenant's and the device's identifiers
+(`tenantId`, `deviceId`, which keeps the device id a token named even when no device was found). An event about a device
+row itself (every `DeviceRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
+such as a revoked or ended device or a replay) names the owner and principal the row records in `identityId`,
+`principalType` and `principalId` when the flow did not load them; a device records no tenant, so a revocation's
+`tenantId` is known only when the tenant's deactivation or the request's own session is why. Other events name only what
+they hold, even when they carry a device: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch
+refused for its target have no principal. The snapshots, the client, the method and the other values are fixed facts
+that survive a queue unchanged. The models are live references: a synchronous listener gets the package's own instances,
+and a queued listener gets them re-fetched in their state when it runs, as Laravel's `SerializesModels` does, or a
+`ModelNotFoundException` when one was deleted meanwhile (a pruned device, say). Audit sinks should record the snapshots.
+No event carries a token, a digest, a password or any other secret. An event that reports a write is dispatched once the
+write is committed on the written row's own connection: at once when it has no open transaction, on its commit
+otherwise, and never when it is rolled back; a transaction on another connection neither delays nor withdraws it.
+
+A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
+package's `PrincipalAssigned` and `DeviceAuthenticated`, and a rejected token only `AuthenticationFailed`, once per
+request: never `Attempting`, `Validated`, `Login` or `Failed`, so a listener on those records sign-ins, not requests. A
+request without a token dispatches nothing.
+
+`Login` and `SignedIn` report real sign-ins: a session the session service started (`signIn()`, `start()` or
+`complete()`), with the method that proved who signed in, and a refresh, which renews the session on its device and
+dispatches `Refreshed` and then `SignedIn` with `$refresh` set and the method the device's session records. `attempt()`
+starts no session and never dispatches `SignedIn`: Laravel's `Login` reports its sign-ins, and code that calls `start()`
+after `attempt()` reports the sign-in once. `DeviceCreated` precedes `SignedIn` for a new device
+(`SignedIn::$deviceCreated`). A sign-in the additional-factor policy holds for a further factor dispatches
+`AdditionalFactorRequired` instead, once committed: from `signIn()` it answers the sign-in's `Attempting`, and from
+`start()`, which dispatches no `Attempting`, it is the only event. Completing it dispatches `SignedIn`, and discarding
+it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits for a choice of principal dispatches
+`PrincipalChoiceRequired` the same way; choosing starts the session (or a pending factor) as above, and discarding the
+choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no sign-in: it
+dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`.
+
+`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal and bearer token, after Laravel's
+`Failed` where that fires, with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`), a
+`FailureReason`, the identifier a sign-in's input named (as given), and the wait for `rate_limited` and
+`account_rate_limited`. Its context carries the identity only once a sign-in method verified it, a refresh reloaded the
+device's owner or a token's subject was found (a wrong password or an unknown identifier carries none), the principal
+and tenant once resolved, and the device once found, else the `did` a token named. A bearer token is checked in this
+order, so its reason is the first that applies: `token_invalid`, `identity_unknown`, `identity_inactive`,
+`principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token that names no device
+`issued_before_cutoff`, and for one that names a device `device_unknown`, `device_guard_mismatch`, `device_revoked`,
+`session_expired`, `device_principal_mismatch`. It says why a sign-in failed even where the client is not told: a
+refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
+`invalid_credentials`:
+
+| Reason                       | Meaning                                                                 |
+|------------------------------|-------------------------------------------------------------------------|
+| `invalid_credentials`        | The sign-in method did not accept the input                             |
+| `method_not_allowed`         | The guard does not allow the sign-in method, or no longer the session's |
+| `rate_limited`               | The identifier, device or IP address used up its attempts for now       |
+| `account_rate_limited`       | The account used up its attempts; event only, not on the result         |
+| `identity_unknown`           | The guard's provider does not return the identity or device owner       |
+| `identity_inactive`          | The identity reported inactive                                          |
+| `principal_unresolved`       | No principal could be resolved for the identity                         |
+| `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's      |
+| `principal_inactive`         | The principal reported inactive                                         |
+| `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                |
+| `principal_ineligible`       | The guard's audience policy does not admit the identity as principal    |
+| `identifier_unverified`      | The guard requires a verified identifier and it is not                  |
+| `device_mismatch`            | The pinned device is not a live device of the identity and principal    |
+| `additional_factor_required` | A further factor is required, which only `signIn()` can ask             |
+| `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed              |
+| `principal_choice_abandoned` | A choice of principal was discarded                                     |
+| `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's      |
+| `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                     |
+| `issued_before_cutoff`       | Device-less token issued at or before a "tokens valid after" time       |
+| `device_unknown`             | Device id is not a device key or names no device                        |
+| `device_guard_mismatch`      | Device is another guard's (or none's); not revoked                      |
+| `device_revoked`             | Device row marked revoked                                               |
+| `session_expired`            | Device's idle or absolute deadline reached, or unset                    |
+| `device_principal_mismatch`  | Device acts as another principal, or switched since the token's issue   |
+| `rotation_reuse`             | Rotated refresh token replayed; device revoked                          |
+| `rotation_conflict`          | Device changed during the refresh; retry                                |
+| `refresh_key_missing`        | Device holds no refresh credential                                      |
+| `refresh_token_conflict`     | The request carried a refresh token in more than one source             |
+| `cross_site_request`         | A cookie refresh token without an allowed origin and the custom header  |
+
+A sign-in method may answer only `invalid_credentials`; every other reason is the session service's to give.
 
 ## Extensibility
 
@@ -1467,13 +2131,14 @@ inheritance:
 | Extension point                   | How                                                                                                           |
 |-----------------------------------|---------------------------------------------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                        |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait                                                      |
+| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                   |
+| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`               |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                     |
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                          |
 | Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                           |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                             |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name other than `password` |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container                                                       |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed      |
 | Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                       |
 | Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                       |
 | Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                           |

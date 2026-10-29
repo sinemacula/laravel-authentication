@@ -4,12 +4,13 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions\Methods;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
@@ -168,18 +169,18 @@ final readonly class PasswordSignIn implements SignInMethod
      * `Stringable` nor an integer is refused without a lookup.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInRequest  $request
-     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \InvalidArgumentException
      */
     #[\Override]
-    public function authenticate(SignInRequest $request): Identity|SignInFailureReason
+    public function authenticate(SignInRequest $request): FailureReason|Identity
     {
         $identifier = $this->identifier($request->guard, $request->input);
         $password   = $request->input[self::PASSWORD_KEY] ?? null;
 
         if ($identifier === null) {
-            return SignInFailureReason::INVALID_CREDENTIALS;
+            return FailureReason::INVALID_CREDENTIALS;
         }
 
         $credentials = [
@@ -191,7 +192,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
         return $user instanceof Identity && $request->reserveAccountAttempt($user) && $request->provider->validateCredentials($user, $credentials)
             ? $user
-            : SignInFailureReason::INVALID_CREDENTIALS;
+            : FailureReason::INVALID_CREDENTIALS;
     }
 
     /**
@@ -214,12 +215,16 @@ final readonly class PasswordSignIn implements SignInMethod
      * no longer matches the hasher's current algorithm or cost, unless
      * Laravel's `hashing.rehash_on_login` setting turns that off. Called only
      * after a password sign-in is admitted, so a request authenticated by a
-     * bearer token or a refresh never writes a password.
+     * bearer token or a refresh never writes a password. The rehash runs marked
+     * by `Rehashing`, so a listener that ends sessions on a change of password
+     * does not take it for one.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  array<array-key, mixed>  $credentials
      * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
     public function rehash(IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): void
     {
@@ -227,7 +232,9 @@ final readonly class PasswordSignIn implements SignInMethod
             return;
         }
 
-        $provider->rehashPasswordIfRequired($identity, $credentials);
+        Container::getInstance()->make(Rehashing::class)->during($identity, $credentials['password'] ?? null, static function () use ($provider, $identity, $credentials): void {
+            $provider->rehashPasswordIfRequired($identity, $credentials);
+        });
     }
 
     /**

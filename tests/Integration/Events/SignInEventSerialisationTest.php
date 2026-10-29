@@ -8,15 +8,17 @@ use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Events\AdditionalFactorRequired;
+use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceCreated;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SignedIn;
-use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Models\Device;
@@ -42,7 +44,8 @@ use Tests\TestCase;
 #[CoversClass(SignedIn::class)]
 #[CoversClass(DeviceCreated::class)]
 #[CoversClass(AdditionalFactorRequired::class)]
-#[CoversClass(SignInFailed::class)]
+#[CoversClass(AuthenticationFailed::class)]
+#[CoversClass(EventContext::class)]
 final class SignInEventSerialisationTest extends TestCase
 {
     use InteractsWithSessions;
@@ -117,12 +120,12 @@ final class SignInEventSerialisationTest extends TestCase
         $created  = self::roundTrip($this->recordedEvent(DeviceCreated::class));
 
         foreach ([$signedIn, $created] as $event) {
-            $this->assertRestoredModels($event->identity, $event->principal, $event->tenant);
-            self::assertSameModel($session->device, $event->device);
-            self::assertSame('Renamed', self::clientNameOf($event->device));
-            self::assertSame('members', $event->guard);
-            self::assertSame('password', $event->method);
-            self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->client);
+            $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
+            self::assertSameModel($session->device, $event->context->device);
+            self::assertSame('Renamed', self::clientNameOf($event->context->device));
+            self::assertSame('members', $event->context->guard);
+            self::assertSame('password', $event->context->method);
+            self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
         }
 
         self::assertTrue($signedIn->deviceCreated);
@@ -153,40 +156,117 @@ final class SignInEventSerialisationTest extends TestCase
 
         $event = self::roundTrip($this->recordedEvent(AdditionalFactorRequired::class));
 
-        $this->assertRestoredModels($event->identity, $event->principal, $event->tenant);
-        self::assertNotNull($event->device);
-        self::assertSameModel($first->device, $event->device);
-        self::assertSame('Renamed', self::clientNameOf($event->device));
-        self::assertSame('password', $event->method);
-        self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->client);
+        $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
+        self::assertNotNull($event->context->device);
+        self::assertSameModel($first->device, $event->context->device);
+        self::assertSame('Renamed', self::clientNameOf($event->context->device));
+        self::assertSame('password', $event->context->method);
+        self::assertEquals(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), $event->context->client);
         self::assertSame($pending->expiresAt->getTimestamp(), $event->expiresAt->getTimestamp());
     }
 
     /**
-     * `SignInFailed` for an `attempt()` refused because a further factor is
-     * required comes back with the member, membership and tenant reloaded, and
-     * its reason and identifier unchanged.
+     * `AuthenticationFailed` for an `attempt()` refused because a further
+     * factor is required comes back with the member, membership and tenant
+     * reloaded, and its reason and identifier unchanged.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testSignInFailedRestoresItsModels(): void
+    public function testAuthenticationFailedRestoresItsModels(): void
     {
         self::requireAFactor();
 
-        $this->recordEvents([SignInFailed::class]);
+        $this->recordEvents([AuthenticationFailed::class]);
 
         self::assertFalse($this->freshGuard('members')->attempt(self::credentials('member@example.test')));
 
-        $event = self::roundTrip($this->recordedEvent(SignInFailed::class));
+        $event = self::roundTrip($this->recordedEvent(AuthenticationFailed::class));
 
-        $this->assertRestoredModels($event->identity, $event->principal, $event->tenant);
-        self::assertNull($event->device);
-        self::assertSame(SignInFailureReason::ADDITIONAL_FACTOR_REQUIRED, $event->reason);
-        self::assertSame('password', $event->method);
+        $this->assertRestoredModels($event->context->identity, $event->context->principal, $event->context->tenant);
+        self::assertNull($event->context->device);
+        self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $event->reason);
+        self::assertSame('password', $event->context->method);
         self::assertSame('member@example.test', $event->identifier);
-        self::assertSame(self::CLIENT_IP, $event->client->ip);
+        self::assertSame(self::CLIENT_IP, $event->context->client->ip);
+    }
+
+    /**
+     * A queued event holds its models as identifiers and never the session's
+     * secrets: no token, no refresh digest, no password hash.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAQueuedEventHoldsIdentifiersAndNoSecret(): void
+    {
+        $this->recordEvents([SignedIn::class]);
+
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+
+        $queued = serialize($this->recordedEvent(SignedIn::class));
+        $digest = $session->device->getRefreshKey();
+        $hash   = $this->member->getAuthPassword();
+
+        self::assertNotNull($digest);
+        self::assertStringContainsString('ModelIdentifier', $queued);
+        self::assertStringNotContainsString($session->tokens->accessToken, $queued);
+        self::assertStringNotContainsString($session->tokens->refreshToken, $queued);
+        self::assertStringNotContainsString($digest, $queued);
+        self::assertStringNotContainsString($hash, $queued);
+    }
+
+    /**
+     * The identifiers an event snapshots when it is built come back unchanged
+     * after a queue, beside the models that are loaded again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheSnapshotsSurviveTheQueue(): void
+    {
+        $this->recordEvents([SignedIn::class]);
+
+        $session = $this->sessions('members')->signIn('password', self::credentials('member@example.test'))->session;
+
+        self::assertNotNull($session);
+
+        $context = self::roundTrip($this->recordedEvent(SignedIn::class))->context;
+
+        self::assertSame((string) $this->member->getKey(), $context->identityId); // @phpstan-ignore cast.string
+        self::assertSame($this->membership->getMorphClass(), $context->principalType);
+        self::assertSame((string) $this->membership->getKey(), $context->principalId); // @phpstan-ignore cast.string
+        self::assertSame((string) $this->tenant->getKey(), $context->tenantId); // @phpstan-ignore cast.string
+        self::assertSame($session->device->getKey(), $context->deviceId);
+    }
+
+    /**
+     * A queued listener cannot restore an event whose device was deleted while
+     * it waited (a pruned device): Laravel's `ModelNotFoundException` says so,
+     * and the snapshots are the record to keep.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnEventWhoseDeviceWasDeletedCannotBeRestored(): void
+    {
+        $this->recordEvents([SignedIn::class]);
+
+        self::assertTrue($this->sessions('members')->signIn('password', self::credentials('member@example.test'))->isSignedIn());
+
+        $queued = serialize($this->recordedEvent(SignedIn::class));
+
+        Device::query()->delete();
+
+        $this->expectException(ModelNotFoundException::class);
+
+        unserialize($queued);
     }
 
     /**

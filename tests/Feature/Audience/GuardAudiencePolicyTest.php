@@ -14,7 +14,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainIdentityFixture;
@@ -97,9 +97,9 @@ final class GuardAudiencePolicyTest extends TestCase
 
         self::assertNull($this->admit($this->principalOfType('client_admin')));
         self::assertNull($this->admit(new PlainPrincipalFixture(1, tenant: $tenant)));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('customer')));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('Staff')));
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1)));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('customer')));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit($this->principalOfType('Staff')));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1)));
     }
 
     /**
@@ -112,7 +112,7 @@ final class GuardAudiencePolicyTest extends TestCase
     {
         config()->set('authentication.audience.principal_types', ['staff']);
 
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1), 'other'));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->admit(new PlainPrincipalFixture(1), 'other'));
 
         $this->setGuardAudience(['principal_types' => null]);
 
@@ -180,10 +180,31 @@ final class GuardAudiencePolicyTest extends TestCase
         $this->setGuardAudience(['require_verified_identifier' => true]);
 
         self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'email'));
-        self::assertSame(SignInFailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
-        self::assertSame(SignInFailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'phone'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $this->policy()->admit(self::GUARD, $this->verifiable(true), new PlainPrincipalFixture(1), 'phone'));
         self::assertNull($this->policy()->admit(self::GUARD, $this->verifiable(false), new PlainPrincipalFixture(1), null));
         self::assertNull($this->policy()->admit('other', $this->verifiable(false), new PlainPrincipalFixture(1), 'email'));
+    }
+
+    /**
+     * The gate alone, for the identity before any principal: with the gate on,
+     * an identifier of a type is admitted only when the identity reports it
+     * verified, while a sign-in that used no identifier, or a guard without the
+     * gate, admits it without reading the identity.
+     *
+     * @return void
+     */
+    public function testTheGateAloneDecidesForTheIdentity(): void
+    {
+        $this->setGuardAudience(['require_verified_identifier' => true]);
+
+        $policy = $this->packagePolicy();
+
+        self::assertNull($policy->admitIdentifier(self::GUARD, $this->verifiable(true), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $policy->admitIdentifier(self::GUARD, $this->verifiable(false), 'email'));
+        self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $policy->admitIdentifier(self::GUARD, $this->verifiable(true), 'phone'));
+        self::assertNull($policy->admitIdentifier(self::GUARD, $this->identity(), null));
+        self::assertNull($policy->admitIdentifier('other', $this->identity(), 'email'));
     }
 
     /**
@@ -196,7 +217,7 @@ final class GuardAudiencePolicyTest extends TestCase
     {
         $this->setGuardAudience(['require_verified_identifier' => true, 'principal_types' => ['staff']]);
 
-        self::assertSame(SignInFailureReason::PRINCIPAL_INELIGIBLE, $this->policy()->admit(self::GUARD, $this->verifiable(false), $this->principalOfType('customer'), 'email'));
+        self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $this->policy()->admit(self::GUARD, $this->verifiable(false), $this->principalOfType('customer'), 'email'));
     }
 
     /**
@@ -268,7 +289,27 @@ final class GuardAudiencePolicyTest extends TestCase
         $this->setGuardAudience([$key => $value]);
 
         $this->assertFailsClosed($message, fn (): bool => $this->policy()->allowsMethod(self::GUARD, 'password'));
-        $this->assertFailsClosed($message, fn (): ?SignInFailureReason => $this->admit(new PlainPrincipalFixture(1)));
+        $this->assertFailsClosed($message, fn (): ?FailureReason => $this->admit(new PlainPrincipalFixture(1)));
+        $this->assertFailsClosed($message, function (): bool {
+            $this->packagePolicy()->validate(self::GUARD);
+
+            return true;
+        });
+    }
+
+    /**
+     * Validating a guard whose settings are well formed reports nothing and
+     * leaves its decisions as they were.
+     *
+     * @return void
+     */
+    public function testValidatingWellFormedSettingsPasses(): void
+    {
+        $policy = $this->packagePolicy();
+
+        $policy->validate(self::GUARD);
+
+        self::assertTrue($policy->allowsMethod(self::GUARD, 'password'));
     }
 
     /**
@@ -367,6 +408,20 @@ final class GuardAudiencePolicyTest extends TestCase
     }
 
     /**
+     * Resolve the bound policy, which is the package's.
+     *
+     * @return \SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy
+     */
+    private function packagePolicy(): GuardAudiencePolicy
+    {
+        $policy = $this->policy();
+
+        self::assertInstanceOf(GuardAudiencePolicy::class, $policy);
+
+        return $policy;
+    }
+
+    /**
      * The audience policy the container binds.
      *
      * @return \SineMacula\Laravel\Authentication\Contracts\AudiencePolicy
@@ -386,9 +441,9 @@ final class GuardAudiencePolicyTest extends TestCase
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  string  $guard
-     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason
+     * @return ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      */
-    private function admit(Principal $principal, string $guard = self::GUARD): ?SignInFailureReason
+    private function admit(Principal $principal, string $guard = self::GUARD): ?FailureReason
     {
         return $this->policy()->admit($guard, $this->identity(), $principal, null);
     }
