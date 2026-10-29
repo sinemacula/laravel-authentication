@@ -220,7 +220,9 @@ final readonly class IdentifierChangeService
      * Confirm the pending change a request to a change link names, and make it.
      * The link must be validly signed, unexpired, for this guard, and name the
      * identity's pending change of its type as it stands: the same request and
-     * the same new identifier.
+     * the same new identifier. Call it from a form the link's page posts back
+     * to the same signed address, not from the link's `GET` itself, which mail
+     * scanners and link previews fetch unasked.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome

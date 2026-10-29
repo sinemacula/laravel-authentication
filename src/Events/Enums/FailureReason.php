@@ -163,15 +163,16 @@ enum FailureReason: string
 
     // A change of identifier was asked for without a recent sign-in,
     // reauthentication or confirmed further factor, or the password given to
-    // reauthenticate was wrong
+    // reauthenticate was wrong or one the guard does not take
     case REAUTHENTICATION_REQUIRED = 'reauthentication_required';
 
     // The identifier a change would set is held by another identity (found by
     // the guard's provider, or refused by the application's unique index)
     case IDENTIFIER_TAKEN = 'identifier_taken';
 
-    // The reset or change link's token exists but has expired; only on the
-    // event
+    // A password reset link's token, or an identifier change link, has expired:
+    // a reset answers it as invalid, so only the event says so, and an
+    // identifier change reports it as expired
     case LINK_EXPIRED = 'link_expired';
 
     /**

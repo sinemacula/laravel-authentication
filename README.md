@@ -180,9 +180,9 @@ device record live in the `devices` table so replay and stale credentials can be
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed` /
   `Logout` alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
   `AdditionalFactorRequired` / `PrincipalChoiceRequired` / `PrincipalSwitched` / `Refreshed` / `DeviceRevoked` /
-  `SignedOutEverywhere` / `IdentifierVerified` / `IdentifierChangeRequested` / `IdentifierChanged` / `PasskeyAdded` /
-  `PasskeyUsed` / `PasskeyRemoved` / `ApiKeyIssued` /
-  `ApiKeyRotated` / `ApiKeyRevoked` / `ClientCredentialsGranted` and one `AuthenticationFailed` with a reason, each
+  `SignedOutEverywhere` / `IdentifierVerified` / `PasswordSet` / `IdentifierChangeRequested` / `IdentifierChanged` /
+  `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` / `ApiKeyIssued` / `ApiKeyRotated` / `ApiKeyRevoked` /
+  `ClientCredentialsGranted` and one `AuthenticationFailed` with a reason, each
   carrying the same context (guard, client, identity, principal, tenant, device, method, and the credential and its
   scopes where one is used) and never a secret. A bearer request is not a sign-in: it fires only `Authenticated` and the
   contextual events.
@@ -1987,7 +1987,9 @@ final class BreachRangeChecker implements BreachedPasswordChecker
 
 When the checker cannot answer, it throws `BreachedPasswordCheckUnavailableException` (never with the password in the
 message): the exception is reported to your exception handler, and `breached.when_unavailable` decides what happens to
-the password. `reject` (the default) refuses it as `breach_check_unavailable`, failing closed, so an outage blocks new
+the password. Laravel's own breached check, `Password::uncompromised()` over its `UncompromisedVerifier`, is not the
+seam: its verifier reports an outage and answers "not breached", so it always fails open and `when_unavailable` could
+not hold. `reject` (the default) refuses it as `breach_check_unavailable`, failing closed, so an outage blocks new
 passwords rather than letting a breached one through; `allow` lets it through, failing open. Any other exception the
 checker throws propagates.
 
@@ -2002,7 +2004,9 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 $request->validate(['password' => ['required', 'confirmed', Auth::passwords('api')->rule()]]);
 ```
 
-The rule runs no breached check and cannot see bcrypt's byte limit, so `set()` (or `check()`) has the last word. The
+The rule runs no breached check (it does not add `uncompromised()`) and cannot see bcrypt's byte limit, so `set()` (or
+`check()`) has the last word. It is built from the package's settings, not from `Password::defaults()`: a form that
+validates with your own defaults is checked against those, and `set()` still applies the package's policy. The
 policy applies only to passwords being set: the automatic rehash of an outdated hash on sign-in re-encodes the password
 the identity already has, so an older password shorter than today's minimum still signs in, and is rehashed.
 
@@ -2022,18 +2026,29 @@ transaction on the identity's connection:
 | `RESET`        | A password set without the old one, after a proof         | Every session, as `passwordReset()`                 |
 
 ```php
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 
-Route::middleware(['auth:api', 'throttle:6,1'])->put('/password', function (Request $request) {
+Route::middleware('auth:api')->put('/password', function (Request $request, AttemptLimiter $limiter) {
     $passwords = Auth::passwords('api');
     $identity  = Auth::identity();
 
     $request->validate(['current_password' => 'required', 'password' => ['required', 'confirmed', $passwords->rule()]]);
 
+    $slot = $limiter->acquire(new AttemptSubject('api', AttemptFlow::SIGN_IN, $identity->email, 'email', $request->ip()));
+
+    if (!$slot->granted()) {
+        return response()->json(['message' => 'Too many attempts.'], 429)->header('Retry-After', (string) $slot->retryAfter);
+    }
+
     if (!Auth::guard('api')->validate(['email' => $identity->email, 'password' => $request->input('current_password')])) {
         return response()->json(['message' => 'The current password is wrong.'], 422);
     }
+
+    $limiter->release($slot);
 
     $result = $passwords->set($identity, $request->input('password'), PasswordFlow::CHANGE, Auth::device());
 
@@ -2045,8 +2060,10 @@ Route::middleware(['auth:api', 'throttle:6,1'])->put('/password', function (Requ
 
 `set()` is a trusted call, as `login()` is: you decide that the identity may have the password, and you choose the flow
 on the server, never from input, because a registration ends no session. Ask for a recent reauthentication before a
-change, as above, so a stolen session cannot change the password and keep itself signed in; `validate()` counts no
-attempt, so limit the route (Laravel's `throttle` middleware here). A change ends every session of the identity, through
+change, as above, so a stolen session cannot change the password and keep itself signed in. `validate()` checks the
+password inside the guard's credential timebox but counts no attempt, so the route takes a slot of the guard's `sign_in`
+limits from the bound `AttemptLimiter` first, as a sign-in's password does, counted in the database for the identifier
+and the IP address, and gives it back once the password is right. A change ends every session of the identity, through
 every guard, but the device in `$except` (the request's own device, to keep it signed in; `null` ends them all); a reset
 ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
 (see [Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked`
@@ -2115,10 +2132,12 @@ otherwise), the identifier must be one its type's normaliser accepts (`identifie
 form, and the IP address must have requests left under the `password_reset_request` limits (`rate_limited`, counted on
 every request and never given back), and no link or code may have been issued for it within the codes'
 `resend_cooldown_seconds` (`rate_limited` with the seconds left). Then a token or a code is issued for the identifier,
-whoever holds it, and its delivery queued (see [One-time codes](#one-time-codes) for the delivery queue): the answer is a
-`CodeRequest`, `sent` with when it expires. A newer link or code replaces the one before, which stops working at once.
-No identity is looked up during the request. Refusals are reported by `AuthenticationFailed` with the flow
-`password_reset`.
+whoever holds it, and its delivery queued (see [One-time codes](#one-time-codes) for the delivery queue): the answer is
+a `CodeRequest`, `sent` with when it expires. A link request answers with the code requests' type as well (`CodeRequest`
+and `Codes\Enums\CodeRequestStatus`, as the route above imports): a reset link's token is issued and limited by the same
+engine as a code, and the answer has the same four statuses. A newer link or code replaces the one before, which stops
+working at once. No identity is looked up during the request. Refusals are reported by `AuthenticationFailed` with the
+flow `password_reset`.
 
 The queued job alone decides, later, who receives it: the identity the guard's provider finds by the identifier, read on
 the write connection, that is not a `MachineIdentity`, is active, holds exactly that identifier (its own, in normal form,
@@ -2213,7 +2232,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
 
-class User extends Model implements HasChangeableIdentifiers, HasDevices, Identity, Principal
+class User extends Model implements HasChangeableIdentifiers, Identity, Principal
 {
     use ActsAsPrincipal, Authenticatable, ProvidesIdentifierVerification;
 }
@@ -2253,6 +2272,9 @@ never from the future.
   as `start()` is: never build it from a time the client sent.
 
 An identity that signs in only with codes or passkeys reauthenticates by signing in again on the device it changes from.
+A token with no device (in [access-only mode](#access-only-mode-no-devices-no-refresh), or any access token without a
+`did`) has no session to offer, so `Auth::device()` is `null` there and the request must ask for another proof, as the
+first route below does with the password.
 
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
 your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
@@ -2267,8 +2289,10 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRe
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 
 Route::middleware('auth:api')->post('/email/change', function (Request $request) {
-    $input  = $request->validate(['email' => ['required', 'email']]);
-    $result = Auth::identifierChanges('api')->requestByCode(Auth::identity(), 'email', $input['email'], Reauthentication::device(Auth::device()));
+    $input  = $request->validate(['email' => ['required', 'email'], 'password' => ['nullable', 'string']]);
+    $device = Auth::device();
+    $proof  = $device === null ? Reauthentication::password((string) ($input['password'] ?? '')) : Reauthentication::device($device);
+    $result = Auth::identifierChanges('api')->requestByCode(Auth::identity(), 'email', $input['email'], $proof);
 
     return match ($result->status) {
         IdentifierChangeRequestStatus::SENT                      => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
@@ -2306,8 +2330,11 @@ reports the change waiting through this guard (its new identifier and times) and
 Prune expired changes with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
 
 **Confirming.** `confirmByCode($identity, $type, $code)` takes the code; `confirmByLink($request)` takes the request to
-the link's route, which needs no session (the link names the identity, signed). Each acts only on a change requested
-through the same guard.
+the link's address, which needs no session (the link names the identity, signed). Each acts only on a change requested
+through the same guard. Let the link's `GET` only show a confirmation, and confirm from its form: mail scanners and link
+previews fetch links no one clicked, and a change confirmed by such a fetch (a mistyped address that reaches a
+stranger's scanned mailbox, say) would make the stranger's address the one password resets go to. The form posts back
+to the same signed address, query included, and `confirmByLink()` reads the signature from it.
 
 ```php
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
@@ -2322,11 +2349,16 @@ Route::middleware('auth:api')->post('/email/change/confirm', function (Request $
     };
 });
 
-Route::get('/email/change/confirm', function (Request $request) {
+Route::get('/email/change/link/confirm', function (Request $request) {
+    // A page whose form posts to $request->fullUrl(), so following the link changes nothing by itself.
+    return view('email.confirm-change', ['action' => $request->fullUrl()]);
+})->name('email.change.confirm');
+
+Route::post('/email/change/link/confirm', function (Request $request) {
     return Auth::identifierChanges('api')->confirmByLink($request) === IdentifierChangeOutcome::CHANGED
         ? response()->noContent()
         : abort(403);
-})->name('email.change.confirm');
+});
 ```
 
 | Outcome     | When                                                                                                                                      |
@@ -2659,6 +2691,10 @@ seam has a default that works alone.
   report nothing: the factor's outcome is the factor package's to limit and report.
 - Factor state is the factor package's, keyed by the device id (`Auth::device()?->getDeviceIdentifier()`, the `did`
   every session token carries); the device records none.
+- A factor the factor package has just verified proves a recent authentication before an identifier change:
+  `Reauthentication::confirmedAt($verifiedAt)` (see [Changing identifiers](#changing-identifiers)).
+- When every sign-in requires a further factor, a password is no longer the only factor, and `passwords.min_length`
+  may be lowered from 15 to 8, as NIST SP 800-63B allows (see [Password policy](#password-policy)).
 
 ### Authorization (`laravel-authorization`)
 

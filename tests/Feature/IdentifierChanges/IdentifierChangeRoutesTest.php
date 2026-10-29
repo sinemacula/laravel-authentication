@@ -69,7 +69,8 @@ final class IdentifierChangeRoutesTest extends TestCase
         $this->sender   = FakeOneTimeCodeSender::fake($this->app);
         $this->notifier = FakeIdentifierChangeNotifier::fake($this->app);
 
-        Route::get('/email/confirm', self::confirmByLink(...))->name('email.confirm');
+        Route::get('/email/confirm', self::confirmationPage(...))->name('email.confirm');
+        Route::post('/email/confirm', self::confirmByLink(...));
 
         Route::middleware('auth:web')->group(static function (): void {
             Route::post('/email/change', self::requestByCode(...));
@@ -144,7 +145,10 @@ final class IdentifierChangeRoutesTest extends TestCase
 
     /**
      * Proven by the current password, the change is confirmed by the link
-     * mailed to the new address, which works once and needs no session.
+     * mailed to the new address, which works once and needs no session:
+     * following the link only shows the confirmation, so a mail scanner that
+     * fetches it changes nothing, and the page's form, posted back to the same
+     * signed address, makes the change.
      *
      * @return void
      */
@@ -160,8 +164,17 @@ final class IdentifierChangeRoutesTest extends TestCase
         self::assertCount(1, self::$mailed);
         self::assertSame(self::NEW_EMAIL, self::$mailed[0][0]);
 
-        $this->get(self::$mailed[0][1])->assertNoContent();
-        $this->get(self::$mailed[0][1])->assertUnprocessable();
+        $page = (string) $this->get(self::$mailed[0][1])->assertOk()->baseResponse->getContent();
+
+        $this->get(self::$mailed[0][1])->assertOk();
+        $this->bearer($access, 'get', '/me')->assertOk()->assertExactJson(['email' => self::EMAIL]);
+
+        self::assertSame(1, preg_match('/<form method="post" action="([^"]+)">/', $page, $form));
+
+        $action = html_entity_decode($form[1]);
+
+        $this->post($action)->assertNoContent();
+        $this->post($action)->assertUnprocessable();
         $this->bearer($access, 'get', '/me')->assertOk()->assertExactJson(['email' => self::NEW_EMAIL]);
     }
 
@@ -246,7 +259,20 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route the change link points at.
+     * The README's route the change link points at: it only shows the
+     * confirmation, a form that posts back to the same signed address.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    private static function confirmationPage(Request $request): Response
+    {
+        return new Response('<form method="post" action="' . e($request->fullUrl()) . '"><button>Confirm the new address</button></form>');
+    }
+
+    /**
+     * The README's route the confirmation page posts to, which makes the
+     * change.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response

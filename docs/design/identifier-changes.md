@@ -67,6 +67,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
 
 ## Failure / Edge Cases
 
+- A confirmation link's `GET` should only show a confirmation whose form posts back to the same signed address (the
+  README's routes do): mail scanners and link previews fetch links unasked, and a change confirmed by such a fetch, of an
+  address mistyped into a stranger's scanned mailbox, would make that address the one password resets go to.
+  `confirmByLink()` reads the signature from the request's query, so the `POST` carries it.
 - No recent authentication, a wrong password, or a password on a guard that does not allow passwords (a code- or
   passkey-only audience, which counts nothing): `reauthentication_required`. A password checked too often: the
   `sign_in` limits' wait, as `rate_limited`.

@@ -135,7 +135,10 @@ final readonly class PasswordService
      * decides, later, whether its holder may reset (see `ResetRequests` and
      * `SendPasswordReset`). It lives
      * `authentication.passwords.reset.link_ttl_seconds` and goes through the
-     * bound `PasswordResetLinkSender`.
+     * bound `PasswordResetLinkSender`. The answer is a `Codes\CodeRequest`, the
+     * type a code request answers with, and its `CodeRequestStatus`: a link's
+     * token is issued and limited by the same engine as a code, with the same
+     * four outcomes.
      *
      * @param  array<array-key, mixed>  $input
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
@@ -155,8 +158,10 @@ final readonly class PasswordService
     /**
      * Send a password reset code to the identifier the input names under the
      * type (for `phone`, `['phone' => '+447700900123']`), as `sendResetLink()`
-     * sends a link; the code is a one-time code, delivered through the bound
-     * `OneTimeCodeSender` with the purpose `password_reset`.
+     * sends a link, with the same `Codes\CodeRequest` answer; the code is a
+     * one-time code, delivered with the purpose `password_reset` through the
+     * `OneTimeCodeSender`, which must be bound (a `LogicException` otherwise,
+     * before anything is counted).
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input

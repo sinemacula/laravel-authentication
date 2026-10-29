@@ -39,6 +39,20 @@ the `Password` validation rule, and the default link delivery, Laravel's `ResetP
 Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel it is the application controller's event);
 `RevokeDevicesOnPasswordReset` stays for applications that keep Laravel's broker.
 
+Laravel's own breached-password seam was assessed too: `Password::uncompromised()` asks the container's
+`Illuminate\Contracts\Validation\UncompromisedVerifier`, whose default `NotPwnedVerifier::search()` catches every
+exception, reports it and treats an empty or unsuccessful answer as "not breached". It always fails open, so it cannot
+carry `breached.when_unavailable`, and its contract has no way to say "could not answer". The package's own
+`Contracts\BreachedPasswordChecker` says so with `BreachedPasswordCheckUnavailableException`. `rule()` therefore does not
+add `uncompromised()`, and builds its rule from the package's settings with `Password::min()`, not from an
+application's `Password::defaults()`: a form validated with the application's defaults is judged by those, and `check()`
+and `set()` still apply the package's policy.
+
+Reset requests answer with `Codes\CodeRequest` and `Codes\Enums\CodeRequestStatus`, the code requests' types, rather
+than a reset type of their own: a link's token is issued, limited and cooled down by the same engine as a code, with
+the same four outcomes (`sent`, `rate_limited`, `method_not_allowed`, `identifier_invalid`) and fields, and a copy would
+only duplicate them.
+
 ## Invariants
 
 - The policy applies to a password being set (`Auth::passwords($guard)->check()` and `set()`), never to the automatic
