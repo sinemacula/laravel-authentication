@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
@@ -96,7 +97,8 @@ final readonly class ResetRequests
 
     /**
      * Send a reset code to the identifier the input names under the type, which
-     * must have a registered normaliser.
+     * must have a registered normaliser, through the bound `OneTimeCodeSender`
+     * (none bound is a misconfiguration, refused before anything is counted).
      *
      * @param  string  $type
      * @param  array<array-key, mixed>  $input
@@ -112,6 +114,8 @@ final readonly class ResetRequests
     public function code(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client): CodeRequest
     {
         ResetInput::assertCodeType($this->container->make(IdentifierNormalisers::class), $type);
+
+        $this->assertCodeSender();
 
         return $this->send(CodePurpose::PASSWORD_RESET, $type, $input, $client);
     }
@@ -193,6 +197,22 @@ final readonly class ResetRequests
         )->retryAfter;
 
         return $wait === null ? $identifier : [CodeRequest::rateLimited($wait), FailureReason::RATE_LIMITED, $wait];
+    }
+
+    /**
+     * Refuse a reset code while no `OneTimeCodeSender` is bound to deliver it.
+     *
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private function assertCodeSender(): void
+    {
+        if ($this->container->bound(OneTimeCodeSender::class)) {
+            return;
+        }
+
+        throw new \LogicException(sprintf('No %s is bound to deliver password reset codes: bind one before sending them.', OneTimeCodeSender::class));
     }
 
     /**

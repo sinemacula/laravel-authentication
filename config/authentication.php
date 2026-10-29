@@ -540,9 +540,10 @@ return [
     | connection must be configured in `queue.connections`). On a `sync`
     | connection it runs after the response is sent, and a `failover`
     | connection that can fall back to `sync` is pushed to after the response;
-    | `authentication:check` warns about both, since a worker is the
-    | production setting. A malformed value fails closed before anything is
-    | counted or sent, and `authentication:check` reports it.
+    | `authentication:check` warns about both while any `jwt` guard is
+    | configured, since a worker is the production setting. A malformed value
+    | fails closed before anything is counted or sent, and
+    | `authentication:check` reports it.
     |
     */
 

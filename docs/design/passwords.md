@@ -102,8 +102,9 @@ Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel i
 ## Reset requests (`sendResetLink()`, `sendResetCode()`)
 
 1. The type: a link's is the guard's password identifier (`PasswordSignIn::identifierType()`); a code's is given and
-   must have a registered normaliser (`InvalidArgumentException`). With `NotifyingResetLinkSender` bound, a link for a
-   type other than `email` is an `InvalidArgumentException`. The code settings, the code key, the delivery queue and the
+   must have a registered normaliser (`InvalidArgumentException`), and a code needs a `OneTimeCodeSender` bound
+   (`LogicException`). With `NotifyingResetLinkSender` bound, a link for a type other than `email` is an
+   `InvalidArgumentException`. The code settings, the code key, the delivery queue and the
    link lifetime fail closed, and the provider's configured model must be on the device model's connection
    (`SharedConnection::assertForGuard()`, a `LogicException`), since a reset could never spend what the request issues.
    Nothing is counted yet.

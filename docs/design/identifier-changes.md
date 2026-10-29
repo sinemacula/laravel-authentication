@@ -53,7 +53,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
 
 ## Success Path
 
-1. `requestByCode($identity, 'email', $new, Reauthentication::device($device))`: configuration checked; the proof is
+1. `requestByCode($identity, 'email', $new, Reauthentication::device($device))`: configuration checked (a code needs a
+   `OneTimeCodeSender` bound, as every change needs a notifier); the proof is
    recent; the new identifier is normalised and differs; the limits have room. In one transaction: a code is issued for
    a fresh `request_id`, the change is written, the replaced change's code invalidated, the code's delivery queued.
    After commit: `IdentifierChangeRequested`, and the job sends the code to the new identifier while the code is live

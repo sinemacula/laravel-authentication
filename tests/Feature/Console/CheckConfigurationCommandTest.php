@@ -344,10 +344,10 @@ final class CheckConfigurationCommandTest extends TestCase
     /**
      * A code sign-in method the application registered for another identifier
      * type counts as a code method: a guard that allows only it is named when
-     * no sender is bound, and warned about on a `sync` connection. A method of
-     * another kind, or one that does not build as a sign-in method (whether the
-     * manager refuses what its factory gives, or a typed factory throws a
-     * `TypeError`), is not a code method, and no guard needs to list it.
+     * no sender is bound. A method of another kind, or one that does not build
+     * as a sign-in method (whether the manager refuses what its factory gives,
+     * or a typed factory throws a `TypeError`), is not a code method, and no
+     * guard needs to list it.
      *
      * @return void
      */
@@ -365,72 +365,61 @@ final class CheckConfigurationCommandTest extends TestCase
         config()->set([
             'auth.guards.api.audience'   => ['methods' => ['whatsapp_code']],
             'auth.guards.admin.audience' => ['methods' => ['sso', 'broken']],
-            'queue.connections.sync'     => ['driver' => 'sync'],
         ]);
 
         [$code, $output] = $this->check();
 
         self::assertSame(1, $code);
         self::assertContains('[codes] Guards [api] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
-        self::assertContains('[delivery] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-            . 'set `authentication.delivery.queue.connection` to a worker-backed connection in production.', $output);
     }
 
     /**
-     * Delivering codes on a `sync` connection is a warning, not a problem, and
-     * only when a guard allows a code sign-in method.
+     * Delivering on a `sync` connection is a warning, not a problem, whenever a
+     * `jwt` guard is configured, whatever its audience allows: any of them may
+     * send a password reset or an identifier change. With only `api_key`
+     * guards, which deliver nothing, there is none.
      *
      * @return void
      */
-    public function testSynchronousCodeDeliveryIsAWarning(): void
+    public function testSynchronousDeliveryIsAWarning(): void
     {
         config()->set([
-            'queue.default'                            => 'database',
-            'queue.connections.database'               => ['driver' => 'database'],
             'queue.connections.sync'                   => ['driver' => 'sync'],
             'authentication.delivery.queue.connection' => 'sync',
         ]);
 
-        FakeOneTimeCodeSender::fake($this->app);
-
-        $warning = '[delivery] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-            . 'set `authentication.delivery.queue.connection` to a worker-backed connection in production.';
-
-        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
-
-        config()->set('auth.guards.admin.audience', ['methods' => ['phone_code']]);
+        $warning = '[delivery] One-time codes, password reset links and codes, and identifier change codes and notices are delivered on a `sync` '
+            . 'queue connection, after each response in the web process; set `authentication.delivery.queue.connection` to a '
+            . 'worker-backed connection in production.';
 
         self::assertSame([0, [...self::PACKAGE_OK, $warning, '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+
+        config()->set('auth.guards', ['machine' => config('auth.guards.machine')]);
+
+        self::assertSame([0, [...self::PACKAGE_OK, '[machine] OK']], $this->check());
     }
 
     /**
-     * Delivering codes on a `failover` connection that can fall back to `sync`
-     * is a warning of its own, only when a guard allows a code sign-in method;
-     * one whose connections are all worker-backed is not.
+     * Delivering on a `failover` connection that can fall back to `sync` is a
+     * warning of its own, whenever a `jwt` guard is configured; one whose
+     * connections are all worker-backed is not.
      *
      * @return void
      */
-    public function testCodeDeliveryThatCanFallBackToSyncIsAWarning(): void
+    public function testDeliveryThatCanFallBackToSyncIsAWarning(): void
     {
         config()->set([
-            'queue.default'                            => 'database',
-            'queue.connections.database'               => ['driver' => 'database'],
             'queue.connections.sync'                   => ['driver' => 'sync'],
             'queue.connections.workers'                => ['driver' => 'failover', 'connections' => ['database']],
             'queue.connections.failover'               => ['driver' => 'failover', 'connections' => ['database', 'sync']],
             'authentication.delivery.queue.connection' => 'failover',
         ]);
 
-        FakeOneTimeCodeSender::fake($this->app);
-
-        $warning = '[delivery] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
-            . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.delivery.queue.connection` '
-            . 'to a worker-backed connection that cannot in production.';
+        $warning = '[delivery] One-time codes, password reset links and codes, and identifier change codes and notices are delivered on a '
+            . '`failover` queue connection that can fall back to `sync`; each delivery is pushed after the response, and runs in the '
+            . 'web process when it falls back. Set `authentication.delivery.queue.connection` to a worker-backed connection that '
+            . 'cannot in production.';
         $checked = self::EVERY_SUBJECT_OK;
-
-        self::assertSame([0, $checked], $this->check());
-
-        config()->set('auth.guards.admin.audience', ['methods' => ['email_code']]);
 
         self::assertSame([0, [...self::PACKAGE_OK, $warning, ...array_slice($checked, count(self::PACKAGE_OK))]], $this->check());
 
@@ -756,6 +745,8 @@ final class CheckConfigurationCommandTest extends TestCase
         $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'users']);
         $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
         $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'audience' => ['methods' => ['api_key']]]);
+        $config->set('queue.default', 'database');
+        $config->set('queue.connections.database', ['driver' => 'database']);
     }
 
     /**

@@ -3106,11 +3106,12 @@ the job during its dispatch, it is dispatched after the response instead, in the
 (`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. A `failover` connection that lists a `sync` one
 (directly or through another `failover`) would run the job during its dispatch whenever the connections before it
 fail, so the job is pushed to it in the terminating callbacks instead: a worker-backed connection still gets it, and a
-fall back to `sync` runs it after the response. Run a worker in production: `authentication:check` warns when a guard
-allows a code method and the delivery connection is `sync`, or a `failover` that can fall back to `sync`. Bind your
-gateway as the sender, from a service provider (the package ships none, and fails the job with a
-`BindingResolutionException` without one; `authentication:check` reports a guard that allows a code method with no
-sender bound):
+fall back to `sync` runs it after the response. Run a worker in production: `authentication:check` warns when a `jwt`
+guard is configured and the delivery connection is `sync`, or a `failover` that can fall back to `sync`. Bind your
+gateway as the sender, from a service provider (the package ships none: a sign-in code's job fails with a
+`BindingResolutionException` without one, and `authentication:check` reports a guard that allows a code method with no
+sender bound; a password reset code or an identifier change by code throws a `LogicException` before anything is
+counted):
 
 ```php
 use App\Auth\SmsCodeSender;
@@ -3688,8 +3689,9 @@ problem, each as `[<guard>] <message>` (`[device]` for the device model and rete
 lifetime, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
 delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
 for the identifier change settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync` queue connection,
-or on a `failover` one that can fall back to `sync`, while a guard allows a code method, is a `[delivery]` warning that
-leaves the exit code alone, as is a `jwt` guard whose password resets or identifier changes would refuse to run: its
+or on a `failover` one that can fall back to `sync`, while any `jwt` guard is configured (any of them may send codes,
+reset links and codes, or identifier change codes and notices), is a `[delivery]` warning that leaves the exit code
+alone, as is a `jwt` guard whose password resets or identifier changes would refuse to run: its
 provider's model on another connection than the device model, or, for resets, a password identifier other than `email`
 while Laravel's notification is the reset link sender (see [Password reset](#password-reset)). Only the named guards are
 checked with `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key`

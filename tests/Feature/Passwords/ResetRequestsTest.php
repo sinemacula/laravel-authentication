@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -204,6 +205,30 @@ final class ResetRequestsTest extends TestCase
         }
 
         self::assertSame(0, DB::table('rate_limits')->count());
+    }
+
+    /**
+     * Without a code sender, a reset code is refused before anything is counted
+     * or issued; a link, delivered by its own sender, still goes out.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetCodeNeedsACodeSender(): void
+    {
+        app()->forgetInstance(OneTimeCodeSender::class);
+        app()->offsetUnset(OneTimeCodeSender::class);
+
+        try {
+            $this->passwords()->sendResetCode('phone', ['phone' => self::PHONE]);
+            self::fail('A reset code was sent with no sender bound.');
+        } catch (\LogicException $exception) {
+            self::assertSame('No ' . OneTimeCodeSender::class . ' is bound to deliver password reset codes: bind one before sending them.', $exception->getMessage());
+        }
+
+        self::assertSame([0, 0], [DB::table('rate_limits')->count(), DB::table('one_time_codes')->count()]);
+        self::assertTrue($this->passwords()->sendResetLink(['email' => self::EMAIL])->isSent());
     }
 
     /**

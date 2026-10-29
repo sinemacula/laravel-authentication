@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
@@ -373,6 +374,36 @@ final class IdentifierChangeServiceTest extends TestCase
                 self::assertSame($message, $e->getMessage());
             }
         }
+    }
+
+    /**
+     * Without a code sender, a change by code is refused before anything is
+     * counted or written; a change by link, which the application sends, still
+     * starts.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChangeByCodeNeedsACodeSender(): void
+    {
+        $identity = self::seedChangeable();
+
+        app()->forgetInstance(OneTimeCodeSender::class);
+        app()->offsetUnset(OneTimeCodeSender::class);
+
+        try {
+            $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now));
+            self::fail('A change by code was requested with no sender bound.');
+        } catch (\LogicException $exception) {
+            self::assertSame(
+                'No ' . OneTimeCodeSender::class . ' is bound to deliver the code that proves a new identifier: bind one before changing identifiers by code.',
+                $exception->getMessage(),
+            );
+        }
+
+        self::assertSame([0, 0, 0], [DB::table('rate_limits')->count(), DB::table('one_time_codes')->count(), DB::table('identifier_changes')->count()]);
+        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->isSent());
     }
 
     /**

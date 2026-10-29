@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Testing\FakeIdentifierChangeNotifier;
+use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithChangeableIdentities;
 
 /**
@@ -37,8 +38,8 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     use InteractsWithChangeableIdentities;
 
     /**
-     * Create the identities table, fake the notifier and the queue, and issue a
-     * known code.
+     * Create the identities table, fake the notifier, the code sender and the
+     * queue, and issue a known code.
      *
      * @return void
      */
@@ -55,6 +56,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
 
         Queue::fake();
         FakeIdentifierChangeNotifier::fake($this->app);
+        FakeOneTimeCodeSender::fake($this->app);
     }
 
     /**

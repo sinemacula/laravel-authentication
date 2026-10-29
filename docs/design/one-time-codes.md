@@ -53,8 +53,8 @@ request for a code looks the same whether or not anyone has the identifier, and 
   connection already on the path is not followed again), runs the job during its dispatch whenever the connections
   before it fail, so the job is pushed to it from the terminating callbacks instead (`DeliverySettings::fallsBackToSync()`):
   a worker-backed connection still receives it, and a fall back runs it after the response. `authentication:check`
-  warns about both settings. The job sets `beforeCommit()`, since the
-  package has already waited for its own row's commit.
+  warns about both settings while any `jwt` guard is configured (any may send a code, a reset or an identifier change).
+  The job sets `beforeCommit()`, since the package has already waited for its own row's commit.
 - The job first checks, on the write connection, that its issuance is still the binding's live, unused, unexpired code;
   otherwise it sends nothing. A sign-in code goes only to the identity the guard's provider finds by the identifier that
   is an `Identity`, not a `MachineIdentity`, active, `HasVerifiableIdentifiers`, holds exactly the bound identifier

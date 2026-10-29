@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -100,7 +101,8 @@ final readonly class IdentifierChangeService
      * Start a change of the identity's identifier of the type to the one given,
      * proven by a one-time code sent to it: the code's delivery is queued once
      * the request commits, through the application's `OneTimeCodeSender` with
-     * the purpose `change_identifier`. The answer says until when the code
+     * the purpose `change_identifier` (none bound is a misconfiguration,
+     * refused before anything is counted). The answer says until when the code
      * confirms the change.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
@@ -128,6 +130,7 @@ final readonly class IdentifierChangeService
         $changeable = $this->changeable($identity, $type);
 
         (new CodeSettings($this->collaborator(Repository::class)))->validate();
+        $this->assertCodeSender();
 
         return (new ChangeRequests($this->guard, $this->container))->request($changeable, $type, $identifier, $proof, null, $this->context($changeable, $client));
     }
@@ -418,6 +421,25 @@ final readonly class IdentifierChangeService
         SharedConnection::assert($changeable, self::FLOW, $this->collaborator(ConfigRepository::class));
 
         return $changeable;
+    }
+
+    /**
+     * Refuse a change by code while no `OneTimeCodeSender` is bound to deliver
+     * the code to the new identifier.
+     *
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private function assertCodeSender(): void
+    {
+        if ($this->container->bound(OneTimeCodeSender::class)) {
+            return;
+        }
+
+        $message = sprintf('No %s is bound to deliver the code that proves a new identifier: bind one before changing identifiers by code.', OneTimeCodeSender::class);
+
+        throw new \LogicException($message);
     }
 
     /**
