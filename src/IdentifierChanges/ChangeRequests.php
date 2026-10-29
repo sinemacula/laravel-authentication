@@ -145,16 +145,15 @@ final readonly class ChangeRequests
 
             $stored     = IdentityLock::acquire($identity) ?? $identity;
             $identifier = $given->getValue();
-            $normalised = (string) $this->container->make(IdentifierNormalisers::class)->get($type)->normalise($identifier);
             $previous   = WriteConnection::during($stored, static fn (): ?string => $stored->getIdentifierForVerification($type));
             $verified   = WriteConnection::during($stored, static fn (): bool => $stored->hasVerifiedIdentifier($type));
 
-            $refused = $stands($stored)
-                ? $this->unacceptable($type, $previous, $normalised, $context, $identifier)
+            $normalised = $stands($stored)
+                ? $this->accepted($type, $previous, $context, $identifier)
                 : $this->refuse(IdentifierChangeRequest::reauthenticationRequired(), FailureReason::REAUTHENTICATION_REQUIRED, $context, $identifier);
 
-            if ($refused !== null) {
-                return $refused;
+            if (!is_string($normalised)) {
+                return $normalised;
             }
 
             $change = new RequestedChange($type, $previous, $verified, $normalised, Str::uuid()->toString(), $now, $expires);
@@ -206,12 +205,16 @@ final readonly class ChangeRequests
         RecentAuthentication $recent,
         EventContext $context,
     ): AttemptReservation|IdentifierChangeRequest {
-        $normalised = $this->container->make(IdentifierNormalisers::class)->get($type)->normalise($identifier);
-        $current    = WriteConnection::during($before, static fn (): ?string => $before->getIdentifierForVerification($type));
+        $refused = $this->unauthenticated($recent, $identity, $proof, $context, $identifier);
 
-        return $this->unauthenticated($recent, $identity, $proof, $context, $identifier)
-            ?? $this->unacceptable($type, $current, $normalised, $context, $identifier)
-            ?? $this->limited($identity, $type, (string) $normalised, $context, $identifier);
+        if ($refused !== null) {
+            return $refused;
+        }
+
+        $current    = WriteConnection::during($before, static fn (): ?string => $before->getIdentifierForVerification($type));
+        $normalised = $this->accepted($type, $current, $context, $identifier);
+
+        return is_string($normalised) ? $this->limited($identity, $type, $normalised, $context, $identifier) : $normalised;
     }
 
     /**
@@ -262,27 +265,27 @@ final readonly class ChangeRequests
     }
 
     /**
-     * The refusal of a new identifier the type's normaliser rejects, or that,
-     * in its normal form, is the identity's current one in its canonical form;
-     * otherwise `null`.
+     * The new identifier in its normal form, or the refusal of one the type's
+     * normaliser rejects, or that, in its normal form, is the identity's
+     * current one in its canonical form.
      *
      * @param  string  $type
      * @param  ?string  $current
-     * @param  ?string  $normalised
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  string  $identifier
-     * @return ?\SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest
+     * @return \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest|string
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function unacceptable(
+    private function accepted(
         string $type,
         #[\SensitiveParameter] ?string $current,
-        #[\SensitiveParameter] ?string $normalised,
         EventContext $context,
         #[\SensitiveParameter] string $identifier,
-    ): ?IdentifierChangeRequest {
+    ): IdentifierChangeRequest|string {
+        $normalised = $this->container->make(IdentifierNormalisers::class)->get($type)->normalise($identifier);
+
         if ($normalised === null) {
             return $this->refuse(IdentifierChangeRequest::identifierInvalid(), FailureReason::INVALID_CREDENTIALS, $context, $identifier);
         }
@@ -291,7 +294,7 @@ final readonly class ChangeRequests
 
         return $canonical !== null && hash_equals($canonical, $normalised)
             ? $this->refuse(IdentifierChangeRequest::identifierUnchanged(), FailureReason::INVALID_CREDENTIALS, $context, $identifier)
-            : null;
+            : $normalised;
     }
 
     /**
