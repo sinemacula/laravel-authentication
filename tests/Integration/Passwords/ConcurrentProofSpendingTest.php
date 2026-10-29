@@ -397,10 +397,11 @@ final class ConcurrentProofSpendingTest extends TestCase
     /**
      * Requests for two identities, none of whose counters, codes or pending
      * changes exist yet, the first held right after its first limiter
-     * statement, both go through: the limits are counted before the
-     * transaction, so neither holds a lock on the counters' index that the
-     * other's insert would wait for (MySQL deadlocks two transactions that each
-     * update a missing key, then insert into the gap).
+     * statement, both go through, the second while the first is still held: the
+     * limits are counted before the transaction, so neither holds a lock on the
+     * counters' index that the other's insert would wait for (MySQL deadlocks
+     * two transactions that each update a missing key, then insert into the
+     * gap).
      *
      * @return void
      *
@@ -417,9 +418,11 @@ final class ConcurrentProofSpendingTest extends TestCase
             'rate_limits',
             fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value,
             fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value,
+            untilSecondEnds: true,
         );
 
         self::assertSame(['sent', 'sent'], [$first, $second['result']]);
+        self::assertTrue($second['overlapped']);
         self::assertSame(2, DB::table('identifier_changes')->count());
         self::assertSame(2, DB::table('one_time_codes')->count());
     }
@@ -430,7 +433,7 @@ final class ConcurrentProofSpendingTest extends TestCase
      * limiter statement, both go through once the counters live on a connection
      * of their own, as README.md tells callers on MySQL to do: on the callers'
      * connection, the counters' missing keys would keep their gaps locked until
-     * each caller commits.
+     * each caller commits. The second finishes while the first is still held.
      *
      * @return void
      *
@@ -452,17 +455,20 @@ final class ConcurrentProofSpendingTest extends TestCase
             'rate_limits',
             fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value),
             fn (): string => DB::transaction(fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value),
+            untilSecondEnds: true,
         );
 
         self::assertSame(['sent', 'sent'], [$first, $second['result']]);
+        self::assertTrue($second['overlapped']);
         self::assertSame(2, DB::table('identifier_changes')->count());
     }
 
     /**
      * A request held inside its transaction once it wrote its code and its
      * pending change does not hold up a request for another identity: the
-     * second creates its own counters, code and pending change without waiting,
-     * as neither locks more than the rows it writes.
+     * second creates its own counters, code and pending change and finishes
+     * while the first is still held, as neither holds a lock the other's
+     * request waits on.
      *
      * @return void
      *
@@ -479,10 +485,11 @@ final class ConcurrentProofSpendingTest extends TestCase
             'identifier_changes',
             fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value,
             fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value,
+            untilSecondEnds: true,
         );
 
         self::assertSame(['sent', 'sent'], [$first, $second['result']]);
-        self::assertLessThan(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertTrue($second['overlapped']);
         self::assertSame(2, DB::table('identifier_changes')->count());
     }
 
@@ -711,18 +718,22 @@ final class ConcurrentProofSpendingTest extends TestCase
      * Run the first operation here, hold it open right after its first
      * statement of the verb on the table (that also holds the marker, given
      * one), start the second in another process meanwhile, then let the first
-     * finish, and return both outcomes.
+     * finish, and return both outcomes. The first is held for a fixed time, or,
+     * when the second must not wait for it, until the second has finished (at
+     * most as long as the second may take to start); the outcome then says
+     * whether it finished while the first was held.
      *
      * @param  string  $verb
      * @param  string  $table
      * @param  \Closure(): string  $first
      * @param  \Closure(): string  $second
      * @param  string  $marker
-     * @return array{0: string, 1: array{result: string, waited: float}}
+     * @param  bool  $untilSecondEnds
+     * @return array{0: string, 1: array{result: string, waited: float, overlapped: bool}}
      *
      * @throws \Throwable
      */
-    private function race(string $verb, string $table, \Closure $first, \Closure $second, string $marker = ''): array
+    private function race(string $verb, string $table, \Closure $first, \Closure $second, string $marker = '', bool $untilSecondEnds = false): array
     {
         DB::disconnect();
 
@@ -732,18 +743,17 @@ final class ConcurrentProofSpendingTest extends TestCase
             $this->runInChild($second);
         }
 
-        $held     = false;
-        $outcomes = $this->outcomes;
+        $held       = false;
+        $overlapped = false;
+        $outcomes   = $this->outcomes;
 
-        DB::listen(static function (QueryExecuted $query) use (&$held, $verb, $table, $marker, $outcomes): void {
+        DB::listen(static function (QueryExecuted $query) use (&$held, &$overlapped, $verb, $table, $marker, $outcomes, $untilSecondEnds): void {
             if ($held || !str_starts_with(strtolower($query->sql), $verb) || !str_contains($query->sql, $table) || !str_contains($query->sql, $marker)) {
                 return;
             }
 
-            $held = true;
-
-            touch("{$outcomes}/start");
-            usleep(self::HOLD_MICROSECONDS);
+            $held       = true;
+            $overlapped = self::hasSecondFinishedWhileHeld($outcomes, $untilSecondEnds);
         });
 
         try {
@@ -759,13 +769,41 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertArrayNotHasKey('error', $outcome, is_string($outcome['error'] ?? null) ? $outcome['error'] : '');
 
         /** @var array{result: string, waited: float} $outcome */
-        return [$result, $outcome];
+        return [$result, [...$outcome, 'overlapped' => $overlapped]];
+    }
+
+    /**
+     * Start the second operation and hold the first, for a fixed time or until
+     * the second has finished (at most as long as it may take to start), and
+     * say whether the second had finished by the time the first is released.
+     *
+     * @param  string  $outcomes
+     * @param  bool  $untilSecondEnds
+     * @return bool
+     */
+    private static function hasSecondFinishedWhileHeld(string $outcomes, bool $untilSecondEnds): bool
+    {
+        touch("{$outcomes}/start");
+
+        $deadline = microtime(true) + self::START_TIMEOUT_SECONDS;
+
+        while ($untilSecondEnds && !is_file("{$outcomes}/outcome") && microtime(true) < $deadline) {
+            usleep(5000);
+        }
+
+        if (!$untilSecondEnds) {
+            usleep(self::HOLD_MICROSECONDS);
+        }
+
+        return is_file("{$outcomes}/outcome");
     }
 
     /**
      * In the forked process: wait to be started, run the operation on a
-     * connection of its own, report the outcome or the exception, and end
-     * without running the parent's shutdown.
+     * connection of its own, report the outcome or the exception (one that was
+     * never started reports that, and runs nothing), and end without running
+     * the parent's shutdown. The outcome is renamed into place whole, so the
+     * parent never reads it half written.
      *
      * @param  \Closure(): string  $operation
      * @return never
@@ -780,12 +818,15 @@ final class ConcurrentProofSpendingTest extends TestCase
             }
 
             $started = microtime(true);
-            $outcome = ['result' => $operation(), 'waited' => microtime(true) - $started];
+            $outcome = is_file("{$this->outcomes}/start")
+                ? ['result' => $operation(), 'waited' => microtime(true) - $started]
+                : ['error' => 'The second operation was never started.'];
         } catch (\Throwable $e) {
             $outcome = ['error' => $e::class . ': ' . $e->getMessage()];
         }
 
-        file_put_contents("{$this->outcomes}/outcome", json_encode($outcome));
+        file_put_contents("{$this->outcomes}/outcome.tmp", json_encode($outcome));
+        rename("{$this->outcomes}/outcome.tmp", "{$this->outcomes}/outcome");
 
         posix_kill(posix_getpid(), SIGKILL);
 
