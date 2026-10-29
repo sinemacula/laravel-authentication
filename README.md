@@ -18,6 +18,86 @@ Drops into Laravel's existing auth machinery - same `Auth::check()`, `Auth::user
 middleware, same events. Adds contextual accessors (`Auth::identity()`, `Auth::principal()`, `Auth::device()`) and
 ships a hardened JWT guard.
 
+## Contents
+
+- [Core Concept](#core-concept)
+- [Features](#features)
+- [Installation](#installation)
+  - [Guards and providers](#guards-and-providers)
+  - [Unauthenticated requests](#unauthenticated-requests)
+  - [Access-only mode (no devices, no refresh)](#access-only-mode-no-devices-no-refresh)
+- [Identity Models](#identity-models)
+  - [2D adoption (identity is the principal)](#2d-adoption-identity-is-the-principal)
+  - [3D adoption (separate identity, principal, tenant)](#3d-adoption-separate-identity-principal-tenant)
+  - [Principal type](#principal-type)
+  - [Identifiers](#identifiers)
+  - [Identifier verification](#identifier-verification)
+  - [Active-state enforcement](#active-state-enforcement)
+- [Signing in](#signing-in)
+  - [The `Auth` facade and `attempt()`](#the-auth-facade-and-attempt)
+  - [Signing in: the session service](#signing-in-the-session-service)
+  - [Signing in with a one-time code](#signing-in-with-a-one-time-code)
+  - [Using passkeys](#using-passkeys)
+  - [Writing a sign-in method](#writing-a-sign-in-method)
+  - [Additional factors](#additional-factors)
+  - [Choosing a principal](#choosing-a-principal)
+  - [Enumeration resistance](#enumeration-resistance)
+- [Refreshing](#refreshing)
+  - [Refresh token cookie](#refresh-token-cookie)
+  - [Refresh token replay](#refresh-token-replay)
+- [Switching principal](#switching-principal)
+- [Signing out and revoking sessions](#signing-out-and-revoking-sessions)
+  - [Listing devices](#listing-devices)
+  - [Revoking on security changes](#revoking-on-security-changes)
+  - [Access tokens without a device](#access-tokens-without-a-device)
+  - [Revocation reasons](#revocation-reasons)
+- [Passwords](#passwords)
+  - [Password policy](#password-policy)
+  - [Setting a password](#setting-a-password)
+  - [Password reset](#password-reset)
+- [Changing identifiers](#changing-identifiers)
+- [Machine credentials](#machine-credentials)
+  - [Non-human identities](#non-human-identities)
+  - [Credential scopes](#credential-scopes)
+  - [API keys](#api-keys)
+  - [Client credentials](#client-credentials)
+- [Failure outcomes](#failure-outcomes)
+- [Suite integration](#suite-integration)
+  - [Further factors (`laravel-mfa`)](#further-factors-laravel-mfa)
+  - [Authorization (`laravel-authorization`)](#authorization-laravel-authorization)
+  - [Single sign-on (`laravel-sso`)](#single-sign-on-laravel-sso)
+  - [Audit (`laravel-audit-log`)](#audit-laravel-audit-log)
+- [Configuration](#configuration)
+  - [Per-guard JWT configuration](#per-guard-jwt-configuration)
+  - [Token and session lifetimes](#token-and-session-lifetimes)
+  - [Audiences](#audiences)
+  - [Per-guard principal resolvers](#per-guard-principal-resolvers)
+  - [Device](#device)
+  - [Sign-in](#sign-in)
+  - [One-time codes](#one-time-codes)
+  - [Passkeys](#passkeys)
+  - [Rate limits](#rate-limits)
+  - [API key settings](#api-key-settings)
+  - [Credential validation timing](#credential-validation-timing)
+- [Events](#events)
+- [Operations](#operations)
+  - [Read replicas](#read-replicas)
+  - [Long-running processes](#long-running-processes)
+  - [Key Rotation](#key-rotation)
+  - [Pruning](#pruning)
+  - [Checking the configuration](#checking-the-configuration)
+- [Testing](#testing)
+  - [Acting as an identity, principal or device](#acting-as-an-identity-principal-or-device)
+  - [Fakes](#fakes)
+  - [Running the package's tests](#running-the-packages-tests)
+- [Extensibility](#extensibility)
+- [Design Notes](#design-notes)
+- [Requirements](#requirements)
+- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
+
 ## Core Concept
 
 Most auth packages collapse "who you are" and "who you're acting as" into a single user. This package separates them:
@@ -110,11 +190,16 @@ device record live in the `devices` table so replay and stale credentials can be
   per principal type.
 - **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email and
   E.164 phone numbers by default), and a password rehash that never overwrites a concurrent change.
-- **Rate limits in the database**: sign-in, code requests and refresh limited per identifier and per IP address;
-  passkey sign-in options and client credentials exchanges per IP address (a client id only when you opt in); all
-  counted atomically on the write connection without a cache.
+- **Rate limits in the database**: sign-in, code requests, password resets, identifier changes and refresh limited per
+  identifier and per IP address; passkey sign-in options and client credentials exchanges per IP address (a client id
+  only when you opt in); all counted atomically on the write connection without a cache.
 - **Identifier verification**: signed verification links or one-time codes bound to their purpose and identifier, and
   an opt-in, per-guard requirement that sign-in identifiers be verified.
+- **Passwords**: a configurable policy built on Laravel's `Password` rule, with a breached-password seam (no service
+  ships) that fails closed, or open if you choose, when the service is down; one call that sets a password for a
+  registration, a change or a reset, applying the policy, hashing, storing and ending the sessions the flow calls for;
+  and reset by emailed link or one-time code, the same for an identifier no one holds, limited, and spent in one
+  transaction with the new password and the revocation.
 - **Changing identifiers**: an email address or phone number replaced only once the new one is proven by a code or a
   signed link, after a recent sign-in, reauthentication or confirmed factor, unique on its normalised value (the
   application's index decides a race), invalidating the proofs it outdates, and telling the old identifier through a
@@ -123,31 +208,11 @@ device record live in the `devices` table so replay and stale credentials can be
   settings and fails the deploy on a problem, listing all of them.
 - **Safe in long-running processes**: nothing one request or queued job binds reaches the next under Octane or a queue
   worker.
+- **Testing helpers**: act as an identity, a principal or a device's session on a guard, through the requests a test
+  sends, assert the context a guard has bound, and fake the delivery and checker contracts (see [Testing](#testing)).
 - **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
-  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, identifier change notifier,
-  scope registry, table names.
-
-## Design Notes
-
-Adoption-focused quick-starts are below. Maintainer-oriented security and lifecycle contracts live in
-`docs/design/`:
-
-- `docs/design/guard-lifecycle-and-events.md`
-- `docs/design/event-model.md`
-- `docs/design/refresh-rotation-and-replay.md`
-- `docs/design/refresh-token-transport.md`
-- `docs/design/fail-closed-pid-did.md`
-- `docs/design/access-only-mode.md`
-- `docs/design/guard-bound-tokens.md`
-- `docs/design/session-service.md`
-- `docs/design/device-lifecycle.md`
-- `docs/design/principal-choice-and-switch.md`
-- `docs/design/audience-policy.md`
-- `docs/design/one-time-codes.md`
-- `docs/design/passkeys.md`
-- `docs/design/machine-credentials.md`
-- `docs/design/identifier-changes.md`
-- `docs/design/testing-helpers.md`
+  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, breached-password checker,
+  reset link sender, identifier change notifier, scope registry, table names.
 
 ## Installation
 
@@ -185,31 +250,6 @@ key this way rather than writing or copying one by hand.
 
 The package fails closed when a JWT guard or `Auth::jwt(...)` service is resolved with an empty key map, a missing,
 empty, or too-short key, or an `active_kid` that is not in the map.
-
-### Access-only mode (no devices, no refresh)
-
-Device tracking and refresh are opt-in. For simple backends or short-lived session flows (non-human clients use
-[machine credentials](#machine-credentials) instead):
-
-1. Do not implement `HasDevices` on your identity model.
-2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
-3. Do not call `$guard->refresh(...)` or start sessions through the session service (`signIn()`, `start()`), which
-   throws a `LogicException` for an identity without `HasDevices`. Clients re-authenticate when the access token
-   expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens valid after"
-   time (below): the session service's revocation methods (`revokeDevices()`, `signOutEverywhere()`,
-   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalDevices()`) move it,
-   and need none of the package's tables for such an identity, or call `invalidateTokensIssuedBefore()` yourself.
-
-`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
-device to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
-whose `iat` is at or before either one's `getTokensValidAfter()` is rejected (`issued_before_cutoff`), counted in whole
-seconds, so a token issued in the cutoff's own second is rejected too. Tokens that name a device are not held to it.
-Bearer requests need none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the
-`rate_limits` table (see [Rate limits](#rate-limits)), so publish and run the migrations for it, or set the guard's
-`rate_limits.sign_in` to `null`; the `devices` and `pending_sign_ins` tables then stay empty. See
-`docs/design/access-only-mode.md`.
-
-## Configuration
 
 ### Guards and providers
 
@@ -256,667 +296,28 @@ The package binds its `SineMacula\Laravel\Authentication\Http\Middleware\Authent
 middleware and registers the `401` as an exception-handler render callback, after any your application registers for
 `AuthenticationException`. If your application aliases its own `auth` middleware, extend the package's class.
 
-### Per-guard JWT configuration
-
-Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
-`authentication.jwt.*` defaults. Any guard may override them with a `jwt` sub-block on its `config/auth.php`
-entry; missing fields fall back to the defaults:
-
-```php
-'guards' => [
-    'staff' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'jwt'      => [
-            'keys'       => ['staff-2026-05' => env('STAFF_JWT_KEY')],
-            'active_kid' => 'staff-2026-05',
-            'audience'   => 'staff-api',
-        ],
-    ],
-    'customer' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'jwt'      => [
-            'keys'       => ['customer-2026-05' => env('CUSTOMER_JWT_KEY')],
-            'active_kid' => 'customer-2026-05',
-            'audience'   => 'customer-api',
-        ],
-    ],
-],
-```
-
-Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
-guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
-authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
-audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the device's owner
-through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The device
-row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
-identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
-with `identity_unknown`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
-`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
-`leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
-should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
-overrides). `algorithm` must be a string, and `issuer` and `audience` a string or `null`: a guard that sets either to
-`null` or `''` turns that claim check off even when the package value sets one. A value of any other type, in the
-guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key and the
-guard, rather than being ignored.
-
-### Token and session lifetimes
-
-Each guard issues access tokens and keeps sessions for these lifetimes, set in the package `jwt` block and overridable
-in a guard's `jwt` block. The defaults are 5 minutes for access tokens, and 90 days idle and 180 days absolute for
-sessions:
-
-| Key                            | Default | Range        | Env                                               |
-|--------------------------------|---------|--------------|---------------------------------------------------|
-| `access_ttl_minutes`           | 5       | 1 to 1440    | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
-| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
-| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
-| `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
-| `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
-
-A session is a device. It ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
-deadline however often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past
-the absolute deadline, and never moves the absolute deadline. Tokens mirror the device: a refresh token expires at the
-device's idle deadline, and an access token after the access lifetime but never after the device's idle or absolute
-deadline. With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline,
-together with the refresh token, so clients must refresh before their access token expires. A device past either
-deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
-sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a session this way does
-not revoke the device.
-
-A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
-or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
-fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
-service is resolved; the defaults live only in the published config.
-
-### Audiences
-
-An audience is a guard. Each guard decides which sign-in methods may start its sessions and which principal types may
-hold them, and can give each principal type its own token and session lifetimes. The defaults live in the package
-`audience` block, and a guard overrides any key in an `audience` block of its own:
-
-```php
-'guards' => [
-    'console' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'audience' => [
-            'methods'         => ['password'],
-            'principal_types' => ['staff', 'client_admin'],
-        ],
-    ],
-    'mobile' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'audience' => [
-            'methods'         => ['sso'],
-            'principal_types' => ['client_staff'],
-        ],
-        'jwt' => [
-            'by_principal_type' => [
-                'client_staff' => ['refresh_absolute_ttl_minutes' => 60 * 24 * 365],
-            ],
-        ],
-    ],
-],
-```
-
-| Key                           | Default        | Meaning                                                                                                                                                                  |
-|-------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (a non-empty list of lower-case names) |
-| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types                                                                                      |
-| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                                                                                                        |
-
-A principal's type is its own or its tenant's (see [Principal type](#principal-type)); with a list, a principal without
-a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method the guard does
-not list fails with `method_not_allowed`, and a principal whose type it does not admit with `principal_ineligible`, at
-sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a session in another.
-With `require_verified_identifier`, a sign-in that used an identifier (an email address for the password method) fails
-with `identifier_unverified` unless the identity reports that identifier verified (see [Identifier
-verification](#identifier-verification)); sign-ins that used no identifier, such as SSO through `start()`, and refreshes
-are not gated, since the external provider or the existing session vouches for them. The check is made before any
-principal is resolved, so an unverified identifier gets `identifier_unverified` whether or not the identity has a
-principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of principal is held to the
-identifier type its session's sign-in used, which the device records.
-
-A guard key that is present wins, `null` included, so a guard can admit any principal although the package default
-lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
-both blocks, a value of the wrong shape, an empty list, or a key the policy does not know fails closed with an
-`InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
-`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide differently.
-Its `admitIdentifier()` is the check every sign-in makes before any principal is resolved, so a policy of your own keeps
-the guarantee above only by deciding verification there, for the identity as a whole; one that wraps the package's
-policy delegates `admitIdentifier()` to it like the other methods. A refusal from `admit()` comes only once a principal
-resolves, so an identity with none would get `principal_unresolved` instead. A policy of your own decides the session's
-deadlines through `lifetimes()`, while an access token's lifetime still comes from the guard's `jwt.by_principal_type`
-configuration (capped at the session's end). See `docs/design/audience-policy.md` for every point where the policy is
-enforced.
-
-Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
-`access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the
-guard's own). Each key a type leaves out, or sets to `null`, is the guard's value; the refresh grace window and the
-leeway stay the guard's, because a refresh judges them before it knows the principal. Any other key, or a map that is
-not keyed by type names, fails closed with an `InvalidJwtConfigurationException` when the guard is resolved. Access
-tokens expire after their principal type's access lifetime, `Auth::jwt('api')->lifetimesFor($principal)` returns the
-lifetimes for a principal, and a guard without per-type lifetimes never reads a principal's type for them.
-
-### Per-guard principal resolvers
-
-By default, every guard uses the app-wide `PrincipalResolver` binding. Any guard may override it locally:
-
-```php
-'guards' => [
-    'staff' => [
-        'driver'             => 'jwt',
-        'provider'           => 'users',
-        'principal_resolver' => App\Auth\Resolvers\StaffPrincipalResolver::class,
-    ],
-],
-```
-
-Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::class` binding → package default
-`DefaultPrincipalResolver`. The same resolver is used on bearer-token and refresh paths.
-
-### Device
-
-The published `authentication.php` config controls the device model, table, how often a device's last use is written,
-and how long a device whose session ended is kept before pruning:
-
-```php
-'device' => [
-    'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
-    'table'                      => 'devices',
-    'last_used_throttle_seconds' => 60,
-    'prune_after_days'           => 30,
-],
-```
-
-A device is one signed-in session. The shipped migration creates these columns:
-
-| Column                                                 | Holds                                                  |
-|--------------------------------------------------------|--------------------------------------------------------|
-| `id`                                                   | UUID v7 primary key, carried in every token as `did`   |
-| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
-| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
-| `principal_switched_at`                                | When the session last switched its principal           |
-| `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
-| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any       |
-| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
-| `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
-| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
-| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids       |
-| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one |
-| `signed_in_at`                                         | When the session started (required)                    |
-| `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
-| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
-
-Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
-`timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both
-deadlines, and the revocation time. Every authentication that binds a persisted device (a bearer request or a refresh)
-records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
-agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
-records every use).
-
-Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
-an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with
-daylight saving, both passes through the hour that repeats when the clocks go back store the same value, and
-`ActsAsDevice` reads it as the first pass, whichever pass PHP itself would pick. A time stored in the second pass
-therefore reads back early by the length of the shift (an hour in most zones): a deadline stored there ends the session
-that much early (and when the idle lifetime is no longer than the shift, the refresh that sets it fails with an
-`InvalidArgumentException` and changes nothing), and a rotation stored there leaves the previous refresh token no grace
-window, so a retry of it counts as a replay and revokes the device. A last use recorded there reads early too, so for
-the rest of that pass a `last_used_throttle_seconds` shorter than the shift records every use. The ambiguity can end a
-session early, fail a refresh, or record extra uses; it never extends a session or a grace window.
-
-The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
-`principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
-the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
-and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
-every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()`,
-`getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
-bearer path and refresh honour a device only for the guard it records, refresh only while that guard still allows the
-method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
-sign-in that used none, which is held to no type), so a device written outside the session service must record all
-three.
-
-Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
-device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
-by primary key, whatever the key column is called. Other column names come from the contract's accessors
-(`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates the default names, so a model
-that renames a column needs its own migration.
-
-A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
-missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
-than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
-both refresh digests; it never deletes the row (pruning does, later). The package revokes a device when its session
-signs out, when the application revokes it or signs an identity or principal out everywhere (see [Signing out and
-revoking sessions](#signing-out-and-revoking-sessions)), and when the refresh exchange detects a replay. Revoking is
-idempotent, so a device that is already revoked keeps its first revocation, and `DeviceRevoked` reports each revocation
-the package makes. A device whose session has ended, past its idle or absolute deadline, is rejected the same way on the
-bearer path and as a sign-in pin, and fails refresh with `session_expired` (see [Token and session
-lifetimes](#token-and-session-lifetimes)). An access token that names a device is accepted only for the principal the
-device's session records (`principal_type`, `principal_id`), and only when it was issued no earlier than the second of
-the session's last principal switch (`principal_switched_at`); otherwise it fails with `device_principal_mismatch`. A
-switch therefore ends the access tokens of the principal it switched from at once, and switching back does not revive
-the ones issued before it. A device that records no principal accepts no token, and a device pinned on `attempt()` must
-record the principal being bound. Both checks read the row already loaded, with no extra query. `ActsAsDevice` reads any
-stored timestamp as a value, with or without a `datetime` cast on the column, and throws a `LogicException` when the
-device was loaded without one of its refresh or revocation state columns (both digests, the rotation time, the session's
-start, the principal switch time, both deadlines, and the revocation time) or without the sign-in's identifier type
-(`sign_in_identifier_type`), for example through a `devices()` relation or a global scope that selects other columns,
-so a partial select is reported instead of being read as a device that is not revoked, has no deadline, or whose
-sign-in used no identifier.
-
-#### Pruning devices
-
-Revoked and ended devices stay in the table, for audit, until Laravel's `model:prune` deletes them. A device is pruned
-once its session has been over for `prune_after_days` (default 30, from 0 to 3650): counted from when it was revoked or
-passed its idle or absolute deadline, whichever came first, never from when it was created, so a long session is kept
-as long after it ends as a short one. With 0, a device is pruned from the second its session ends. The value must be an
-integer, or a digit string as `env()` returns one; anything else fails with an `InvalidArgumentException` when pruning
-runs. Each chunk is one conditional `DELETE`, and nothing is read.
-
-The package's models live outside your application's `app/Models`, so name them when you schedule the command:
-
-```php
-use Illuminate\Support\Facades\Schedule;
-use SineMacula\Laravel\Authentication\Models\ApiKey;
-use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Models\OneTimeCode;
-use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
-use SineMacula\Laravel\Authentication\Models\PendingSignIn;
-use SineMacula\Laravel\Authentication\Models\RateLimit;
-
-Schedule::command('model:prune', [
-    '--model' => [
-        Device::class,
-        PendingSignIn::class,
-        RateLimit::class,
-        OneTimeCode::class,
-        PasskeyChallenge::class,
-        ApiKey::class,
-    ],
-])->hourly();
-```
-
-A custom device model opts in with the `PrunesDevices` trait alone (it brings Laravel's `MassPrunable` with it, and
-using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentDevice` name
-accessors; schedule it under its own class name. Run `php artisan model:prune --model="App\Models\Device" --pretend` to
-see how many devices would go. Pruning changes nothing about authentication: a pruned device's tokens fail as an unknown
-device, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a device that
-has since been pruned cannot re-fetch it (see [Events](#events)).
-
-Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
-ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
-treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`
-to describe it. Database errors are never read as an unknown device: they propagate as server errors.
-
-### Sign-in
-
-```php
-'sign_in' => [
-    'password_identifier' => 'email',
-    'pending_table'       => 'pending_sign_ins',
-    'pending_ttl_seconds' => 300,
-],
-```
-
-The password sign-in method looks identities up by `password_identifier`, which is also the identifier type the
-attempt limits count and a guard that requires verified identifiers checks. A guard whose identities are found by
-another column names its own, and that is the one `signIn('password', ...)` and `attempt()` use on it:
-
-```php
-'guards' => [
-    'staff' => [
-        'driver'   => 'jwt',
-        'provider' => 'staff',
-        'sign_in'  => ['password_identifier' => 'username'],
-    ],
-],
-```
-
-Either must be a lower-case column name (a letter, then letters, digits, or underscores) that does not contain
-`password`; anything else, or any other key in a guard's `sign_in` block, fails with an `InvalidArgumentException`
-when a password sign-in runs. A sign-in that needs a further factor waits in `pending_table`
-(on the device model's connection) for at most `pending_ttl_seconds`, an integer from 30 to 3600 (see
-[Additional factors](#additional-factors)).
-
-### One-time codes
-
-```php
-'codes' => [
-    'table'                   => 'one_time_codes',
-    'key'                     => env('AUTHENTICATION_CODES_KEY'),
-    'length'                  => 6,
-    'ttl_seconds'             => 600,
-    'max_attempts'            => 5,
-    'resend_cooldown_seconds' => 60,
-],
-
-'delivery' => [
-    'queue' => ['connection' => null, 'name' => null],
-],
-```
-
-The `phone_code` and `email_code` sign-in methods and verification by code (see
-[Signing in with a one-time code](#signing-in-with-a-one-time-code)) send a code of `length` digits (6 to 10), drawn
-uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts` checks (1
-to 20); after that it is locked until another is requested. Another code for the same number may be requested
-`resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and replaces it at once: the earlier code stops working.
-Each number is an integer, or a digit string as `env()` returns one; anything else fails closed with an
-`InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it. The
-settings are global, not per guard.
-
-Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the device model's connection, one row
-per binding: the purpose (a sign-in, a verification, a password reset code or link, or an identifier change), the guard,
-the identifier's type and normal form and, for a verification or a change, the identity. The row is stored under an
-HMAC-SHA256 of that binding and holds the code only as an HMAC-SHA256 of the binding, a random id for the issuance and
-the code, each with its own key derived from `key` (at least 32 bytes) or, when `key` is not set, from `app.key`. A code
-has a few million values at most, so a plain hash of it could be reversed by anyone who reads the table (from a backup
-or a replica, say); a keyed one cannot without the key, and the table holds neither a code nor an identifier. Rotating
-the key, or `app.key` when it is the source, only invalidates the codes outstanding. A shorter `key` fails closed.
-
-A code is delivered by a queued job, `ShouldBeEncrypted` so its payload (which carries the code and the number) is
-encrypted with `app.key` on the queue, pushed to `delivery.queue.connection` and `delivery.queue.name` (`null` for your
-defaults; every job the package queues, password reset deliveries included, uses them) once the code is committed on its
-connection. Delivery is never part of the request: on Laravel's `sync` driver, which would run
-the job during its dispatch, it is dispatched after the response instead, in the application's terminating callbacks
-(and in a console command, when it ends); if you turn after-response dispatching off
-(`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. A `failover` connection that lists a `sync` one
-(directly or through another `failover`) would run the job during its dispatch whenever the connections before it
-fail, so the job is pushed to it in the terminating callbacks instead: a worker-backed connection still gets it, and a
-fall back to `sync` runs it after the response. Run a worker in production: `authentication:check` warns when a guard
-allows a code method and the delivery connection is `sync`, or a `failover` that can fall back to `sync`. Bind your
-gateway as the sender, from a service provider (the package ships none, and fails the job with a
-`BindingResolutionException` without one; `authentication:check` reports a guard that allows a code method with no
-sender bound):
-
-```php
-use App\Auth\SmsCodeSender;
-use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
-
-$this->app->bind(OneTimeCodeSender::class, SmsCodeSender::class);
-```
-
-```php
-use Illuminate\Support\Facades\Mail;
-use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
-use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
-
-final class SmsCodeSender implements OneTimeCodeSender
-{
-    public function __construct(private SmsGateway $sms) {}
-
-    public function send(OneTimeCodeMessage $message): void
-    {
-        // $message->identifier is the recipient's own number or address; $message->code is in clear: never log it.
-        match ($message->type) {
-            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
-            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
-        };
-    }
-}
-```
-
-The message also carries the guard, the purpose (`CodePurpose::SIGN_IN` or `VERIFY_IDENTIFIER`, to word it) and the
-recipient identity.
-
-A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
-that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see
-[Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned: schedule `model:prune` with
-`Models\OneTimeCode` beside the others (see [Pruning devices](#pruning-devices)).
-
-### Passkeys
-
-```php
-'passkeys' => [
-    'table'                 => 'passkeys',
-    'challenges_table'      => 'passkey_challenges',
-    'challenge_ttl_seconds' => 300,
-
-    'relying_party' => [
-        'id'      => env('AUTHENTICATION_PASSKEYS_RP_ID'),   // e.g. example.com
-        'name'    => env('APP_NAME'),
-        'origins' => [],                                      // e.g. ['https://app.example.com']
-    ],
-],
-```
-
-Passkeys belong to a WebAuthn relying party. Every guard that uses passkeys needs one: the package's `relying_party`,
-with any of its keys overridden in a `passkeys` block on the guard's `config/auth.php` entry, where a key that is
-present wins:
-
-```php
-'guards' => [
-    'console' => [
-        'driver'   => 'jwt',
-        'provider' => 'users',
-        'audience' => ['methods' => ['password', 'passkey']],
-        'passkeys' => ['id' => 'console.example.com', 'origins' => ['https://console.example.com']],
-    ],
-],
-```
-
-`id` is the relying party id, a lower-case host name (not an IP address); every passkey registered through the guard is
-scoped to it, and a guard only ever sees the passkeys of its own id, so guards that share an id share their passkeys.
-`name` is what the browser shows, by default `app.name`. `origins` lists the exact origins the ceremonies may run on,
-each `https://host[:port]`, or `http://localhost[:port]` for development, in lower case, with a host that is the id or a
-subdomain of it; a ceremony from any other origin, or framed in another site (whether the browser reports the
-top-level origin or only that the ceremony is cross-origin), is refused. The package does not consult
-the public suffix list, so never name a public suffix (`co.uk`, say) as the id. Anything else, or an unknown key, fails
-closed with an `InvalidArgumentException` naming the guard and the key when the guard's passkeys are first used, and
-`authentication:check` reports it for every guard whose audience allows `passkey` or that sets a `passkeys` block.
-
-A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
-give the browser. Both tables live on the device model's connection; prune expired challenges with `model:prune` (see
-[Pruning devices](#pruning-devices)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms
-offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
-
-### Rate limits
-
-Sign-in, requests for one-time codes, password resets, identifier changes and refresh are limited per identifier and per
-IP address; requests for passkey
-sign-in options and client credentials exchanges per IP address (an exchange per client id too, only when you opt in).
-Every limit is counted in the database on the write connection, so the limits hold across servers and do not depend on
-a cache. Publish the migration with the others (`authentication-migrations` creates
-`rate_limits`), then set limits in the package `rate_limits` block or a guard's own `rate_limits` block:
-
-```php
-'guards' => [
-    'console' => [
-        'driver'      => 'jwt',
-        'provider'    => 'users',
-        'rate_limits' => [
-            'sign_in' => [
-                'per_identifier' => ['max' => 3, 'decay_seconds' => 900],
-                'per_ip'         => null,
-            ],
-        ],
-    ],
-],
-```
-
-| Flow                     | Scope            | Default             | Counts                                                                                                         |
-|--------------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
-| `sign_in`                | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
-| `sign_in`                | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
-| `refresh`                | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
-| `refresh`                | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
-| `code_request`           | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
-| `code_request`           | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
-| `passkey_options`        | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
-| `client_credentials`     | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                    |
-| `client_credentials`     | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
-| `password_reset_request` | `per_identifier` | 5 per 3600 seconds  | Every request for a reset link or code to the identifier, held or not; never given back                        |
-| `password_reset_request` | `per_ip`         | 50 per 3600 seconds | Every request for a reset link or code from the IP address; never given back                                   |
-| `password_reset`         | `per_identifier` | 10 per 900 seconds  | Every reset submission naming the identifier, before anything is checked; a success is given back              |
-| `password_reset`         | `per_ip`         | 50 per 900 seconds  | Every reset submission from the IP address, before anything is checked; a success is given back                |
-| `identifier_change`      | `per_identifier` | 5 per 3600 seconds  | Every change request to the new identifier, and every one the identity's account makes; never given back       |
-| `identifier_change`      | `per_ip`         | 50 per 3600 seconds | Every change request from the IP address; never given back                                                     |
-
-Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
-`decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
-12:00:00 to 12:05:00), so, as with any fixed window, up to twice `max` attempts can fall within `decay_seconds` across a
-boundary. A counter started before `decay_seconds` changed keeps its window until that window ends, so a change neither
-forgives the attempts already counted nor gives a slot back to the wrong window. A guard scope that is present wins,
-`null` included; a flow set to `null` turns both of its limits off; a scope the guard leaves out is the package's. A
-malformed limit, a missing one, or an unknown key fails closed with an `InvalidArgumentException` naming the guard and
-the key, as does a `passkey_options.per_identifier` other than `null`: a request for passkey sign-in options names no
-identifier, so such a limit could never apply.
-
-A sign-in guesses a secret, so it reserves its slots before the method runs: a refused sign-in fails with
-`rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.
-Earlier failures are not forgiven: they count until their window ends, so concurrent attempts can never exceed `max`.
-When the IP address's limit is full, the slot just taken for the identifier is given back.
-
-The password method also counts every password it checks against the account it checks it for, under the guard's
-`per_identifier` limit, and holds that slot with the sign-in's own: it is given back only when the sign-in starts its
-session (a pending sign-in keeps it until it completes), so a correct password that goes on to fail, or to wait for a
-further factor, still counts. A lookup can find one account by many spellings of its identifier (a column collation that
-ignores accents, widths or invisible characters, as MySQL's default `utf8mb4_unicode_ci` does, a query closure in
-`attempt()`, another column), and through every guard whose provider returns it, so the account keeps one count
-whichever guard checks it. An Eloquent identity's account is the row it is stored in (its connection, that connection's
-database, its table and its key), so two model classes over one table (an `Admin` model over the users table, say) count
-the same account once, and the same key in another tenant's database is another account; any other identity's account is
-its class and auth identifier. Each guard holds that one count to its own `per_identifier` limit, so the guesses at an
-account's password are bounded by the most permissive limit among the guards that check it: at most the largest `max` in
-each window of the shortest `decay_seconds`, whichever spelling and guard each guess uses. A guard with a looser limit
-therefore raises the bound for every guard, while a stricter one only stops its own sign-ins sooner, and guards with the
-same limit allow no more guesses together than one alone. A guard whose `per_identifier` is `null` neither checks nor
-counts the account, so it adds guesses of its own. Once an account has no attempts left, its password is not checked
-until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal does
-not reveal that the account exists. Only your own listeners are told why: `AuthenticationFailed` carries
-`account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
-refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
-device and per IP address, and a successful refresh costs one read. A refresh refused for its failures answers `429`
-with a `Retry-After` header. A request for a one-time code costs a message whoever has the number, so every request for a
-valid number counts, whether a code is sent or the resend cooldown holds it back, and no slot is given back; the number
-is counted in its normal form, whether or not anyone has it.
-
-Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
-[Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
-IP addresses are counted canonically too: an IPv6 client is counted by its /64 network, the block a single client is
-usually given, so it cannot spread its attempts over its own addresses. An IPv6 address that carries an IPv4 client's
-address, IPv4-mapped (`::ffff:0:0/96`) or translated through the NAT64 well-known prefix (`64:ff9b::/96`), shares that
-IPv4 address's counter. A translator on a network-specific prefix (such as `64:ff9b:1::/48`, or your own) puts every
-IPv4 client it serves into one /64 counter: resolve the client's own address before the request reaches the guard, with
-Laravel's trusted proxies, so the limits see each client apart. The table holds only keyed digests (HMAC-SHA256, under a
-key derived from `app.key`) of what each counter counts: the guard, flow, scope and identifier or IP address, or, for an
-account, the flow and the account, without the guard. An IP address, an identifier or an account id is easy to guess, so
-a plain digest of one could be reversed by anyone who reads the table (from a backup or a replica, say); a keyed one
-cannot without your application key. Rotating `app.key` starts every counter afresh, and with no `app.key` the limiter
-fails closed with an `InvalidArgumentException`. Every change to a count is one statement the database applies
-atomically. A database error propagates as a server error: a limiter that cannot count lets nothing through. The one
-exception is giving back a completed further factor's slots after its commit, which is reported instead (see
-[Writing a sign-in method](#writing-a-sign-in-method)).
-
-> **Transactions:** the counters live on `rate_limits.connection`, the default connection when `null`. Counts written on
-> the same connection as a transaction you open around a sign-in are rolled back with it, so a sign-in that your code
-> rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in transactions you may
-> roll back, point `rate_limits.connection` at a connection of its own (a second connection to the same database will
-> do).
-
-Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
-[Additional factors](#additional-factors)). Schedule Laravel's pruning command with both models, and the device model,
-as shown in [Pruning devices](#pruning-devices).
-
-### API keys
-
-```php
-'api_keys' => [
-    'table'                        => env('AUTHENTICATION_API_KEYS_TABLE', 'api_keys'),
-    'prefix'                       => env('AUTHENTICATION_API_KEYS_PREFIX', 'ak'),
-    'rotation_overlap_seconds'     => env('AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS', 86400),
-    'max_rotation_overlap_seconds' => env('AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS', 604800),
-    'last_used_throttle_seconds'   => env('AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS', 60),
-    'prune_after_days'             => env('AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS', 30),
-],
-```
-
-Keys live in `table`, on the device model's connection. `prefix` (a lower-case letter, then up to 15 lower-case letters
-or digits) starts every new key, so your keys are recognisable in logs and to secret scanners; changing it leaves
-existing keys working. A rotation keeps the replaced key working for `rotation_overlap_seconds` unless it names its own
-overlap, never beyond `max_rotation_overlap_seconds` (at most 30 days). A key's last use is recorded at most once per
-`last_used_throttle_seconds` (0 to 86400; 0 records every use), and `model:prune` deletes keys revoked or expired more
-than `prune_after_days` ago (0 to 3650). Each number is an integer, or a digit string as `env()` returns one; anything
-else fails closed when it is used, and `authentication:check` reports it.
-
-### Credential validation timing
-
-`attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels, and the
-session service's `signIn()` runs its sign-in method and the checks after it in the same budget:
-
-```php
-'timebox' => [
-    'credentials_microseconds' => 400000,
-],
-```
-
-Must exceed the worst-case hasher cost.
-
-### Read replicas
-
-Every read that decides authentication - the identity, the principal and the tenant it acts within, and the device with
-its guard, sign-in method, refresh digests, rotation time, session deadlines and revocation state - goes to the write
-connection, even when the database connection has `read` and `write` hosts. A replica can lag behind a revocation, a
-deactivation, a refresh rotation, or an ended session, and a lookup it served could admit a credential the primary has
-already rejected.
-
-The package pins the lookups it makes, including the relations the identity, principal and device models eager-load
-(`$with`), on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug
-in carries the same obligation:
-
-- a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
-  must read from the write connection, including the relations its results eager-load;
-- `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `devices()` and, when `ModelProvider` checks a password,
-  `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
-  `isActive()` for the model it belongs to, and a device's guard, sign-in method, refresh state, session deadlines and
-  revocation for the device: every model read made there, on any connection, goes to that connection's writer, and so
-  does a query-builder read on the model's own connection. A query-builder or `DB` read on another connection, or made
-  by a principal or identity that is not an Eloquent model, must pin itself.
-
-`WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
-queries that it does not reach, so run a lookup whose results load relations inside `during()`, which pins every
-connection a model resolves while its callback runs, plus the given model's own connection:
-
-```php
-use SineMacula\Laravel\Authentication\Database\WriteConnection;
-
-// A query you build: route it to the write PDO, scoped to the identity.
-$membership = WriteConnection::query(Membership::query()->where('identity_id', $identity->getKey()))->find($hint);
-
-// Model reads on any connection, eager loads included, plus the identity's connection.
-$principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
-```
-
-### Checking the configuration
-
-`php artisan authentication:check` resolves every `jwt` and `api_key` guard's settings the way the guard would and exits
-`1` when any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each `jwt` guard's token
-service (keys, active kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and
-audience), that its provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings
-when the package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier, the refresh token
-transport and, when its audience allows `passkey` or it sets a `passkeys` block, its passkey relying party; each
-`api_key` guard's provider, `principal_resolver` override, audience settings (which must allow `api_key`) and rate
-limits; and, for the whole package, the configured device model and pruning retention
-(`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
-(`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
-choice of principal), the password policy settings (`authentication.passwords`), the one-time code settings and key
-(`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in method (`phone_code`,
-`email_code`, or a `CodeSignIn` you registered), the delivery queue (`authentication.delivery.queue`), the passkey
-challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`) and the API key settings
-(`authentication.api_keys`). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]`
-for the device model and retention, `[sign_in]` for the pending lifetime, `[passwords]` for the password policy,
-`[codes]` for the code settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge
-lifetime, `[api_keys]` for the API key settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync`
-queue connection, or on a `failover` one that can fall back to `sync`, while a guard allows a code method, is a
-`[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose password resets would refuse to run: its
-provider's model on another connection than the device model, or a password identifier other than `email` while
-Laravel's notification is the reset link sender (see [Password reset](#password-reset)). Only the named guards are
-checked with `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key`
-guard, is a problem. The command reads configuration only: it opens no database connection and never prints a key. The
-package does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+### Access-only mode (no devices, no refresh)
+
+Device tracking and refresh are opt-in. For simple backends or short-lived session flows (non-human clients use
+[machine credentials](#machine-credentials) instead):
+
+1. Do not implement `HasDevices` on your identity model.
+2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
+3. Do not call `$guard->refresh(...)` or start sessions through the session service (`signIn()`, `start()`), which
+   throws a `LogicException` for an identity without `HasDevices`. Clients re-authenticate when the access token
+   expires. To end an identity's tokens before they expire, give the identity (or the principal) a "tokens valid after"
+   time (below): the session service's revocation methods (`revokeDevices()`, `signOutEverywhere()`,
+   `passwordChanged()` and the other security changes, `principalDeactivated()`, `revokePrincipalDevices()`) move it,
+   and need none of the package's tables for such an identity, or call `invalidateTokensIssuedBefore()` yourself.
+
+`Auth::device()` returns `null` in this mode; the rest of the contextual surface works normally. Such a token has no
+device to revoke, so an identity or principal model that implements `HasTokensValidAfter` ends them instead: a token
+whose `iat` is at or before either one's `getTokensValidAfter()` is rejected (`issued_before_cutoff`), counted in whole
+seconds, so a token issued in the cutoff's own second is rejected too. Tokens that name a device are not held to it.
+Bearer requests need none of the package's tables. A guard that signs in with `attempt()` counts its attempts in the
+`rate_limits` table (see [Rate limits](#rate-limits)), so publish and run the migrations for it, or set the guard's
+`rate_limits.sign_in` to `null`; the `devices` and `pending_sign_ins` tables then stay empty. See
+`docs/design/access-only-mode.md`.
 
 ## Identity Models
 
@@ -1331,7 +732,17 @@ missing one reads as no tenant, and a `tenant` relation to a model that is not a
 Checking the tenant reads `$principal->getTenant()` on every request, so eager-load the tenant in your principal
 resolver (or `ResolvesHintedPrincipal`) to avoid a lazy load per request.
 
-## Usage
+## Signing in
+
+A guard binds an identity, the principal it acts as and, for a session, the device it lives on. The `Auth` facade
+reads what is bound; `attempt()` signs in with a password and binds the guard without a session; the session service
+(`Auth::sessions()`) signs in through any sign-in method (a password, a one-time code, a passkey, or one you register
+for SSO and the like) or starts a session for an identity something else verified, creates the device and issues the
+first token pair. A sign-in can wait for a further factor or for the identity to choose its principal before the session
+starts. Every refusal is a result, never an exception, and is reported with `AuthenticationFailed` (see
+[Failure outcomes](#failure-outcomes)).
+
+### The `Auth` facade and `attempt()`
 
 Contextual accessors on the standard `Auth` facade:
 
@@ -1513,7 +924,7 @@ device, so the session service signs in only identities that implement `HasDevic
 device the guard could never find again. Access-only guards (identities without `HasDevices`) sign in with `attempt()`
 and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 
-#### Signing in with a one-time code
+### Signing in with a one-time code
 
 The package registers `phone_code`, a numeric code sent to a verified phone number, and `email_code`, the same sent to a
 verified email address: either signs in with no password, as a primary method or a fallback. Allow it in the guard's
@@ -1600,251 +1011,6 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 $this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
 ```
-
-#### Enumeration resistance
-
-No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
-yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
-
-| Flow                 | Same outcome for an unknown identifier                                                                                                                                      | Delivery                                  | Timing                                                                                                       |
-|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------|--------------------------------------------------------------------------------------------------------------|
-| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                      | None                                      | Padded to the credential timebox                                                                             |
-| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                   | Queued job (after the response on `sync`) | No identity work at all, so nothing to pad                                                                   |
-| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                             | None                                      | Padded to the credential timebox                                                                             |
-| Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job (after the response on `sync`) | Not applicable                                                                                               |
-| Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                                      | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
-| API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                                      | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
-| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited        | None                                      | As API key                                                                                                   |
-
-The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
-looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity, or to one that holds
-only a look-alike of it. Answer `sent` the same way whatever happens next, and do not tell the client whether a message
-went out.
-
-#### Writing a sign-in method
-
-A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why
-it does not; the session service does everything else (the audience policy, the limits, activity, the principal, a
-further factor, the device and the tokens). Use a method for input the package verifies, such as a password, a code
-your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead
-when something outside the session service has already proven the identity, such as an SSO callback your identity
-provider's package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or
-timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the
-machine credential kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when
-the guard's audience lists them: they authenticate requests and exchanges, never sessions.
-
-```php
-use Illuminate\Contracts\Hashing\Hasher;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
-use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
-use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
-
-final readonly class BadgeSignIn implements SignInMethod
-{
-    public function __construct(private Hasher $hasher) {}
-
-    public function identifierType(string $guard): ?string
-    {
-        return 'badge_number';
-    }
-
-    public function identifier(string $guard, array $input): ?string
-    {
-        return is_string($input['badge_number'] ?? null) ? $input['badge_number'] : null;
-    }
-
-    public function authenticate(SignInRequest $request): Identity|FailureReason
-    {
-        $badge    = $this->identifier($request->guard, $request->input);
-        $pin      = $request->input['pin'] ?? null;
-        $identity = $badge === null ? null : $request->provider->retrieveByCredentials(['badge_number' => $badge]);
-
-        if (! $identity instanceof Identity || ! is_string($pin) || ! $request->reserveAccountAttempt($identity)) {
-            return FailureReason::INVALID_CREDENTIALS;
-        }
-
-        return $this->hasher->check($pin, $identity->pin_hash) ? $identity : FailureReason::INVALID_CREDENTIALS;
-    }
-}
-```
-
-`identifierType()` names the identifier the method signs in by: the normaliser its limit counts it through, and the
-identifier a guard that requires verified identifiers checks. Return `null` for a method that uses no identifier (an
-assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
-does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
-never to look anyone up. `authenticate()` returns the identity, or `FailureReason::INVALID_CREDENTIALS` for anything the
-input did not prove. A method may also answer `identifier_unverified`, but only once its input proved possession of the
-identifier (as a one-time code does), and `code_expired`, `code_exhausted`, `passkey_challenge_invalid` or
-`passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
-the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
-returns one throws a `LogicException` (see [Events](#events)). A method must not bind a guard, issue tokens or write
-session state, and must hold no state between calls, since the manager keeps one instance per name for the life of the
-process. The credential timebox pads every refused sign-in, the method's own work included, to
-`timebox.credentials_microseconds`, so a method may answer an unknown identifier at once, as the example does; keep the
-method's worst case under that budget, and only a method whose work can take longer needs to do the same work whether or
-not the identifier exists.
-
-A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
-checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
-attempts); the session service refuses the sign-in then even if the method returns an identity. A lookup can find one
-account by many spellings of its identifier, and through every guard whose provider returns it, so only the account's
-own count, held to the most permissive limit among those guards, bounds the guesses at its secret, and at a further
-factor its sign-in waits for. Reserve before each secret you check: a method that checks two (a password and a PIN, say)
-takes two slots. The slots belong to the sign-in: they are all given back when the session starts, or when its pending
-sign-in's completion commits. A completion that your transaction rolls back gives nothing back, since the pending
-sign-in it used comes back with the rollback and can be completed again. If giving them back fails after the commit,
-the error is reported to your exception handler rather than thrown: the session already stands, and a throw would stop
-the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from running. The slots not
-given back stay counted.
-
-To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
-account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request
-whose accounts have used up their attempts, to test the `invalid_credentials` answer.
-
-Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
-refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
-credential kinds `api_key` and `client_credentials`; see [Extensibility](#extensibility)), from a service provider, and
-allow that exact name in each guard's audience:
-
-```php
-use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
-
-$this->app->make(SignInMethodManager::class)->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
-```
-
-```php
-'kiosk' => [
-    'driver'   => 'jwt',
-    'provider' => 'staff',
-    'audience' => ['methods' => ['badge']],
-],
-```
-
-```php
-$result = Auth::sessions('kiosk')->signIn('badge', $request->only('badge_number', 'pin'));
-```
-
-#### Additional factors
-
-The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that never asks for a factor; an MFA
-package or the application binds its own) is asked about every admitted sign-in, from `signIn()` and from `start()`,
-with the guard, identity, principal, tenant, method, client, and the device the client proved it holds, if any. When it
-requires a further factor, no session starts: the result's `pending` is a `PendingFactor` whose `token` completes the
-sign-in once, for this guard, within `sign_in.pending_ttl_seconds` (five minutes by default). The token is opaque (not a
-JWT), so it authenticates no request and refreshes nothing; only the digest of its secret is stored, in
-`pending_sign_ins`. The sign-in's attempt slots stay taken while it waits, the one its password check took on the
-account included, and are given back only when it completes: a pending sign-in that is discarded or expires leaves them
-counted, so each guess at a further factor costs a sign-in attempt. With the password method the guesses are therefore
-bounded by the account's own count, whichever spelling of the identifier and whichever guard each sign-in used, held to
-the most permissive `per_identifier` limit among the guards that check the account (see [Rate limits](#rate-limits)), so
-a further factor can be guessed no more often than the password. A method that does not count the account it checks (see
-[Writing a sign-in method](#writing-a-sign-in-method)) bounds them by its identifier's and the IP address's limits only.
-A sign-in that `start()` holds for a factor took no slots, since nothing was guessed: the external verifier that proved
-the identity bounds how often it can be repeated.
-
-The code that verifies the factor looks the pending sign-in up, verifies the factor for its identity and principal, and
-only then completes it. Possessing the token proves nothing about the factor: `complete()` is a trusted entry point,
-like `start()`.
-
-```php
-['pending_token' => $token, 'code' => $code] = $request->validate([
-    'pending_token' => ['required', 'string'],
-    'code'          => ['required', 'string'],
-]);
-
-$sessions = Auth::sessions('api');
-$pending  = $sessions->pending($token);
-
-if ($pending === null) {
-    abort(401);
-}
-
-if (! $factors->verify($pending->identity, $pending->principal, $code)) {
-    // One guess per pending sign-in; another needs a new sign-in, which counts
-    // against the sign-in limits.
-    $sessions->discard($token);
-
-    abort(401);
-}
-
-$result = $sessions->complete($token);
-```
-
-Holding a sign-in for a factor is its outcome, so it is reported: `AdditionalFactorRequired` carries the guard,
-identity, principal, tenant, the device the client proved (if any), the method, the client and the expiry, never the
-token, and is dispatched once the pending sign-in is committed (after your transaction, and never if you roll it back).
-
-`discard()` uses a pending sign-in up without starting a session, whatever has changed about its identity since; call it
-when the factor fails, so each pending sign-in allows one guess. It returns whether the token named a live pending
-sign-in of this guard and, when it did, reports the failure of the sign-in that waited: Laravel's `Failed` and then
-`AuthenticationFailed` with `additional_factor_failed`, the method, the discarding request's client and the identity
-(when the guard's provider still returns it; no principal). A token that discards nothing reports nothing.
-
-`pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
-guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome,
-with a delete only one completion can make, checks it again in the same transaction (the method still allowed, the
-identity, principal and tenant active, and the audience policy admitting them with the identifier type the sign-in
-used; the factor policy is not asked again), and starts the session on the device the client proved it holds when that
-is unchanged, otherwise on a new one, which records the client the sign-in came from as its creation and the completing
-request's client as its last use. The events of a completion, `AuthenticationFailed` included, carry the completing
-request's client. A token that completes nothing fails as `pending_invalid`, without saying why.
-
-Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see
-[Rate limits](#rate-limits)).
-
-#### Choosing a principal
-
-A sign-in (`signIn()` or `start()`) that names no principal, for an identity whose resolver has no default principal,
-waits for the identity to choose one when it may sign in as any: the result `requiresPrincipal()`, and its `choice` is a
-`PrincipalChoice` with a single-use `token`, the guard, the identity, the method, the expiry
-(`sign_in.pending_ttl_seconds`, as for a factor) and the `principals` it may choose from. Those are the identity's
-`principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
-by the guard's audience policy (for an identity that is its own principal, the resolver's default).
-`Auth::sessions('api')->principals($identity, $identifierType)` lists them the same way; a switch screen passes the
-type of identifier its session's sign-in used, `Auth::guard('api')->device()?->getSignInIdentifierType()`, so it lists
-only the targets the audience policy lets that session switch to (without a type, the list ignores the identifier and
-may hold targets a switch refuses). An identity with none fails as
-`principal_unresolved`, as before. The choice itself, and every later look-up of it, is admitted with the identifier
-type the sign-in used, as a sign-in naming a principal would be, so a principal your audience policy refuses to that
-identifier is neither offered nor listed, and a guard with `require_verified_identifier` offers no choice, and lists no
-principal, to an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing
-stored or reported. `attempt()` never waits for a choice.
-
-The choice is stored like a pending factor, in `pending_sign_ins` with `purpose = principal_choice` and no principal,
-with the device the client proved it holds (whatever principal that device records) and the sign-in's attempt slots,
-which stay taken until a session starts. `PrincipalChoiceRequired` reports it once committed, with the identity, method,
-client and that device, never the token or the list.
-
-```php
-['choice_token' => $token, 'principal' => $id] = $request->validate([
-    'choice_token' => ['required', 'string'],
-    'principal'    => ['required', 'string'],
-]);
-
-$sessions = Auth::sessions('api');
-$choice   = $sessions->choice($token); // null: unknown, expired, used, or not this guard's
-
-$principal = collect($choice?->principals ?? [])
-    ->first(fn ($principal) => (string) $principal->getPrincipalIdentifier() === $id);
-
-if ($principal === null) {
-    abort(401);
-}
-
-$result = $sessions->choose($token, $principal);
-```
-
-`choice()` never uses the choice up. `choose()` uses it up whatever the outcome, with a delete only one call can make,
-then admits the chosen principal as any sign-in would: the method still allowed, the principal resolved through the
-resolver's hinted path as the very one named and the identity's own (`principal_mismatch`), active, in an active tenant,
-and admitted by the audience policy with the identifier type the sign-in used. The additional-factor policy is then
-asked: a required factor turns the choice into a pending factor for the chosen principal, carrying the same attempt
-slots (complete it as above). Otherwise the session starts, on the device the client proved when that device records the
-chosen principal and is unchanged, else on a new one, and the slots are given back once committed. A token that
-continues no live choice of this guard fails as `pending_invalid`; `pending()` and `complete()` refuse choice tokens,
-and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a discarded choice reports
-`AuthenticationFailed` with `principal_choice_abandoned`.
 
 ### Using passkeys
 
@@ -1970,7 +1136,252 @@ Event::listen(PasskeyRemoved::class, RevokeDevicesOnPasskeyRemoval::class);
 It ends every session of the identity with `factor_removed`; to keep the current device signed in, call
 `Auth::sessions()->factorRemoved($identity, Auth::device())` yourself instead. See `docs/design/passkeys.md`.
 
-### Refreshing
+### Writing a sign-in method
+
+A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why
+it does not; the session service does everything else (the audience policy, the limits, activity, the principal, a
+further factor, the device and the tokens). Use a method for input the package verifies, such as a password, a code
+your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead
+when something outside the session service has already proven the identity, such as an SSO callback your identity
+provider's package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or
+timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the
+machine credential kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when
+the guard's audience lists them: they authenticate requests and exchanges, never sessions.
+
+```php
+use Illuminate\Contracts\Hashing\Hasher;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
+
+final readonly class BadgeSignIn implements SignInMethod
+{
+    public function __construct(private Hasher $hasher) {}
+
+    public function identifierType(string $guard): ?string
+    {
+        return 'badge_number';
+    }
+
+    public function identifier(string $guard, array $input): ?string
+    {
+        return is_string($input['badge_number'] ?? null) ? $input['badge_number'] : null;
+    }
+
+    public function authenticate(SignInRequest $request): Identity|FailureReason
+    {
+        $badge    = $this->identifier($request->guard, $request->input);
+        $pin      = $request->input['pin'] ?? null;
+        $identity = $badge === null ? null : $request->provider->retrieveByCredentials(['badge_number' => $badge]);
+
+        if (! $identity instanceof Identity || ! is_string($pin) || ! $request->reserveAccountAttempt($identity)) {
+            return FailureReason::INVALID_CREDENTIALS;
+        }
+
+        return $this->hasher->check($pin, $identity->pin_hash) ? $identity : FailureReason::INVALID_CREDENTIALS;
+    }
+}
+```
+
+`identifierType()` names the identifier the method signs in by: the normaliser its limit counts it through, and the
+identifier a guard that requires verified identifiers checks. Return `null` for a method that uses no identifier (an
+assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
+does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
+never to look anyone up. `authenticate()` returns the identity, or `FailureReason::INVALID_CREDENTIALS` for anything the
+input did not prove. A method may also answer `identifier_unverified`, but only once its input proved possession of the
+identifier (as a one-time code does), and `code_expired`, `code_exhausted`, `passkey_challenge_invalid` or
+`passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
+the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
+returns one throws a `LogicException` (see [Events](#events)). A method must not bind a guard, issue tokens or write
+session state, and must hold no state between calls, since the manager keeps one instance per name for the life of the
+process. The credential timebox pads every refused sign-in, the method's own work included, to
+`timebox.credentials_microseconds`, so a method may answer an unknown identifier at once, as the example does; keep the
+method's worst case under that budget, and only a method whose work can take longer needs to do the same work whether or
+not the identifier exists.
+
+A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
+checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
+attempts); the session service refuses the sign-in then even if the method returns an identity. A lookup can find one
+account by many spellings of its identifier, and through every guard whose provider returns it, so only the account's
+own count, held to the most permissive limit among those guards, bounds the guesses at its secret, and at a further
+factor its sign-in waits for. Reserve before each secret you check: a method that checks two (a password and a PIN, say)
+takes two slots. The slots belong to the sign-in: they are all given back when the session starts, or when its pending
+sign-in's completion commits. A completion that your transaction rolls back gives nothing back, since the pending
+sign-in it used comes back with the rollback and can be completed again. If giving them back fails after the commit,
+the error is reported to your exception handler rather than thrown: the session already stands, and a throw would stop
+the commit's later callbacks (another session's events, your own `DB::afterCommit()` work) from running. The slots not
+given back stay counted.
+
+To unit-test a method, build its request yourself. `new SignInRequest('kiosk', $provider, $input, $client)` allows every
+account check; a fifth argument decides them instead, so `fn (Identity $identity): bool => false` gives you a request
+whose accounts have used up their attempts, to test the `invalid_credentials` answer.
+
+Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
+refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
+credential kinds `api_key` and `client_credentials`; see [Extensibility](#extensibility)), from a service provider, and
+allow that exact name in each guard's audience:
+
+```php
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+
+$this->app->make(SignInMethodManager::class)->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+```
+
+```php
+'kiosk' => [
+    'driver'   => 'jwt',
+    'provider' => 'staff',
+    'audience' => ['methods' => ['badge']],
+],
+```
+
+```php
+$result = Auth::sessions('kiosk')->signIn('badge', $request->only('badge_number', 'pin'));
+```
+
+### Additional factors
+
+The additional-factor policy (`Contracts\AdditionalFactorPolicy`, by default one that never asks for a factor; an MFA
+package or the application binds its own) is asked about every admitted sign-in, from `signIn()` and from `start()`,
+with the guard, identity, principal, tenant, method, client, and the device the client proved it holds, if any. When it
+requires a further factor, no session starts: the result's `pending` is a `PendingFactor` whose `token` completes the
+sign-in once, for this guard, within `sign_in.pending_ttl_seconds` (five minutes by default). The token is opaque (not a
+JWT), so it authenticates no request and refreshes nothing; only the digest of its secret is stored, in
+`pending_sign_ins`. The sign-in's attempt slots stay taken while it waits, the one its password check took on the
+account included, and are given back only when it completes: a pending sign-in that is discarded or expires leaves them
+counted, so each guess at a further factor costs a sign-in attempt. With the password method the guesses are therefore
+bounded by the account's own count, whichever spelling of the identifier and whichever guard each sign-in used, held to
+the most permissive `per_identifier` limit among the guards that check the account (see [Rate limits](#rate-limits)), so
+a further factor can be guessed no more often than the password. A method that does not count the account it checks (see
+[Writing a sign-in method](#writing-a-sign-in-method)) bounds them by its identifier's and the IP address's limits only.
+A sign-in that `start()` holds for a factor took no slots, since nothing was guessed: the external verifier that proved
+the identity bounds how often it can be repeated.
+
+The code that verifies the factor looks the pending sign-in up, verifies the factor for its identity and principal, and
+only then completes it. Possessing the token proves nothing about the factor: `complete()` is a trusted entry point,
+like `start()`.
+
+```php
+['pending_token' => $token, 'code' => $code] = $request->validate([
+    'pending_token' => ['required', 'string'],
+    'code'          => ['required', 'string'],
+]);
+
+$sessions = Auth::sessions('api');
+$pending  = $sessions->pending($token);
+
+if ($pending === null) {
+    abort(401);
+}
+
+if (! $factors->verify($pending->identity, $pending->principal, $code)) {
+    // One guess per pending sign-in; another needs a new sign-in, which counts
+    // against the sign-in limits.
+    $sessions->discard($token);
+
+    abort(401);
+}
+
+$result = $sessions->complete($token);
+```
+
+Holding a sign-in for a factor is its outcome, so it is reported: `AdditionalFactorRequired` carries the guard,
+identity, principal, tenant, the device the client proved (if any), the method, the client and the expiry, never the
+token, and is dispatched once the pending sign-in is committed (after your transaction, and never if you roll it back).
+
+`discard()` uses a pending sign-in up without starting a session, whatever has changed about its identity since; call it
+when the factor fails, so each pending sign-in allows one guess. It returns whether the token named a live pending
+sign-in of this guard and, when it did, reports the failure of the sign-in that waited: Laravel's `Failed` and then
+`AuthenticationFailed` with `additional_factor_failed`, the method, the discarding request's client and the identity
+(when the guard's provider still returns it; no principal). A token that discards nothing reports nothing.
+
+`pending()` never uses the pending sign-in up, and returns `null` for any token that does not name a live one of this
+guard whose identity and principal still resolve as it recorded them. `complete()` uses it up whatever the outcome,
+with a delete only one completion can make, checks it again in the same transaction (the method still allowed, the
+identity, principal and tenant active, and the audience policy admitting them with the identifier type the sign-in
+used; the factor policy is not asked again), and starts the session on the device the client proved it holds when that
+is unchanged, otherwise on a new one, which records the client the sign-in came from as its creation and the completing
+request's client as its last use. The events of a completion, `AuthenticationFailed` included, carry the completing
+request's client. A token that completes nothing fails as `pending_invalid`, without saying why.
+
+Pending sign-ins that were never completed expire; schedule their pruning with the rate limit counters' (see
+[Rate limits](#rate-limits)).
+
+### Choosing a principal
+
+A sign-in (`signIn()` or `start()`) that names no principal, for an identity whose resolver has no default principal,
+waits for the identity to choose one when it may sign in as any: the result `requiresPrincipal()`, and its `choice` is a
+`PrincipalChoice` with a single-use `token`, the guard, the identity, the method, the expiry
+(`sign_in.pending_ttl_seconds`, as for a factor) and the `principals` it may choose from. Those are the identity's
+`principals()`, read on the write connection, that are active, act within an active tenant (or none), and are admitted
+by the guard's audience policy (for an identity that is its own principal, the resolver's default).
+`Auth::sessions('api')->principals($identity, $identifierType)` lists them the same way; a switch screen passes the
+type of identifier its session's sign-in used, `Auth::guard('api')->device()?->getSignInIdentifierType()`, so it lists
+only the targets the audience policy lets that session switch to (without a type, the list ignores the identifier and
+may hold targets a switch refuses). An identity with none fails as
+`principal_unresolved`, as before. The choice itself, and every later look-up of it, is admitted with the identifier
+type the sign-in used, as a sign-in naming a principal would be, so a principal your audience policy refuses to that
+identifier is neither offered nor listed, and a guard with `require_verified_identifier` offers no choice, and lists no
+principal, to an identity whose identifier is unverified: the sign-in fails as `identifier_unverified` with nothing
+stored or reported. `attempt()` never waits for a choice.
+
+The choice is stored like a pending factor, in `pending_sign_ins` with `purpose = principal_choice` and no principal,
+with the device the client proved it holds (whatever principal that device records) and the sign-in's attempt slots,
+which stay taken until a session starts. `PrincipalChoiceRequired` reports it once committed, with the identity, method,
+client and that device, never the token or the list.
+
+```php
+['choice_token' => $token, 'principal' => $id] = $request->validate([
+    'choice_token' => ['required', 'string'],
+    'principal'    => ['required', 'string'],
+]);
+
+$sessions = Auth::sessions('api');
+$choice   = $sessions->choice($token); // null: unknown, expired, used, or not this guard's
+
+$principal = collect($choice?->principals ?? [])
+    ->first(fn ($principal) => (string) $principal->getPrincipalIdentifier() === $id);
+
+if ($principal === null) {
+    abort(401);
+}
+
+$result = $sessions->choose($token, $principal);
+```
+
+`choice()` never uses the choice up. `choose()` uses it up whatever the outcome, with a delete only one call can make,
+then admits the chosen principal as any sign-in would: the method still allowed, the principal resolved through the
+resolver's hinted path as the very one named and the identity's own (`principal_mismatch`), active, in an active tenant,
+and admitted by the audience policy with the identifier type the sign-in used. The additional-factor policy is then
+asked: a required factor turns the choice into a pending factor for the chosen principal, carrying the same attempt
+slots (complete it as above). Otherwise the session starts, on the device the client proved when that device records the
+chosen principal and is unchanged, else on a new one, and the slots are given back once committed. A token that
+continues no live choice of this guard fails as `pending_invalid`; `pending()` and `complete()` refuse choice tokens,
+and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a discarded choice reports
+`AuthenticationFailed` with `principal_choice_abandoned`.
+
+### Enumeration resistance
+
+No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
+yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
+
+| Flow                 | Same outcome for an unknown identifier                                                                                                                                      | Delivery                                  | Timing                                                                                                       |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                      | None                                      | Padded to the credential timebox                                                                             |
+| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                   | Queued job (after the response on `sync`) | No identity work at all, so nothing to pad                                                                   |
+| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                             | None                                      | Padded to the credential timebox                                                                             |
+| Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job (after the response on `sync`) | Not applicable                                                                                               |
+| Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                                      | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
+| API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                                      | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
+| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited        | None                                      | As API key                                                                                                   |
+
+The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
+looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity, or to one that holds
+only a look-alike of it. Answer `sent` the same way whatever happens next, and do not tell the client whether a message
+went out.
+
+## Refreshing
 
 Refresh with the token the request carries, read through the guard's refresh token transport:
 
@@ -2205,7 +1616,7 @@ testing traits wrap around each test does not count either, so a test sees `Devi
 Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
 error, which surfaces as a server error for you to retry.
 
-### Switching principal
+## Switching principal
 
 An identity that may act as several principals (memberships of several tenants, say) switches the session it is signed
 in with to another one, on the same device, proven by the session's refresh token:
@@ -2280,36 +1691,7 @@ dispatches `PrincipalSwitched` once committed on the device's connection, with t
 context, and the previous principal as the device recorded it (`previousPrincipalType`, `previousPrincipalId`) and, when
 it still resolves for the identity, the principal itself (`previousPrincipal`).
 
-### Listing devices
-
-`devices()` returns one page of an identity's active devices for a "where you're signed in" screen: every session it
-holds on any guard that is not revoked and is before both its idle and absolute deadline, most recently used first
-(devices never used last), then newest first:
-
-```php
-use SineMacula\Laravel\Authentication\Facades\Auth;
-
-Route::middleware('auth:api')->get('/devices', fn () => Auth::sessions('api')->devices(Auth::identity(), perPage: 20));
-```
-
-Each item is a `DeviceSummary`, safe to return as it is: the device id (its `did`), guard, sign-in method, client name
-and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
-started (its latest sign-in on that device), the last use and its IP address and user agent, both deadlines, and
-`current`, which marks the device the request is authenticated with on that guard. It never holds a refresh digest, the
-rotation time, the revocation columns, the owner or the principal, and `toArray()` and JSON use snake_case keys and
-ISO-8601 times. A page holds 1 to 100 devices (15 by default; anything else is an `InvalidArgumentException`), and the
-page is the request's `page` parameter unless you pass one. The list is read on the write connection through the
-identity's `devices()` relation, in two queries (a count and a select), so a device revoked a moment ago is never shown.
-An identity that does not implement `HasDevices`, or whose `devices()` relation queries a model that is not an
-`EloquentDevice`, is a `LogicException`.
-
-The same rule is a query scope on any model that uses `ActsAsDevice`, for your own queries:
-
-```php
-Device::query()->active()->where('guard', 'api')->count();
-```
-
-### Signing out and revoking sessions
+## Signing out and revoking sessions
 
 `Auth::logout()` (or `Auth::guard('api')->logout()`) signs the request's session out through the session service: the
 device the guard is bound to is revoked with reason `signed_out`, `DeviceRevoked` reports it once committed, Laravel's
@@ -2363,19 +1745,48 @@ never less, and calling again finishes the job. One window stays open: a sign-in
 check when a bulk revocation reads the devices can still create its device afterwards. Closing it would take a lock that
 every sign-in and every revocation take on the identity, which the package does not add.
 
-#### Revoking on security changes
+### Listing devices
+
+`devices()` returns one page of an identity's active devices for a "where you're signed in" screen: every session it
+holds on any guard that is not revoked and is before both its idle and absolute deadline, most recently used first
+(devices never used last), then newest first:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::middleware('auth:api')->get('/devices', fn () => Auth::sessions('api')->devices(Auth::identity(), perPage: 20));
+```
+
+Each item is a `DeviceSummary`, safe to return as it is: the device id (its `did`), guard, sign-in method, client name
+and platform, the creation time (for a model with Eloquent timestamps), IP address and user agent, when the session
+started (its latest sign-in on that device), the last use and its IP address and user agent, both deadlines, and
+`current`, which marks the device the request is authenticated with on that guard. It never holds a refresh digest, the
+rotation time, the revocation columns, the owner or the principal, and `toArray()` and JSON use snake_case keys and
+ISO-8601 times. A page holds 1 to 100 devices (15 by default; anything else is an `InvalidArgumentException`), and the
+page is the request's `page` parameter unless you pass one. The list is read on the write connection through the
+identity's `devices()` relation, in two queries (a count and a select), so a device revoked a moment ago is never shown.
+An identity that does not implement `HasDevices`, or whose `devices()` relation queries a model that is not an
+`EloquentDevice`, is a `LogicException`.
+
+The same rule is a query scope on any model that uses `ActsAsDevice`, for your own queries:
+
+```php
+Device::query()->active()->where('guard', 'api')->count();
+```
+
+### Revoking on security changes
 
 Call the session service from your own flows when something about an identity's security changes; each ends the
 affected sessions as a bulk revocation, with its own reason, moves the scope's cutoff, and ends its pending sign-ins:
 
-| Method                                              | Ends                                       | Reason                  |
-|-----------------------------------------------------|--------------------------------------------|-------------------------|
-| `passwordChanged($identity, ?Device $except)`       | The identity's sessions, but `$except`     | `password_changed`      |
-| `passwordReset($identity)`                          | Every session of the identity              | `password_reset`        |
-| `factorRemoved($identity, ?Device $except)`         | The identity's sessions, but `$except`     | `factor_removed`        |
-| `identityDeactivated($identity)`                    | Every session of the identity              | `identity_deactivated`  |
-| `principalDeactivated($principal)`                  | Every session acting as the principal      | `principal_deactivated` |
-| `tenantDeactivated($tenant, iterable $principals)`  | Every session acting as a listed principal | `tenant_deactivated`    |
+| Method                                             | Ends                                       | Reason                  |
+|----------------------------------------------------|--------------------------------------------|-------------------------|
+| `passwordChanged($identity, ?Device $except)`      | The identity's sessions, but `$except`     | `password_changed`      |
+| `passwordReset($identity)`                         | Every session of the identity              | `password_reset`        |
+| `factorRemoved($identity, ?Device $except)`        | The identity's sessions, but `$except`     | `factor_removed`        |
+| `identityDeactivated($identity)`                   | Every session of the identity              | `identity_deactivated`  |
+| `principalDeactivated($principal)`                 | Every session acting as the principal      | `principal_deactivated` |
+| `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal | `tenant_deactivated`    |
 
 Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change.
 `factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. Devices record
@@ -2453,7 +1864,7 @@ $this->app->when(RevokeDevicesOnPasswordChange::class)->needs('$guard')->give('a
 
 With no `jwt` guard configured at all, a listener throws an `InvalidArgumentException`.
 
-#### Access tokens without a device
+### Access tokens without a device
 
 An access token issued without a device (access-only mode, see
 [Access-only mode](#access-only-mode-no-devices-no-refresh)) has no device to revoke. To end those too, an identity or
@@ -2486,13 +1897,34 @@ device-less token issued in that second is rejected too. Tokens that name a devi
 moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
 must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
 
-### Passwords
+### Revocation reasons
+
+Every revocation records one of these reasons in the device's `revoked_reason` and in `DeviceRevoked::$reason`
+(`RevocationReason`); a bulk revocation reports it in `SignedOutEverywhere::$reason` as well:
+
+| Reason                  | Recorded when                                                                                                               |
+|-------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `signed_out`            | The session signed itself out: `logout()`, `Auth::sessions()->signOut()`                                                    |
+| `signed_out_everywhere` | `signOutEverywhere()` ended the identity's sessions                                                                         |
+| `revoked`               | The application revoked it: `revokeDevice()`, `revokeDevices()`, `revokePrincipalDevices()`                                 |
+| `rotation_reuse`        | A rotated refresh token was replayed, by a refresh or a switch of principal                                                 |
+| `password_changed`      | `passwordChanged()`: directly, through `Auth::passwords()->set()` with `CHANGE`, or through `RevokeDevicesOnPasswordChange` |
+| `password_reset`        | `passwordReset()`: directly, through a reset or `set()` with `RESET`, or through `RevokeDevicesOnPasswordReset`             |
+| `factor_removed`        | `factorRemoved()`, directly or through `RevokeDevicesOnPasskeyRemoval`                                                      |
+| `identity_deactivated`  | `identityDeactivated()`, directly or through `RevokeDevicesOnDeactivation`                                                  |
+| `principal_deactivated` | `principalDeactivated()`, directly or through `RevokeDevicesOnDeactivation`                                                 |
+| `tenant_deactivated`    | `tenantDeactivated()`                                                                                                       |
+
+`revokeDevice()`, `revokeDevices()` and `revokePrincipalDevices()` take the reason as an argument (`REVOKED` in the
+examples above); the others set their own.
+
+## Passwords
 
 `Auth::passwords($guard)` is the password service of a `jwt` guard (an `InvalidArgumentException` names any other):
 the password policy, and the one call a registration, a change or a reset makes to set a password. Routes, forms and
 messages stay yours.
 
-#### Password policy
+### Password policy
 
 ```php
 'passwords' => [
@@ -2574,7 +2006,7 @@ The rule runs no breached check and cannot see bcrypt's byte limit, so `set()` (
 policy applies only to passwords being set: the automatic rehash of an outdated hash on sign-in re-encodes the password
 the identity already has, so an older password shorter than today's minimum still signs in, and is rehashed.
 
-#### Setting a password
+### Setting a password
 
 `set($identity, $password, $flow, ?Device $except = null)` applies the policy, and only a password that passes is
 hashed with Laravel's `Hasher` and stored; a password that fails writes nothing and reports nothing. The result is a
@@ -2635,7 +2067,7 @@ transaction, which commits inside the identity's: a failure after it leaves the 
 unchanged, so more is ended, never less, and calling again finishes the job. The automatic rehash on sign-in never
 fires `PasswordSet`.
 
-#### Password reset
+### Password reset
 
 A reset proves control of an identifier with a link's token or a one-time code, then sets the new password and ends
 every session of the identity, through every guard, in one transaction. The application owns the routes, the forms and
@@ -2753,7 +2185,7 @@ twice, reads its tokens from a replica, keys tokens by email address only and li
 mean replacing every behaviour it has (see `docs/design/passwords.md`). If you keep Laravel's broker instead,
 `RevokeDevicesOnPasswordReset` still answers its `PasswordReset`; do not combine the two flows.
 
-### Changing identifiers
+## Changing identifiers
 
 `Auth::identifierChanges($guard)` changes an identity's email address or phone number once the new one is proven, and
 keeps the current one until then. A change is requested, then confirmed by a one-time code sent to the new identifier or
@@ -2919,29 +2351,9 @@ unbound notifier or a link route whose parameters or placeholders take a name th
 `purpose`, `request`, `hash`, `expires`, `signature`) throw before anything is counted or written, and
 `authentication:check` reports the settings (`[identifier_changes]`).
 
-### Long-running processes
+## Machine credentials
 
-One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
-may reach the next. Each request rebinds Laravel's `request`, which resets every package guard already resolved: the
-identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates from
-its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its guards
-when each job a worker runs starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a job signs
-in with `login()` or `setUser()` is signed out again for the next job. Only jobs a worker runs are reset: a job on the
-`sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the request that
-dispatched it and leaves its guards as they are, so a session the request just started stays bound and a request that
-signed out stays signed out. A dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a
-rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a
-switch of principal and the revocations), which read the guard's collaborators each time they run. The package's
-singletons hold configuration only: the token service factory memoises each guard's signing configuration, not any
-identity's data, and the mark the password-change listener reads during an automatic rehash is scoped, so it starts
-empty for each request and each job a worker runs. No package class keeps a request, an identity or a token in a static
-property. The sign-in methods you register are kept for the life of the process as well, so they must hold no state
-between calls (see [Writing a sign-in method](#writing-a-sign-in-method)), and so must a factor or audience policy you
-bind as a singleton.
-
-### Machine credentials
-
-#### Non-human identities
+### Non-human identities
 
 An API client or a service account is an identity of its own type: implement `Contracts\MachineIdentity` on its model
 (a marker that extends `Identity`). A non-human identity has no password, no interactive sign-in, no device and no
@@ -2964,7 +2376,7 @@ enforces this at every entry point that verifies something:
 The trusted binds stay trusted: `login()`, `setUser()` and `authenticateAs()` (and so Laravel's `actingAs()` in tests)
 bind a machine as given, limited to no scope (`Auth::scopes()` is `[]`), since the caller has proven it.
 
-#### Credential scopes
+### Credential scopes
 
 A credential issued to a machine (an API key, or the access token a client credentials exchange hands out) carries
 scopes: the most its bearer may do. The package carries them and never interprets them. A scope is an opaque string
@@ -3016,7 +2428,7 @@ form of its own (every scope given is named then). A malformed or rejected scope
 issuing a credential is a trusted, programmatic action, so this is the caller's error, not a failed authentication. A
 credential's scopes are fixed for its life.
 
-#### API keys
+### API keys
 
 An API key authenticates a non-human identity, a model that implements `Contracts\MachineIdentity`, as one of its
 principals on one guard. Issue keys through the guard's key service, `Auth::apiKeys($guard)`, for an `api_key` guard
@@ -3116,7 +2528,7 @@ Schedule pruning of keys revoked or expired more than `prune_after_days` ago:
 $schedule->command('model:prune', ['--model' => [\SineMacula\Laravel\Authentication\Models\ApiKey::class]])->daily();
 ```
 
-#### Client credentials
+### Client credentials
 
 The OAuth 2.0 client credentials grant (RFC 6749 section 4.4) exchanges a machine's API key for a short-lived access
 token of a `jwt` guard. The key is issued on that guard (`Auth::apiKeys('m2m')->issue(...)`): its public part is the
@@ -3183,68 +2595,765 @@ loaded (`principal_mismatch`, `credential_invalid`). Revoking the key, or the en
 its tokens at the next request. A request with such a token binds with method `client_credentials`, the key in
 `credentialId` and `Auth::scopes()` the token's scopes.
 
-## Key Rotation
+## Failure outcomes
 
-Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
-New tokens carry the active kid in their JWT header; the verifier accepts any kid in the map. To rotate, add the new
-key to the published `config/authentication.php` alongside the current one and point `active_kid` at it:
+A refused sign-in, request, refresh or exchange is a result, never an exception: the caller gets what the flow's API
+returns, and `AuthenticationFailed` reports it with the flow (`$event->flow`), a `FailureReason` (`$event->reason`) and
+the context. Exceptions are for misconfiguration (an `InvalidArgumentException` or a `LogicException` naming the setting
+or the model) and for server errors, such as a database error, which propagate. What each flow answers, and the
+reasons its event can carry (each reason's meaning is in [Events](#events)):
+
+| Flow                      | Entry points                                                                                          | The caller sees                                                                                                                                                                                                                                                                                                                                                                          | Reasons on the event                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+|---------------------------|-------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `sign_in`                 | `attempt()`; `Auth::sessions()->signIn()`, `start()`, `complete()`, `choose()`, `discard()`           | `attempt()`: `false`. The session service: a `SignInResult` whose `isFailed()`, `reason` and, for `rate_limited`, `retryAfter` say why; `discard()`: whether it discarded a pending sign-in                                                                                                                                                                                              | `invalid_credentials`, `method_not_allowed`, `rate_limited`, `identity_unknown`, `identity_inactive`, `machine_identity`, `principal_unresolved`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `principal_ineligible`, `identifier_unverified`, `device_mismatch` and `additional_factor_required` (`attempt()`), `additional_factor_failed`, `principal_choice_abandoned`, `pending_invalid`, `passkey_challenge_invalid`; on the event only: `account_rate_limited`, `code_expired`, `code_exhausted`, `passkey_counter_regressed` |
+| `bearer`                  | A request through `auth:<jwt guard>`, or `Auth::user()` and the accessors on one                      | `401 {"message": "Unauthenticated."}` from the `auth` middleware; `Auth::user()` is `null`                                                                                                                                                                                                                                                                                               | `token_invalid`, `credential_invalid`, `credential_revoked` and `credential_expired` (a client credentials token), `identity_unknown`, `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `issued_before_cutoff` (a token without a device), `device_unknown`, `device_guard_mismatch`, `device_revoked`, `session_expired`, `device_principal_mismatch`                                                                                                                                          |
+| `refresh`                 | `refreshFromRequest()`, `refresh()`                                                                   | `refreshFromRequest()`: the `FailureReason` (`null` when the request carries no token); `refresh()`: `null`; `rate_limited`: a `ThrottleRequestsException`, 429 with `Retry-After`                                                                                                                                                                                                       | `token_invalid`, `refresh_token_conflict`, `cross_site_request`, `rate_limited`, `device_unknown`, `device_guard_mismatch`, `device_revoked`, `session_expired`, `refresh_key_missing`, `rotation_reuse` (the device is revoked), `rotation_conflict`, `device_principal_mismatch`, `identity_unknown`, `machine_identity`, `identity_inactive`, `principal_unresolved`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `method_not_allowed`, `principal_ineligible`                                                                   |
+| `principal_switch`        | `Auth::sessions()->switchPrincipalFromRequest()`, `switchPrincipal()`                                 | A `SwitchResult` whose `isFailed()`, `reason` and, for `rate_limited`, `retryAfter` say why (`null` from `switchPrincipalFromRequest()` when the request carries no token)                                                                                                                                                                                                               | Those of `refresh`, with `rate_limited` returned rather than thrown, and `additional_factor_required`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `api_key`                 | A request through `auth:<api_key guard>`                                                              | `401 {"message": "Unauthenticated."}` from the `auth` middleware; the guard's `attempt()` is `false` and reports `method_not_allowed` on the `sign_in` flow                                                                                                                                                                                                                              | `credential_invalid`, `credential_guard_mismatch`, `credential_revoked`, `credential_expired`, `method_not_allowed`, `identity_unknown`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, `principal_ineligible`                                                                                                                                                                                                                                                                                                    |
+| `client_credentials`      | `Auth::clientCredentials()->fromRequest()`, `exchange()`                                              | A `ClientCredentialsResult` answering RFC 6749's `invalid_request`, `unsupported_grant_type`, `invalid_client`, `unauthorized_client`, `invalid_scope`, or `slow_down` (see [Client credentials](#client-credentials))                                                                                                                                                                   | `invalid_credentials` (a request refused before a client was found), `method_not_allowed`, `rate_limited`, every reason of `api_key`, `scope_invalid`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `code_request`            | `Auth::codes()->send()`, `sendVerification()`                                                         | A `CodeRequest` whose `status` is `sent`, `rate_limited` (with `retryAfter`), `method_not_allowed` or `identifier_invalid`; the same for an identifier no one holds                                                                                                                                                                                                                      | `method_not_allowed` (`send()`), `invalid_credentials` (the result's `identifier_invalid`), `rate_limited`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `identifier_verification` | `Auth::codes()->verify()`                                                                             | The `FailureReason` itself, since the caller holds the identity, or `IdentifierVerification::MISMATCH` when the identifier changed meanwhile (nothing reported)                                                                                                                                                                                                                          | `invalid_credentials`, `code_expired`, `code_exhausted`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `password_reset`          | `Auth::passwords()->sendResetLink()`, `sendResetCode()`, `reset()`, `resetWithCode()`                 | A request: a `CodeRequest` as for a code (`sent`, `rate_limited` with `retryAfter`, `method_not_allowed`, `identifier_invalid`), the same for an identifier no one holds. A reset: a `ResetResult` whose `status` is `reset`, `invalid`, `rate_limited` (with `retryAfter`) or `password_rejected` (with the `violations`, reported by no event) (see [Password reset](#password-reset)) | A request: `method_not_allowed`, `invalid_credentials` (the result's `identifier_invalid`), `rate_limited`. A reset: `rate_limited`, `invalid_credentials`, `machine_identity`, `identity_inactive`, `identifier_unverified`; on the event only: `code_expired`, `code_exhausted`, `link_expired`                                                                                                                                                                                                                                                      |
+| `identifier_change`       | `Auth::identifierChanges()->requestByCode()`, `requestByLink()`, `confirmByCode()`, `confirmByLink()` | A request: an `IdentifierChangeRequest` whose `status` is `sent`, `rate_limited` (with `retryAfter`), `reauthentication_required`, `identifier_invalid` or `identifier_unchanged`. A confirmation: an `IdentifierChangeOutcome`, `changed`, `invalid`, `expired`, `exhausted` or `taken` (see [Changing identifiers](#changing-identifiers))                                             | `reauthentication_required`, `rate_limited`, `invalid_credentials` (an invalid or unchanged identifier, a wrong code or link, a change replaced or lost), `code_expired`, `link_expired`, `code_exhausted`, `identifier_taken`, none of them concealed                                                                                                                                                                                                                                                                                                 |
+
+The reasons only the event carries (`FailureReason::isConcealed()`: `account_rate_limited`, `code_expired`,
+`code_exhausted`, `link_expired` and `passkey_counter_regressed`) are answered on a sign-in's result as
+`invalid_credentials`, with no wait, so the answer reveals neither that an account exists nor that a code or link was
+requested for it; the flows whose caller already holds the identity (verification by code) answer them as they are. A
+sign-in method may answer only `invalid_credentials`, `identifier_unverified`, `code_expired`, `code_exhausted`,
+`passkey_challenge_invalid` and `passkey_counter_regressed` (`FailureReason::isSignInMethodReason()`); every other
+reason is the session service's to give.
+
+## Suite integration
+
+The package authenticates; its siblings decide everything else, each through a seam here, and none is required. Every
+seam has a default that works alone.
+
+### Further factors (`laravel-mfa`)
+
+- Bind `Contracts\AdditionalFactorPolicy` (the default, `NeverRequireAdditionalFactor`, never asks). It is asked about
+  every admitted sign-in, from `signIn()` and `start()`, and again on a switch of principal, with the guard, identity,
+  principal, tenant, method, client and the device the client proved (see [Additional factors](#additional-factors)).
+- When it asks for a factor, the sign-in waits: `SignInResult::requiresFactor()` and its `PendingFactor` token, then
+  `Auth::sessions()->pending()`, `complete()` or `discard()` once the factor is verified or fails. `attempt()` cannot
+  wait, so it fails as `additional_factor_required`.
+- A factor removed ends the identity's other sessions: `Auth::sessions()->factorRemoved($identity, Auth::device())`.
+- Passkeys verify as a factor through `Auth::passkeys()->factorOptions($identity)` and `verifyFactor()`, which count and
+  report nothing: the factor's outcome is the factor package's to limit and report.
+- Factor state is the factor package's, keyed by the device id (`Auth::device()?->getDeviceIdentifier()`, the `did`
+  every session token carries); the device records none.
+
+### Authorization (`laravel-authorization`)
+
+- `Auth::principal()`, `Auth::tenant()` and `Auth::type()` are the subject an authorization decision is about.
+- `Auth::scopes()` is the ceiling the request's credential grants: `null` for a human's session, which no credential
+  limits, the granted list for an API key or a client credentials token, and `[]` for a machine bound without one.
+  Intersect the principal's permissions with it; a scope never grants anything by itself (see
+  [Credential scopes](#credential-scopes)).
+- Bind `Contracts\ScopeRegistry` to hold the scopes a credential is issued with to real permissions (the default,
+  `AcceptAnyScope`, accepts any well-formed scope).
+
+### Single sign-on (`laravel-sso`)
+
+- When the identity provider's callback has proven the identity, start the session with
+  `Auth::sessions($guard)->start($identity, $principal, 'sso', $context)`: the guard's audience must list the method
+  name, the identity is reloaded through the guard's provider, activity, the audience policy and the additional-factor
+  policy all apply, and no attempt limit or timebox does, since nothing is guessed. No registration is needed.
+- For an assertion the package should verify itself, implement `Contracts\SignInMethod`, register it with
+  `SignInMethodManager::extend()` and sign in through `signIn()`, which adds the limits and the timebox (see
+  [Writing a sign-in method](#writing-a-sign-in-method)).
+- Either way the device records the method, so the guard's audience can stop allowing it and its sessions stop
+  refreshing.
+
+### Audit (`laravel-audit-log`)
+
+- Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
+  records them all: the guard, the client, snapshots of the identity, principal, tenant and device identifiers, the
+  method, and the credential and its scopes, never a secret (see [Events](#events)).
+- Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
+  one, so a queued audit listener records only what happened.
+
+## Configuration
+
+The package's settings live in the published `config/authentication.php`, under `authentication.`. A guard overrides
+the ones marked per guard in its own `config/auth.php` entry, in a block named after the first part of the key (`jwt`,
+`audience`, `rate_limits`, `refresh_token`, `passkeys` for the relying party, and `sign_in` for the password
+identifier), where a key it sets wins. A value that is malformed or out of range fails closed, naming the key (and the
+guard), when it is first used, and `php artisan authentication:check` reports it before a deploy (see
+[Checking the configuration](#checking-the-configuration)).
+
+| Key                                                 | Default                                                                      | Env                                                               | Per guard | See                                                           |
+|-----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------------|-----------|---------------------------------------------------------------|
+| `device.model`                                      | `Device::class`                                                              | `AUTHENTICATION_DEVICE_MODEL`                                     |           | [Device](#device)                                             |
+| `device.table`                                      | `devices`                                                                    | `AUTHENTICATION_DEVICE_TABLE`                                     |           | [Device](#device)                                             |
+| `device.last_used_throttle_seconds`                 | `60`                                                                         | `AUTHENTICATION_DEVICE_LAST_USED_THROTTLE_SECONDS`                |           | [Device](#device)                                             |
+| `device.prune_after_days`                           | `30`                                                                         | `AUTHENTICATION_DEVICE_PRUNE_AFTER_DAYS`                          |           | [Pruning](#pruning)                                           |
+| `sign_in.password_identifier`                       | `email`                                                                      | `AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER`                      | yes       | [Sign-in](#sign-in)                                           |
+| `sign_in.pending_table`                             | `pending_sign_ins`                                                           | `AUTHENTICATION_SIGN_IN_PENDING_TABLE`                            |           | [Sign-in](#sign-in)                                           |
+| `sign_in.pending_ttl_seconds`                       | `300`                                                                        | `AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS`                      |           | [Sign-in](#sign-in)                                           |
+| `timebox.credentials_microseconds`                  | `400000`                                                                     | `AUTHENTICATION_TIMEBOX_CREDENTIALS_US`                           |           | [Credential validation timing](#credential-validation-timing) |
+| `events.redacted_credential_keys`                   | `[]`                                                                         |                                                                   |           | [Events](#events)                                             |
+| `jwt.keys`                                          | `['default' => env('AUTHENTICATION_JWT_KEY')]`                               |                                                                   | yes       | [Key rotation](#key-rotation)                                 |
+| `jwt.active_kid`                                    | `default`                                                                    | `AUTHENTICATION_JWT_ACTIVE_KID`                                   | yes       | [Key rotation](#key-rotation)                                 |
+| `jwt.algorithm`                                     | `HS256`                                                                      | `AUTHENTICATION_JWT_ALGORITHM`                                    | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)   |
+| `jwt.access_ttl_minutes`                            | `5`                                                                          | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`                           | yes       | [Token and session lifetimes](#token-and-session-lifetimes)   |
+| `jwt.refresh_idle_ttl_minutes`                      | `129600`                                                                     | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`                     | yes       | [Token and session lifetimes](#token-and-session-lifetimes)   |
+| `jwt.refresh_absolute_ttl_minutes`                  | `259200`                                                                     | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES`                 | yes       | [Token and session lifetimes](#token-and-session-lifetimes)   |
+| `jwt.refresh_grace_seconds`                         | `30`                                                                         | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`                        | yes       | [Refresh token replay](#refresh-token-replay)                 |
+| `jwt.leeway_seconds`                                | `30`                                                                         | `AUTHENTICATION_JWT_LEEWAY_SECONDS`                               | yes       | [Token and session lifetimes](#token-and-session-lifetimes)   |
+| `jwt.issuer`                                        | `null`                                                                       | `AUTHENTICATION_JWT_ISSUER`                                       | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)   |
+| `jwt.audience`                                      | `null`                                                                       | `AUTHENTICATION_JWT_AUDIENCE`                                     | yes       | [Per-guard JWT configuration](#per-guard-jwt-configuration)   |
+| `audience.methods`                                  | `['password']`                                                               |                                                                   | yes       | [Audiences](#audiences)                                       |
+| `audience.principal_types`                          | `null`                                                                       |                                                                   | yes       | [Audiences](#audiences)                                       |
+| `audience.require_verified_identifier`              | `false`                                                                      |                                                                   | yes       | [Audiences](#audiences)                                       |
+| `identifiers.normalisers`                           | `['email' => EmailNormaliser::class, 'phone' => E164PhoneNormaliser::class]` |                                                                   |           | [Identifiers](#identifiers)                                   |
+| `rate_limits.table`                                 | `rate_limits`                                                                | `AUTHENTICATION_RATE_LIMITS_TABLE`                                |           | [Rate limits](#rate-limits)                                   |
+| `rate_limits.connection`                            | `null`                                                                       | `AUTHENTICATION_RATE_LIMITS_CONNECTION`                           |           | [Rate limits](#rate-limits)                                   |
+| `rate_limits.sign_in.per_identifier`                | 5 per 300 s                                                                  |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.sign_in.per_ip`                        | 50 per 300 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.refresh.per_identifier`                | 10 per 60 s                                                                  |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.refresh.per_ip`                        | 100 per 60 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.code_request.per_identifier`           | 5 per 3600 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.code_request.per_ip`                   | 50 per 3600 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.passkey_options.per_identifier`        | `null`                                                                       |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.passkey_options.per_ip`                | 100 per 300 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.client_credentials.per_identifier`     | `null`                                                                       |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.client_credentials.per_ip`             | 100 per 60 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.password_reset_request.per_identifier` | 5 per 3600 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.password_reset_request.per_ip`         | 50 per 3600 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.password_reset.per_identifier`         | 10 per 900 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.password_reset.per_ip`                 | 50 per 900 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.identifier_change.per_identifier`      | 5 per 3600 s                                                                 |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `rate_limits.identifier_change.per_ip`              | 50 per 3600 s                                                                |                                                                   | yes       | [Rate limits](#rate-limits)                                   |
+| `refresh_token.sources`                             | `['body', 'header']`                                                         |                                                                   | yes       | [Refreshing](#refreshing)                                     |
+| `refresh_token.body_field`                          | `refresh_token`                                                              |                                                                   | yes       | [Refreshing](#refreshing)                                     |
+| `refresh_token.header`                              | `X-Refresh-Token`                                                            |                                                                   | yes       | [Refreshing](#refreshing)                                     |
+| `refresh_token.cookie.name`                         | `__Secure-refresh_token`                                                     |                                                                   | yes       | [Refresh token cookie](#refresh-token-cookie)                 |
+| `refresh_token.cookie.path`                         | `null`                                                                       |                                                                   | yes       | [Refresh token cookie](#refresh-token-cookie)                 |
+| `refresh_token.cookie.domain`                       | `null`                                                                       |                                                                   | yes       | [Refresh token cookie](#refresh-token-cookie)                 |
+| `refresh_token.cookie.allowed_origins`              | `[]`                                                                         |                                                                   | yes       | [Refresh token cookie](#refresh-token-cookie)                 |
+| `refresh_token.cookie.csrf_header`                  | `X-Requested-With`                                                           |                                                                   | yes       | [Refresh token cookie](#refresh-token-cookie)                 |
+| `api_keys.table`                                    | `api_keys`                                                                   | `AUTHENTICATION_API_KEYS_TABLE`                                   |           | [API key settings](#api-key-settings)                         |
+| `api_keys.prefix`                                   | `ak`                                                                         | `AUTHENTICATION_API_KEYS_PREFIX`                                  |           | [API key settings](#api-key-settings)                         |
+| `api_keys.rotation_overlap_seconds`                 | `86400`                                                                      | `AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS`                |           | [API key settings](#api-key-settings)                         |
+| `api_keys.max_rotation_overlap_seconds`             | `604800`                                                                     | `AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS`            |           | [API key settings](#api-key-settings)                         |
+| `api_keys.last_used_throttle_seconds`               | `60`                                                                         | `AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS`              |           | [API key settings](#api-key-settings)                         |
+| `api_keys.prune_after_days`                         | `30`                                                                         | `AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS`                        |           | [API key settings](#api-key-settings)                         |
+| `verification.link_ttl_minutes`                     | `60`                                                                         | `AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES`                    |           | [Identifier verification](#identifier-verification)           |
+| `passwords.min_length`                              | `15`                                                                         | `AUTHENTICATION_PASSWORDS_MIN_LENGTH`                             |           | [Password policy](#password-policy)                           |
+| `passwords.max_length`                              | `128`                                                                        | `AUTHENTICATION_PASSWORDS_MAX_LENGTH`                             |           | [Password policy](#password-policy)                           |
+| `passwords.letters`                                 | `false`                                                                      |                                                                   |           | [Password policy](#password-policy)                           |
+| `passwords.mixed_case`                              | `false`                                                                      |                                                                   |           | [Password policy](#password-policy)                           |
+| `passwords.numbers`                                 | `false`                                                                      |                                                                   |           | [Password policy](#password-policy)                           |
+| `passwords.symbols`                                 | `false`                                                                      |                                                                   |           | [Password policy](#password-policy)                           |
+| `passwords.breached.when_unavailable`               | `reject`                                                                     | `AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE`              |           | [Password policy](#password-policy)                           |
+| `passwords.reset.link_ttl_seconds`                  | `3600`                                                                       | `AUTHENTICATION_PASSWORDS_RESET_LINK_TTL_SECONDS`                 |           | [Password reset](#password-reset)                             |
+| `identifier_changes.table`                          | `identifier_changes`                                                         | `AUTHENTICATION_IDENTIFIER_CHANGES_TABLE`                         |           | [Changing identifiers](#changing-identifiers)                 |
+| `identifier_changes.ttl_seconds`                    | `3600`                                                                       | `AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS`                   |           | [Changing identifiers](#changing-identifiers)                 |
+| `identifier_changes.recent_authentication_seconds`  | `900`                                                                        | `AUTHENTICATION_IDENTIFIER_CHANGES_RECENT_AUTHENTICATION_SECONDS` |           | [Changing identifiers](#changing-identifiers)                 |
+| `codes.table`                                       | `one_time_codes`                                                             | `AUTHENTICATION_CODES_TABLE`                                      |           | [One-time codes](#one-time-codes)                             |
+| `codes.key`                                         | `null`                                                                       | `AUTHENTICATION_CODES_KEY`                                        |           | [One-time codes](#one-time-codes)                             |
+| `codes.length`                                      | `6`                                                                          | `AUTHENTICATION_CODES_LENGTH`                                     |           | [One-time codes](#one-time-codes)                             |
+| `codes.ttl_seconds`                                 | `600`                                                                        | `AUTHENTICATION_CODES_TTL_SECONDS`                                |           | [One-time codes](#one-time-codes)                             |
+| `codes.max_attempts`                                | `5`                                                                          | `AUTHENTICATION_CODES_MAX_ATTEMPTS`                               |           | [One-time codes](#one-time-codes)                             |
+| `codes.resend_cooldown_seconds`                     | `60`                                                                         | `AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS`                    |           | [One-time codes](#one-time-codes)                             |
+| `delivery.queue.connection`                         | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE_CONNECTION`                        |           | [One-time codes](#one-time-codes)                             |
+| `delivery.queue.name`                               | `null`                                                                       | `AUTHENTICATION_DELIVERY_QUEUE`                                   |           | [One-time codes](#one-time-codes)                             |
+| `passkeys.table`                                    | `passkeys`                                                                   | `AUTHENTICATION_PASSKEYS_TABLE`                                   |           | [Passkeys](#passkeys)                                         |
+| `passkeys.challenges_table`                         | `passkey_challenges`                                                         | `AUTHENTICATION_PASSKEYS_CHALLENGES_TABLE`                        |           | [Passkeys](#passkeys)                                         |
+| `passkeys.challenge_ttl_seconds`                    | `300`                                                                        | `AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS`                   |           | [Passkeys](#passkeys)                                         |
+| `passkeys.relying_party.id`                         | `null`                                                                       | `AUTHENTICATION_PASSKEYS_RP_ID`                                   | yes       | [Passkeys](#passkeys)                                         |
+| `passkeys.relying_party.name`                       | `env('APP_NAME')`                                                            | `APP_NAME`                                                        | yes       | [Passkeys](#passkeys)                                         |
+| `passkeys.relying_party.origins`                    | `[]`                                                                         |                                                                   | yes       | [Passkeys](#passkeys)                                         |
+
+### Per-guard JWT configuration
+
+Every JWT guard inherits its signing material, audience, issuer, TTLs, and leeway from the package-wide
+`authentication.jwt.*` defaults. Any guard may override them with a `jwt` sub-block on its `config/auth.php`
+entry; missing fields fall back to the defaults:
 
 ```php
-'jwt' => [
-    'keys' => [
-        'default' => env('AUTHENTICATION_JWT_KEY'),
-        '2026-05' => env('AUTHENTICATION_JWT_KEY_2026_05'),
+'guards' => [
+    'staff' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'jwt'      => [
+            'keys'       => ['staff-2026-05' => env('STAFF_JWT_KEY')],
+            'active_kid' => 'staff-2026-05',
+            'audience'   => 'staff-api',
+        ],
     ],
-    'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', 'default'),
+    'customer' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'jwt'      => [
+            'keys'       => ['customer-2026-05' => env('CUSTOMER_JWT_KEY')],
+            'active_kid' => 'customer-2026-05',
+            'audience'   => 'customer-api',
+        ],
+    ],
 ],
 ```
 
-Generate the new key into `.env`, then set `AUTHENTICATION_JWT_ACTIVE_KID` to its kid:
+Routes opt into a boundary via `auth:staff` or `auth:customer` middleware. Every token carries a `grd` claim naming the
+guard that issued it, and a guard rejects any token whose `grd` names another guard, so a staff token cannot
+authenticate as a customer even when both guards share the package key map and identity model. Separate keys and
+audiences, as above, are optional defence in depth on top of that. On refresh, the guard reloads the device's owner
+through its own user provider, so the provider's scoping applies and an owner it does not serve is rejected. The device
+row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
+identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
+with `identity_unknown`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
+`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
+`leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
+should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
+overrides). `algorithm` must be a string, and `issuer` and `audience` a string or `null`: a guard that sets either to
+`null` or `''` turns that claim check off even when the package value sets one. A value of any other type, in the
+guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key and the
+guard, rather than being ignored.
 
-```bash
-echo "AUTHENTICATION_JWT_KEY_2026_05=$(openssl rand -base64 48)" >> .env
+### Token and session lifetimes
+
+Each guard issues access tokens and keeps sessions for these lifetimes, set in the package `jwt` block and overridable
+in a guard's `jwt` block. The defaults are 5 minutes for access tokens, and 90 days idle and 180 days absolute for
+sessions:
+
+| Key                            | Default | Range        | Env                                               |
+|--------------------------------|---------|--------------|---------------------------------------------------|
+| `access_ttl_minutes`           | 5       | 1 to 1440    | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
+| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
+| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
+| `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
+| `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
+
+A session is a device. It ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
+deadline however often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past
+the absolute deadline, and never moves the absolute deadline. Tokens mirror the device: a refresh token expires at the
+device's idle deadline, and an access token after the access lifetime but never after the device's idle or absolute
+deadline. With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline,
+together with the refresh token, so clients must refresh before their access token expires. A device past either
+deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
+sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a session this way does
+not revoke the device.
+
+A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
+or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
+fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
+service is resolved; the defaults live only in the published config.
+
+### Audiences
+
+An audience is a guard. Each guard decides which sign-in methods may start its sessions and which principal types may
+hold them, and can give each principal type its own token and session lifetimes. The defaults live in the package
+`audience` block, and a guard overrides any key in an `audience` block of its own:
+
+```php
+'guards' => [
+    'console' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'audience' => [
+            'methods'         => ['password'],
+            'principal_types' => ['staff', 'client_admin'],
+        ],
+    ],
+    'mobile' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'audience' => [
+            'methods'         => ['sso'],
+            'principal_types' => ['client_staff'],
+        ],
+        'jwt' => [
+            'by_principal_type' => [
+                'client_staff' => ['refresh_absolute_ttl_minutes' => 60 * 24 * 365],
+            ],
+        ],
+    ],
+],
 ```
 
-```dotenv
-AUTHENTICATION_JWT_ACTIVE_KID="2026-05"
+| Key                           | Default        | Meaning                                                                                                                                                                  |
+|-------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (a non-empty list of lower-case names) |
+| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types                                                                                      |
+| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                                                                                                        |
+
+A principal's type is its own or its tenant's (see [Principal type](#principal-type)); with a list, a principal without
+a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method the guard does
+not list fails with `method_not_allowed`, and a principal whose type it does not admit with `principal_ineligible`, at
+sign-in and again on every refresh, so a valid credential for one audience cannot open or keep a session in another.
+With `require_verified_identifier`, a sign-in that used an identifier (an email address for the password method) fails
+with `identifier_unverified` unless the identity reports that identifier verified (see [Identifier
+verification](#identifier-verification)); sign-ins that used no identifier, such as SSO through `start()`, and refreshes
+are not gated, since the external provider or the existing session vouches for them. The check is made before any
+principal is resolved, so an unverified identifier gets `identifier_unverified` whether or not the identity has a
+principal yet, and the answer cannot tell whether it has been invited anywhere. A switch of principal is held to the
+identifier type its session's sign-in used, which the device records.
+
+A guard key that is present wins, `null` included, so a guard can admit any principal although the package default
+lists types; a guard `audience` entry of `null` means no overrides. Nothing falls back to a literal: a key missing from
+both blocks, a value of the wrong shape, an empty list, or a key the policy does not know fails closed with an
+`InvalidArgumentException` naming the guard and the key the first time the guard's policy is used. The policy is
+`Contracts\AudiencePolicy`, bound to `Audience\GuardAudiencePolicy`; bind your own implementation to decide differently.
+Its `admitIdentifier()` is the check every sign-in makes before any principal is resolved, so a policy of your own keeps
+the guarantee above only by deciding verification there, for the identity as a whole; one that wraps the package's
+policy delegates `admitIdentifier()` to it like the other methods. A refusal from `admit()` comes only once a principal
+resolves, so an identity with none would get `principal_unresolved` instead. A policy of your own decides the session's
+deadlines through `lifetimes()`, while an access token's lifetime still comes from the guard's `jwt.by_principal_type`
+configuration (capped at the session's end). See `docs/design/audience-policy.md` for every point where the policy is
+enforced.
+
+Lifetimes per principal type are set per guard only, in `jwt.by_principal_type.<type>`, with any of
+`access_ttl_minutes`, `refresh_idle_ttl_minutes` and `refresh_absolute_ttl_minutes` (same types and ranges as the
+guard's own). Each key a type leaves out, or sets to `null`, is the guard's value; the refresh grace window and the
+leeway stay the guard's, because a refresh judges them before it knows the principal. Any other key, or a map that is
+not keyed by type names, fails closed with an `InvalidJwtConfigurationException` when the guard is resolved. Access
+tokens expire after their principal type's access lifetime, `Auth::jwt('api')->lifetimesFor($principal)` returns the
+lifetimes for a principal, and a guard without per-type lifetimes never reads a principal's type for them.
+
+### Per-guard principal resolvers
+
+By default, every guard uses the app-wide `PrincipalResolver` binding. Any guard may override it locally:
+
+```php
+'guards' => [
+    'staff' => [
+        'driver'             => 'jwt',
+        'provider'           => 'users',
+        'principal_resolver' => App\Auth\Resolvers\StaffPrincipalResolver::class,
+    ],
+],
 ```
 
-Tokens signed under `default` keep verifying while it stays in the map. Remove it once every token signed under it
-has expired: a refresh token never outlives its session, so at most the absolute session lifetime after the switch.
-Removing a kid immediately rejects every token signed under it, which is also how to revoke a compromised key.
+Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::class` binding → package default
+`DefaultPrincipalResolver`. The same resolver is used on bearer-token and refresh paths.
+
+### Device
+
+The published `authentication.php` config controls the device model, table, how often a device's last use is written,
+and how long a device whose session ended is kept before pruning:
+
+```php
+'device' => [
+    'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
+    'table'                      => 'devices',
+    'last_used_throttle_seconds' => 60,
+    'prune_after_days'           => 30,
+],
+```
+
+A device is one signed-in session. The shipped migration creates these columns:
+
+| Column                                                 | Holds                                                  |
+|--------------------------------------------------------|--------------------------------------------------------|
+| `id`                                                   | UUID v7 primary key, carried in every token as `did`   |
+| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
+| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
+| `principal_switched_at`                                | When the session last switched its principal           |
+| `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
+| `sign_in_identifier_type`                              | The type of identifier that sign-in used, if any       |
+| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
+| `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
+| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
+| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids       |
+| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one |
+| `signed_in_at`                                         | When the session started (required)                    |
+| `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
+| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
+
+Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
+`timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both
+deadlines, and the revocation time. Every authentication that binds a persisted device (a bearer request or a refresh)
+records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
+agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
+records every use).
+
+Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
+an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with
+daylight saving, both passes through the hour that repeats when the clocks go back store the same value, and
+`ActsAsDevice` reads it as the first pass, whichever pass PHP itself would pick. A time stored in the second pass
+therefore reads back early by the length of the shift (an hour in most zones): a deadline stored there ends the session
+that much early (and when the idle lifetime is no longer than the shift, the refresh that sets it fails with an
+`InvalidArgumentException` and changes nothing), and a rotation stored there leaves the previous refresh token no grace
+window, so a retry of it counts as a replay and revokes the device. A last use recorded there reads early too, so for
+the rest of that pass a `last_used_throttle_seconds` shorter than the shift records every use. The ambiguity can end a
+session early, fail a refresh, or record extra uses; it never extends a session or a grace window.
+
+The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
+`principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
+the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
+and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The session service writes
+every column when it creates a device (see [Signing in](#signing-in-the-session-service)); `getGuard()`,
+`getSignInMethod()` and `getSignInIdentifierType()` read the guard, method and type of identifier it recorded. The
+bearer path and refresh honour a device only for the guard it records, refresh only while that guard still allows the
+method it records, and a switch of principal admits its target with the identifier type it records (`null` for a
+sign-in that used none, which is held to no type), so a device written outside the session service must record all
+three.
+
+Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
+device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
+by primary key, whatever the key column is called. Other column names come from the contract's accessors
+(`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates the default names, so a model
+that renames a column needs its own migration.
+
+A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
+missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
+than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
+both refresh digests; it never deletes the row (pruning does, later). The package revokes a device when its session
+signs out, when the application revokes it or signs an identity or principal out everywhere (see [Signing out and
+revoking sessions](#signing-out-and-revoking-sessions)), and when the refresh exchange detects a replay. Revoking is
+idempotent, so a device that is already revoked keeps its first revocation, and `DeviceRevoked` reports each revocation
+the package makes. A device whose session has ended, past its idle or absolute deadline, is rejected the same way on the
+bearer path and as a sign-in pin, and fails refresh with `session_expired` (see [Token and session
+lifetimes](#token-and-session-lifetimes)). An access token that names a device is accepted only for the principal the
+device's session records (`principal_type`, `principal_id`), and only when it was issued no earlier than the second of
+the session's last principal switch (`principal_switched_at`); otherwise it fails with `device_principal_mismatch`. A
+switch therefore ends the access tokens of the principal it switched from at once, and switching back does not revive
+the ones issued before it. A device that records no principal accepts no token, and a device pinned on `attempt()` must
+record the principal being bound. Both checks read the row already loaded, with no extra query. `ActsAsDevice` reads any
+stored timestamp as a value, with or without a `datetime` cast on the column, and throws a `LogicException` when the
+device was loaded without one of its refresh or revocation state columns (both digests, the rotation time, the session's
+start, the principal switch time, both deadlines, and the revocation time) or without the sign-in's identifier type
+(`sign_in_identifier_type`), for example through a `devices()` relation or a global scope that selects other columns,
+so a partial select is reported instead of being read as a device that is not revoked, has no deadline, or whose
+sign-in used no identifier.
+
+### Sign-in
+
+```php
+'sign_in' => [
+    'password_identifier' => 'email',
+    'pending_table'       => 'pending_sign_ins',
+    'pending_ttl_seconds' => 300,
+],
+```
+
+The password sign-in method looks identities up by `password_identifier`, which is also the identifier type the
+attempt limits count and a guard that requires verified identifiers checks. A guard whose identities are found by
+another column names its own, and that is the one `signIn('password', ...)` and `attempt()` use on it:
+
+```php
+'guards' => [
+    'staff' => [
+        'driver'   => 'jwt',
+        'provider' => 'staff',
+        'sign_in'  => ['password_identifier' => 'username'],
+    ],
+],
+```
+
+Either must be a lower-case column name (a letter, then letters, digits, or underscores) that does not contain
+`password`; anything else, or any other key in a guard's `sign_in` block, fails with an `InvalidArgumentException`
+when a password sign-in runs. A sign-in that needs a further factor waits in `pending_table`
+(on the device model's connection) for at most `pending_ttl_seconds`, an integer from 30 to 3600 (see
+[Additional factors](#additional-factors)).
+
+### One-time codes
+
+```php
+'codes' => [
+    'table'                   => 'one_time_codes',
+    'key'                     => env('AUTHENTICATION_CODES_KEY'),
+    'length'                  => 6,
+    'ttl_seconds'             => 600,
+    'max_attempts'            => 5,
+    'resend_cooldown_seconds' => 60,
+],
+
+'delivery' => [
+    'queue' => ['connection' => null, 'name' => null],
+],
+```
+
+The `phone_code` and `email_code` sign-in methods and verification by code (see
+[Signing in with a one-time code](#signing-in-with-a-one-time-code)) send a code of `length` digits (6 to 10), drawn
+uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts` checks (1
+to 20); after that it is locked until another is requested. Another code for the same number may be requested
+`resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and replaces it at once: the earlier code stops working.
+Each number is an integer, or a digit string as `env()` returns one; anything else fails closed with an
+`InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it. The
+settings are global, not per guard.
+
+Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the device model's connection, one row
+per binding: the purpose (a sign-in, a verification, a password reset code or link, or an identifier change), the guard,
+the identifier's type and normal form and, for a verification or a change, the identity. The row is stored under an
+HMAC-SHA256 of that binding and holds the code only as an HMAC-SHA256 of the binding, a random id for the issuance and
+the code, each with its own key derived from `key` (at least 32 bytes) or, when `key` is not set, from `app.key`. A code
+has a few million values at most, so a plain hash of it could be reversed by anyone who reads the table (from a backup
+or a replica, say); a keyed one cannot without the key, and the table holds neither a code nor an identifier. Rotating
+the key, or `app.key` when it is the source, only invalidates the codes outstanding. A shorter `key` fails closed.
+
+A code is delivered by a queued job, `ShouldBeEncrypted` so its payload (which carries the code and the number) is
+encrypted with `app.key` on the queue, pushed to `delivery.queue.connection` and `delivery.queue.name` (`null` for your
+defaults; every job the package queues, password reset deliveries included, uses them) once the code is committed on its
+connection. Delivery is never part of the request: on Laravel's `sync` driver, which would run
+the job during its dispatch, it is dispatched after the response instead, in the application's terminating callbacks
+(and in a console command, when it ends); if you turn after-response dispatching off
+(`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. A `failover` connection that lists a `sync` one
+(directly or through another `failover`) would run the job during its dispatch whenever the connections before it
+fail, so the job is pushed to it in the terminating callbacks instead: a worker-backed connection still gets it, and a
+fall back to `sync` runs it after the response. Run a worker in production: `authentication:check` warns when a guard
+allows a code method and the delivery connection is `sync`, or a `failover` that can fall back to `sync`. Bind your
+gateway as the sender, from a service provider (the package ships none, and fails the job with a
+`BindingResolutionException` without one; `authentication:check` reports a guard that allows a code method with no
+sender bound):
+
+```php
+use App\Auth\SmsCodeSender;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+
+$this->app->bind(OneTimeCodeSender::class, SmsCodeSender::class);
+```
+
+```php
+use Illuminate\Support\Facades\Mail;
+use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+
+final class SmsCodeSender implements OneTimeCodeSender
+{
+    public function __construct(private SmsGateway $sms) {}
+
+    public function send(OneTimeCodeMessage $message): void
+    {
+        // $message->identifier is the recipient's own number or address; $message->code is in clear: never log it.
+        match ($message->type) {
+            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
+            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
+        };
+    }
+}
+```
+
+The message also carries the guard, the purpose (`CodePurpose::SIGN_IN` or `VERIFY_IDENTIFIER`, to word it) and the
+recipient identity.
+
+A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
+that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see
+[Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned: schedule `model:prune` with
+`Models\OneTimeCode` beside the others (see [Pruning devices](#pruning)).
+
+### Passkeys
+
+```php
+'passkeys' => [
+    'table'                 => 'passkeys',
+    'challenges_table'      => 'passkey_challenges',
+    'challenge_ttl_seconds' => 300,
+
+    'relying_party' => [
+        'id'      => env('AUTHENTICATION_PASSKEYS_RP_ID'),   // e.g. example.com
+        'name'    => env('APP_NAME'),
+        'origins' => [],                                      // e.g. ['https://app.example.com']
+    ],
+],
+```
+
+Passkeys belong to a WebAuthn relying party. Every guard that uses passkeys needs one: the package's `relying_party`,
+with any of its keys overridden in a `passkeys` block on the guard's `config/auth.php` entry, where a key that is
+present wins:
+
+```php
+'guards' => [
+    'console' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'audience' => ['methods' => ['password', 'passkey']],
+        'passkeys' => ['id' => 'console.example.com', 'origins' => ['https://console.example.com']],
+    ],
+],
+```
+
+`id` is the relying party id, a lower-case host name (not an IP address); every passkey registered through the guard is
+scoped to it, and a guard only ever sees the passkeys of its own id, so guards that share an id share their passkeys.
+`name` is what the browser shows, by default `app.name`. `origins` lists the exact origins the ceremonies may run on,
+each `https://host[:port]`, or `http://localhost[:port]` for development, in lower case, with a host that is the id or a
+subdomain of it; a ceremony from any other origin, or framed in another site (whether the browser reports the
+top-level origin or only that the ceremony is cross-origin), is refused. The package does not consult
+the public suffix list, so never name a public suffix (`co.uk`, say) as the id. Anything else, or an unknown key, fails
+closed with an `InvalidArgumentException` naming the guard and the key when the guard's passkeys are first used, and
+`authentication:check` reports it for every guard whose audience allows `passkey` or that sets a `passkeys` block.
+
+A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
+give the browser. Both tables live on the device model's connection; prune expired challenges with `model:prune` (see
+[Pruning devices](#pruning)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms
+offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
+
+### Rate limits
+
+Sign-in, requests for one-time codes, password resets, identifier changes and refresh are limited per identifier and per
+IP address; requests for passkey
+sign-in options and client credentials exchanges per IP address (an exchange per client id too, only when you opt in).
+Every limit is counted in the database on the write connection, so the limits hold across servers and do not depend on
+a cache. Publish the migration with the others (`authentication-migrations` creates
+`rate_limits`), then set limits in the package `rate_limits` block or a guard's own `rate_limits` block:
+
+```php
+'guards' => [
+    'console' => [
+        'driver'      => 'jwt',
+        'provider'    => 'users',
+        'rate_limits' => [
+            'sign_in' => [
+                'per_identifier' => ['max' => 3, 'decay_seconds' => 900],
+                'per_ip'         => null,
+            ],
+        ],
+    ],
+],
+```
+
+| Flow                     | Scope            | Default             | Counts                                                                                                         |
+|--------------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
+| `sign_in`                | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
+| `sign_in`                | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
+| `refresh`                | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
+| `refresh`                | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
+| `code_request`           | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
+| `code_request`           | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
+| `passkey_options`        | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
+| `client_credentials`     | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                    |
+| `client_credentials`     | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
+| `password_reset_request` | `per_identifier` | 5 per 3600 seconds  | Every request for a reset link or code to the identifier, held or not; never given back                        |
+| `password_reset_request` | `per_ip`         | 50 per 3600 seconds | Every request for a reset link or code from the IP address; never given back                                   |
+| `password_reset`         | `per_identifier` | 10 per 900 seconds  | Every reset submission naming the identifier, before anything is checked; a success is given back              |
+| `password_reset`         | `per_ip`         | 50 per 900 seconds  | Every reset submission from the IP address, before anything is checked; a success is given back                |
+| `identifier_change`      | `per_identifier` | 5 per 3600 seconds  | Every change request to the new identifier, and every one the identity's account makes; never given back       |
+| `identifier_change`      | `per_ip`         | 50 per 3600 seconds | Every change request from the IP address; never given back                                                     |
+
+Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
+`decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
+12:00:00 to 12:05:00), so, as with any fixed window, up to twice `max` attempts can fall within `decay_seconds` across a
+boundary. A counter started before `decay_seconds` changed keeps its window until that window ends, so a change neither
+forgives the attempts already counted nor gives a slot back to the wrong window. A guard scope that is present wins,
+`null` included; a flow set to `null` turns both of its limits off; a scope the guard leaves out is the package's. A
+malformed limit, a missing one, or an unknown key fails closed with an `InvalidArgumentException` naming the guard and
+the key, as does a `passkey_options.per_identifier` other than `null`: a request for passkey sign-in options names no
+identifier, so such a limit could never apply.
+
+A sign-in guesses a secret, so it reserves its slots before the method runs: a refused sign-in fails with
+`rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.
+Earlier failures are not forgiven: they count until their window ends, so concurrent attempts can never exceed `max`.
+When the IP address's limit is full, the slot just taken for the identifier is given back.
+
+The password method also counts every password it checks against the account it checks it for, under the guard's
+`per_identifier` limit, and holds that slot with the sign-in's own: it is given back only when the sign-in starts its
+session (a pending sign-in keeps it until it completes), so a correct password that goes on to fail, or to wait for a
+further factor, still counts. A lookup can find one account by many spellings of its identifier (a column collation that
+ignores accents, widths or invisible characters, as MySQL's default `utf8mb4_unicode_ci` does, a query closure in
+`attempt()`, another column), and through every guard whose provider returns it, so the account keeps one count
+whichever guard checks it. An Eloquent identity's account is the row it is stored in (its connection, that connection's
+database, its table and its key), so two model classes over one table (an `Admin` model over the users table, say) count
+the same account once, and the same key in another tenant's database is another account; any other identity's account is
+its class and auth identifier. Each guard holds that one count to its own `per_identifier` limit, so the guesses at an
+account's password are bounded by the most permissive limit among the guards that check it: at most the largest `max` in
+each window of the shortest `decay_seconds`, whichever spelling and guard each guess uses. A guard with a looser limit
+therefore raises the bound for every guard, while a stricter one only stops its own sign-ins sooner, and guards with the
+same limit allow no more guesses together than one alone. A guard whose `per_identifier` is `null` neither checks nor
+counts the account, so it adds guesses of its own. Once an account has no attempts left, its password is not checked
+until the window ends, and the sign-in fails as `invalid_credentials`, as a wrong password would, so the refusal does
+not reveal that the account exists. Only your own listeners are told why: `AuthenticationFailed` carries
+`account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
+refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
+device and per IP address, and a successful refresh costs one read. A refresh refused for its failures answers `429`
+with a `Retry-After` header. A request for a one-time code costs a message whoever has the number, so every request for a
+valid number counts, whether a code is sent or the resend cooldown holds it back, and no slot is given back; the number
+is counted in its normal form, whether or not anyone has it.
+
+Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
+[Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
+IP addresses are counted canonically too: an IPv6 client is counted by its /64 network, the block a single client is
+usually given, so it cannot spread its attempts over its own addresses. An IPv6 address that carries an IPv4 client's
+address, IPv4-mapped (`::ffff:0:0/96`) or translated through the NAT64 well-known prefix (`64:ff9b::/96`), shares that
+IPv4 address's counter. A translator on a network-specific prefix (such as `64:ff9b:1::/48`, or your own) puts every
+IPv4 client it serves into one /64 counter: resolve the client's own address before the request reaches the guard, with
+Laravel's trusted proxies, so the limits see each client apart. The table holds only keyed digests (HMAC-SHA256, under a
+key derived from `app.key`) of what each counter counts: the guard, flow, scope and identifier or IP address, or, for an
+account, the flow and the account, without the guard. An IP address, an identifier or an account id is easy to guess, so
+a plain digest of one could be reversed by anyone who reads the table (from a backup or a replica, say); a keyed one
+cannot without your application key. Rotating `app.key` starts every counter afresh, and with no `app.key` the limiter
+fails closed with an `InvalidArgumentException`. Every change to a count is one statement the database applies
+atomically. A database error propagates as a server error: a limiter that cannot count lets nothing through. The one
+exception is giving back a completed further factor's slots after its commit, which is reported instead (see
+[Writing a sign-in method](#writing-a-sign-in-method)).
+
+> **Transactions:** the counters live on `rate_limits.connection`, the default connection when `null`. Counts written on
+> the same connection as a transaction you open around a sign-in are rolled back with it, so a sign-in that your code
+> rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in transactions you may
+> roll back, point `rate_limits.connection` at a connection of its own (a second connection to the same database will
+> do).
+
+Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
+[Additional factors](#additional-factors)). Schedule Laravel's pruning command with both models, and the device model,
+as shown in [Pruning devices](#pruning).
+
+### API key settings
+
+```php
+'api_keys' => [
+    'table'                        => env('AUTHENTICATION_API_KEYS_TABLE', 'api_keys'),
+    'prefix'                       => env('AUTHENTICATION_API_KEYS_PREFIX', 'ak'),
+    'rotation_overlap_seconds'     => env('AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS', 86400),
+    'max_rotation_overlap_seconds' => env('AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS', 604800),
+    'last_used_throttle_seconds'   => env('AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS', 60),
+    'prune_after_days'             => env('AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS', 30),
+],
+```
+
+Keys live in `table`, on the device model's connection. `prefix` (a lower-case letter, then up to 15 lower-case letters
+or digits) starts every new key, so your keys are recognisable in logs and to secret scanners; changing it leaves
+existing keys working. A rotation keeps the replaced key working for `rotation_overlap_seconds` unless it names its own
+overlap, never beyond `max_rotation_overlap_seconds` (at most 30 days). A key's last use is recorded at most once per
+`last_used_throttle_seconds` (0 to 86400; 0 records every use), and `model:prune` deletes keys revoked or expired more
+than `prune_after_days` ago (0 to 3650). Each number is an integer, or a digit string as `env()` returns one; anything
+else fails closed when it is used, and `authentication:check` reports it.
+
+### Credential validation timing
+
+`attempt()` and `validate()` wrap credential checks in a constant-time `Timebox` to prevent timing side-channels, and the
+session service's `signIn()` runs its sign-in method and the checks after it in the same budget, as do a password reset
+submission and the password check of `Reauthentication::password()` before an identifier change:
+
+```php
+'timebox' => [
+    'credentials_microseconds' => 400000,
+],
+```
+
+Must exceed the worst-case hasher cost.
 
 ## Events
 
-| Event                                             | Fired when                                                       |
-|---------------------------------------------------|------------------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`               | A sign-in or refresh starts (never a bearer request)             |
-| `Illuminate\Auth\Events\Validated`                | A sign-in or refresh is about to bind context                    |
-| `Illuminate\Auth\Events\Authenticated`            | Identity bound to the guard, bearer requests included            |
-| `Illuminate\Auth\Events\Login`                    | A sign-in or refresh bound the guard                             |
-| `Illuminate\Auth\Events\Failed`                   | A sign-in or refresh was rejected (never a bearer token)         |
-| `Illuminate\Auth\Events\Logout`                   | `logout()` or `signOut()` ended a signed-in request              |
-| `SineMacula\...\Events\PrincipalAssigned`         | Principal resolved and bound                                     |
-| `SineMacula\...\Events\DeviceAuthenticated`       | Device hydrated and bound; listeners may persist metadata        |
-| `SineMacula\...\Events\Refreshed`                 | Refresh exchange completed, once committed                       |
-| `SineMacula\...\Events\DeviceRevoked`             | The package revoked a device, once committed; with reason        |
-| `SineMacula\...\Events\SignedOutEverywhere`       | A bulk revocation ended a scope's sessions, once committed       |
-| `SineMacula\...\Events\DeviceCreated`             | The session service created a device, once committed             |
-| `SineMacula\...\Events\SignedIn`                  | A session started or was refreshed, once committed               |
-| `SineMacula\...\Events\AdditionalFactorRequired`  | A sign-in waits for a further factor, once committed             |
-| `SineMacula\...\Events\PrincipalChoiceRequired`   | A sign-in waits for a choice of principal, once committed        |
-| `SineMacula\...\Events\PrincipalSwitched`         | A session switched its principal, once committed                 |
-| `SineMacula\...\Events\IdentifierVerified`        | An identifier was verified (after commit); carries type          |
-| `SineMacula\...\Events\IdentifierChangeRequested` | A change of identifier waits for its proof, once committed       |
-| `SineMacula\...\Events\IdentifierChanged`         | An identifier was replaced by a proven one, once committed       |
-| `SineMacula\...\Events\PasswordSet`               | A password was set or reset, once committed; with flow           |
-| `SineMacula\...\Events\PasskeyAdded`              | A passkey was registered, once committed                         |
-| `SineMacula\...\Events\PasskeyUsed`               | A passkey's assertion was verified, once committed               |
-| `SineMacula\...\Events\PasskeyRemoved`            | A passkey was removed, once committed                            |
-| `SineMacula\...\Events\ApiKeyIssued`              | An API key was issued, once committed                            |
-| `SineMacula\...\Events\ApiKeyRotated`             | An API key was rotated, once committed; previous key id          |
-| `SineMacula\...\Events\ApiKeyRevoked`             | An API key was revoked, once committed                           |
-| `SineMacula\...\Events\ClientCredentialsGranted`  | A client credentials exchange issued an access token             |
-| `SineMacula\...\Events\AuthenticationFailed`      | Any sign-in, refresh, switch, bearer, key, code or reset failure |
+| Event                                             | Fired when                                                               |
+|---------------------------------------------------|--------------------------------------------------------------------------|
+| `Illuminate\Auth\Events\Attempting`               | A sign-in or refresh starts (never a bearer request)                     |
+| `Illuminate\Auth\Events\Validated`                | A sign-in or refresh is about to bind context                            |
+| `Illuminate\Auth\Events\Authenticated`            | Identity bound to the guard, bearer requests included                    |
+| `Illuminate\Auth\Events\Login`                    | A sign-in or refresh bound the guard                                     |
+| `Illuminate\Auth\Events\Failed`                   | A sign-in or refresh was rejected (never a bearer token)                 |
+| `Illuminate\Auth\Events\Logout`                   | `logout()` or `signOut()` ended a signed-in request                      |
+| `SineMacula\...\Events\PrincipalAssigned`         | Principal resolved and bound                                             |
+| `SineMacula\...\Events\DeviceAuthenticated`       | Device hydrated and bound; listeners may persist metadata                |
+| `SineMacula\...\Events\Refreshed`                 | Refresh exchange completed, once committed                               |
+| `SineMacula\...\Events\DeviceRevoked`             | The package revoked a device, once committed; with reason                |
+| `SineMacula\...\Events\SignedOutEverywhere`       | A bulk revocation ended a scope's sessions, once committed               |
+| `SineMacula\...\Events\DeviceCreated`             | The session service created a device, once committed                     |
+| `SineMacula\...\Events\SignedIn`                  | A session started or was refreshed, once committed                       |
+| `SineMacula\...\Events\AdditionalFactorRequired`  | A sign-in waits for a further factor, once committed                     |
+| `SineMacula\...\Events\PrincipalChoiceRequired`   | A sign-in waits for a choice of principal, once committed                |
+| `SineMacula\...\Events\PrincipalSwitched`         | A session switched its principal, once committed                         |
+| `SineMacula\...\Events\IdentifierVerified`        | An identifier was verified (after commit); carries type                  |
+| `SineMacula\...\Events\PasswordSet`               | A password was set or reset, once committed; with flow                   |
+| `SineMacula\...\Events\IdentifierChangeRequested` | A change of identifier waits for its proof, once committed               |
+| `SineMacula\...\Events\IdentifierChanged`         | An identifier was replaced by a proven one, once committed               |
+| `SineMacula\...\Events\PasskeyAdded`              | A passkey was registered, once committed                                 |
+| `SineMacula\...\Events\PasskeyUsed`               | A passkey's assertion was verified, once committed                       |
+| `SineMacula\...\Events\PasskeyRemoved`            | A passkey was removed, once committed                                    |
+| `SineMacula\...\Events\ApiKeyIssued`              | An API key was issued, once committed                                    |
+| `SineMacula\...\Events\ApiKeyRotated`             | An API key was rotated, once committed; previous key id                  |
+| `SineMacula\...\Events\ApiKeyRevoked`             | An API key was revoked, once committed                                   |
+| `SineMacula\...\Events\ClientCredentialsGranted`  | A client credentials exchange issued an access token                     |
+| `SineMacula\...\Events\AuthenticationFailed`      | Any sign-in, refresh, switch, bearer, key, code, reset or change failure |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -3385,57 +3494,187 @@ reason is the session service's to give. `account_rate_limited`, `code_expired`,
 `passkey_counter_regressed` are on the event only: the sign-in's result says `invalid_credentials`. A code request
 refused because its number is not one is reported as `invalid_credentials`, while its result says `identifier_invalid`.
 
-## Extensibility
+## Operations
 
-Concrete classes in this package are `final` except `AuthManager` (the package's subclass of Laravel's manager), the
-shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
-inheritance:
+Running the package in production: where its reads go, what a long-running process keeps between requests and jobs,
+rotating signing keys, pruning the rows sessions and credentials leave behind, and checking the configuration before a
+deploy.
 
-| Extension point                   | How                                                                                                              |
-|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
-| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                      |
-| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
-| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
-| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
-| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
-| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
-| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
-| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
-| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                          |
-| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
-| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                              |
-| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
-| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
-| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
+### Read replicas
 
-The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
-`extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
-different password scheme under a name of its own and allow that name in the guard's audience. The package's other
-methods (`phone_code`, `email_code` and `passkey`) are reserved the same way, as are `api_key` and `client_credentials`,
-which an audience lists for machine credentials and which never resolve to a sign-in method. Names are lower case
-(a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
-so one method never has a second spelling for a guard to allow or a device to record.
+Every read that decides authentication - the identity, the principal and the tenant it acts within, and the device with
+its guard, sign-in method, refresh digests, rotation time, session deadlines and revocation state - goes to the write
+connection, even when the database connection has `read` and `write` hosts. A replica can lag behind a revocation, a
+deactivation, a refresh rotation, or an ended session, and a lookup it served could admit a credential the primary has
+already rejected.
 
-An `AttemptLimiter` of your own counts a subject's `account` in one counter that every guard shares, held to each
-guard's `per_identifier` limit (and not counted where that limit is `null`), as well as the identifier's and the IP
-address's counters of the guard. Without that, the account bounds under [Rate limits](#rate-limits) and
-[Additional factors](#additional-factors) do not hold: a limiter keyed only by guard, identifier and IP address (one
-built on Laravel's `RateLimiter`, say) lets every spelling of an identifier, and every guard, guess an account's password
-and its further factor anew. It records in each granted reservation's `windows` everything its `release()` needs to give
-the slots back (string keys and values), and gives them back from the windows alone. A sign-in that waits for a further
-factor stores the windows of each reservation it holds and, when it completes, gives each back through a reservation
-rebuilt from its own windows, whose subject carries the guard, the flow, the identifier type and the IP address but no
-identifier or account. Two reservations may record the same key (a method that checks two secrets reserves the account
-twice), and each is given back.
+The package pins the lookups it makes, including the relations the identity, principal and device models eager-load
+(`$with`), on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug
+in carries the same obligation:
 
-`AbstractGuard` is not final and may be extended for entirely new guard types.
+- a custom `IdentityProvider`, a `ModelProvider` subclass that builds its own query, or a custom `PrincipalResolver`
+  must read from the write connection, including the relations its results eager-load;
+- `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `devices()` and, when `ModelProvider` checks a password,
+  `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
+  `isActive()` for the model it belongs to, and a device's guard, sign-in method, refresh state, session deadlines and
+  revocation for the device: every model read made there, on any connection, goes to that connection's writer, and so
+  does a query-builder read on the model's own connection. A query-builder or `DB` read on another connection, or made
+  by a principal or identity that is not an Eloquent model, must pin itself.
 
-## Requirements
+`WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
+queries that it does not reach, so run a lookup whose results load relations inside `during()`, which pins every
+connection a model resolves while its callback runs, plus the given model's own connection:
 
-- PHP ^8.3 (extensions: hash, mbstring, openssl; sodium, bundled with PHP, for EdDSA passkeys)
-- Laravel ^12.40 || ^13.3
+```php
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
+
+// A query you build: route it to the write PDO, scoped to the identity.
+$membership = WriteConnection::query(Membership::query()->where('identity_id', $identity->getKey()))->find($hint);
+
+// Model reads on any connection, eager loads included, plus the identity's connection.
+$principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal($identity));
+```
+
+### Long-running processes
+
+One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
+may reach the next. Each request rebinds Laravel's `request`, which resets every package guard already resolved: the
+identity, principal and device it bound, and whether it has resolved the request, so the next request authenticates from
+its own token or not at all. A queue worker forgets only scoped instances between jobs, so the package resets its guards
+when each job a worker runs starts (on `JobProcessing`, through `AuthManager::forgetGuardState()`): a guard a job signs
+in with `login()` or `setUser()` is signed out again for the next job. Only jobs a worker runs are reset: a job on the
+`sync` connection (the `sync` driver, or `dispatchSync()` whatever the default connection) runs inside the request that
+dispatched it and leaves its guards as they are, so a session the request just started stays bound and a request that
+signed out stays signed out. A dispatcher or principal resolver swapped in after a guard resolved (`Event::fake()`, a
+rebinding of `PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a
+switch of principal and the revocations), which read the guard's collaborators each time they run. The package's
+singletons hold configuration only: the token service factory memoises each guard's signing configuration, not any
+identity's data, and the mark the password-change listener reads during an automatic rehash is scoped, so it starts
+empty for each request and each job a worker runs. No package class keeps a request, an identity or a token in a static
+property. The sign-in methods you register are kept for the life of the process as well, so they must hold no state
+between calls (see [Writing a sign-in method](#writing-a-sign-in-method)), and so must a factor or audience policy you
+bind as a singleton.
+
+### Key Rotation
+
+Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
+New tokens carry the active kid in their JWT header; the verifier accepts any kid in the map. To rotate, add the new
+key to the published `config/authentication.php` alongside the current one and point `active_kid` at it:
+
+```php
+'jwt' => [
+    'keys' => [
+        'default' => env('AUTHENTICATION_JWT_KEY'),
+        '2026-05' => env('AUTHENTICATION_JWT_KEY_2026_05'),
+    ],
+    'active_kid' => env('AUTHENTICATION_JWT_ACTIVE_KID', 'default'),
+],
+```
+
+Generate the new key into `.env`, then set `AUTHENTICATION_JWT_ACTIVE_KID` to its kid:
+
+```bash
+echo "AUTHENTICATION_JWT_KEY_2026_05=$(openssl rand -base64 48)" >> .env
+```
+
+```dotenv
+AUTHENTICATION_JWT_ACTIVE_KID="2026-05"
+```
+
+Tokens signed under `default` keep verifying while it stays in the map. Remove it once every token signed under it
+has expired: a refresh token never outlives its session, so at most the absolute session lifetime after the switch.
+Removing a kid immediately rejects every token signed under it, which is also how to revoke a compromised key.
+
+### Pruning
+
+Rows whose use has ended stay in their tables until Laravel's `model:prune` deletes them, each model in chunks of one
+conditional `DELETE` that reads nothing:
+
+| Model                     | Pruned once                                                                           |
+|---------------------------|---------------------------------------------------------------------------------------|
+| `Models\Device`           | its session has been over (revoked, or past a deadline) for `device.prune_after_days` |
+| `Models\PendingSignIn`    | it has expired                                                                        |
+| `Models\RateLimit`        | its window has ended                                                                  |
+| `Models\OneTimeCode`      | it has expired                                                                        |
+| `Models\PasskeyChallenge` | it has expired                                                                        |
+| `Models\ApiKey`           | it was revoked or expired more than `api_keys.prune_after_days` ago                   |
+| `Models\IdentifierChange` | it has expired                                                                        |
+
+Passkeys are never pruned: one lasts until its owner removes it.
+
+Revoked and ended devices are kept for audit: a device is pruned once its session has been over for
+`device.prune_after_days` (default 30, from 0 to 3650), counted from when it was revoked or passed its idle or absolute
+deadline, whichever came first, never from when it was created, so a long session is kept as long after it ends as a
+short one. With 0, a device is pruned from the second its session ends. The value must be an integer, or a digit string
+as `env()` returns one; anything else fails with an `InvalidArgumentException` when pruning runs. Each chunk is one
+conditional `DELETE`, and nothing is read.
+
+The package's models live outside your application's `app/Models`, so name them when you schedule the command:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+use SineMacula\Laravel\Authentication\Models\ApiKey;
+use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\IdentifierChange;
+use SineMacula\Laravel\Authentication\Models\OneTimeCode;
+use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
+use SineMacula\Laravel\Authentication\Models\PendingSignIn;
+use SineMacula\Laravel\Authentication\Models\RateLimit;
+
+Schedule::command('model:prune', [
+    '--model' => [
+        Device::class,
+        PendingSignIn::class,
+        RateLimit::class,
+        OneTimeCode::class,
+        PasskeyChallenge::class,
+        ApiKey::class,
+        IdentifierChange::class,
+    ],
+])->hourly();
+```
+
+A custom device model opts in with the `PrunesDevices` trait alone (it brings Laravel's `MassPrunable` with it, and
+using `MassPrunable` beside it is a PHP trait collision), and pruning reads its columns from the `EloquentDevice` name
+accessors; schedule it under its own class name. Run `php artisan model:prune --model="App\Models\Device" --pretend` to
+see how many devices would go. Pruning changes nothing about authentication: a pruned device's tokens fail as an unknown
+device, exactly as they already failed once it was revoked or ended. Queued listeners of an event about a device that
+has since been pruned cannot re-fetch it (see [Events](#events)).
+
+Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
+ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
+treated as an unknown device without a query. A model whose key has some other format implements `ValidatesDeviceKey`
+to describe it. Database errors are never read as an unknown device: they propagate as server errors.
+
+### Checking the configuration
+
+`php artisan authentication:check` resolves every `jwt` and `api_key` guard's settings the way the guard would and exits
+`1` when any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each `jwt` guard's token
+service (keys, active kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and
+audience), that its provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings
+when the package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier, the refresh token
+transport and, when its audience allows `passkey` or it sets a `passkeys` block, its passkey relying party; each
+`api_key` guard's provider, `principal_resolver` override, audience settings (which must allow `api_key`) and rate
+limits; and, for the whole package, the configured device model and pruning retention
+(`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
+(`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
+choice of principal), the password policy settings (`authentication.passwords`), the one-time code settings and key
+(`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in method (`phone_code`,
+`email_code`, or a `CodeSignIn` you registered), the delivery queue (`authentication.delivery.queue`), the passkey
+challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`), the API key settings (`authentication.api_keys`)
+and the identifier change settings (`authentication.identifier_changes`). Every check runs, so one run lists every
+problem, each as `[<guard>] <message>` (`[device]` for the device model and retention, `[sign_in]` for the pending
+lifetime, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
+delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
+for the identifier change settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync` queue
+connection, or on a `failover` one that can fall back to `sync`, while a guard allows a code method, is a `[delivery]`
+warning that leaves the exit code alone, as is a `jwt` guard whose password resets or identifier change confirmations
+would refuse to run: its provider's model on another connection than the device model, or, for resets, a password
+identifier other than `email` while Laravel's notification is the reset link sender (see
+[Password reset](#password-reset)). Only the named guards are checked with `--guard=api --guard=admin`; a named guard
+that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads configuration only:
+it opens no database connection and never prints a key. The package does not run these checks at boot; a
+misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Testing
 
@@ -3499,11 +3738,14 @@ on until the test acts again. A queued job a worker runs (`queue:work`, or a
 
 Each fake binds a fresh instance in place of the package's or the application's binding with `fake()` (in the
 application's container, or in the one given) and keeps what it is given instead of delivering it, so a test reads it
-back: `sent()` and `hasSent()` take an optional filter, `count()` counts everything, and `forget()` clears it.
+back: the readers below take an optional filter, `count()` counts everything, and `forget()` clears it.
 
-| Fake                            | Stands in for       | Reads back                                                                              |
-|---------------------------------|---------------------|-----------------------------------------------------------------------------------------|
-| `Testing\FakeOneTimeCodeSender` | `OneTimeCodeSender` | `lastCodeFor($identifier, ?CodePurpose $purpose)`: the last code sent to the identifier |
+| Fake                                   | Stands in for              | Reads back                                                                                                              |
+|----------------------------------------|----------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `Testing\FakeOneTimeCodeSender`        | `OneTimeCodeSender`        | `sent()`, `hasSent()`; `lastCodeFor($identifier, ?CodePurpose $purpose)`: the last code sent to the identifier          |
+| `Testing\FakeIdentifierChangeNotifier` | `IdentifierChangeNotifier` | `sent()`, `hasSent()`; `noticesFor($identity)`: the notices about the identity's changes                                |
+| `Testing\FakeBreachedPasswordChecker`  | `BreachedPasswordChecker`  | `checked()`, `hasChecked()`: the passwords it was asked about; `unavailable()` makes it throw as a service that is down |
+| `Testing\FakePasswordResetLinkSender`  | `PasswordResetLinkSender`  | `sent()`, `hasSent()`; `lastTokenFor($identifier)`: the token last sent to the identifier                               |
 
 `FakeOneTimeCodeSender::fake()` keeps every message instead of delivering it, so a test reads the code a request sent
 and signs in with it:
@@ -3523,6 +3765,11 @@ $this->postJson('/sign-in/code', ['phone' => '+447700900123', 'code' => $code])-
 The message arrives when the delivery job runs: on a `sync` queue connection once the response is sent (a test's HTTP
 request ends with it; call `$this->app->terminate()` after calling the service directly), on a faked queue when the test
 runs the pushed job.
+
+`Testing\FakeIdentifierChangeNotifier` does the same for the notices of changed identifiers:
+`FakeIdentifierChangeNotifier::fake()` binds a fresh one and returns it, `noticesFor($identity)` lists the notices about
+that identity's changes, and `sent()`, `hasSent()`, `count()` and `forget()` work as the sender fake's do. A notice
+arrives when its queued job runs, as a code does.
 
 `Testing\FakeBreachedPasswordChecker` stands in for your breached-password checker: `fake(['password123'])` binds a
 fresh one that finds exactly those passwords breached, `unavailable()` makes it throw
@@ -3558,11 +3805,6 @@ $token = $links->lastTokenFor('ada@example.test');
 $this->postJson('/password/reset', ['email' => 'ada@example.test', 'token' => $token, 'password' => 'a new passphrase'])->assertNoContent();
 ```
 
-`Testing\FakeIdentifierChangeNotifier` does the same for the notices of changed identifiers:
-`FakeIdentifierChangeNotifier::fake()` binds a fresh one and returns it, `noticesFor($identity)` lists the notices about
-that identity's changes, and `sent()`, `hasSent()`, `count()` and `forget()` work as the sender fake's do. A notice
-arrives when its queued job runs, as a code does.
-
 ### Running the package's tests
 
 ```bash
@@ -3579,6 +3821,89 @@ composer check              # static analysis + style
 composer format             # format the codebase
 composer smells             # advisory code smells (duplication, complexity)
 ```
+
+## Extensibility
+
+Concrete classes in this package are `final` except `AuthManager` (the package's subclass of Laravel's manager), the
+shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
+inheritance:
+
+| Extension point                   | How                                                                                                              |
+|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
+| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
+| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                      |
+| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
+| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
+| Guard and provider drivers        | Register them with `Auth::extend()` / `Auth::provider()` as usual: the package's manager inherits them           |
+| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
+| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
+| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
+| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                          |
+| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
+| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                              |
+| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
+| Breached-password checks          | Implement `BreachedPasswordChecker` and bind it in the container                                                 |
+| Password reset links              | Implement `PasswordResetLinkSender` and bind it in the container                                                 |
+| Identifier change notices         | Implement `IdentifierChangeNotifier` and bind it in the container                                                |
+| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
+| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
+
+The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
+`extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
+different password scheme under a name of its own and allow that name in the guard's audience. The package's other
+methods (`phone_code`, `email_code` and `passkey`) are reserved the same way, as are `api_key` and `client_credentials`,
+which an audience lists for machine credentials and which never resolve to a sign-in method. Names are lower case
+(a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
+so one method never has a second spelling for a guard to allow or a device to record.
+
+An `AttemptLimiter` of your own counts a subject's `account` in one counter that every guard shares, held to each
+guard's `per_identifier` limit (and not counted where that limit is `null`), as well as the identifier's and the IP
+address's counters of the guard. Without that, the account bounds under [Rate limits](#rate-limits) and
+[Additional factors](#additional-factors) do not hold: a limiter keyed only by guard, identifier and IP address (one
+built on Laravel's `RateLimiter`, say) lets every spelling of an identifier, and every guard, guess an account's password
+and its further factor anew. It records in each granted reservation's `windows` everything its `release()` needs to give
+the slots back (string keys and values), and gives them back from the windows alone. A sign-in that waits for a further
+factor stores the windows of each reservation it holds and, when it completes, gives each back through a reservation
+rebuilt from its own windows, whose subject carries the guard, the flow, the identifier type and the IP address but no
+identifier or account. Two reservations may record the same key (a method that checks two secrets reserves the account
+twice), and each is given back.
+
+`AbstractGuard` is not final and may be extended for entirely new guard types.
+
+The package replaces Laravel's `auth` manager with its own subclass when it boots, after every service provider has
+registered, and carries over the guard and provider drivers registered on the manager it replaces
+(`AuthManager::inheritDriversFrom()`), so `Auth::extend()` and `Auth::provider()` calls made in your providers'
+`register()` keep working.
+
+## Design Notes
+
+The sections above are the adoption guide. The security and lifecycle contracts behind them, for maintainers and
+reviewers, live in `docs/design/`:
+
+- `docs/design/guard-lifecycle-and-events.md`
+- `docs/design/event-model.md`
+- `docs/design/refresh-rotation-and-replay.md`
+- `docs/design/refresh-token-transport.md`
+- `docs/design/fail-closed-pid-did.md`
+- `docs/design/access-only-mode.md`
+- `docs/design/guard-bound-tokens.md`
+- `docs/design/session-service.md`
+- `docs/design/device-lifecycle.md`
+- `docs/design/principal-choice-and-switch.md`
+- `docs/design/audience-policy.md`
+- `docs/design/one-time-codes.md`
+- `docs/design/passkeys.md`
+- `docs/design/machine-credentials.md`
+- `docs/design/identifier-changes.md`
+- `docs/design/testing-helpers.md`
+
+## Requirements
+
+- PHP ^8.3 (extensions: hash, mbstring, openssl; sodium, bundled with PHP, for EdDSA passkeys)
+- Laravel ^12.40 || ^13.3
 
 ## Changelog
 

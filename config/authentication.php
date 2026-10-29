@@ -75,10 +75,11 @@ return [
     |---------------------------------------------------------------------------
     |
     | Microsecond budget passed to Illuminate\Support\Timebox around the
-    | credential checks in a guard's `attempt()` and `validate()`, and around
-    | a session service `signIn()` from its sign-in method to its admission.
-    | Must exceed the worst-case hasher cost (bcrypt cost 12 ≈ 150–250ms) or
-    | timing-safety breaks down.
+    | credential checks in a guard's `attempt()` and `validate()`, around a
+    | session service `signIn()` from its sign-in method to its admission,
+    | around a password reset submission, and around the password check that
+    | reauthenticates an identifier change. Must exceed the worst-case hasher
+    | cost (bcrypt cost 12 ≈ 150–250ms) or timing-safety breaks down.
     |
     */
 
@@ -186,15 +187,16 @@ return [
     | guard overrides any of them in an `audience` block on its
     | `config/auth.php` entry, where a key that is present wins, `null`
     | included. `methods` lists the sign-in methods that may start the guard's
-    | sessions (a non-empty list of the lower-case names they are registered
-    | under). `principal_types` lists the principal types that may hold them (a
-    | non-empty list), or is `null` to admit any principal, typed or not; with a
-    | list, an untyped principal is refused. `require_verified_identifier`
-    | refuses a sign-in with an identifier (an email address, say) the identity
-    | has not verified; sign-ins that use no identifier, such as SSO, are not
-    | affected. A malformed value, or an unknown key, fails closed with an
-    | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used.
+    | sessions, by the lower-case names they are registered under, and the
+    | machine credentials it accepts (`api_key`, `client_credentials`): a
+    | non-empty list. `principal_types` lists the principal types that may hold
+    | them (a non-empty list), or is `null` to admit any principal, typed or
+    | not; with a list, an untyped principal is refused.
+    | `require_verified_identifier` refuses a sign-in with an identifier (an
+    | email address, say) the identity has not verified; sign-ins that use no
+    | identifier, such as SSO, are not affected. A malformed value, or an
+    | unknown key, fails closed with an `InvalidArgumentException` naming the
+    | guard and the key when the guard's policy is first used.
     |
     */
 
