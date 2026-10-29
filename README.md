@@ -894,16 +894,17 @@ transport and, when its audience allows `passkey` or it sets a `passkeys` block,
 limits; and, for the whole package, the configured device model and pruning retention
 (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
 (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
-choice of principal), the one-time code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when
-any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery
-queue (`authentication.delivery.queue`), the passkey challenge lifetime
-(`authentication.passkeys.challenge_ttl_seconds`) and the API key settings (`authentication.api_keys`). Every check
-runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for the device model and retention,
-`[sign_in]` for the pending lifetime, `[codes]` for the code settings and sender, `[delivery]` for the delivery queue,
-`[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a subject without one as
-`[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while a
-guard allows a code method, is a `[delivery]` warning that leaves the exit code alone. Only the named guards are checked
-with `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
+choice of principal), the password policy settings (`authentication.passwords`), the one-time code settings and key
+(`authentication.codes`) and a bound `OneTimeCodeSender` when any guard allows a code sign-in method (`phone_code`,
+`email_code`, or a `CodeSignIn` you registered), the delivery queue (`authentication.delivery.queue`), the passkey
+challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`) and the API key settings
+(`authentication.api_keys`). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]`
+for the device model and retention, `[sign_in]` for the pending lifetime, `[passwords]` for the password policy,
+`[codes]` for the code settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge
+lifetime, `[api_keys]` for the API key settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync`
+queue connection, or on a `failover` one that can fall back to `sync`, while a guard allows a code method, is a
+`[delivery]` warning that leaves the exit code alone. Only the named guards are checked with
+`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
 problem. The command reads configuration only: it opens no database connection and never prints a key. The package does
 not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
@@ -2473,6 +2474,154 @@ device-less token issued in that second is rejected too. Tokens that name a devi
 moves forward, with one conditional update on the model's own connection (`invalidateTokensIssuedBefore()`); the column
 must be loaded, or reading it throws a `LogicException`, and the column name comes from `getTokensValidAfterName()`.
 
+### Passwords
+
+`Auth::passwords($guard)` is the password service of a `jwt` guard (an `InvalidArgumentException` names any other):
+the password policy, and the one call a registration, a change or a reset makes to set a password. Routes, forms and
+messages stay yours.
+
+#### Password policy
+
+```php
+'passwords' => [
+    'min_length' => 15,
+    'max_length' => 128,
+    'letters'    => false,
+    'mixed_case' => false,
+    'numbers'    => false,
+    'symbols'    => false,
+    'breached'   => ['when_unavailable' => 'reject'],
+],
+```
+
+A new password has at least `min_length` characters (8 to 128) and at most `max_length` (`min_length` to 4096),
+counted as Laravel's `min` and `max` rules count them (`mb_strlen`). The default minimum of 15 is NIST SP 800-63B's for
+a password used as the only factor; if every sign-in also requires a further factor (see
+[Additional factors](#additional-factors)), you may lower it to 8. While Laravel's hashing driver is bcrypt (its
+default), which reads only the first 72 bytes and ignores the rest, a password of more than 72 bytes is refused as too
+long, and `min_length` may be at most 72. `letters`, `mixed_case`, `numbers` and `symbols` turn on the composition
+rules of Laravel's `Password` rule, with its exact expressions; they are off by default, as NIST advises against them.
+Each value fails closed with an `InvalidArgumentException` naming the key when a password is first checked, and
+`authentication:check` reports it under `[passwords]`.
+
+A password that passes those rules is then given to the bound `BreachedPasswordChecker`, which says whether it is known
+from a breach. The package ships no breach service: the default checker, `NoBreachedPasswordCheck`, finds nothing, so
+it protects nothing, and NIST expects a check against a blocklist of breached and common passwords. Bind your own:
+
+```php
+use App\Auth\BreachRangeChecker;
+use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+
+$this->app->singleton(BreachedPasswordChecker::class, BreachRangeChecker::class);
+```
+
+```php
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\Facades\Http;
+use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Exceptions\BreachedPasswordCheckUnavailableException;
+
+// Asks a breach corpus that answers by hash prefix, so the password never leaves the server.
+final class BreachRangeChecker implements BreachedPasswordChecker
+{
+    public function isBreached(#[\SensitiveParameter] string $password): bool
+    {
+        $hash = strtoupper(sha1($password));
+
+        try {
+            $response = Http::timeout(2)->get(config('services.breaches.url') . '/range/' . substr($hash, 0, 5))->throw();
+        } catch (ConnectionException|RequestException) {
+            throw new BreachedPasswordCheckUnavailableException('The breached-password service did not answer.');
+        }
+
+        return str_contains($response->body(), substr($hash, 5) . ':');
+    }
+}
+```
+
+When the checker cannot answer, it throws `BreachedPasswordCheckUnavailableException` (never with the password in the
+message): the exception is reported to your exception handler, and `breached.when_unavailable` decides what happens to
+the password. `reject` (the default) refuses it as `breach_check_unavailable`, failing closed, so an outage blocks new
+passwords rather than letting a breached one through; `allow` lets it through, failing open. Any other exception the
+checker throws propagates.
+
+`check($password)` gives the policy's verdict, a `PasswordCheck` whose `violations` list every rule the password breaks
+(`passes()` when there is none), as `PasswordViolation` cases: `too_short`, `too_long`, `letters`, `mixed_case`,
+`numbers`, `symbols`, and, only once the others pass, `breached` or `breach_check_unavailable`. `rule()` returns
+Laravel's `Password` rule with the same length and composition, for a form request's validation:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$request->validate(['password' => ['required', 'confirmed', Auth::passwords('api')->rule()]]);
+```
+
+The rule runs no breached check and cannot see bcrypt's byte limit, so `set()` (or `check()`) has the last word. The
+policy applies only to passwords being set: the automatic rehash of an outdated hash on sign-in re-encodes the password
+the identity already has, so an older password shorter than today's minimum still signs in, and is rehashed.
+
+#### Setting a password
+
+`set($identity, $password, $flow, ?Device $except = null)` applies the policy, and only a password that passes is
+hashed with Laravel's `Hasher` and stored; a password that fails writes nothing and reports nothing. The result is a
+`PasswordResult`: `set`, the `violations` when it was not, and how many devices the flow `revoked`. The `PasswordFlow`
+decides what else happens, in one transaction on the identity's connection:
+
+| Flow           | For                                                       | Ends                                                |
+|----------------|-----------------------------------------------------------|-----------------------------------------------------|
+| `REGISTRATION` | The first password of an identity your registration makes | No session                                          |
+| `CHANGE`       | A signed-in identity replacing its own password           | Every session but `$except`, as `passwordChanged()` |
+| `RESET`        | A password set without the old one, after a proof         | Every session, as `passwordReset()`                 |
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
+
+Route::middleware(['auth:api', 'throttle:6,1'])->put('/password', function (Request $request) {
+    $passwords = Auth::passwords('api');
+    $identity  = Auth::identity();
+
+    $request->validate(['current_password' => 'required', 'password' => ['required', 'confirmed', $passwords->rule()]]);
+
+    if (!Auth::guard('api')->validate(['email' => $identity->email, 'password' => $request->input('current_password')])) {
+        return response()->json(['message' => 'The current password is wrong.'], 422);
+    }
+
+    $result = $passwords->set($identity, $request->input('password'), PasswordFlow::CHANGE, Auth::device());
+
+    return $result->set
+        ? response()->noContent()
+        : response()->json(['violations' => array_map(fn ($violation) => $violation->value, $result->violations)], 422);
+});
+```
+
+`set()` is a trusted call, as `login()` is: you decide that the identity may have the password, and you choose the flow
+on the server, never from input, because a registration ends no session. Ask for a recent reauthentication before a
+change, as above, so a stolen session cannot change the password and keep itself signed in; `validate()` counts no
+attempt, so limit the route (Laravel's `throttle` middleware here). A change ends every session of the identity, through
+every guard, but the device in `$except` (the request's own device, to keep it signed in; `null` ends them all); a reset
+ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
+(see [Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked`
+and then `SignedOutEverywhere`. `$except` is for a change only.
+
+A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
+timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
+model event fires, so an observer neither cancels the write nor revokes again behind it (`RevokeDevicesOnPasswordChange`
+does not undo the device a change kept). The model then holds the new hash. Only a registration may set the password of
+an identity not stored yet, which is then inserted with `save()`; a model event that cancels that save throws a
+`LogicException`. So does a change or a reset of an identity not stored, or one whose row is gone, and an identity that
+is not an Eloquent model; a non-human identity (`MachineIdentity`) has no password and throws an
+`InvalidArgumentException`.
+
+`PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
+never for one rolled back; its context names the guard, the client and the identity, and, for a change, the device kept.
+Called inside a transaction of yours, the hash, the cutoff and the revocations are part of it, and every event waits for
+its commit. When the device model lives on another connection than the identity, the devices are revoked in their own
+transaction, which commits inside the identity's: a failure after it leaves the devices revoked and the password
+unchanged, so more is ended, never less, and calling again finishes the job. The automatic rehash on sign-in never
+fires `PasswordSet`.
+
 ### Long-running processes
 
 One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
@@ -3009,6 +3158,22 @@ The message arrives when the delivery job runs: on a `sync` queue connection onc
 request ends with it; call `$this->app->terminate()` after calling the service directly), on a faked queue when the test
 runs the pushed job. `sent()` and `hasSent()` take an optional filter over the messages, `count()` counts them all, and
 `forget()` clears them.
+
+`Testing\FakeBreachedPasswordChecker` stands in for your breached-password checker: `fake(['password123'])` binds a
+fresh one that finds exactly those passwords breached, `unavailable()` makes it throw
+`BreachedPasswordCheckUnavailableException` as a service that is down would (and `unavailable(false)` lets it answer
+again), and it keeps every password it was asked about, so a test can tell whether a request reached the breached check
+at all. `checked()` and `hasChecked()` take an optional filter, `count()` counts them, and `forget()` clears them:
+
+```php
+use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
+
+$checker = FakeBreachedPasswordChecker::fake(['password123password']);
+
+$this->putJson('/password', [...])->assertUnprocessable()->assertJson(['violations' => ['breached']]);
+
+$checker->unavailable();   // fails closed: `breach_check_unavailable`, unless `when_unavailable` is `allow`
+```
 
 ```bash
 composer test               # all suites in parallel (Paratest)

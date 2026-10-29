@@ -35,6 +35,7 @@ use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -52,6 +53,7 @@ use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
+use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -508,6 +510,23 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertTrue($app->isShared(ScopeRegistry::class));
         self::assertInstanceOf(AcceptAnyScope::class, app(ScopeRegistry::class));
         self::assertSame(app(ScopeRegistry::class), app(ScopeRegistry::class));
+    }
+
+    /**
+     * The default breached-password checker, which finds nothing, is bound as a
+     * singleton so the application can bind a real one.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultBreachedPasswordChecker(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(BreachedPasswordChecker::class));
+        self::assertInstanceOf(NoBreachedPasswordCheck::class, app(BreachedPasswordChecker::class));
+        self::assertFalse(app(BreachedPasswordChecker::class)->isBreached('password'));
     }
 
     /**

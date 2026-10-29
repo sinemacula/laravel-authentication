@@ -29,6 +29,7 @@ use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
@@ -49,6 +50,7 @@ use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
+use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -100,6 +102,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->singleton(WebAuthn::class);
         $this->app->singleton(ScopeRegistry::class, AcceptAnyScope::class);
+        $this->app->singleton(BreachedPasswordChecker::class, NoBreachedPasswordCheck::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,

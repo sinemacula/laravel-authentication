@@ -25,6 +25,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
+use SineMacula\Laravel\Authentication\Passwords\PasswordSettings;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -47,15 +48,15 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * principal resolver override, the package audience policy's settings and that
  * they allow `api_key`, and every flow's rate limits. The package-wide settings
  * are reported as `[device]` (the device model and the pruning retention),
- * `[sign_in]` (the pending sign-in lifetime), `[codes]` (the one-time code
- * settings and key, and a sender bound when a guard allows a code sign-in
- * method, the package's or an application's own `CodeSignIn`), `[delivery]`
- * (the delivery queue, with a warning, not a problem, when a guard allows a
- * code sign-in method and deliveries run on a `sync` queue connection),
- * `[passkeys]` (the passkey challenge lifetime) and `[api_keys]` (the key
- * prefix, the rotation overlaps, the last-use throttle and the pruning
- * retention). The command reads configuration only: it opens no database
- * connection and prints no secret.
+ * `[sign_in]` (the pending sign-in lifetime), `[passwords]` (the password
+ * policy settings), `[codes]` (the one-time code settings and key, and a sender
+ * bound when a guard allows a code sign-in method, the package's or an
+ * application's own `CodeSignIn`), `[delivery]` (the delivery queue, with a
+ * warning, not a problem, when a guard allows a code sign-in method and
+ * deliveries run on a `sync` queue connection), `[passkeys]` (the passkey
+ * challenge lifetime) and `[api_keys]` (the key prefix, the rotation overlaps,
+ * the last-use throttle and the pruning retention). The command reads
+ * configuration only: it opens no database connection and prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -133,8 +134,9 @@ final class CheckConfigurationCommand extends Command
             'sign_in' => [
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
-            'codes'    => $this->codeChecks($config),
-            'delivery' => [
+            'passwords' => self::passwordChecks($config),
+            'codes'     => $this->codeChecks($config),
+            'delivery'  => [
                 static function () use ($config): void {
                     (new DeliverySettings($config))->validate();
                 },
@@ -148,6 +150,23 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => ApiKeySettings::lastUsedThrottleSeconds(),
                 static fn (): int => ApiKeySettings::pruneAfterDays(),
             ],
+        ];
+    }
+
+    /**
+     * The checks of the password policy settings, each of which otherwise fails
+     * only when a password is first checked: the lengths, the composition rules
+     * and what an unavailable breached check does.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return list<\Closure(): mixed>
+     */
+    private static function passwordChecks(ConfigRepository $config): array
+    {
+        return [
+            static function () use ($config): void {
+                (new PasswordSettings($config))->validate();
+            },
         ];
     }
 

@@ -417,6 +417,46 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Passwords
+    |---------------------------------------------------------------------------
+    |
+    | The policy `Auth::passwords()->check()` and `set()` apply to a new
+    | password (never to the automatic rehash on sign-in). A password has at
+    | least `min_length` characters (8 to 128) and at most `max_length`
+    | (`min_length` to 4096), counted as Laravel's `min` and `max` rules count
+    | them; each is an integer, or a digit string as `env()` returns one. The
+    | default minimum of 15 is NIST SP 800-63B's for a password that is the
+    | only factor; an application that always requires a further factor may
+    | lower it to 8. While the hashing driver is bcrypt, which reads only 72
+    | bytes, a longer password is refused as too long and `min_length` may be
+    | at most 72. `letters`, `mixed_case`, `numbers` and `symbols` (booleans,
+    | off by default, as NIST advises) turn on the composition rules of
+    | Laravel's `Password` rule. A password that passes is then given to the
+    | bound `BreachedPasswordChecker`: the default one blocks nothing, and NIST
+    | expects a blocklist check, so bind one of your own. When the checker
+    | cannot answer (it throws `BreachedPasswordCheckUnavailableException`)
+    | the exception is reported and `breached.when_unavailable` decides:
+    | `reject` refuses the password (fail closed, the default), `allow` lets it
+    | through (fail open). A malformed value fails closed when a password is
+    | first checked, and `authentication:check` reports it.
+    |
+    */
+
+    'passwords' => [
+        'min_length' => env('AUTHENTICATION_PASSWORDS_MIN_LENGTH', 15),
+        'max_length' => env('AUTHENTICATION_PASSWORDS_MAX_LENGTH', 128),
+        'letters'    => false,
+        'mixed_case' => false,
+        'numbers'    => false,
+        'symbols'    => false,
+
+        'breached' => [
+            'when_unavailable' => env('AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE', 'reject'),
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | One-time codes
     |---------------------------------------------------------------------------
     |

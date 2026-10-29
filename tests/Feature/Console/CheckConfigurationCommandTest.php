@@ -43,7 +43,7 @@ final class CheckConfigurationCommandTest extends TestCase
     private const string SECRET = 'a-signing-secret-of-at-least-32-bytes!!';
 
     /** @var list<string> What a run prints for the package-wide settings when none has a problem. */
-    private const array PACKAGE_OK = ['[device] OK', '[sign_in] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK'];
+    private const array PACKAGE_OK = ['[device] OK', '[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK'];
 
     /** @var list<string> What a run prints when nothing the default setup configures has a problem. */
     private const array EVERY_SUBJECT_OK = [...self::PACKAGE_OK, '[api] OK', '[admin] OK', '[machine] OK'];
@@ -153,6 +153,22 @@ final class CheckConfigurationCommandTest extends TestCase
         yield 'a pending sign-in lifetime out of range' => [
             ['authentication.sign_in.pending_ttl_seconds' => 5],
             '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600 seconds.',
+        ];
+        yield 'a password minimum below 8' => [
+            ['authentication.passwords.min_length' => 7],
+            '[passwords] authentication.passwords.min_length must be an integer from 8 to 128.',
+        ];
+        yield 'a password maximum below the minimum' => [
+            ['authentication.passwords.min_length' => 20, 'authentication.passwords.max_length' => 19],
+            '[passwords] authentication.passwords.max_length must be an integer from 20 to 4096.',
+        ];
+        yield 'a password composition rule that is not a boolean' => [
+            ['authentication.passwords.symbols' => 'yes'],
+            '[passwords] authentication.passwords.symbols must be true or false.',
+        ];
+        yield 'an unknown breached-check mode' => [
+            ['authentication.passwords.breached.when_unavailable' => 'ignore'],
+            '[passwords] authentication.passwords.breached.when_unavailable must be `reject` or `allow`.',
         ];
         yield 'a code length out of range' => [
             ['authentication.codes.length' => 4],
@@ -411,7 +427,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         config()->set('auth.guards.admin.audience', ['methods' => ['email_code']]);
 
-        self::assertSame([0, [...array_slice($checked, 0, 6), $warning, ...array_slice($checked, 6)]], $this->check());
+        self::assertSame([0, [...array_slice($checked, 0, 7), $warning, ...array_slice($checked, 7)]], $this->check());
 
         config()->set('authentication.delivery.queue.connection', 'workers');
 
@@ -439,6 +455,7 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame([
             '[device] OK',
             '[sign_in] OK',
+            '[passwords] OK',
             '[passkeys] OK',
             '[api_keys] OK',
             '[admin] OK',
@@ -481,6 +498,7 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame([
             '[device] OK',
             '[sign_in] OK',
+            '[passwords] OK',
             '[codes] OK',
             '[delivery] OK',
             '[passkeys] OK',

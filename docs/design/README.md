@@ -41,6 +41,8 @@ The current note set is:
   the same for an identifier no one has, and who a code is ever sent to.
 - `passkeys.md`: how a guard's passkeys are registered, used to sign in usernameless and verified as a further factor,
   the single-use challenges, the relying party they are scoped to, and the sign counter rule.
+- `passwords.md`: the password policy and its breached-password seam, the one helper a registration, a change and a
+  reset set a password through, and what each flow ends.
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
 
