@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\IdentifierChanges\SendIdentifierChangeCode
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
@@ -384,6 +385,29 @@ final class IdentifierChangeRequestsTest extends TestCase
 
         self::assertTrue($request->isSent());
         self::assertSame('07700 900123', DB::table('identifier_changes')->value('previous'));
+    }
+
+    /**
+     * The current identifier is compared in its canonical form, so an address
+     * stored in another case (a legacy row written past the cast) is still the
+     * current one: a request for it in normal form is `identifier_unchanged`,
+     * with nothing written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAddressStoredInAnotherCaseIsTheCurrentOne(): void
+    {
+        self::seedChangeable();
+
+        DB::table('changeable_identities')->update(['email' => 'Ada@Example.test']);
+
+        $identity = ChangeableIdentity::query()->sole();
+        $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, Reauthentication::confirmedAt($this->now));
+
+        self::assertSame(IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED, $request->status);
+        self::assertSame(0, self::rows('identifier_changes'));
     }
 
     /**

@@ -576,6 +576,37 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
+     * The proofs a change outdates are those of the old identifier in its
+     * canonical form, so an address stored in another case (a legacy row
+     * written past the cast) loses the sign-in code and the reset link issued
+     * for it in normal form.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheOldAddressStoredInAnotherCaseLosesItsProofs(): void
+    {
+        self::seedChangeable();
+
+        DB::table('changeable_identities')->update(['email' => 'Ada@Example.test']);
+
+        $identity = ChangeableIdentity::query()->sole();
+        $codes    = new OneTimeCodes(app(ConfigRepository::class));
+        $proofs   = [CodeBinding::signIn('web', 'email', self::EMAIL), CodeBinding::passwordResetLink('web', 'email', self::EMAIL)];
+
+        $codes->issue($proofs[0], $this->now);
+        $codes->issueToken($proofs[1], $this->now, 900);
+
+        $live = static fn (): int => DB::table('one_time_codes')->whereIn('id', array_map(self::bindingDigest(...), $proofs))->count();
+
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertSame(2, $live());
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame(0, $live());
+    }
+
+    /**
      * Whether the identity is active is read from its row under the lock, not
      * from the instance given: one deactivated after the caller loaded it
      * confirms nothing by code, and one deactivated after a link loaded it,
