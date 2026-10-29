@@ -151,7 +151,11 @@ final readonly class RecentAuthentication
 
         $limiter = $this->container->make(AttemptLimiter::class);
 
-        return $this->guard->timeboxed(function (Timebox $timebox) use ($identity, $password, $ip, $limiter): bool|int {
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $secret = new \SensitiveParameterValue($password);
+
+        return $this->guard->timeboxed(function (Timebox $timebox) use ($identity, $secret, $ip, $limiter): bool|int {
 
             $reservation = $limiter->acquire(new AttemptSubject($this->guard->getName(), AttemptFlow::SIGN_IN, null, null, $ip, AccountAttempts::account($identity)));
 
@@ -164,7 +168,7 @@ final readonly class RecentAuthentication
 
             $isSameRow = $stored instanceof Identity && AccountAttempts::account($stored) === AccountAttempts::account($identity);
 
-            if (!$isSameRow || !$provider->validateCredentials($stored, ['password' => $password])) {
+            if (!$isSameRow || !$provider->validateCredentials($stored, ['password' => $secret->getValue()])) {
                 return false;
             }
 

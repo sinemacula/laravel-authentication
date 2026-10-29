@@ -14,6 +14,7 @@ use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
+use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -28,7 +29,9 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
 use SineMacula\Laravel\Authentication\Passwords\SendPasswordReset;
 use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
+use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithPasswordResets;
+use Tests\Fixtures\Passwords\FailingBreachedPasswordChecker;
 use Tests\Fixtures\Passwords\RecordingTimebox;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\TestCase;
@@ -50,7 +53,7 @@ use Tests\TestCase;
 #[CoversClass(SendPasswordReset::class)]
 final class ResetSubmissionsTest extends TestCase
 {
-    use InteractsWithPasswordResets;
+    use InspectsTraces, InteractsWithPasswordResets;
 
     /**
      * A reset link requested over HTTP arrives after the response; its token
@@ -167,6 +170,46 @@ final class ResetSubmissionsTest extends TestCase
         self::assertFalse($result->isReset());
         self::assertSame([], $this->recordedClasses());
         self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+    }
+
+    /**
+     * A failure inside the credential timebox, by link or by code, leaves the
+     * new password and the token or code out of every frame of its trace, the
+     * timebox's closure and what it captured included, even with arguments
+     * recorded in traces.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedResetLeavesTheSecretsOutOfTheTrace(): void
+    {
+        self::seedResettable();
+
+        $token = $this->requestLink();
+
+        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->isSent());
+
+        app()->terminate();
+
+        $code = (string) $this->codes->lastCodeFor(self::PHONE, CodePurpose::PASSWORD_RESET);
+
+        app()->instance(BreachedPasswordChecker::class, new FailingBreachedPasswordChecker);
+
+        $resets = [
+            [$token, fn (): mixed => $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])],
+            [$code, fn (): mixed => $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $code, 'password' => self::NEW_PASSWORD])],
+        ];
+
+        foreach ($resets as [$proof, $reset]) {
+
+            $exception = self::withArgumentsInTraces(\RuntimeException::class, $reset);
+
+            self::assertSame('a bug in the checker', $exception->getMessage());
+            self::assertContains(Timebox::class, array_column($exception->getTrace(), 'class'));
+            self::assertFalse(self::hasInTrace($exception, self::NEW_PASSWORD));
+            self::assertFalse(self::hasInTrace($exception, $proof));
+        }
     }
 
     /**

@@ -90,14 +90,16 @@ final readonly class PasswordWriter
      */
     public function write(Identity&Model $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Device $except = null, ?ClientContext $client = null): int
     {
-        $hash      = $this->container->make(Hasher::class)->make($password);
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $hash      = new \SensitiveParameterValue($this->container->make(Hasher::class)->make($password));
         $container = $this->container;
         $client ??= ClientContext::fromRequest($this->guard->getRequest());
         $events = $this->guard->getDispatcher();
 
         return $identity->getConnection()->transaction(function () use ($identity, $hash, $flow, $except, $container, $client, $events): int {
 
-            $this->store($identity, $hash, $flow);
+            $this->store($identity, $hash->getValue(), $flow);
 
             (new OutdatedProofs($container))->invalidate($identity, $flow);
 

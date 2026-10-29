@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\ChangesIdentifiers;
+use Tests\Concerns\InspectsTraces;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\Integration\Fixtures\SuspendableChangeableIdentity;
 use Tests\TestCase;
@@ -64,7 +65,7 @@ use Tests\TestCase;
 #[CoversClass(OutdatedProofs::class)]
 final class IdentifierChangeConfirmationTest extends TestCase
 {
-    use ChangesIdentifiers;
+    use ChangesIdentifiers, InspectsTraces;
 
     /**
      * Start every test from a known moment, with the fakes bound and the routes
@@ -626,6 +627,32 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         self::assertSame([FailureReason::IDENTITY_INACTIVE, FailureReason::IDENTITY_INACTIVE], $reasons);
         self::assertSame([self::EMAIL, self::PHONE, 0, 2], [$identity->refresh()->email, $identity->phone, self::codeAttempts(), self::rows('identifier_changes')]);
+    }
+
+    /**
+     * A failure inside a confirmation's transaction leaves the code out of
+     * every frame of its trace, the proof's closure and what it captured
+     * included, even with arguments recorded in traces.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedConfirmationLeavesTheCodeOutOfTheTrace(): void
+    {
+        $identity = $this->requestedByCode();
+
+        DB::listen(static function (QueryExecuted $query): void {
+            if (str_starts_with($query->sql, 'update') && str_contains($query->sql, 'one_time_codes')) {
+                throw new \RuntimeException('the store failed');
+            }
+        });
+
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->changes()->confirmByCode($identity, 'email', self::CODE));
+
+        self::assertSame('the store failed', $exception->getMessage());
+        self::assertFalse(self::hasInTrace($exception, self::CODE));
+        self::assertSame([self::EMAIL, 1], [$identity->refresh()->email, self::rows('identifier_changes')]);
     }
 
     /**

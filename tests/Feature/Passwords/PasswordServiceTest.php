@@ -32,6 +32,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
+use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Fixtures\Passwords\FailingBreachedPasswordChecker;
 use Tests\Integration\Fixtures\PasswordIdentity;
@@ -58,7 +59,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 #[CoversClass(AuthManager::class)]
 final class PasswordServiceTest extends TestCase
 {
-    use InteractsWithPasswords;
+    use InspectsTraces, InteractsWithPasswords;
 
     /** @var string A new password the default policy accepts. */
     private const string NEW_PASSWORD = 'a brand new passphrase';
@@ -330,7 +331,6 @@ final class PasswordServiceTest extends TestCase
     public function testAFailingCheckerLeavesThePasswordOutOfTheTrace(): void
     {
         $identity = self::seedPasswordIdentity();
-        $ignored  = ini_set('zend.exception_ignore_args', '0');
 
         app()->instance(BreachedPasswordChecker::class, new FailingBreachedPasswordChecker);
 
@@ -339,20 +339,38 @@ final class PasswordServiceTest extends TestCase
             fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE),
         ];
 
-        try {
-            foreach ($calls as $call) {
-                try {
-                    $call();
-                    self::fail('The checker\'s failure was swallowed.');
-                } catch (\RuntimeException $exception) {
-                    self::assertSame('a bug in the checker', $exception->getMessage());
-                    self::assertNotSame([], array_filter(array_column($exception->getTrace(), 'args')));
-                    self::assertFalse(self::carries($exception->getTrace(), self::NEW_PASSWORD));
-                }
-            }
-        } finally {
-            ini_set('zend.exception_ignore_args', (string) $ignored);
+        foreach ($calls as $call) {
+
+            $exception = self::withArgumentsInTraces(\RuntimeException::class, $call);
+
+            self::assertSame('a bug in the checker', $exception->getMessage());
+            self::assertFalse(self::hasInTrace($exception, self::NEW_PASSWORD));
         }
+    }
+
+    /**
+     * A write that fails inside its transaction leaves the new password and its
+     * hash out of every frame of the trace, the transaction's closure and what
+     * it captured included, even with arguments recorded in traces.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedWriteLeavesThePasswordAndItsHashOutOfTheTrace(): void
+    {
+        $identity = self::seedPasswordIdentity();
+
+        DB::table('password_identities')->delete();
+
+        $exception = self::withArgumentsInTraces(\LogicException::class, fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE));
+        $isSecret  = static fn (string $value): bool => $value === self::NEW_PASSWORD || password_verify(self::NEW_PASSWORD, $value);
+
+        self::assertStringContainsString('is no longer stored', $exception->getMessage());
+        $stored = (string) $identity->password;
+
+        self::assertTrue(self::carries([static fn (): string => $stored], static fn (string $value): bool => password_verify(self::PASSWORD, $value)));
+        self::assertFalse(self::hasInTrace($exception, $isSecret));
     }
 
     /**
@@ -698,25 +716,6 @@ final class PasswordServiceTest extends TestCase
         self::configurePasswordGuards($config);
 
         $config->set('auth.guards.session', ['driver' => 'session', 'provider' => 'password_identities']);
-    }
-
-    /**
-     * Whether any frame of the trace has the secret among its arguments, at any
-     * depth of an array argument.
-     *
-     * @param  array<array-key, mixed>  $values
-     * @param  string  $secret
-     * @return bool
-     */
-    private static function carries(array $values, string $secret): bool
-    {
-        foreach ($values as $value) {
-            if ($value === $secret || (is_array($value) && self::carries($value, $secret))) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

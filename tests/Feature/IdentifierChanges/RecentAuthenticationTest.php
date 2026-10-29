@@ -6,9 +6,11 @@ namespace Tests\Feature\IdentifierChanges;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -23,6 +25,7 @@ use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use Tests\Concerns\ChangesIdentifiers;
+use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithRateLimits;
 use Tests\TestCase;
 
@@ -42,7 +45,7 @@ use Tests\TestCase;
 #[CoversClass(IdentifierChangeService::class)]
 final class RecentAuthenticationTest extends TestCase
 {
-    use ChangesIdentifiers, InteractsWithRateLimits;
+    use ChangesIdentifiers, InspectsTraces, InteractsWithRateLimits;
 
     /**
      * Start every test from a known moment, with the fakes bound.
@@ -291,6 +294,35 @@ final class RecentAuthenticationTest extends TestCase
 
         self::assertGreaterThanOrEqual(0.4, $timed(static fn (): mixed => $check->refusal($identity, Reauthentication::password('wrong'), null)));
         self::assertLessThan(0.3, $timed(static fn (): mixed => $check->refusal($identity, Reauthentication::password(self::PASSWORD), null)));
+    }
+
+    /**
+     * A failure while the password is checked, inside the credential timebox
+     * and the request's transaction, leaves the password and the new identifier
+     * out of every frame of its trace, the closures' captures included, even
+     * with arguments recorded in traces.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailedPasswordCheckLeavesTheSecretsOutOfTheTrace(): void
+    {
+        $identity = self::seedChangeable();
+        $proof    = Reauthentication::password(self::PASSWORD);
+
+        DB::listen(static function (QueryExecuted $query): void {
+            if (str_starts_with($query->sql, 'update') && str_contains($query->sql, 'rate_limits')) {
+                throw new \RuntimeException('the limiter failed');
+            }
+        });
+
+        $exception = self::withArgumentsInTraces(\RuntimeException::class, fn (): mixed => $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+
+        self::assertSame('the limiter failed', $exception->getMessage());
+        self::assertContains(Timebox::class, array_column($exception->getTrace(), 'class'));
+        self::assertFalse(self::hasInTrace($exception, self::PASSWORD));
+        self::assertFalse(self::hasInTrace($exception, self::NEW_EMAIL));
     }
 
     /**

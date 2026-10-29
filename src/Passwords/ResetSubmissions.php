@@ -146,11 +146,15 @@ final readonly class ResetSubmissions
             return $this->refuse(ResetResult::rateLimited($reservation->retryAfter), FailureReason::RATE_LIMITED, $context, $given, $reservation->retryAfter);
         }
 
-        $proof    = ResetInput::secret($input, $proofKey);
-        $password = ResetInput::secret($input, ResetInput::PASSWORD_KEY);
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $proof    = new \SensitiveParameterValue(ResetInput::secret($input, $proofKey));
+        $password = new \SensitiveParameterValue(ResetInput::secret($input, ResetInput::PASSWORD_KEY));
+
+        $client = $context->client;
 
         /** @var array{0: \SineMacula\Laravel\Authentication\Passwords\ResetResult, 1: ?\SineMacula\Laravel\Authentication\Events\Enums\FailureReason} $outcome */
-        $outcome = $this->guard->timeboxed(fn (Timebox $timebox): array => $this->attempt($purpose, $type, $given, $proof, $password, $context->client, $timebox));
+        $outcome = $this->guard->timeboxed(fn (Timebox $timebox): array => $this->attempt($purpose, $type, $given, $proof->getValue(), $password->getValue(), $client, $timebox));
 
         [$result, $reason] = $outcome;
 

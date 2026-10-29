@@ -209,8 +209,12 @@ final readonly class IdentifierChangeService
             return $this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS, $context);
         }
 
-        return $this->confirm($changeable, $type, $context, function (IdentifierChange $change, CarbonImmutable $now) use ($changeable, $code, $codes): ?ChangeRefused {
-            $check = $codes->check(PendingChanges::binding($change, $changeable), $code, $now);
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $secret = new \SensitiveParameterValue($code);
+
+        return $this->confirm($changeable, $type, $context, function (IdentifierChange $change, CarbonImmutable $now) use ($changeable, $secret, $codes): ?ChangeRefused {
+            $check = $codes->check(PendingChanges::binding($change, $changeable), $secret->getValue(), $now);
 
             return match ($check) {
                 CodeCheck::ACCEPTED  => null,
