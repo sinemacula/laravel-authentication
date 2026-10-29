@@ -198,7 +198,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `tests/Performance/PasswordSetQueryBudgetTest.php`
 - `tests/Feature/Passwords/ResetRequestsTest.php`, `ResetSubmissionsTest.php`, `ResetRecipientTest.php`,
   `ResetProofsTest.php`, `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
-- `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
+- `tests/Integration/Passwords/ReplicaPasswordResetsTest.php` (a link delivered and spent behind a lagging replica),
+  `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
   `tests/Feature/Database/SharedConnectionTest.php`
 - `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests)

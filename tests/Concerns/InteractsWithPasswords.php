@@ -35,13 +35,15 @@ trait InteractsWithPasswords
     use InteractsWithSessions;
 
     /**
-     * Create the `password_identities` table.
+     * Create the `password_identities` table on the given connection, or the
+     * default one.
      *
+     * @param  ?string  $connection
      * @return void
      */
-    protected static function createPasswordTables(): void
+    protected static function createPasswordTables(?string $connection = null): void
     {
-        Schema::create('password_identities', static function (Blueprint $blueprint): void {
+        Schema::connection($connection)->create('password_identities', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->string('email')->nullable()->unique();
             $blueprint->dateTime('email_verified_at', 0)->nullable();

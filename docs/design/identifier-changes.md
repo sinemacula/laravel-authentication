@@ -113,6 +113,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `tests/Feature/IdentifierChanges/IdentifierChangeServiceTest.php` (misconfiguration, the connection rule),
   `IdentifierChangeRoutesTest.php`, `ChangeLinksTest.php`; `tests/Feature/Database/SharedConnectionTest.php`.
 - `tests/Integration/IdentifierChanges/ConcurrentIdentifierChangesTest.php`: races on PostgreSQL and MySQL.
+- `tests/Integration/IdentifierChanges/ReplicaIdentifierChangesTest.php`: `pending()`, the code's delivery and a
+  device's reauthentication read what only the primary holds yet, behind a lagging replica.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,
   `PendingChangesTest.php`; `tests/Integration/Models/IdentifierChangeTest.php`,
   `tests/Integration/Migration/IdentifierChangesTableSchemaTest.php`.
