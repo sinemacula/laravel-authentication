@@ -25,7 +25,6 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
 use SineMacula\Laravel\Authentication\Passkeys\RelyingParty;
-use SineMacula\Laravel\Authentication\Passwords\PasswordSettings;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptLimits;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
@@ -55,8 +54,10 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * warning, not a problem, when a guard allows a code sign-in method and
  * deliveries run on a `sync` queue connection), `[passkeys]` (the passkey
  * challenge lifetime) and `[api_keys]` (the key prefix, the rotation overlaps,
- * the last-use throttle and the pruning retention). The command reads
- * configuration only: it opens no database connection and prints no secret.
+ * the last-use throttle and the pruning retention). It also warns about a `jwt`
+ * guard whose password resets would refuse to run (see
+ * `warnAboutPasswordResets()`). The command reads configuration only: it opens
+ * no database connection and prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -102,6 +103,10 @@ final class CheckConfigurationCommand extends Command
 
         $this->warnAboutSynchronousDelivery($config);
 
+        foreach ((new PasswordChecks($this->laravel, $config))->warnings($guards) as $warning) {
+            $this->warn($warning);
+        }
+
         foreach ($guards as $guard) {
             $problems = [...$problems, ...self::prefixed($guard, $this->guardProblems($guard, $config))];
         }
@@ -134,7 +139,7 @@ final class CheckConfigurationCommand extends Command
             'sign_in' => [
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
-            'passwords' => self::passwordChecks($config),
+            'passwords' => (new PasswordChecks($this->laravel, $config))->settings(),
             'codes'     => $this->codeChecks($config),
             'delivery'  => [
                 static function () use ($config): void {
@@ -150,23 +155,6 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => ApiKeySettings::lastUsedThrottleSeconds(),
                 static fn (): int => ApiKeySettings::pruneAfterDays(),
             ],
-        ];
-    }
-
-    /**
-     * The checks of the password policy settings, each of which otherwise fails
-     * only when a password is first checked: the lengths, the composition rules
-     * and what an unavailable breached check does.
-     *
-     * @param  \Illuminate\Config\Repository  $config
-     * @return list<\Closure(): mixed>
-     */
-    private static function passwordChecks(ConfigRepository $config): array
-    {
-        return [
-            static function () use ($config): void {
-                (new PasswordSettings($config))->validate();
-            },
         ];
     }
 

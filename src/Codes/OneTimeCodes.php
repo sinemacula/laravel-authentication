@@ -23,8 +23,10 @@ use SineMacula\Laravel\Authentication\Models\OneTimeCode;
  * against the issuance it read before it compares anything, so concurrent
  * checks never exceed `max_attempts`, and uses the code up only with a second
  * conditional statement, so of two correct submissions exactly one is accepted.
- * Every change is one statement the database applies atomically, and a database
- * error propagates.
+ * A password reset link's token is a binding's live secret in the same way, 256
+ * random bits under the same cooldown, checked without counting attempts. Every
+ * change is one statement the database applies atomically, and a database error
+ * propagates.
  *
  * The engine keeps no state between calls: the settings and the key are read
  * from the configuration each time.
@@ -36,6 +38,9 @@ use SineMacula\Laravel\Authentication\Models\OneTimeCode;
  */
 final readonly class OneTimeCodes
 {
+    /** @var int Random bytes in a token, 256 bits. */
+    private const int TOKEN_BYTES = 32;
+
     /** @var \SineMacula\Laravel\Authentication\Codes\CodeSettings The code settings. */
     private CodeSettings $settings;
 
@@ -82,32 +87,29 @@ final readonly class OneTimeCodes
      */
     public function issue(CodeBinding $binding, CarbonImmutable $now): int|IssuedCode
     {
-        $code     = $this->draw($this->settings->length());
-        $cooldown = $this->settings->cooldownSeconds();
-        $issued   = new IssuedCode($code, Str::uuid()->toString(), $now->addSeconds($this->settings->ttlSeconds()));
-        $digest   = $this->keys->binding($binding);
-        $model    = new OneTimeCode;
-        $issuance = [
-            'issue_id'    => $issued->issueId,
-            'code_hash'   => $this->keys->code($digest, $issued->issueId, $code),
-            'attempts'    => 0,
-            'issued_at'   => $model->fromDateTime($now),
-            'expires_at'  => $model->fromDateTime($issued->expiresAt),
-            'consumed_at' => null,
-        ];
+        return $this->store($binding, $now, $this->draw($this->settings->length()), $this->settings->ttlSeconds());
+    }
 
-        $replaced = $this->table()
-            ->where('id', $digest)
-            ->where('issued_at', '<=', $model->fromDateTime($now->subSeconds($cooldown)))
-            ->update($issuance) === 1;
-
-        if ($replaced || $this->table()->insertOrIgnore(['id' => $digest, 'purpose' => $binding->purpose->value, 'guard' => $binding->guard, ...$issuance]) === 1) {
-            return $issued;
-        }
-
-        $current = $this->find($digest);
-
-        return $current === null ? 1 : max(1, $current->issued_at->getTimestamp() + $cooldown - $now->getTimestamp());
+    /**
+     * Issue a new live token for the binding (a password reset link's), as
+     * `issue()` issues a code, under the same resend cooldown, that works for
+     * the seconds given: 32 random bytes, base64url-encoded without padding (43
+     * characters), stored only as its keyed hash.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  int  $ttlSeconds
+     * @return int|\SineMacula\Laravel\Authentication\Codes\IssuedCode
+     *
+     * @throws \InvalidArgumentException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     *
+     * @phpstan-impure
+     */
+    public function issueToken(CodeBinding $binding, CarbonImmutable $now, int $ttlSeconds): int|IssuedCode
+    {
+        return $this->store($binding, $now, rtrim(strtr(base64_encode(random_bytes(self::TOKEN_BYTES)), '+/', '-_'), '='), $ttlSeconds);
     }
 
     /**
@@ -144,6 +146,38 @@ final readonly class OneTimeCodes
         return $this->countAttempt($live, $max, $now)
             ? $this->compare($live, $digest, $code, $now)
             : $this->recheck($digest, $live->issue_id, $max, $now);
+    }
+
+    /**
+     * Check a token against the binding's live token, and use it up when it
+     * matches. No attempt is counted: a token has 256 bits, so none can be
+     * guessed. A binding with no token, or a used one, or a token that does
+     * not match, is `invalid`; a matching one that has expired is `expired`;
+     * a matching live one is `accepted` only when this check also uses it up,
+     * so of two concurrent checks exactly one is.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  string  $token
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck
+     *
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     *
+     * @phpstan-impure
+     */
+    public function checkToken(CodeBinding $binding, #[\SensitiveParameter] string $token, CarbonImmutable $now): CodeCheck
+    {
+        $digest = $this->keys->binding($binding);
+        $row    = $this->find($digest);
+
+        return match (true) {
+            $row === null,
+            $row->consumed_at !== null,
+            !hash_equals($row->code_hash, $this->keys->code($digest, $row->issue_id, $token)) => CodeCheck::INVALID,
+            $row->expires_at->getTimestamp() <= $now->getTimestamp()                          => CodeCheck::EXPIRED,
+            default                                                                           => $this->useUp($row, $now) ? CodeCheck::ACCEPTED : CodeCheck::INVALID,
+        };
     }
 
     /**
@@ -205,6 +239,63 @@ final readonly class OneTimeCodes
     public function isWellFormed(#[\SensitiveParameter] string $code): bool
     {
         return preg_match(sprintf('/^\d{%d}$/D', $this->settings->length()), $code) === 1;
+    }
+
+    /**
+     * Whether the value is a token `issueToken()` could have drawn: exactly 43
+     * base64url characters.
+     *
+     * @param  string  $token
+     * @return bool
+     */
+    public function isWellFormedToken(#[\SensitiveParameter] string $token): bool
+    {
+        return preg_match('/^[A-Za-z0-9_-]{43}$/D', $token) === 1;
+    }
+
+    /**
+     * Store the secret as the binding's live issuance, replacing one issued
+     * more than the resend cooldown ago, or answer the seconds until another
+     * may be.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  \Carbon\CarbonImmutable  $now
+     * @param  string  $secret
+     * @param  int  $ttlSeconds
+     * @return int|\SineMacula\Laravel\Authentication\Codes\IssuedCode
+     *
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     *
+     * @phpstan-impure
+     */
+    private function store(CodeBinding $binding, CarbonImmutable $now, #[\SensitiveParameter] string $secret, int $ttlSeconds): int|IssuedCode
+    {
+        $cooldown = $this->settings->cooldownSeconds();
+        $issued   = new IssuedCode($secret, Str::uuid()->toString(), $now->addSeconds($ttlSeconds));
+        $digest   = $this->keys->binding($binding);
+        $model    = new OneTimeCode;
+        $issuance = [
+            'issue_id'    => $issued->issueId,
+            'code_hash'   => $this->keys->code($digest, $issued->issueId, $secret),
+            'attempts'    => 0,
+            'issued_at'   => $model->fromDateTime($now),
+            'expires_at'  => $model->fromDateTime($issued->expiresAt),
+            'consumed_at' => null,
+        ];
+
+        $replaced = $this->table()
+            ->where('id', $digest)
+            ->where('issued_at', '<=', $model->fromDateTime($now->subSeconds($cooldown)))
+            ->update($issuance) === 1;
+
+        if ($replaced || $this->table()->insertOrIgnore(['id' => $digest, 'purpose' => $binding->purpose->value, 'guard' => $binding->guard, ...$issuance]) === 1) {
+            return $issued;
+        }
+
+        $current = $this->find($digest);
+
+        return $current === null ? 1 : max(1, $current->issued_at->getTimestamp() + $cooldown - $now->getTimestamp());
     }
 
     /**

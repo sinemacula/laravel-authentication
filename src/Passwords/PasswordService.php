@@ -7,10 +7,12 @@ namespace SineMacula\Laravel\Authentication\Passwords;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\Rules\Password;
+use SineMacula\Laravel\Authentication\Codes\CodeRequest;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 
 /**
@@ -19,13 +21,15 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
  * password.
  *
  * `check()` gives the policy's verdict on a new password and `rule()` the
- * Laravel validation rule for a form. `set()` is a trusted call, as `login()`
- * is: the caller has decided the identity may have the password, and chooses
- * the flow on the server, never from input, since a registration ends no
- * session. Ask for a recent reauthentication (the current password, say) before
- * a change. It applies the policy, and only a password that passes is hashed
- * and stored (see `PasswordWriter`). The policy never applies to the automatic
- * rehash on sign-in.
+ * Laravel validation rule for a form. `sendResetLink()` and `sendResetCode()`
+ * send a reset without saying whether anyone holds the identifier, and
+ * `reset()` and `resetWithCode()` spend it with the new password. `set()` is a
+ * trusted call, as `login()` is: the caller has decided the identity may have
+ * the password, and chooses the flow on the server, never from input, since a
+ * registration ends no session. Ask for a recent reauthentication (the current
+ * password, say) before a change. It applies the policy, and only a password
+ * that passes is hashed and stored (see `PasswordWriter`). The policy never
+ * applies to the automatic rehash on sign-in.
  *
  * A non-human identity (`MachineIdentity`) has no password, so setting one is a
  * misconfiguration. The service keeps no state between calls: it reads the
@@ -117,6 +121,87 @@ final readonly class PasswordService
         }
 
         return PasswordResult::set((new PasswordWriter($this->guard, $this->container))->write($model, $password, $flow, $except));
+    }
+
+    /**
+     * Send a password reset link to the identifier the input names under the
+     * guard's password identifier (for `email`, `['email' => '...']`), with the
+     * same answer, statements and time whether or not anyone holds it: the
+     * link's token is issued for any identifier, and the queued delivery alone
+     * decides, later, whether its holder may reset (see `ResetRequests` and
+     * `SendPasswordReset`). It lives
+     * `authentication.passwords.reset.link_ttl_seconds` and goes through the
+     * bound `PasswordResetLinkSender`.
+     *
+     * @param  array<array-key, mixed>  $input
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    public function sendResetLink(#[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
+    {
+        return (new ResetRequests($this->guard, $this->container))->link($input, $client);
+    }
+
+    /**
+     * Send a password reset code to the identifier the input names under the
+     * type (for `phone`, `['phone' => '+447700900123']`), as `sendResetLink()`
+     * sends a link; the code is a one-time code, delivered through the bound
+     * `OneTimeCodeSender` with the purpose `password_reset`.
+     *
+     * @param  string  $type
+     * @param  array<array-key, mixed>  $input
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeRequest
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    public function sendResetCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): CodeRequest
+    {
+        return (new ResetRequests($this->guard, $this->container))->code($type, $input, $client);
+    }
+
+    /**
+     * Reset the password with a link's token: the input names the identifier
+     * under the guard's password identifier, the `token` and the new
+     * `password`. The token is spent in one transaction with the new password
+     * and the end of every session of the identity, or not at all (see
+     * `ResetSubmissions`).
+     *
+     * @param  array<array-key, mixed>  $input
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
+     *
+     * @throws \Throwable
+     */
+    public function reset(#[\SensitiveParameter] array $input, ?ClientContext $client = null): ResetResult
+    {
+        return (new ResetSubmissions($this->guard, $this->container))->link($input, $client);
+    }
+
+    /**
+     * Reset the password with a code: the input names the identifier under the
+     * type, the `code` and the new `password`, as `reset()` does with a token.
+     *
+     * @param  string  $type
+     * @param  array<array-key, mixed>  $input
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return \SineMacula\Laravel\Authentication\Passwords\ResetResult
+     *
+     * @throws \Throwable
+     */
+    public function resetWithCode(string $type, #[\SensitiveParameter] array $input, ?ClientContext $client = null): ResetResult
+    {
+        return (new ResetSubmissions($this->guard, $this->container))->code($type, $input, $client);
     }
 
     /**

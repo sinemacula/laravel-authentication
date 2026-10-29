@@ -27,6 +27,9 @@ final class PasswordSettingsTest extends TestCase
     /** @var string What a minimum past bcrypt's bytes is refused with. */
     private const string BCRYPT_MINIMUM = 'authentication.passwords.min_length must be at most 72 while the hashing driver is bcrypt, which reads only that many bytes.';
 
+    /** @var string What a reset link lifetime out of range is refused with. */
+    private const string LINK_LIFETIME = 'authentication.passwords.reset.link_ttl_seconds must be an integer from 300 to 86400.';
+
     /** @var string What an unknown breached-check mode is refused with. */
     private const string BREACHED_MODE = 'authentication.passwords.breached.when_unavailable must be `reject` or `allow`.';
 
@@ -96,6 +99,8 @@ final class PasswordSettingsTest extends TestCase
             'symbols a list'             => [['symbols' => [true]], 'argon2id', 'authentication.passwords.symbols must be true or false.'],
             'an unknown breached mode'   => [['breached' => ['when_unavailable' => 'ignore']], 'argon2id', self::BREACHED_MODE],
             'a breached mode in caps'    => [['breached' => ['when_unavailable' => 'REJECT']], 'argon2id', self::BREACHED_MODE],
+            'a link lifetime too short'  => [['reset' => ['link_ttl_seconds' => 299]], 'argon2id', self::LINK_LIFETIME],
+            'a link lifetime too long'   => [['reset' => ['link_ttl_seconds' => '86401']], 'argon2id', self::LINK_LIFETIME],
             'a breached mode not a name' => [['breached' => ['when_unavailable' => false]], 'argon2id', self::BREACHED_MODE],
         ];
     }
@@ -134,6 +139,19 @@ final class PasswordSettingsTest extends TestCase
             [PasswordViolation::LETTERS, PasswordViolation::MIXED_CASE, PasswordViolation::NUMBERS, PasswordViolation::SYMBOLS],
             self::settings(['numbers' => true, 'symbols' => true, 'letters' => true, 'mixed_case' => true])->compositionRules(),
         );
+    }
+
+    /**
+     * A reset link lives an hour by default, and any lifetime from five minutes
+     * to a day, from an integer or its digit string.
+     *
+     * @return void
+     */
+    public function testReadsTheResetLinkLifetime(): void
+    {
+        self::assertSame(3600, self::settings([])->linkTtlSeconds());
+        self::assertSame(300, self::settings(['reset' => ['link_ttl_seconds' => 300]])->linkTtlSeconds());
+        self::assertSame(86400, self::settings(['reset' => ['link_ttl_seconds' => '86400']])->linkTtlSeconds());
     }
 
     /**

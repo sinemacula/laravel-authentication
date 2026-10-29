@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -54,6 +55,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
+use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -527,6 +529,22 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertTrue($app->isShared(BreachedPasswordChecker::class));
         self::assertInstanceOf(NoBreachedPasswordCheck::class, app(BreachedPasswordChecker::class));
         self::assertFalse(app(BreachedPasswordChecker::class)->isBreached('password'));
+    }
+
+    /**
+     * Laravel's notification is the default password reset link sender, bound
+     * as a singleton so the application can bind its own.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultResetLinkSender(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(PasswordResetLinkSender::class));
+        self::assertInstanceOf(NotifyingResetLinkSender::class, app(PasswordResetLinkSender::class));
     }
 
     /**

@@ -7,8 +7,9 @@ namespace SineMacula\Laravel\Authentication\Codes;
 use Carbon\CarbonImmutable;
 
 /**
- * A one-time code just issued: the code in clear, which exists only here and in
- * the encrypted delivery job, the issuance it belongs to, and when it expires.
+ * A one-time code, or a reset link's token, just issued: the secret in clear,
+ * which exists only here and in the encrypted delivery job, the issuance it
+ * belongs to, and when it expires.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -26,7 +27,7 @@ final readonly class IssuedCode
      */
     public function __construct(
 
-        /** The code, in clear. */
+        /** The code, or the token, in clear. */
         #[\SensitiveParameter] public string $code,
 
         /** Random identifier of this issuance, which a later issuance for the binding replaces. */

@@ -14,6 +14,7 @@ use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use Tests\Concerns\InteractsWithPasswords;
@@ -122,6 +123,33 @@ final class PasswordWriterTest extends TestCase
 
         self::assertSame([DeviceRevoked::class, SignedOutEverywhere::class, PasswordSet::class], $this->recordedClasses());
         self::assertSame(1, DB::table('devices')->whereNull('revoked_at')->count());
+    }
+
+    /**
+     * A client the caller names is the one `PasswordSet` reports; otherwise the
+     * request being served.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheClientNamedIsReported(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $client   = new ClientContext('198.51.100.9', 'Kiosk/2.0');
+        $writer   = new PasswordWriter($this->freshGuard('web'), app());
+
+        $this->recordEvents([PasswordSet::class]);
+
+        $writer->write($identity, 'a brand new passphrase', PasswordFlow::REGISTRATION, null, $client);
+        $writer->write($identity, 'another new passphrase', PasswordFlow::REGISTRATION);
+
+        [$named, $served] = $this->recorded;
+
+        self::assertInstanceOf(PasswordSet::class, $named);
+        self::assertInstanceOf(PasswordSet::class, $served);
+        self::assertSame($client, $named->context->client);
+        self::assertSame(self::CLIENT_IP, $served->context->client->ip);
     }
 
     /**

@@ -9,13 +9,20 @@ request for a code looks the same whether or not anyone has the identifier, and 
 
 ## Invariants
 
-- A code is bound to a purpose (`sign_in` or `verify_identifier`), a guard, an identifier type and the identifier in its
-  normal form, and, for a verification, the identity (`AccountAttempts::account()`). One live code exists per binding:
+- A code is bound to a purpose (`sign_in`, `verify_identifier`, `password_reset`, `password_reset_link` or
+  `change_identifier`), a guard, an identifier type and the identifier in its normal form, and, for a verification, the
+  identity (`AccountAttempts::account()`; for a change, the identity and its change request). One live code exists per binding:
   its row is keyed by `HMAC-SHA256(key', "binding\0purpose\0guard\0type\0identifier\0identity")`.
 - The code is `length` digits from `random_int()`, zero-padded, stored only as `HMAC-SHA256(key'', "code\0binding
   digest\0issue id\0code")`, compared with `hash_equals()`. `key'` and `key''` are separate derivations of
   `authentication.codes.key` (at least 32 bytes) or, when it is not set, of `app.key`. The table holds no code and no
   identifier; `OneTimeCode::toArray()` hides the binding digest, the issuance and the hash.
+- A password reset link's token (`issueToken()`) is the binding's live secret in the same row: 32 random bytes,
+  base64url (43 characters), stored as the same keyed hash, under the same resend cooldown, with the lifetime the
+  caller gives. `checkToken()` counts no attempt (256 bits cannot be guessed), answers `expired` only for the right
+  token, and accepts only when its conditional consume wins. Reset codes and tokens are delivered by their own job
+  (`SendPasswordReset`, see `passwords.md`); `SendOneTimeCode` refuses any purpose but `sign_in` and
+  `verify_identifier`. `invalidate()` deletes the live secrets of a set of bindings in one statement.
 - Every issuance has a random `issue_id`. Every attempt, use and delivery is conditional on the `issue_id` the caller
   read, so a check or a delivery job for an issuance a resend replaced never touches the replacement, even when the
   resend drew the same digits.

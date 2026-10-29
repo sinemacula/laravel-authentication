@@ -601,13 +601,13 @@ Each number is an integer, or a digit string as `env()` returns one; anything el
 settings are global, not per guard.
 
 Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the device model's connection, one row
-per binding: the purpose (a sign-in or a verification), the guard, the identifier's type and normal form and, for a
-verification, the identity. The row is stored under an HMAC-SHA256 of that binding and holds the code only as an
-HMAC-SHA256 of the binding, a random id for the issuance and the code, each with its own key derived from `key` (at
-least 32 bytes) or, when `key` is not set, from `app.key`. A code has a few million values at most, so a plain hash of it
-could be reversed by anyone who reads the table (from a backup or a replica, say); a keyed one cannot without the key,
-and the table holds neither a code nor an identifier. Rotating the key, or `app.key` when it is the source, only
-invalidates the codes outstanding. A shorter `key` fails closed.
+per binding: the purpose (a sign-in, a verification, a password reset code or link, or an identifier change), the guard,
+the identifier's type and normal form and, for a verification or a change, the identity. The row is stored under an
+HMAC-SHA256 of that binding and holds the code only as an HMAC-SHA256 of the binding, a random id for the issuance and
+the code, each with its own key derived from `key` (at least 32 bytes) or, when `key` is not set, from `app.key`. A code
+has a few million values at most, so a plain hash of it could be reversed by anyone who reads the table (from a backup
+or a replica, say); a keyed one cannot without the key, and the table holds neither a code nor an identifier. Rotating
+the key, or `app.key` when it is the source, only invalidates the codes outstanding. A shorter `key` fails closed.
 
 A code is delivered by a queued job, `ShouldBeEncrypted` so its payload (which carries the code and the number) is
 encrypted with `app.key` on the queue, pushed to `delivery.queue.connection` and `delivery.queue.name` (`null` for your
@@ -903,10 +903,12 @@ for the device model and retention, `[sign_in]` for the pending lifetime, `[pass
 `[codes]` for the code settings and sender, `[delivery]` for the delivery queue, `[passkeys]` for the challenge
 lifetime, `[api_keys]` for the API key settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync`
 queue connection, or on a `failover` one that can fall back to `sync`, while a guard allows a code method, is a
-`[delivery]` warning that leaves the exit code alone. Only the named guards are checked with
-`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
-problem. The command reads configuration only: it opens no database connection and never prints a key. The package does
-not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+`[delivery]` warning that leaves the exit code alone, as is a `jwt` guard whose password resets would refuse to run: its
+provider's model on another connection than the device model, or a password identifier other than `email` while
+Laravel's notification is the reset link sender (see [Password reset](#password-reset)). Only the named guards are
+checked with `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key`
+guard, is a problem. The command reads configuration only: it opens no database connection and never prints a key. The
+package does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Identity Models
 
@@ -2491,6 +2493,7 @@ messages stay yours.
     'numbers'    => false,
     'symbols'    => false,
     'breached'   => ['when_unavailable' => 'reject'],
+    'reset'      => ['link_ttl_seconds' => 3600],
 ],
 ```
 
@@ -2621,6 +2624,124 @@ its commit. When the device model lives on another connection than the identity,
 transaction, which commits inside the identity's: a failure after it leaves the devices revoked and the password
 unchanged, so more is ended, never less, and calling again finishes the job. The automatic rehash on sign-in never
 fires `PasswordSet`.
+
+#### Password reset
+
+A reset proves control of an identifier with a link's token or a one-time code, then sets the new password and ends
+every session of the identity, through every guard, in one transaction. The application owns the routes, the forms and
+the messages:
+
+```php
+use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
+
+Route::post('/password/forgot', function (Request $request) {
+    $answer = Auth::passwords('api')->sendResetLink($request->only('email'));
+
+    return $answer->status === CodeRequestStatus::RATE_LIMITED
+        ? response()->json(['message' => 'Too many requests.'], 429)->header('Retry-After', (string) $answer->retryAfter)
+        : response()->json(['message' => 'If the address is registered, a link is on its way.'], 202);
+});
+
+Route::post('/password/reset', function (Request $request) {
+    $result = Auth::passwords('api')->reset($request->only('email', 'token', 'password'));
+
+    return match ($result->status) {
+        ResetStatus::RESET             => response()->noContent(),
+        ResetStatus::PASSWORD_REJECTED => response()->json(['violations' => array_map(fn ($v) => $v->value, $result->violations)], 422),
+        ResetStatus::RATE_LIMITED      => response()->json(['message' => 'Too many attempts.'], 429)->header('Retry-After', (string) $result->retryAfter),
+        ResetStatus::INVALID           => response()->json(['message' => 'The link is invalid or has expired.'], 422),
+    };
+});
+```
+
+`sendResetLink($input, ?ClientContext $client = null)` sends a link to the identifier the input names under the guard's
+password identifier (`email` unless the guard sets another, see [Sign-in](#sign-in)); `sendResetCode($type, $input)`
+sends a code to the identifier the input names under `$type` (`phone`, say), which must have a registered normaliser
+(see [Identifiers](#identifiers)). Both do the same work for every identifier, so the answer, the statements and the
+time are the same whether or not anyone holds it: the guard must allow the `password` method (`method_not_allowed`
+otherwise), the identifier must be one its type's normaliser accepts (`identifier_invalid`), the identifier, in normal
+form, and the IP address must have requests left under the `password_reset_request` limits (`rate_limited`, counted on
+every request and never given back), and no link or code may have been issued for it within the codes'
+`resend_cooldown_seconds` (`rate_limited` with the seconds left). Then a token or a code is issued for the identifier,
+whoever holds it, and its delivery queued (see [One-time codes](#one-time-codes) for the delivery queue): the answer is a
+`CodeRequest`, `sent` with when it expires. A newer link or code replaces the one before, which stops working at once.
+No identity is looked up during the request. Refusals are reported by `AuthenticationFailed` with the flow
+`password_reset`.
+
+The queued job alone decides, later, who receives it: the identity the guard's provider finds by the identifier, read on
+the write connection, that is not a `MachineIdentity`, is active, holds exactly that identifier (its own, in normal form,
+compared byte for byte, through `HasVerifiableIdentifiers` when it implements it and otherwise the model attribute named
+after the type, so an account found only by a look-alike the column's collation matches gets nothing), and, when the
+guard requires verified identifiers and the identity can report them, has it verified. Anyone else, or no one, is sent
+nothing, and nothing says so. The job sends nothing for a token or code that was used, replaced or has expired since.
+
+A link's token is 32 random bytes, base64url-encoded (43 characters), that works once for
+`passwords.reset.link_ttl_seconds` (300 to 86400, an hour by default); a reset code is a one-time code of the
+`authentication.codes` length, lifetime and attempts. Both live in the codes' table, stored only as a keyed hash, bound
+to the guard, the identifier's type and normal form, and their purpose, so a token never checks as a code, a reset code
+never signs anyone in, and neither works through another guard. Codes are delivered through your `OneTimeCodeSender`
+with the purpose `CodePurpose::PASSWORD_RESET`. Links are delivered through the bound `PasswordResetLinkSender`. The
+default, `NotifyingResetLinkSender`, sends Laravel's own `ResetPassword` notification through the identity's
+`sendPasswordResetNotification($token)` (`CanResetPassword`), so its `createUrlUsing()` and `toMailUsing()` hooks shape
+the link and the mail. That notification links with the identity's email address and no guard, so serve one reset route
+per guard; it states the expiry of `auth.passwords.<broker>.expire`, so keep that in step with `link_ttl_seconds`. While
+it is bound, a guard whose password identifier is not `email` is refused a link with an `InvalidArgumentException`
+before anything is counted (`authentication:check` warns about it), and an identity that does not implement
+`CanResetPassword` fails the delivery job with a `LogicException`. Bind your own sender to word the message, carry the
+guard or reach another identifier:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
+use SineMacula\Laravel\Authentication\Passwords\PasswordResetLink;
+
+final class ResetLinkMailer implements PasswordResetLinkSender
+{
+    public function send(PasswordResetLink $message): void
+    {
+        // $message->token() is in clear: put it only in the link, never in a log.
+        $url = url("/{$message->guard}/password/reset?token={$message->token()}&{$message->type}=" . urlencode($message->identifier));
+
+        Mail::to($message->identifier)->send(new ResetLinkMail($url, $message->expiresAt));
+    }
+}
+
+$this->app->singleton(PasswordResetLinkSender::class, ResetLinkMailer::class);
+```
+
+`reset($input, ?ClientContext $client = null)` takes the identifier under the guard's password identifier, the `token`
+and the new `password`; `resetWithCode($type, $input)` the identifier under `$type`, the `code` and the `password`. The
+identifier as given and the IP address are counted under the `password_reset` limits before anything else, so a flood
+of guesses never reaches the hasher or your breached-password checker; a reset that succeeds gives its slots back. The
+rest runs inside the guard's credential timebox (see [Credential validation timing](#credential-validation-timing)): a
+missing or malformed identifier, token, code or password is `invalid`; a password the policy rejects is
+`password_rejected` with its violations, and spends nothing; then the identity is looked up and, in one transaction, the
+token or code is checked whatever the identity, a code counting its attempt as a sign-in does. A refused proof is
+`invalid` (an expired or exhausted one included) and its attempt stays counted; a proof accepted for no identity, or one
+the job would not have sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with
+the new password in the same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see
+[Setting a password](#setting-a-password)): every session of the identity ended, its cutoff moved, its pending sign-ins
+ended, and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends. The result is a
+`ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with `retryAfter`, or
+`password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
+`rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`, `machine_identity`,
+`identity_inactive` or `identifier_unverified`; the result never does. A reset signs no one in and verifies no
+identifier.
+
+Spending the proof with the password and the revocation needs one transaction, so the identity must live on the device
+model's connection (which the codes' table shares): a guard whose provider's model is on another throws a
+`LogicException` naming both connections before anything is counted, and `authentication:check` warns about it. Of two
+resets with one token or code exactly one resets; a reset that loses to a newer link or code is `invalid`; and any
+failure after the proof is accepted (or a transaction of yours rolled back around the call) undoes the proof, the
+password, the cutoff and the revocations together.
+
+The package does not use Laravel's password broker, and does not dispatch Laravel's `PasswordReset` event (in Laravel
+that is your controller's). The broker answers differently for an unknown address, sends inline, can spend one token
+twice, reads its tokens from a replica, keys tokens by email address only and limits per address only; adapting it would
+mean replacing every behaviour it has (see `docs/design/passwords.md`). If you keep Laravel's broker instead,
+`RevokeDevicesOnPasswordReset` still answers its `PasswordReset`; do not combine the two flows.
 
 ### Long-running processes
 
@@ -2917,33 +3038,34 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 
 ## Events
 
-| Event                                            | Fired when                                                |
-|--------------------------------------------------|-----------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`              | A sign-in or refresh starts (never a bearer request)      |
-| `Illuminate\Auth\Events\Validated`               | A sign-in or refresh is about to bind context             |
-| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard, bearer requests included     |
-| `Illuminate\Auth\Events\Login`                   | A sign-in or refresh bound the guard                      |
-| `Illuminate\Auth\Events\Failed`                  | A sign-in or refresh was rejected (never a bearer token)  |
-| `Illuminate\Auth\Events\Logout`                  | `logout()` or `signOut()` ended a signed-in request       |
-| `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                              |
-| `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata |
-| `SineMacula\...\Events\Refreshed`                | Refresh exchange completed, once committed                |
-| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device, once committed; with reason |
-| `SineMacula\...\Events\SignedOutEverywhere`      | A bulk revocation ended a scope's sessions, once committed|
-| `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed      |
-| `SineMacula\...\Events\SignedIn`                 | A session started or was refreshed, once committed        |
-| `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed      |
-| `SineMacula\...\Events\PrincipalChoiceRequired`  | A sign-in waits for a choice of principal, once committed |
-| `SineMacula\...\Events\PrincipalSwitched`        | A session switched its principal, once committed          |
-| `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type   |
-| `SineMacula\...\Events\PasskeyAdded`             | A passkey was registered, once committed                  |
-| `SineMacula\...\Events\PasskeyUsed`              | A passkey's assertion was verified, once committed        |
-| `SineMacula\...\Events\PasskeyRemoved`           | A passkey was removed, once committed                     |
-| `SineMacula\...\Events\ApiKeyIssued`             | An API key was issued, once committed                     |
-| `SineMacula\...\Events\ApiKeyRotated`            | An API key was rotated, once committed; previous key id   |
-| `SineMacula\...\Events\ApiKeyRevoked`            | An API key was revoked, once committed                    |
-| `SineMacula\...\Events\ClientCredentialsGranted` | A client credentials exchange issued an access token      |
-| `SineMacula\...\Events\AuthenticationFailed`     | Any sign-in, refresh, switch, bearer, key or code failure |
+| Event                                            | Fired when                                                       |
+|--------------------------------------------------|------------------------------------------------------------------|
+| `Illuminate\Auth\Events\Attempting`              | A sign-in or refresh starts (never a bearer request)             |
+| `Illuminate\Auth\Events\Validated`               | A sign-in or refresh is about to bind context                    |
+| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard, bearer requests included            |
+| `Illuminate\Auth\Events\Login`                   | A sign-in or refresh bound the guard                             |
+| `Illuminate\Auth\Events\Failed`                  | A sign-in or refresh was rejected (never a bearer token)         |
+| `Illuminate\Auth\Events\Logout`                  | `logout()` or `signOut()` ended a signed-in request              |
+| `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                                     |
+| `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata        |
+| `SineMacula\...\Events\Refreshed`                | Refresh exchange completed, once committed                       |
+| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device, once committed; with reason        |
+| `SineMacula\...\Events\SignedOutEverywhere`      | A bulk revocation ended a scope's sessions, once committed       |
+| `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed             |
+| `SineMacula\...\Events\SignedIn`                 | A session started or was refreshed, once committed               |
+| `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed             |
+| `SineMacula\...\Events\PrincipalChoiceRequired`  | A sign-in waits for a choice of principal, once committed        |
+| `SineMacula\...\Events\PrincipalSwitched`        | A session switched its principal, once committed                 |
+| `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type          |
+| `SineMacula\...\Events\PasswordSet`              | A password was set or reset, once committed; with flow           |
+| `SineMacula\...\Events\PasskeyAdded`             | A passkey was registered, once committed                         |
+| `SineMacula\...\Events\PasskeyUsed`              | A passkey's assertion was verified, once committed               |
+| `SineMacula\...\Events\PasskeyRemoved`           | A passkey was removed, once committed                            |
+| `SineMacula\...\Events\ApiKeyIssued`             | An API key was issued, once committed                            |
+| `SineMacula\...\Events\ApiKeyRotated`            | An API key was rotated, once committed; previous key id          |
+| `SineMacula\...\Events\ApiKeyRevoked`            | An API key was revoked, once committed                           |
+| `SineMacula\...\Events\ClientCredentialsGranted` | A client credentials exchange issued an access token             |
+| `SineMacula\...\Events\AuthenticationFailed`     | Any sign-in, refresh, switch, bearer, key, code or reset failure |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -3173,6 +3295,24 @@ $checker = FakeBreachedPasswordChecker::fake(['password123password']);
 $this->putJson('/password', [...])->assertUnprocessable()->assertJson(['violations' => ['breached']]);
 
 $checker->unavailable();   // fails closed: `breach_check_unavailable`, unless `when_unavailable` is `allow`
+```
+
+`Testing\FakePasswordResetLinkSender` stands in for the reset link sender: `fake()` binds a fresh one and returns it,
+and it keeps every link instead of delivering it, so a test reads the token a request sent and resets with it.
+`lastTokenFor($identifier)` is the token last sent to the identifier as delivered (in normal form); `sent()` and
+`hasSent()` take an optional filter over the links, `count()` counts them, and `forget()` clears them. A reset code
+arrives in `FakeOneTimeCodeSender`, read with `lastCodeFor($identifier, CodePurpose::PASSWORD_RESET)`:
+
+```php
+use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
+
+$links = FakePasswordResetLinkSender::fake();
+
+$this->postJson('/password/forgot', ['email' => 'ada@example.test'])->assertAccepted();
+
+$token = $links->lastTokenFor('ada@example.test');
+
+$this->postJson('/password/reset', ['email' => 'ada@example.test', 'token' => $token, 'password' => 'a new passphrase'])->assertNoContent();
 ```
 
 ```bash

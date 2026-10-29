@@ -42,7 +42,8 @@ The current note set is:
 - `passkeys.md`: how a guard's passkeys are registered, used to sign in usernameless and verified as a further factor,
   the single-use challenges, the relying party they are scoped to, and the sign counter rule.
 - `passwords.md`: the password policy and its breached-password seam, the one helper a registration, a change and a
-  reset set a password through, and what each flow ends.
+  reset set a password through, what each flow ends, why password reset is not Laravel's broker, and how a reset spends
+  its link's token or code with the new password and the revocation.
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
 

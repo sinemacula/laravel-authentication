@@ -3,8 +3,41 @@
 ## Purpose
 
 Document the password policy a new password must pass, the one helper a registration, a change and a reset set a
-password through, and what each flow ends. The application owns its routes, forms, messages and registration; the
-package owns the policy, the hashing, the write and the revocation that follows it.
+password through, what each flow ends, and how a password is reset by link or code: why it is not Laravel's password
+broker, how a request does the same work for every identifier, and how a reset spends its proof with the new password
+and the revocation. The application owns its routes, forms, messages and registration; the package owns the policy, the
+hashing, the write, the proofs and the revocation that follows them.
+
+## Laravel's password broker, assessed
+
+The approval asks to build on Laravel's broker where it fits. Each place it could fit was assessed against what a reset
+must guarantee (single-use, expiring tokens stored hashed; consumed atomically with the password and the revocation; the
+same outcome, delivery and timing for an unknown identifier; per-identifier and per-IP limits counted in the database;
+every read that decides a proof on the write connection):
+
+- **The stock `PasswordBroker` with `DatabaseTokenRepository`.** `sendResetLink()` answers `INVALID_USER` for an
+  unknown identifier and `RESET_THROTTLED` only for a known one, and sends the notification inline, so the answer and
+  the timing say whether the identifier is held. `reset()` tells `INVALID_USER` from `INVALID_TOKEN` and runs
+  `exists()`, the callback and `delete()` with no lock or conditional consume, so one token can reset twice, and nothing
+  ties the token to ending the sessions. The repository reads through the connection's read PDO (a lagging replica can
+  accept a used token), keys tokens by `getEmailForPasswordReset()` only (no phone, no guard), throttles per email only,
+  and its cache variant keeps authentication state in a cache.
+- **A custom `TokenRepositoryInterface`.** It could fix the storage (the writer, keyed hashes), but every method takes
+  a `CanResetPassword` user, so issuing needs the identity first: an unknown identifier then does different work. The
+  broker still answers `INVALID_USER` before the repository runs, and still runs the callback outside any transaction
+  the repository could hold.
+- **A `PasswordBroker` subclass or decorator.** Fixing enumeration, atomicity and the transaction means overriding
+  `sendResetLink()`, `reset()` and `validateReset()`, that is every behaviour; what would be left is the contract's
+  status strings. `PasswordBrokerManager` has no `extend()`, so registering it as `Password::broker()` would mean
+  replacing the manager too.
+
+Decision: the narrowest solution that meets every criterion is a flow of the package's own on the one-time code engine
+it already has (keyed HMAC at rest, one live secret per binding, a conditional single-use consume, expiry, the resend
+cooldown, invalidation), with no new table. Laravel's pieces are reused where they fit: the `Hasher`, the `Timebox`,
+the `Password` validation rule, and the default link delivery, Laravel's `ResetPassword` notification through
+`CanResetPassword::sendPasswordResetNotification($token)` with its `createUrlUsing()` and `toMailUsing()` hooks.
+Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel it is the application controller's event);
+`RevokeDevicesOnPasswordReset` stays for applications that keep Laravel's broker.
 
 ## Invariants
 
@@ -53,6 +86,48 @@ package owns the policy, the hashing, the write and the revocation that follows 
      the identity and, for a change, the device kept.
 4. `PasswordResult::set($revoked)`.
 
+## Reset requests (`sendResetLink()`, `sendResetCode()`)
+
+1. The type: a link's is the guard's password identifier (`PasswordSignIn::identifierType()`); a code's is given and
+   must have a registered normaliser (`InvalidArgumentException`). With `NotifyingResetLinkSender` bound, a link for a
+   type other than `email` is an `InvalidArgumentException`. The code settings, the code key, the delivery queue and the
+   link lifetime fail closed. Nothing is counted yet.
+2. The audience must allow `password` (`method_not_allowed`); the identifier must canonicalise to a non-empty string
+   (`identifier_invalid`, reported as `invalid_credentials`).
+3. `AttemptLimiter::acquire()` on `password_reset_request` for the identifier in normal form and the IP address, never
+   released (`rate_limited`).
+4. Issue for the binding (`CodeBinding::passwordResetLink()` / `passwordReset()`, no identity): a token
+   (`OneTimeCodes::issueToken()`: 32 random bytes, base64url, 43 characters, stored as its keyed hash, lifetime
+   `passwords.reset.link_ttl_seconds`) or a code (`issue()`). Within the resend cooldown: `rate_limited`.
+5. `QueuedDelivery::dispatch(new SendPasswordReset($binding, $issued), new OneTimeCode)`; the answer is
+   `CodeRequest::sent($expiresAt)`. No identity is looked up, so the statements and the time are the same for any
+   identifier.
+
+`SendPasswordReset` (encrypted, queued) returns unless the issuance is still current, then finds the recipient through
+`ResetRecipient`: the identity the guard's provider returns (on the writer) that is an Eloquent model, not a
+`MachineIdentity`, holds exactly the bound identifier (canonical, `hash_equals`; through `HasVerifiableIdentifiers` when
+implemented, else the attribute named by the type), is active, and passes the audience policy's `admitIdentifier()`
+when it can report verification. A link goes to `PasswordResetLinkSender`, a code to `OneTimeCodeSender` with the purpose
+`password_reset`; anyone else gets nothing.
+
+## Reset submissions (`reset()`, `resetWithCode()`)
+
+1. Settings fail closed, and the provider's configured model must be on the device model's connection
+   (`SharedConnection`; `LogicException` naming both) before anything is counted.
+2. `acquire()` on `password_reset` for the identifier as given and the IP address (`rate_limited`), before any other
+   work, released only by a reset that succeeds.
+3. Inside `JwtGuard::timeboxed()`: a missing or malformed identifier, token, code or password is `invalid`
+   (`invalid_credentials`); the policy (`PasswordPolicy::check()`, the breached check included) rejects as
+   `password_rejected`, spending nothing and reporting nothing; `ResetRecipient::find()` looks the identity up (and a
+   found model is checked against the connection rule).
+4. One transaction on the codes' connection (the identity's, by the rule): the proof is checked whatever the identity
+   (`checkToken()`: no attempt counted, conditional consume; `check()`: attempt counted, conditional consume). Refused:
+   commit (the attempt stays counted), `invalid` (`invalid_credentials`, `code_expired`, `code_exhausted` or
+   `link_expired`). Accepted for no eligible identity: roll back (the proof stays unspent), `invalid` (the recipient's
+   reason). Accepted for an eligible one: `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then
+   commit; the timebox ends early and the reservation is released.
+5. The reset signs no one in and verifies no identifier.
+
 ## Failure / Edge Cases
 
 - Policy failure: `PasswordResult::rejected($violations)`; nothing counted, written or dispatched.
@@ -65,6 +140,14 @@ package owns the policy, the hashing, the write and the revocation that follows 
   cutoff back but leaves the devices revoked. More is ended, never less, and calling again finishes the job.
 - Laravel's `Password` rule in a form accepts a breached password and a bcrypt password over 72 bytes; `set()` refuses
   both.
+- Two resets with one token or code: the conditional consume lets exactly one reset; the other is `invalid`.
+- A new request between a reset's read and its consume: the new issuance replaced the row, so the consume matches
+  nothing and the reset is `invalid`.
+- A failure after the proof is accepted (a revocation statement failing, say) or a caller's rollback: one transaction,
+  so the proof, the password, the cutoff and the devices roll back together, and no event is dispatched.
+- An identity on another connection than the devices: refused with a `LogicException`, since the proof and the change
+  could not commit as one; `authentication:check` warns about such a guard, as it does about a non-`email` password
+  identifier while Laravel's notification is the sender.
 
 ## Implementation Anchors
 
@@ -77,6 +160,13 @@ package owns the policy, the hashing, the write and the revocation that follows 
 - `src/Exceptions/BreachedPasswordCheckUnavailableException.php`
 - `src/Events/PasswordSet.php`
 - `src/Testing/FakeBreachedPasswordChecker.php`
+- `src/Passwords/ResetRequests.php`, `src/Passwords/ResetSubmissions.php`, `src/Passwords/ResetRecipient.php`,
+  `src/Passwords/ResetInput.php`, `src/Passwords/SendPasswordReset.php`
+- `src/Passwords/PasswordResetLink.php`, `src/Passwords/ResetResult.php`, `src/Passwords/Enums/ResetStatus.php`
+- `src/Contracts/PasswordResetLinkSender.php`, `src/Passwords/NotifyingResetLinkSender.php`,
+  `src/Testing/FakePasswordResetLinkSender.php`
+- `src/Codes/OneTimeCodes.php` (`issueToken()`, `checkToken()`, `isWellFormedToken()`)
+- `src/Database/SharedConnection.php`, `src/Console/PasswordChecks.php`
 
 ## Authoritative Tests
 
@@ -88,9 +178,17 @@ package owns the policy, the hashing, the write and the revocation that follows 
 - `tests/Integration/Passwords/PasswordWriterTest.php`
 - `tests/Integration/Passwords/SeparateConnectionPasswordWriterTest.php`
 - `tests/Performance/PasswordSetQueryBudgetTest.php`
+- `tests/Feature/Passwords/ResetRequestsTest.php`, `ResetSubmissionsTest.php`, `ResetRecipientTest.php`,
+  `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
+- `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
+  `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`
+- `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests)
+- `tests/Performance/PasswordResetEnumerationTest.php`, `tests/Performance/PasswordResetQueryBudgetTest.php`
 
 ## Change Triggers
 
 Update this note when the policy gains or loses a rule, Laravel's `Password` rule changes its expressions, the bcrypt
 ceiling or the default minimum changes, the breached check's outage behaviour changes, a flow ends different sessions,
-or `set()` writes more than the password column.
+`set()` writes more than the password column, a reset request starts doing identity-dependent work, a reset stops
+spending its proof in the transaction of the change, or Laravel's broker changes in a way that would let it meet the
+criteria above.

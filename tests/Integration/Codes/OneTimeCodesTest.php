@@ -19,10 +19,10 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Integration tests for the one-time code engine against the shipped table:
- * issuing, the resend cooldown and the replacement it allows, checking codes,
- * expiry, the attempt limit and single use, each on the write connection, and
- * what a check does when another request changes the code between its read and
- * its writes.
+ * issuing codes and reset link tokens, the resend cooldown and the replacement
+ * it allows, checking codes and tokens, expiry, the attempt limit and single
+ * use, each on the write connection, and what a check does when another request
+ * changes the code between its read and its writes.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -655,6 +655,203 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
+     * A token is 32 random bytes, base64url without padding, issued for the
+     * lifetime given and stored only as its keyed hash, under the binding's
+     * digest, with the purpose and guard; no two are alike.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testATokenIsStoredOnlyAsItsKeyedHash(): void
+    {
+        $binding = self::linkBinding();
+        $issued  = self::codes()->issueToken($binding, $this->now, 900);
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+        self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/D', $issued->code);
+        self::assertSame(32, strlen((string) base64_decode(strtr($issued->code, '-_', '+/'), true)));
+        self::assertTrue($this->now->addSeconds(900)->equalTo($issued->expiresAt));
+
+        $row = (array) DB::table('one_time_codes')->sole();
+
+        self::assertSame([self::bindingDigest($binding), 'password_reset_link', 'mobile'], [$row['id'], $row['purpose'], $row['guard']]);
+        self::assertSame(self::codeHash($binding, $issued->issueId, $issued->code), $row['code_hash']);
+        self::assertSame(['2026-04-06 12:00:00', '2026-04-06 12:15:00'], [$row['issued_at'], $row['expires_at']]);
+
+        foreach ($row as $value) {
+            self::assertNotSame($issued->code, $value);
+        }
+
+        $tokens = [];
+
+        foreach (range(1, 20) as $offset) {
+
+            $other = self::codes()->issueToken(CodeBinding::passwordResetLink('mobile', 'email', "user{$offset}@example.test"), $this->now, 900);
+
+            self::assertInstanceOf(IssuedCode::class, $other);
+
+            $tokens[] = $other->code;
+        }
+
+        self::assertCount(20, array_unique($tokens));
+    }
+
+    /**
+     * A token shares the codes' resend cooldown: within it no new token is
+     * issued and the seconds left are answered; from its end a new token
+     * replaces the old one, which stops working.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testATokenFollowsTheResendCooldown(): void
+    {
+        $binding = self::linkBinding();
+        $first   = self::codes()->issueToken($binding, $this->now, 900);
+
+        self::assertInstanceOf(IssuedCode::class, $first);
+        self::assertSame(1, self::codes()->issueToken($binding, $this->now->addSeconds(59), 900));
+
+        $second = self::codes()->issueToken($binding, $this->now->addSeconds(60), 900);
+
+        self::assertInstanceOf(IssuedCode::class, $second);
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $first->code, $this->now->addSeconds(60)));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $second->code, $this->now->addSeconds(60)));
+    }
+
+    /**
+     * The right token is accepted once; a wrong one is invalid and counts no
+     * attempt, however many are tried; a used one stays invalid.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testATokenIsAcceptedOnceAndNeverCountsAttempts(): void
+    {
+        $binding = self::linkBinding();
+        $issued  = self::codes()->issueToken($binding, $this->now, 900);
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+
+        foreach (range(1, 10) as $ignored) {
+            self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, str_repeat('A', 43), $this->now));
+        }
+
+        self::assertSame(0, self::attempts());
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, $issued->code, $this->now->addSeconds(900)));
+        self::assertSame('2026-04-06 12:00:00', DB::table('one_time_codes')->value('consumed_at'));
+    }
+
+    /**
+     * A matching token is expired from the second its lifetime ends; a wrong
+     * one is invalid even then, and a binding with no token is invalid.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testOnlyTheRightTokenIsReportedExpired(): void
+    {
+        $binding = self::linkBinding();
+        $issued  = self::codes()->issueToken($binding, $this->now, 900);
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+        self::assertSame(CodeCheck::EXPIRED, self::codes()->checkToken($binding, $issued->code, $this->now->addSeconds(900)));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($binding, str_repeat('A', 43), $this->now->addSeconds(900)));
+        self::assertSame(CodeCheck::INVALID, self::codes()->checkToken(CodeBinding::passwordResetLink('web', 'email', 'ada@example.test'), $issued->code, $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code, $this->now->addSeconds(899)));
+    }
+
+    /**
+     * A token checks only against its own binding: not as a reset code for the
+     * same identifier, nor for another guard or identifier.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testATokenWorksOnlyForItsBinding(): void
+    {
+        $binding = self::linkBinding();
+        $issued  = self::codes()->issueToken($binding, $this->now, 900);
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+
+        $others = [
+            CodeBinding::passwordReset('mobile', 'email', 'ada@example.test'),
+            CodeBinding::passwordResetLink('web', 'email', 'ada@example.test'),
+            CodeBinding::passwordResetLink('mobile', 'email', 'grace@example.test'),
+        ];
+
+        foreach ($others as $other) {
+            self::assertSame(CodeCheck::INVALID, self::codes()->checkToken($other, $issued->code, $this->now));
+        }
+
+        self::assertSame(CodeCheck::ACCEPTED, self::codes()->checkToken($binding, $issued->code, $this->now));
+    }
+
+    /**
+     * Of two checks of one token, the one that uses it up first is accepted;
+     * the other, which read it live, is invalid.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testOnlyTheCheckThatUsesTheTokenUpIsAccepted(): void
+    {
+        $binding = self::linkBinding();
+        $issued  = self::codes()->issueToken($binding, $this->now, 900);
+        $codes   = self::codes();
+        $other   = null;
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+
+        $this->afterTheCheckReads(static function () use ($codes, $binding, $issued, &$other): void {
+            $other = $codes->checkToken($binding, $issued->code, CarbonImmutable::now());
+        });
+
+        self::assertSame(CodeCheck::INVALID, $codes->checkToken($binding, $issued->code, $this->now));
+        self::assertSame(CodeCheck::ACCEPTED, $other);
+    }
+
+    /**
+     * Rows of `[value, whether it can be a token]`.
+     *
+     * @return iterable<string, array{0: string, 1: bool}>
+     */
+    public static function provideTokenShapes(): iterable
+    {
+        yield from [
+            '43 base64url characters' => [str_repeat('aZ09-_', 7) . 'a', true],
+            'one short'               => [str_repeat('a', 42), false],
+            'one over'                => [str_repeat('a', 44), false],
+            'padded'                  => [str_repeat('a', 42) . '=', false],
+            'standard base64'         => [str_repeat('a', 42) . '+', false],
+            'a trailing newline'      => [str_repeat('a', 43) . "\n", false],
+            'a code'                  => ['123456', false],
+        ];
+    }
+
+    /**
+     * A token is exactly 43 base64url characters.
+     *
+     * @param  string  $value
+     * @param  bool  $wellFormed
+     * @return void
+     */
+    #[DataProvider('provideTokenShapes')]
+    public function testTellsWhetherAValueCanBeAToken(string $value, bool $wellFormed): void
+    {
+        self::assertSame($wellFormed, self::codes()->isWellFormedToken($value));
+    }
+
+    /**
      * Invalidating deletes exactly the live codes of the bindings listed,
      * whatever their state (live, used, locked), in one statement, and leaves
      * every other binding's code working; a binding listed twice or with no
@@ -720,6 +917,16 @@ final class OneTimeCodesTest extends TestCase
     private static function binding(): CodeBinding
     {
         return CodeBinding::signIn('mobile', 'phone', self::PHONE);
+    }
+
+    /**
+     * The binding the reset link tokens are issued for.
+     *
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeBinding
+     */
+    private static function linkBinding(): CodeBinding
+    {
+        return CodeBinding::passwordResetLink('mobile', 'email', 'ada@example.test');
     }
 
     /**

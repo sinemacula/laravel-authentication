@@ -14,14 +14,18 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Console\PasswordChecks;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
+use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
@@ -37,6 +41,7 @@ use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
  * @internal
  */
 #[CoversClass(CheckConfigurationCommand::class)]
+#[CoversClass(PasswordChecks::class)]
 final class CheckConfigurationCommandTest extends TestCase
 {
     /** @var string A signing secret long enough for HS256. */
@@ -632,6 +637,78 @@ final class CheckConfigurationCommandTest extends TestCase
         $this->app?->instance(AudiencePolicy::class, $policy);
 
         self::assertSame(0, $this->check()[0]);
+    }
+
+    /**
+     * A `jwt` guard whose identities live on another connection than the
+     * devices cannot run a password reset or an identifier change's
+     * confirmation: a warning for each such guard checked, naming both
+     * connections, that leaves the exit code alone.
+     *
+     * @return void
+     */
+    public function testResetsAcrossConnectionsAreAWarning(): void
+    {
+        config()->set('database.connections.device_store', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        $warning = static fn (string $guard): string => "[{$guard}] Password resets and identifier change confirmations write the identity and its sessions in one transaction, so "
+            . IntegrationIdentity::class . ' must be on the device model\'s connection: the identity is on [unreachable], the devices on [device_store].';
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertSame([$warning('api'), $warning('admin')], array_values(array_filter($output, static fn (string $line): bool => str_contains($line, 'Password resets'))));
+
+        [$code, $output] = $this->check(['--guard' => ['machine', 'api']]);
+
+        self::assertSame(0, $code);
+        self::assertSame([$warning('api')], array_values(array_filter($output, static fn (string $line): bool => str_contains($line, 'Password resets'))));
+    }
+
+    /**
+     * While Laravel's notification is the reset link sender, a `jwt` guard
+     * identifying passwords by anything but `email` is warned about; with a
+     * sender of the application's own, or an `email` identifier, it is not.
+     *
+     * @return void
+     */
+    public function testTheDefaultSenderWithAnotherIdentifierIsAWarning(): void
+    {
+        config()->set('auth.guards.api.sign_in', ['password_identifier' => 'phone']);
+
+        $warning = '[api] Password reset links are refused: the guard identifies passwords by [phone], and the bound '
+            . NotifyingResetLinkSender::class . ', Laravel\'s notification, can only link an email address.';
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertContains($warning, $output);
+        self::assertCount(1, array_filter($output, static fn (string $line): bool => str_contains($line, 'Password reset links')));
+
+        FakePasswordResetLinkSender::fake($this->app);
+
+        self::assertNotContains($warning, $this->check()[1]);
+    }
+
+    /**
+     * Settings a guard's own checks report raise no reset warning: a malformed
+     * password identifier, or a device model that is not one.
+     *
+     * @return void
+     */
+    public function testMalformedSettingsRaiseNoResetWarning(): void
+    {
+        config()->set('auth.guards.api.sign_in', ['password_identifier' => 'Not A Column']);
+
+        self::assertSame([], array_values(array_filter($this->check()[1], static fn (string $line): bool => str_contains($line, 'Password reset'))));
+
+        config()->set('authentication.device.model', \stdClass::class);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertSame([], array_values(array_filter($output, static fn (string $line): bool => str_contains($line, 'Password reset'))));
     }
 
     /**

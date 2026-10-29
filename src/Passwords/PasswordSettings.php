@@ -11,9 +11,9 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
  * The password policy settings in `authentication.passwords`, read on every
  * call and validated as they are read: each length an integer, or the digit
  * string `env()` returns for one, within its range; each composition rule a
- * boolean; and the breached-check mode `reject` or `allow`. Anything else
- * fails closed with an `InvalidArgumentException` naming the key;
- * `authentication:check` reports it.
+ * boolean; the breached-check mode `reject` or `allow`; and the reset link
+ * lifetime an integer within its range. Anything else fails closed with an
+ * `InvalidArgumentException` naming the key; `authentication:check` reports it.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -170,6 +170,19 @@ final readonly class PasswordSettings
     }
 
     /**
+     * How long a password reset link works after it is requested, in seconds,
+     * 300 to 86400.
+     *
+     * @return int
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function linkTtlSeconds(): int
+    {
+        return $this->number('reset.link_ttl_seconds', 3600, 300, 86400);
+    }
+
+    /**
      * Whether Laravel's hashing driver is bcrypt (its default), which reads
      * only the first 72 bytes of a password.
      *
@@ -193,6 +206,7 @@ final readonly class PasswordSettings
         $this->maxLength();
         $this->compositionRules();
         $this->rejectsWhenUnavailable();
+        $this->linkTtlSeconds();
     }
 
     /**

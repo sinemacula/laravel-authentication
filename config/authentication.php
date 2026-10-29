@@ -437,7 +437,12 @@ return [
     | cannot answer (it throws `BreachedPasswordCheckUnavailableException`)
     | the exception is reported and `breached.when_unavailable` decides:
     | `reject` refuses the password (fail closed, the default), `allow` lets it
-    | through (fail open). A malformed value fails closed when a password is
+    | through (fail open). A password reset link works for
+    | `reset.link_ttl_seconds` (300 to 86400) after it is requested; a reset
+    | code lives as long as any one-time code (see `codes`), and both share the
+    | codes' table, key and resend cooldown. Requests for either are limited by
+    | the `password_reset_request` rate limits, and submissions by the
+    | `password_reset` ones. A malformed value fails closed when a password is
     | first checked, and `authentication:check` reports it.
     |
     */
@@ -452,6 +457,10 @@ return [
 
         'breached' => [
             'when_unavailable' => env('AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE', 'reject'),
+        ],
+
+        'reset' => [
+            'link_ttl_seconds' => env('AUTHENTICATION_PASSWORDS_RESET_LINK_TTL_SECONDS', 3600),
         ],
     ],
 
