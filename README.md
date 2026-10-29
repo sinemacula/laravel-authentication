@@ -2070,8 +2070,9 @@ ends every session. Both move the identity's "tokens valid after" cutoff when it
 and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
 password reset link and code still waiting for the identity's identifiers, through every guard whose provider returns
 the identity (see [Password reset](#password-reset)): a link or code someone else obtained before cannot take the
-account back once its owner has set a new password. A guard whose provider reads another table binds its links and
-codes to the identities there, so they are left alone.
+account back once its owner has set a new password. The identifiers are those its row holds, read again inside the
+transaction, so a model you loaded with only some columns, or before its identifier changed, outdates them all. A
+guard whose provider reads another table binds its links and codes to the identities there, so they are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no

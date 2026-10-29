@@ -26,9 +26,13 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * provider can return the identity (see `JwtGuards::namesFor()`), of each
  * identifier the identity holds, in canonical form (see `ResetRecipient`), of a
  * type a reset can be bound to: a guard's password identifier, for links, and
- * any type with a registered normaliser, for codes. A type the identity cannot
+ * any type with a registered normaliser, for codes. The identifiers are read
+ * from the identity's row as it is stored, on the write connection inside the
+ * transaction, never from the caller's model, which may have loaded only some
+ * columns or be older than the row: a reset finds the identity by its row, so
+ * an identifier left out would leave its links working. A type the row cannot
  * report at all (its `HasVerifiableIdentifiers` throws a `LogicException`, as
- * `ProvidesIdentifierVerification` does for a column the model does not load)
+ * `ProvidesIdentifierVerification` does for a column the table does not have)
  * has nothing to outdate: a reset of it fails the same way before its proof is
  * checked. Misconfiguration (an `InvalidArgumentException`, a normaliser that
  * cannot be built, say) still fails closed.
@@ -53,8 +57,8 @@ final readonly class ResetProofs
 
     /**
      * Invalidate every reset link and code the identity's new password
-     * outdates, in one statement on the codes' connection; returns how many
-     * there were.
+     * outdates, in one statement on the codes' connection, once its stored row
+     * is read; returns how many there were.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
@@ -67,13 +71,14 @@ final readonly class ResetProofs
      */
     public function invalidate(Identity&Model $identity): int
     {
-        $guards   = JwtGuards::namesFor($identity, $this->container->make(Repository::class));
+        $stored   = $identity->fresh() ?? $identity;
+        $guards   = JwtGuards::namesFor($stored, $this->container->make(Repository::class));
         $verifier = $this->container->make(IdentifierVerifier::class);
         $bindings = [];
 
         foreach ($this->types($guards) as $type) {
 
-            $identifier = self::identifierOf($identity, $type, $verifier);
+            $identifier = self::identifierOf($stored, $type, $verifier);
 
             if ($identifier === null) {
                 continue;

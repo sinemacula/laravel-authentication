@@ -105,10 +105,12 @@ only duplicate them.
      guard whose provider can return the identity (its configured model reads the identity's table on the identity's
      connection, or it names no model) for each identifier the identity holds, in canonical form, of a type a reset can
      be bound to (each guard's password identifier, for links, and every type with a registered normaliser, for codes).
-     An identifier is read as `ResetRecipient` reads it (through `HasVerifiableIdentifiers`, else the attribute named
-     after the type, skipped when the model has none); a type the identity's verification throws a `LogicException` for
-     has nothing to invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a
-     normaliser that cannot be built) fails the write closed.
+     The identifiers are read from the identity's row as stored (`fresh()`, on the write connection inside the
+     transaction), never from the caller's model, which may have loaded only some columns or be older than the row,
+     while a reset finds the identity by its row. An identifier is read as `ResetRecipient` reads it (through
+     `HasVerifiableIdentifiers`, else the attribute named after the type, skipped when the model has none); a type the
+     identity's verification throws a `LogicException` for has nothing to invalidate, since a reset of it would fail the
+     same way, but an `InvalidArgumentException` (a normaliser that cannot be built) fails the write closed.
    - `CHANGE`: `SessionService::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every guard's
      devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended, their events after their
      commit); `REGISTRATION`: nothing.

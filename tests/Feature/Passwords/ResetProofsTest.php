@@ -126,6 +126,48 @@ final class ResetProofsTest extends TestCase
     }
 
     /**
+     * The identifiers are read from the identity's stored row, not from the
+     * model given: one loaded with only some columns still has the links and
+     * codes of every identifier its row holds ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAModelLoadedWithSomeColumnsOutdatesEveryIdentifierOfItsRow(): void
+    {
+        $seeded  = self::seedResettable();
+        $token   = self::issueToken('web');
+        $code    = self::issueCode('web', 'phone', self::PHONE);
+        $partial = PasswordIdentity::query()->select(['id', 'password'])->findOrFail($seeded->getKey());
+
+        self::assertTrue($this->passwords()->set($partial, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertSame(0, DB::table('one_time_codes')->count());
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code))->status);
+    }
+
+    /**
+     * A model older than its row outdates the identifiers the row holds now:
+     * the address it was changed to by another path has its link ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAModelOlderThanItsRowOutdatesTheIdentifiersTheRowHolds(): void
+    {
+        $stale = self::seedResettable();
+
+        DB::table('password_identities')->update(['email' => 'ada@moved.example.test']);
+
+        $token = self::issue(CodeBinding::passwordResetLink('web', 'email', 'ada@moved.example.test'), true);
+
+        self::assertTrue($this->passwords()->set($stale, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => 'ada@moved.example.test', 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+    }
+
+    /**
      * An identity with no identifier of one type still has the reset codes of
      * its other types ended.
      *

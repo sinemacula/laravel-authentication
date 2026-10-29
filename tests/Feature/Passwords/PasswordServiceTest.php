@@ -94,9 +94,10 @@ final class PasswordServiceTest extends TestCase
 
     /**
      * A registration of an identity not stored yet inserts it with the hash of
-     * the password, which Laravel's hasher verifies, revokes nothing, and
-     * reports `PasswordSet` for the registration with the guard, the request's
-     * client and the new identity.
+     * the password, which Laravel's hasher verifies, reads the row it stored to
+     * outdate the reset proofs of its identifiers, revokes nothing, and reports
+     * `PasswordSet` for the registration with the guard, the request's client
+     * and the new identity.
      *
      * @return void
      *
@@ -119,7 +120,7 @@ final class PasswordServiceTest extends TestCase
         $result = $passwords->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
 
         self::assertSame([true, [], 0], [$result->set, $result->violations, $result->revoked]);
-        self::assertSame(['insert', 'delete'], $statements->getArrayCopy());
+        self::assertSame(['insert', 'select', 'delete'], $statements->getArrayCopy());
         self::assertTrue($identity->exists);
 
         $stored = DB::table('password_identities')->where('email', 'grace@example.test')->value('password');
