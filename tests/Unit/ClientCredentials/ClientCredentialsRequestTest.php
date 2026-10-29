@@ -222,11 +222,11 @@ final class ClientCredentialsRequestTest extends TestCase
     }
 
     /**
-     * Rows of `[body, parameters, result]`: bodies read where
-     * `arg_separator.input` is `&;`, with the parameters PHP's form parser,
-     * which splits only on `&`, reads from them.
+     * Rows of `[separator, body, parameters, result]`: bodies read where
+     * `arg_separator.input` is the separator, with the parameters PHP's form
+     * parser, which splits only on `&`, reads from them.
      *
-     * @return iterable<string, array{0: string, 1: array<string, string>, 2: string}>
+     * @return iterable<string, array{0: string, 1: string, 2: array<string, string>, 3: string}>
      */
     public static function provideBodiesUnderAnotherSeparator(): iterable
     {
@@ -234,9 +234,11 @@ final class ClientCredentialsRequestTest extends TestCase
         $parameters = ['grant_type' => 'client_credentials', 'client_id' => 'id', 'client_secret' => 'secret'];
 
         yield from [
-            'a separator in a value' => ["{$body}&scope=read;client_id=x", $parameters + ['scope' => 'read;client_id=x'], '["id","read;client_id=x"]'],
-            'a repeat'               => ["{$body}&scope=a&scope=b", $parameters + ['scope' => 'b'], 'invalid_request'],
-            'a repeat cut at NUL'    => ["{$body}&client_id%00x=id", $parameters, 'invalid_request'],
+            'a separator in a value'     => ['&;', "{$body}&scope=read;client_id=x", $parameters + ['scope' => 'read;client_id=x'], '["id","read;client_id=x"]'],
+            'a repeat'                   => ['&;', "{$body}&scope=a&scope=b", $parameters + ['scope' => 'b'], 'invalid_request'],
+            'a repeat cut at NUL'        => ['&;', "{$body}&client_id%00x=id", $parameters, 'invalid_request'],
+            'a separator in a name'      => ['&_', "{$body}&client_id=last", ['client_id' => 'last'] + $parameters, 'invalid_request'],
+            'a separator in an encoding' => ['&%', "{$body}&+client_id=last", ['client_id' => 'last'] + $parameters, 'invalid_request'],
         ];
     }
 
@@ -244,20 +246,43 @@ final class ClientCredentialsRequestTest extends TestCase
      * Repeats are found among the pairs a form body is split into on `&` alone,
      * whatever else `arg_separator.input` splits a query string on.
      *
+     * @param  string  $separator
      * @param  string  $body
      * @param  array<string, string>  $parameters
      * @param  string  $result
      * @return void
      */
     #[DataProvider('provideBodiesUnderAnotherSeparator')]
-    public function testFindsRepeatsAsAFormBodyIsSplit(string $body, array $parameters, string $result): void
+    public function testFindsRepeatsAsAFormBodyIsSplit(string $separator, string $body, array $parameters, string $result): void
     {
         $autoload = dirname(__DIR__, 3) . '/vendor/autoload.php';
-        $process  = new Process([PHP_BINARY, '-d', 'arg_separator.input=&;', '-r', self::READER, '--', $autoload, $body, json_encode($parameters, JSON_THROW_ON_ERROR)]);
+        $process  = new Process([PHP_BINARY, '-d', "arg_separator.input={$separator}", '-r', self::READER, '--', $autoload, $body, json_encode($parameters, JSON_THROW_ON_ERROR)]);
 
         $process->mustRun();
 
         self::assertSame($result, $process->getOutput());
+    }
+
+    /**
+     * Every name a pair can be given from these parts, up to four of them, is
+     * compared as PHP's own parser reads it: the pair is refused as a repeat
+     * exactly when PHP reads its name as one of the parameters the body already
+     * carries.
+     *
+     * @return void
+     */
+    public function testReadsEveryNameAsPhpDoes(): void
+    {
+        $body    = 'grant_type=client_credentials&client_id=id&client_secret=secret&scope=a';
+        $misread = array_filter(self::names(4), static function (string $name) use ($body): bool {
+            parse_str("{$name}=x", $read);
+
+            $repeats = in_array(array_key_first($read), ['grant_type', 'scope', 'client_id', 'client_secret'], true);
+
+            return $repeats !== (ClientCredentialsRequest::read(self::request("{$body}&{$name}=x")) === 'invalid_request');
+        });
+
+        self::assertSame([], array_values($misread));
     }
 
     /**
@@ -313,6 +338,27 @@ final class ClientCredentialsRequestTest extends TestCase
         $constructor->invoke($instance);
 
         self::assertInstanceOf(ClientCredentialsRequest::class, $instance);
+    }
+
+    /**
+     * Every name of one to the given number of parts, each a word, a character
+     * PHP reads specially in a name, or an encoded one.
+     *
+     * @param  int  $parts
+     * @return list<string>
+     */
+    private static function names(int $parts): array
+    {
+        $words = ['client', 'id', 'scope', '_', '.', ' ', '+', '[', ']', '%00'];
+        $names = [];
+        $last  = [''];
+
+        for ($count = 1; $count <= $parts; $count++) {
+            $last  = array_merge(...array_map(static fn (string $name): array => array_map(static fn (string $word): string => $name . $word, $words), $last));
+            $names = [...$names, ...$last];
+        }
+
+        return $names;
     }
 
     /**

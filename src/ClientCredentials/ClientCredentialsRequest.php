@@ -161,11 +161,7 @@ final class ClientCredentialsRequest
 
     /**
      * Whether the raw body names a parameter more than once, which PHP would
-     * otherwise read as its last value. Each name is read by PHP's own parser,
-     * so it is compared as PHP reads it: `client.id`, `client[id`,
-     * `client_id[]` and `client_id%00x` all repeat `client_id`. The decoded
-     * name is encoded again first, because `parse_str()` also splits on
-     * `arg_separator.input`, which a form body is not split on.
+     * otherwise read as its last value.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool
@@ -175,12 +171,31 @@ final class ClientCredentialsRequest
         $names = [];
 
         foreach (explode('&', $request->getContent()) as $pair) {
-            parse_str(rawurlencode(urldecode(explode('=', $pair)[0])), $parameter);
-            array_push($names, ...array_keys($parameter));
+            $names[] = self::name($pair);
         }
 
         $named = array_intersect($names, self::PARAMETERS);
 
         return count($named) !== count(array_unique($named));
+    }
+
+    /**
+     * The name of a pair of a form body as PHP's form parser registers it:
+     * decoded, cut at a NUL byte, leading spaces dropped, a `.` or space read
+     * as `_`, and cut at a `[` that a `]` follows, or else with the `[` and
+     * every `.`, space and `[` after it read as `_`. It is worked out here
+     * rather than with `parse_str()`, which also splits on whatever else
+     * `arg_separator.input` holds, while a form body is split on `&` alone.
+     *
+     * @param  string  $pair
+     * @return string
+     */
+    private static function name(string $pair): string
+    {
+        $name          = ltrim(explode("\0", urldecode(explode('=', $pair)[0]))[0], ' ');
+        [$base, $rest] = explode('[', $name, 2) + [1 => null];
+        $base          = strtr($base, ' .', '__');
+
+        return $rest === null || str_contains($rest, ']') ? $base : $base . '_' . strtr($rest, ' .[', '___');
     }
 }
