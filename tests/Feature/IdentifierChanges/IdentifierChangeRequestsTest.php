@@ -5,7 +5,9 @@ declare(strict_types = 1);
 namespace Tests\Feature\IdentifierChanges;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -246,8 +248,8 @@ final class IdentifierChangeRequestsTest extends TestCase
 
     /**
      * A concurrent request that inserts the identity's pending change between
-     * this request's update, which found no row, and its insert, which then
-     * finds one, is written over: the newest request wins.
+     * this request's read, which found none, and its insert, which then finds
+     * one, is written over: the newest request wins.
      *
      * @return void
      *
@@ -260,7 +262,7 @@ final class IdentifierChangeRequestsTest extends TestCase
         $raced    = false;
 
         DB::listen(static function (QueryExecuted $query) use (&$raced, $key): void {
-            if ($raced || !str_starts_with($query->sql, 'update') || !str_contains($query->sql, 'identifier_changes')) {
+            if ($raced || !str_starts_with($query->sql, 'select') || !str_contains($query->sql, 'identifier_changes')) {
                 return;
             }
 
@@ -283,6 +285,39 @@ final class IdentifierChangeRequestsTest extends TestCase
         self::assertTrue($raced);
         self::assertSame(1, self::rows('identifier_changes'));
         self::assertSame(['web', self::NEW_EMAIL], [self::stored('identifier_changes', 'guard'), self::stored('identifier_changes', 'identifier')]);
+    }
+
+    /**
+     * A pending change deleted between this request's read, which found it, and
+     * its update, which then finds none (a revocation cancelling it), is
+     * inserted again: the request still leaves its change pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestWhoseReplacedChangeGoesMeanwhileInsertsItsOwn(): void
+    {
+        $identity = self::seedChangeable();
+        $proof    = Reauthentication::confirmedAt($this->now);
+        $raced    = false;
+
+        $this->changes()->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'email.confirm');
+
+        DB::listen(static function (QueryExecuted $query) use (&$raced): void {
+            if ($raced || !str_starts_with($query->sql, 'select') || !str_contains($query->sql, 'identifier_changes')) {
+                return;
+            }
+
+            $raced = true;
+
+            DB::table('identifier_changes')->delete();
+        });
+
+        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm')->isSent());
+        self::assertTrue($raced);
+        self::assertSame(1, self::rows('identifier_changes'));
+        self::assertSame(self::NEW_EMAIL, self::stored('identifier_changes', 'identifier'));
     }
 
     /**
@@ -365,6 +400,98 @@ final class IdentifierChangeRequestsTest extends TestCase
         $request  = $this->changes()->requestByCode($identity, 'email', self::EMAIL, Reauthentication::confirmedAt($this->now->subHour()));
 
         self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
+    }
+
+    /**
+     * A request made with an instance loaded before its password changed is
+     * proven by the password the row holds: the lock finds the hash the
+     * password was checked against.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStaleInstanceIsProvenByThePasswordTheRowHolds(): void
+    {
+        $identity = self::seedChangeable();
+
+        DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make('another long passphrase')]);
+
+        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password('another long passphrase'), 'email.confirm');
+
+        self::assertTrue($request->isSent());
+        self::assertSame(1, self::rows('identifier_changes'));
+    }
+
+    /**
+     * A password written between a request's check and its lock (another
+     * request's change committing meanwhile) is found under the lock: the
+     * password no longer stands, reauthentication is required, nothing is
+     * written, and every slot taken is given back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasswordWrittenBeforeTheLockRefusesTheRequest(): void
+    {
+        $identity = self::seedChangeable();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+        self::beforeTheLock(static fn (): int => DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make('another long passphrase')]));
+
+        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm');
+
+        self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
+        self::assertSame([FailureReason::REAUTHENTICATION_REQUIRED], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures()));
+        self::assertSame(0, self::rows('identifier_changes'));
+        self::assertNoSlotKept();
+    }
+
+    /**
+     * A device revoked between a request's check and its lock is found under
+     * the lock: reauthentication is required, nothing is written, and the slots
+     * are given back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testADeviceRevokedBeforeTheLockRefusesTheRequest(): void
+    {
+        $identity = self::seedChangeable();
+        $device   = self::seedDevice($identity);
+
+        self::beforeTheLock(static fn (): int => DB::table('devices')->update(['revoked_at' => '2026-04-06 12:00:00']));
+
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device));
+
+        self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
+        self::assertSame(0, self::rows('identifier_changes'));
+        self::assertSame(0, self::rows('one_time_codes'));
+        self::assertNoSlotKept();
+    }
+
+    /**
+     * An identifier confirmed between a request's check and its lock, the one
+     * the request asks for, is found under the lock: the identifier is
+     * unchanged, nothing is written, and the slots are given back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentifierConfirmedBeforeTheLockIsUnchanged(): void
+    {
+        $identity = self::seedChangeable();
+
+        self::beforeTheLock(static fn (): int => DB::table('changeable_identities')->update(['email' => self::NEW_EMAIL]));
+
+        $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm');
+
+        self::assertSame(IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED, $request->status);
+        self::assertSame(0, self::rows('identifier_changes'));
+        self::assertNoSlotKept();
     }
 
     /**
@@ -569,5 +696,38 @@ final class IdentifierChangeRequestsTest extends TestCase
         assert($app instanceof Application);
 
         self::configureChangeGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Run the change once, as the request's transaction begins, after its check
+     * and before its lock, as a write committed in between would land.
+     *
+     * @param  \Closure(): mixed  $change
+     * @return void
+     */
+    private static function beforeTheLock(\Closure $change): void
+    {
+        $done = false;
+
+        Event::listen(TransactionBeginning::class, static function () use (&$done, $change): void {
+            if ($done) {
+                return;
+            }
+
+            $done = true;
+
+            $change();
+        });
+    }
+
+    /**
+     * Assert that the counters the request wrote hold no attempt.
+     *
+     * @return void
+     */
+    private static function assertNoSlotKept(): void
+    {
+        self::assertGreaterThan(0, self::rows('rate_limits'));
+        self::assertSame(0, (int) DB::table('rate_limits')->sum('hits'));
     }
 }

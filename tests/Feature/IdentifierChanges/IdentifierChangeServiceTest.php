@@ -530,10 +530,12 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A request locks the identity's row as its transaction starts, before it
-     * checks the proof or reads the pending change it replaces, so a password
-     * write or a confirmation racing it waits instead of falling in between;
-     * so does a cancellation, before it reads the change it deletes.
+     * A request counts its limits, the password proof's sign-in slots among
+     * them, before its transaction, and none inside it; the transaction locks
+     * the identity's row as it starts, before it checks the proof again or
+     * reads the pending change it replaces, so a password write or a
+     * confirmation racing it waits instead of falling in between; so does a
+     * cancellation, before it reads the change it deletes.
      *
      * @return void
      *
@@ -546,8 +548,15 @@ final class IdentifierChangeServiceTest extends TestCase
         $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
         self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD))->isSent());
-        self::assertSame(['begin', $lock], array_slice($statements(), 0, 2));
-        self::assertStringContainsString('rate_limits', $statements()[2]);
+
+        $begin  = array_search('begin', $statements(), true);
+        $before = array_slice($statements(), 0, (int) $begin);
+        $inside = array_slice($statements(), (int) $begin + 1);
+
+        self::assertIsInt($begin);
+        self::assertCount(12, array_filter($before, static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
+        self::assertSame([], array_filter($inside, static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
+        self::assertSame($lock, $inside[0]);
 
         $cancelling = self::recordStatements();
 

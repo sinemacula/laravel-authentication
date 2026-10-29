@@ -104,6 +104,12 @@ final class PendingChanges
      * place of any it had of the type, and return the one it replaced, as read
      * before the write, or `null`.
      *
+     * A change read before is updated in place, and none is inserted: inside
+     * the request's transaction, MySQL's `UPDATE` of a missing key would lock
+     * the gap it searched until the commit, and two requests that each insert
+     * into the same gap would then deadlock. Either falls back to the other
+     * when a concurrent write got there first.
+     *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\RequestedChange  $change
@@ -129,7 +135,9 @@ final class PendingChanges
             'expires_at'        => $model->fromDateTime($change->expiresAt),
         ];
 
-        if (self::table()->where('id', $key)->update($values) === 0 && self::table()->insertOrIgnore(['id' => $key, ...$values]) === 0) {
+        $updated = $replaced !== null && self::table()->where('id', $key)->update($values) === 1;
+
+        if (!$updated && self::table()->insertOrIgnore(['id' => $key, ...$values]) === 0) {
             self::table()->where('id', $key)->update($values);
         }
 

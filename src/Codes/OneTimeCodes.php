@@ -91,6 +91,29 @@ final readonly class OneTimeCodes
     }
 
     /**
+     * Issue a code for a binding that names a request of its own (an identifier
+     * change's), so none can have been issued for it yet, as `issue()` issues
+     * one, trying the insert before the replacement: inside the request's
+     * transaction, MySQL's `UPDATE` of a missing key would lock the gap it
+     * searched until the commit, and two requests that each insert into the
+     * same gap would then deadlock.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return int|\SineMacula\Laravel\Authentication\Codes\IssuedCode
+     *
+     * @throws \InvalidArgumentException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     *
+     * @phpstan-impure
+     */
+    public function issueFirst(CodeBinding $binding, CarbonImmutable $now): int|IssuedCode
+    {
+        return $this->store($binding, $now, $this->draw($this->settings->length()), $this->settings->ttlSeconds(), true);
+    }
+
+    /**
      * Issue a new live token for the binding (a password reset link's), as
      * `issue()` issues a code, under the same resend cooldown, that works for
      * the seconds given: 32 random bytes, base64url-encoded without padding (43
@@ -262,6 +285,7 @@ final readonly class OneTimeCodes
      * @param  \Carbon\CarbonImmutable  $now
      * @param  string  $secret
      * @param  int  $ttlSeconds
+     * @param  bool  $insertFirst
      * @return int|\SineMacula\Laravel\Authentication\Codes\IssuedCode
      *
      * @throws \InvalidArgumentException
@@ -269,7 +293,7 @@ final readonly class OneTimeCodes
      *
      * @phpstan-impure
      */
-    private function store(CodeBinding $binding, CarbonImmutable $now, #[\SensitiveParameter] string $secret, int $ttlSeconds): int|IssuedCode
+    private function store(CodeBinding $binding, CarbonImmutable $now, #[\SensitiveParameter] string $secret, int $ttlSeconds, bool $insertFirst = false): int|IssuedCode
     {
         $cooldown = $this->settings->cooldownSeconds();
         $issued   = new IssuedCode($secret, Str::uuid()->toString(), $now->addSeconds($ttlSeconds));
@@ -284,12 +308,10 @@ final readonly class OneTimeCodes
             'consumed_at' => null,
         ];
 
-        $replaced = $this->table()
-            ->where('id', $digest)
-            ->where('issued_at', '<=', $model->fromDateTime($now->subSeconds($cooldown)))
-            ->update($issuance) === 1;
+        $row     = ['id' => $digest, 'purpose' => $binding->purpose->value, 'guard' => $binding->guard, ...$issuance];
+        $replace = $this->table()->where('id', $digest)->where('issued_at', '<=', $model->fromDateTime($now->subSeconds($cooldown)));
 
-        if ($replaced || $this->table()->insertOrIgnore(['id' => $digest, 'purpose' => $binding->purpose->value, 'guard' => $binding->guard, ...$issuance]) === 1) {
+        if (($insertFirst && $this->table()->insertOrIgnore($row) === 1) || $replace->update($issuance) === 1 || (!$insertFirst && $this->table()->insertOrIgnore($row) === 1)) {
             return $issued;
         }
 

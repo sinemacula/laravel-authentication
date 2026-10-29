@@ -275,6 +275,7 @@ final class ConcurrentProofSpendingTest extends TestCase
                 return $request->status->value;
             },
             static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
+            'for update',
         );
 
         self::assertSame(['sent', 'set'], [$first, $second['result']]);
@@ -330,11 +331,124 @@ final class ConcurrentProofSpendingTest extends TestCase
             'devices',
             fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device), 'email.confirm')->status->value,
             static fn (): string => (string) Auth::sessions('web')->revokeDevices(self::reloaded($identity), RevocationReason::REVOKED),
+            'for update',
         );
 
         self::assertSame(['sent', '1'], [$first, $second['result']]);
         self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
         self::assertSame(0, DB::table('identifier_changes')->count());
+    }
+
+    /**
+     * A password change made while a request proven by the old password is held
+     * after the password was checked, before its transaction, is found under
+     * the lock: reauthentication is required, nothing is written, and the
+     * `identifier_change` slots are given back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasswordChangeAfterARequestsCheckIsFoundUnderItsLock(): void
+    {
+        $identity = self::seedChangeable();
+
+        [$first, $second] = $this->race(
+            'update',
+            'rate_limits',
+            fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm')->status->value,
+            static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
+            '- 1',
+        );
+
+        self::assertSame(['reauthentication_required', 'set'], [$first, $second['result']]);
+        self::assertSame(0, DB::table('identifier_changes')->count());
+        self::assertEverySlotGivenBack();
+    }
+
+    /**
+     * A revocation of every device made while a request proven by one of them
+     * is held after it read the device, before its transaction, is found under
+     * the lock: reauthentication is required, nothing is written, and the
+     * `identifier_change` slots are given back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABulkRevocationAfterARequestsCheckIsFoundUnderItsLock(): void
+    {
+        $identity = self::seedChangeable();
+        $device   = self::seedDevice($identity);
+
+        [$first, $second] = $this->race(
+            'select',
+            'devices',
+            fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device), 'email.confirm')->status->value,
+            static fn (): string => (string) Auth::sessions('web')->revokeDevices(self::reloaded($identity), RevocationReason::REVOKED),
+        );
+
+        self::assertSame(['reauthentication_required', '1'], [$first, $second['result']]);
+        self::assertSame(0, DB::table('identifier_changes')->count());
+        self::assertEverySlotGivenBack();
+    }
+
+    /**
+     * Requests for two identities, none of whose counters, codes or pending
+     * changes exist yet, the first held right after its first limiter
+     * statement, both go through: the limits are counted before the
+     * transaction, so neither holds a lock on the counters' index that the
+     * other's insert would wait for (MySQL deadlocks two transactions that each
+     * update a missing key, then insert into the gap).
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testRequestsForTwoIdentitiesCreatingTheirCountersDoNotDeadlock(): void
+    {
+        $ada   = self::seedChangeable();
+        $grace = self::seedChangeable('grace@example.test');
+        $proof = Reauthentication::confirmedAt($this->now);
+
+        [$first, $second] = $this->race(
+            'update',
+            'rate_limits',
+            fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value,
+            fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value,
+        );
+
+        self::assertSame(['sent', 'sent'], [$first, $second['result']]);
+        self::assertSame(2, DB::table('identifier_changes')->count());
+        self::assertSame(2, DB::table('one_time_codes')->count());
+    }
+
+    /**
+     * A request held inside its transaction once it wrote its code and its
+     * pending change does not hold up a request for another identity: the
+     * second creates its own counters, code and pending change without waiting,
+     * as neither locks more than the rows it writes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestHeldAfterItsWritesDoesNotHoldUpAnotherIdentitysRequest(): void
+    {
+        $ada   = self::seedChangeable();
+        $grace = self::seedChangeable('grace@example.test');
+        $proof = Reauthentication::confirmedAt($this->now);
+
+        [$first, $second] = $this->race(
+            'insert',
+            'identifier_changes',
+            fn (): string => $this->changes()->requestByCode($ada, 'email', self::NEW_EMAIL, $proof)->status->value,
+            fn (): string => $this->changes()->requestByCode($grace, 'email', 'grace@new.example.test', $proof)->status->value,
+        );
+
+        self::assertSame(['sent', 'sent'], [$first, $second['result']]);
+        self::assertLessThan(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(2, DB::table('identifier_changes')->count());
     }
 
     /**
@@ -447,6 +561,18 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
+     * Assert that the counters the request wrote hold no attempt: each slot it
+     * took was given back.
+     *
+     * @return void
+     */
+    private static function assertEverySlotGivenBack(): void
+    {
+        self::assertGreaterThan(0, DB::table('rate_limits')->count());
+        self::assertSame(0, (int) DB::table('rate_limits')->sum('hits'));
+    }
+
+    /**
      * The identity as stored now.
      *
      * @param  \Tests\Integration\Fixtures\ChangeableIdentity  $identity
@@ -459,18 +585,20 @@ final class ConcurrentProofSpendingTest extends TestCase
 
     /**
      * Run the first operation here, hold it open right after its first
-     * statement of the verb on the table, start the second in another process
-     * meanwhile, then let the first finish, and return both outcomes.
+     * statement of the verb on the table (that also holds the marker, given
+     * one), start the second in another process meanwhile, then let the first
+     * finish, and return both outcomes.
      *
      * @param  string  $verb
      * @param  string  $table
      * @param  \Closure(): string  $first
      * @param  \Closure(): string  $second
+     * @param  string  $marker
      * @return array{0: string, 1: array{result: string, waited: float}}
      *
      * @throws \Throwable
      */
-    private function race(string $verb, string $table, \Closure $first, \Closure $second): array
+    private function race(string $verb, string $table, \Closure $first, \Closure $second, string $marker = ''): array
     {
         DB::disconnect();
 
@@ -483,8 +611,8 @@ final class ConcurrentProofSpendingTest extends TestCase
         $held     = false;
         $outcomes = $this->outcomes;
 
-        DB::listen(static function (QueryExecuted $query) use (&$held, $verb, $table, $outcomes): void {
-            if ($held || !str_starts_with(strtolower($query->sql), $verb) || !str_contains($query->sql, $table)) {
+        DB::listen(static function (QueryExecuted $query) use (&$held, $verb, $table, $marker, $outcomes): void {
+            if ($held || !str_starts_with(strtolower($query->sql), $verb) || !str_contains($query->sql, $table) || !str_contains($query->sql, $marker)) {
                 return;
             }
 

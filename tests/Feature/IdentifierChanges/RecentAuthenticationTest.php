@@ -6,6 +6,7 @@ namespace Tests\Feature\IdentifierChanges;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,7 @@ use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithRateLimits;
+use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
@@ -151,6 +153,43 @@ final class RecentAuthenticationTest extends TestCase
 
         self::assertNull($check->refusal($identity, Reauthentication::confirmedAt($this->now->subSeconds(59)), null));
         self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::confirmedAt($this->now->subSeconds(60)), null));
+    }
+
+    /**
+     * A proof accepted before the transaction stands under the lock as the rows
+     * read then: a device while it is still a live session (read with its row
+     * locked), a password while the locked row holds the hash read before it
+     * was checked, and a confirmation time always; nothing is counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnAcceptedProofStandsWhileItsRowsAreAsTheyWere(): void
+    {
+        $identity = self::seedChangeable();
+        $device   = self::seedDevice($identity);
+        $check    = $this->check();
+        $before   = ChangeableIdentity::query()->sole();
+        $password = Reauthentication::password(self::PASSWORD);
+
+        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::device($device)));
+        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), $password));
+        self::assertTrue($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::confirmedAt($this->now->subYear())));
+
+        DB::table('devices')->update(['revoked_at' => '2026-04-06 11:59:00']);
+        DB::table('changeable_identities')->update(['password' => app(Hasher::class)->make(self::PASSWORD)]);
+
+        self::assertFalse($check->stands($before, ChangeableIdentity::query()->sole(), Reauthentication::device($device)));
+        self::assertFalse($check->stands($before, ChangeableIdentity::query()->sole(), $password));
+
+        DB::table('changeable_identities')->update(['password' => null]);
+
+        $none = ChangeableIdentity::query()->sole();
+
+        self::assertTrue($check->stands($none, ChangeableIdentity::query()->sole(), $password));
+        self::assertFalse($check->stands($none, $before, $password));
+        self::assertSame(0, DB::table('rate_limits')->count());
     }
 
     /**

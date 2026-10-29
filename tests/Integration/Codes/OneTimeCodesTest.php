@@ -153,6 +153,47 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
+     * `issueFirst()` writes only the insert for a binding with no code, and,
+     * for one that has a code, falls back to `issue()`'s rules once its insert
+     * is refused: within the cooldown it answers the wait, after it the code is
+     * replaced.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAFirstIssueInsertsBeforeItWouldReplace(): void
+    {
+        $binding    = self::binding();
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = (string) strtok(strtolower($query->sql), ' ');
+        });
+
+        $recorded = static function () use (&$statements): array {
+            $taken      = $statements;
+            $statements = [];
+
+            return $taken;
+        };
+
+        $first = self::codes()->issueFirst($binding, $this->now);
+
+        self::assertInstanceOf(IssuedCode::class, $first);
+        self::assertSame(['insert'], $recorded());
+
+        self::assertSame(30, self::codes()->issueFirst($binding, $this->now->addSeconds(30)));
+        self::assertSame(['insert', 'update', 'select'], $recorded());
+
+        $replacement = self::codes()->issueFirst($binding, $this->now->addSeconds(60));
+
+        self::assertInstanceOf(IssuedCode::class, $replacement);
+        self::assertSame($replacement->issueId, DB::table('one_time_codes')->value('issue_id'));
+        self::assertSame(1, DB::table('one_time_codes')->count());
+    }
+
+    /**
      * A code pruned between an issue's refused insert and its read leaves a
      * wait of one second, as does a first issue that a concurrent one beat to
      * the insert when there is no cooldown at all.

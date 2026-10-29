@@ -14,9 +14,12 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - One change waits per identity and type, in `identifier_changes`, keyed by `SHA-256(AccountAttempts::account($identity)
   . "\0" . type)` (not secret, so not keyed). It records the guard that requested it, the identifier it replaces exactly
   as stored (`previous`, `null` for none), the new one in normal form, a random `request_id`, and when it was requested
-  and expires (whole seconds). A request writes it whatever row was there, through any guard: an unconditional `UPDATE`
-  by key, an `insertOrIgnore` when there was none, and the `UPDATE` again when a concurrent insert won. The newest
-  request wins; the code of the one it replaced is invalidated. No unique violation on a package table is caught.
+  and expires (whole seconds). A request writes it whatever row was there, through any guard: an `UPDATE` by key of the
+  change it read, an `insertOrIgnore` when it read none, and each falls back to the other when a concurrent write got
+  there first. Inside the request's transaction an `UPDATE` of a missing key would make MySQL lock the gap it searched
+  until the commit, and two requests inserting into one gap would deadlock, so a missing row is inserted, never updated;
+  the request's code is issued the same way (`OneTimeCodes::issueFirst()`). The newest request wins; the code of the one
+  it replaced is invalidated. No unique violation on a package table is caught.
 - A code is bound with `CodeBinding::identifierChange(guard, type, new identifier, identity, request_id)`, so it proves
   that one request; a link carries the guard, the identity, the type, the purpose `change_identifier`, the request and
   `SHA-256` of the new identifier in normal form, signed by Laravel's URL generator, and expires with the change. A
@@ -30,17 +33,23 @@ outdates, and why the change stands when the notice to the old identifier fails.
   on a guard whose audience allows the `password` method only, checked in the guard's credential timebox against the
   identity read again through the guard's provider, counted under `sign_in` against the account and the IP address and
   given back when correct; or a trusted confirmation time, not in the future.
-- A request runs in one transaction on the identity's connection that locks the identity's row first
-  (`Database\IdentityLock`), and, for a device proof, the device's row (`Jwt\DeviceLookup::lock()`), before it checks
-  the proof: a password write takes the identity's lock with its `UPDATE`, and a standalone bulk revocation updates the
-  device's row before it deletes the pending changes, so either comes before the proof is checked, which then fails, or
-  waits until the change is written, which it then cancels. The current identifier and whether it is verified are read
-  from the row as locked. A password proof's limiter slot and timebox therefore run inside the transaction; a refusal
-  writes nothing and commits.
-- A request then needs a new identifier the type's normaliser accepts (a type without a normaliser is a
-  misconfiguration) that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the
-  new identifier, the identity's account and the IP address, never given back. It never looks for another holder of the
-  new identifier, so its answer cannot tell whether one exists.
+- A request checks the proof, the new identifier and the limits first, on the identity's row read again by key on the
+  write connection; the limiter never counts inside the transaction that follows, where a counter's row would stay
+  locked until the commit and MySQL deadlocks two transactions that each create a counter in one gap of the index. Then,
+  in one transaction on the identity's connection, it locks the identity's row (`Database\IdentityLock`), and, for a
+  device proof, the device's row (`Jwt\DeviceLookup::lock()`), and checks again that the proof stands
+  (`RecentAuthentication::stands()`: the device as locked; for a password, the locked row's hash is the one read before
+  the password was checked) and that the new identifier is not the current one. A password write takes the identity's
+  lock with its `UPDATE`, and a standalone bulk revocation updates the device's row before it deletes the pending
+  changes, so a password write racing a request proven by the old password, and a revocation of the proving device, come
+  either before that check, which then fails, or after the change is written, which they then cancel. A `confirmedAt()`
+  proof, and a password proof racing a revocation that leaves the password as it is, are not serialised. The current
+  identifier and whether it is verified are read from the row as locked. A refusal under the lock writes nothing,
+  commits, and gives the `identifier_change` slots back.
+- A request needs a new identifier the type's normaliser accepts (a type without a normaliser is a misconfiguration)
+  that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the new identifier,
+  the identity's account and the IP address, given back only by a refusal under the lock. It never looks for another
+  holder of the new identifier, so its answer cannot tell whether one exists.
 - A confirmation runs in one transaction on the identity's connection, which must be the device model's (the codes' and
   the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything is
   counted or written. It locks the identity's row first (`Database\IdentityLock`, the lock order every transaction that
@@ -160,7 +169,9 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `tests/Integration/IdentifierChanges/ConcurrentIdentifierChangesTest.php`: races on PostgreSQL and MySQL;
   `tests/Integration/Passwords/ConcurrentProofSpendingTest.php`: a confirmation racing a password write, a reset, a
   bulk revocation, a cancellation and a replacing request; a request proven by the password racing a password change,
-  either way, and one proven by its device racing a bulk revocation; `tests/Integration/Jwt/DeviceLookupLockTest.php`.
+  either way and between its check and its lock, one proven by its device racing a bulk revocation the same ways, and
+  requests for two identities creating their counters, codes and pending changes, neither deadlocking nor waiting;
+  `tests/Integration/Jwt/DeviceLookupLockTest.php`.
 - `tests/Integration/IdentifierChanges/ReplicaIdentifierChangesTest.php`: `pending()`, the code's delivery and a
   device's reauthentication read what only the primary holds yet, behind a lagging replica.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,

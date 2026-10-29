@@ -2318,13 +2318,18 @@ confirm it instead of signing in again, and the device's recent sign-in otherwis
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
 your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
 `requestByLink()` signs a link to your named route instead, which `link()` returns for you to send to the new identifier
-(and only there: never return it to the client). The new identifier must be one the type's normaliser accepts and not the
-current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests are
-limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address. A
-request runs in one transaction that locks the identity's row before it checks the proof (and the proving device's row,
-for a device proof), so a password change, a reset or a bulk revocation racing it comes either before the proof is
-checked, which then fails, or after the change is written, which it then cancels; the current identifier is read from
-the row as locked.
+(and only there: never return it to the client). The new identifier must be one the type's normaliser accepts and not
+the current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests
+are limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address. A
+request checks the proof, the new identifier and the limits first, on the identity's row read again; then, in one
+transaction that locks that row (and the proving device's row, for a device proof), it checks again that the proof
+stands and that the identifier is not the current one, and writes the change. A refusal there gives the
+`identifier_change` slots back. So a password change or a reset racing a request proven by the old password, and a
+revocation of the device that proves one, come either before the check under the lock, which then fails, or after the
+change is written, which they then cancel. A `confirmedAt()` proof, and a password proof racing a revocation that leaves
+the password as it is, are not serialised. The current identifier is read from the row as locked. The limits are counted
+before the transaction, never inside it, so no counter's row stays locked until its commit: on MySQL, two transactions
+that each create a counter in the same gap of the index deadlock.
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;

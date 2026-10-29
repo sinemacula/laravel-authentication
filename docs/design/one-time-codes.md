@@ -29,7 +29,9 @@ request for a code looks the same whether or not anyone has the identifier, and 
 - Issuing replaces the binding's code only when it was issued at least `resend_cooldown_seconds` ago (one conditional
   `UPDATE`), and otherwise creates it with `insertOrIgnore` against the primary key; neither writing means a code was
   issued within the cooldown, and the answer is the seconds left (at least 1). No unique violation is ever caught, so a
-  PostgreSQL transaction around a request is never aborted.
+  PostgreSQL transaction around a request is never aborted. `issueFirst()`, for a binding that names a request of its
+  own (an identifier change's), tries the insert before the replacement, so the request's transaction locks no gap of
+  the index (MySQL's `UPDATE` of a missing key would, and two requests inserting into it would deadlock).
 - A check reads the row on the write connection. No row or a used code is `invalid`; an expired code (`expires_at <=
   now`) is `expired`; one with `attempts >= max_attempts` is `exhausted`; none of these counts. Otherwise the attempt is
   counted before anything is compared, by `UPDATE ... SET attempts = attempts + 1 WHERE id AND issue_id AND consumed_at

@@ -7,10 +7,12 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -29,10 +31,8 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * A time is within the window from the second it names until, and not
  * including, the second the window after it: a time in the future proves
  * nothing. A device proof is read again by its key on the write connection, so
- * the instance the caller holds cannot stand in for the stored row, and its row
- * is locked until the transaction the check runs in ends, so a revocation
- * cannot fall between the check and what the proof allows; it must be the
- * identity's own (its recorded owner), of the guard, not revoked, with its
+ * the instance the caller holds cannot stand in for the stored row; it must be
+ * the identity's own (its recorded owner), of the guard, not revoked, with its
  * session not ended, and signed in within the window. A password proof is
  * accepted only on a guard whose audience allows the password method (one that
  * signs in only by code or passkey takes none); it is checked inside the
@@ -41,6 +41,15 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * row), and counted first against the identity's account and the IP address
  * under the guard's `sign_in` limits, as a sign-in's password is; a correct one
  * gives its slot back. A confirmation time is trusted as given.
+ *
+ * `refusal()` counts a password's attempt, so it runs before the transaction
+ * that acts on the proof: inside it, the counters' rows would stay locked until
+ * the commit, and MySQL deadlocks two transactions that each create a counter
+ * in the same gap of the index. `stands()` then checks the accepted proof again
+ * inside that transaction, once the identity's row is locked, without counting:
+ * the device is read again with its row locked until the transaction ends, so a
+ * revocation cannot fall between the check and what the proof allows, and a
+ * password stands while the locked row holds the hash it was checked against.
  *
  * Made for one check and dropped with it; it keeps nothing between calls.
  *
@@ -94,7 +103,7 @@ final readonly class RecentAuthentication
     public function refusal(Identity $identity, Reauthentication $proof, ?string $ip): FailureReason|int|null
     {
         $proven = $proof->apply(
-            fn (Device $device): bool => $this->isRecentDevice($identity, $device),
+            fn (Device $device): bool => $this->isRecentDevice($identity, DeviceLookup::find($device->getDeviceIdentifier())),
             fn (#[\SensitiveParameter] string $password): bool|int => $this->isCurrentPassword($identity, $password, $ip),
             fn (CarbonImmutable $at): bool => $this->isRecent($at),
         );
@@ -107,20 +116,42 @@ final readonly class RecentAuthentication
     }
 
     /**
-     * Whether the device, as stored, is one of the identity's live sessions of
-     * the guard and signed in within the window.
+     * Whether a proof `refusal()` accepted still stands, inside the transaction
+     * that acts on it and once the identity's row is locked: a device proof is
+     * checked again, its row locked; a password proof stands while the locked
+     * row's password hash is the one the row held when it was read before the
+     * password was checked (a hash is salted afresh on every write, so any
+     * password written in between changes it); a confirmation time does.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $before
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $locked
+     * @param  \SineMacula\Laravel\Authentication\Sessions\Reauthentication  $proof
      * @return bool
      *
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
-    private function isRecentDevice(Identity $identity, Device $device): bool
+    public function stands(Identity $before, Identity $locked, Reauthentication $proof): bool
     {
-        $stored = DeviceLookup::lock($device->getDeviceIdentifier());
+        return $proof->apply(
+            fn (Device $device): bool => $this->isRecentDevice($locked, DeviceLookup::lock($device->getDeviceIdentifier())),
+            static fn (): bool => hash_equals(self::hashOf($before), self::hashOf($locked)),
+            static fn (): bool => true,
+        );
+    }
 
+    /**
+     * Whether the device, as stored, is one of the identity's live sessions of
+     * the guard and signed in within the window.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $stored
+     * @return bool
+     *
+     * @throws \LogicException
+     */
+    private function isRecentDevice(Identity $identity, (EloquentDevice&Model)|null $stored): bool
+    {
         return $stored !== null
             && DeviceOwnership::isOwner($stored, $identity)
             && OwnedDevice::refusal($stored, $this->guard->getName(), $this->now) === null
@@ -177,6 +208,23 @@ final readonly class RecentAuthentication
 
             return true;
         });
+    }
+
+    /**
+     * The identity's password hash, read on the write connection, or an empty
+     * string when it has none.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return string
+     */
+    private static function hashOf(Identity $identity): string
+    {
+        $hash = WriteConnection::during($identity, static fn (): mixed => $identity->getAuthPassword());
+
+        // The contract documents a string, but Eloquent returns the raw
+        // attribute: null for an account stored without a password.
+        // @phpstan-ignore function.alreadyNarrowedType
+        return is_string($hash) ? $hash : '';
     }
 
     /**
