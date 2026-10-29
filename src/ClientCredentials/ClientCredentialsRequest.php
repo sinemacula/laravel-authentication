@@ -192,10 +192,16 @@ final class ClientCredentialsRequest
      */
     private static function name(string $pair): string
     {
-        $name          = ltrim(explode("\0", urldecode(explode('=', $pair)[0]))[0], ' ');
-        [$base, $rest] = explode('[', $name, 2) + [1 => null];
-        $base          = strtr($base, ' .', '__');
+        $name = ltrim(explode("\0", urldecode(explode('=', $pair)[0]))[0], ' ');
+        $open = strpos($name, '[');
 
-        return $rest === null || str_contains($rest, ']') ? $base : $base . '_' . strtr($rest, ' .[', '___');
+        if ($open === false) {
+            return strtr($name, ' .', '__');
+        }
+
+        $base = strtr(substr($name, 0, $open), ' .', '__');
+        $rest = substr($name, $open + 1);
+
+        return str_contains($rest, ']') ? $base : $base . '_' . strtr($rest, ' .[', '___');
     }
 }
