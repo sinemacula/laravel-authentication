@@ -233,6 +233,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `tests/Performance/PasswordSetQueryBudgetTest.php`
 - `tests/Feature/Passwords/ResetRequestsTest.php`, `ResetSubmissionsTest.php`, `ResetRecipientTest.php`,
   `OutdatedProofsTest.php`, `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
+- `tests/Integration/Passwords/QueuedPasswordResetTest.php` (a link and a code queued encrypted on a database queue,
+  then delivered by a worker),
 - `tests/Integration/Passwords/ReplicaPasswordResetsTest.php` (a link delivered and spent behind a lagging replica),
   `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
   `tests/Integration/Passwords/ConcurrentProofSpendingTest.php` (a password write racing a reset, a confirmation, and a
