@@ -10,6 +10,8 @@ use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
@@ -17,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -377,6 +380,35 @@ final class PasswordServiceTest extends TestCase
 
         self::assertTrue(self::carries([static fn (): string => $stored], static fn (string $value): bool => password_verify(self::PASSWORD, $value)));
         self::assertFalse(self::hasInTrace($exception, $isSecret));
+    }
+
+    /**
+     * An update the database refuses (here for a column the table lost) throws
+     * Laravel's own `QueryException`, which carries the new hash, as README.md
+     * says, in its bindings and its message; the password itself is in no frame
+     * of the trace.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUpdateTheDatabaseRefusesCarriesOnlyTheHash(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $isHash   = static fn (string $value): bool => password_verify(self::NEW_PASSWORD, $value);
+
+        Schema::table('password_identities', static function (Blueprint $blueprint): void {
+            $blueprint->dropColumn('updated_at');
+        });
+
+        $exception = self::withArgumentsInTraces(QueryException::class, fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE));
+
+        $hash = array_values(array_filter($exception->getBindings(), static fn (mixed $binding): bool => is_string($binding) && $isHash($binding)));
+
+        self::assertStringContainsString('updated_at', $exception->getMessage());
+        self::assertCount(1, $hash);
+        self::assertStringContainsString($hash[0], $exception->getMessage());
+        self::assertFalse(self::hasInTrace($exception, static fn (string $value): bool => str_contains($value, self::NEW_PASSWORD)));
     }
 
     /**

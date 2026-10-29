@@ -2114,13 +2114,16 @@ are left alone.
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
 model event fires, so an observer neither cancels the write nor revokes again behind it (`RevokeDevicesOnPasswordChange`
-does not undo the device a change kept). The model then holds the new hash. Only a registration may set the password of
-an identity not stored yet, which is then inserted with `save()`; a model event that cancels that save throws a
-`LogicException`. A registration sets only a first password: given a stored identity, it updates the row only while its
-password column is `null` or empty, in the same statement, and throws a `LogicException` otherwise, since replacing a
-password without ending any session would be a change that leaves a stolen session signed in. So does a change or a
-reset of an identity not stored, or one whose row is gone, and an identity that is not an Eloquent model; a non-human
-identity (`MachineIdentity`) has no password and throws an `InvalidArgumentException`.
+does not undo the device a change kept). The model then holds the new hash. The hash is bound into that update as any
+Eloquent write binds it: every query listener sees it, and a failed update's `QueryException` carries it in
+`getBindings()` and, unless the connection sets `mask_bindings_in_exception_messages` (an option of recent Laravel
+versions), in its message. Keep query logs and error reports as you keep the hashes themselves. Only a registration may
+set the password of an identity not stored yet, which is then inserted with `save()`; a model event that cancels that
+save throws a `LogicException`. A registration sets only a first password: given a stored identity, it updates the row
+only while its password column is `null` or empty, in the same statement, and throws a `LogicException` otherwise, since
+replacing a password without ending any session would be a change that leaves a stolen session signed in. So does a
+change or a reset of an identity not stored, or one whose row is gone, and an identity that is not an Eloquent model; a
+non-human identity (`MachineIdentity`) has no password and throws an `InvalidArgumentException`.
 
 `PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
 never for one rolled back; its context names the guard, the client and the identity, and, for a change, the device kept.
