@@ -43,8 +43,10 @@ return new class extends Migration {
             $blueprint->string('authenticatable_id')->nullable();
 
             // The ceremony options as sent, challenge included, which the
-            // response is verified against.
-            $blueprint->text('options');
+            // response is verified against. Long text: a registration or a
+            // factor lists every passkey the identity has, which can outgrow
+            // MySQL's 64 KiB text.
+            $blueprint->longText('options');
 
             $blueprint->dateTime('expires_at', 0);
             $blueprint->dateTime('created_at', 0)->nullable();

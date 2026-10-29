@@ -15,8 +15,9 @@ use Tests\TestCase;
  * Integration tests for the shape of the tables the shipped passkeys and
  * passkey challenges migrations create, on whichever engine the suite runs
  * against: the columns and their nullability, the index a credential is found
- * by, the owner and expiry indexes, whole-second times, and a credential id of
- * the longest length WebAuthn allows.
+ * by, the owner and expiry indexes, whole-second times, a credential id of the
+ * longest length WebAuthn allows, and ceremony options longer than a 64 KiB
+ * text column holds.
  *
  * The migrations run for configured table names other than the defaults and
  * with the schema builder's default time precision raised, so the index names
@@ -224,6 +225,30 @@ final class PasskeyTablesSchemaTest extends TestCase
         self::assertSame(0, DB::table(self::PASSKEYS)->insertOrIgnore(['id' => '0195f4a2-7b1c-7000-8000-000000000002'] + $row));
         self::assertSame($credentialId, DB::table(self::PASSKEYS)->where('credential_id_hash', $row['credential_id_hash'])->value('credential_id'));
         self::assertEquals(4294967295, DB::table(self::PASSKEYS)->value('sign_count'));
+    }
+
+    /**
+     * Ceremony options longer than a 64 KiB text column holds are stored and
+     * read back in full.
+     *
+     * @return void
+     */
+    public function testTheChallengeOptionsHoldMoreThanATextColumn(): void
+    {
+        $options = json_encode(['excludeCredentials' => array_fill(0, 50, ['type' => 'public-key', 'id' => str_repeat('A', 1364)])], JSON_THROW_ON_ERROR);
+
+        self::assertGreaterThan(65535, strlen($options));
+
+        DB::table(self::CHALLENGES)->insert([
+            'id'         => '0195f4a2-7b1c-7000-8000-000000000003',
+            'purpose'    => 'register',
+            'guard'      => 'api',
+            'rp_id'      => 'example.test',
+            'options'    => $options,
+            'expires_at' => '2026-04-06 12:05:00',
+        ]);
+
+        self::assertSame($options, DB::table(self::CHALLENGES)->value('options'));
     }
 
     /**
