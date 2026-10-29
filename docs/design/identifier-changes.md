@@ -86,6 +86,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - The identifier changed by another path between request and confirmation: the conditional replacement writes nothing,
   the transaction rolls back, `invalid`.
 - A confirmation through another guard, or a link signed for another guard: `invalid`; the change is left waiting.
+- A confirmation for an identity that is not active (`ActivationPolicy::isActive()`): `invalid`, reported as
+  `identity_inactive`, before anything is read, counted or spent. The link needs no session, so no guard has checked the
+  identity, and an account suspended after the request must keep its identifier; once active again, the change can
+  still be confirmed while it waits.
 - An expired change: `expired` (`code_expired`, or `link_expired` for a link, also when the link's own signature has
   not yet expired at the change's last second).
 - The notifier fails: the job fails and the queue retries; the change stands. The new identifier was proven and the

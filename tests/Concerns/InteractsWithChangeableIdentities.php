@@ -53,7 +53,8 @@ trait InteractsWithChangeableIdentities
 
     /**
      * Create the `changeable_identities` table on the given connection, or the
-     * default one, with a unique index on each identifier unless told not to.
+     * default one, with a unique index on each identifier unless told not to,
+     * and an `is_active` column for the identities that can be deactivated.
      *
      * @param  ?string  $connection
      * @param  bool  $unique
@@ -68,6 +69,7 @@ trait InteractsWithChangeableIdentities
             $phone = $blueprint->string('phone')->nullable();
             $blueprint->dateTime('phone_verified_at', 0)->nullable();
             $blueprint->string('password')->nullable();
+            $blueprint->boolean('is_active')->default(true);
             $blueprint->datetimes(0);
 
             if (!$unique) {

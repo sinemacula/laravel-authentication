@@ -37,6 +37,7 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Verification\VerificationLinks;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Integration\Fixtures\ChangeableIdentity;
+use Tests\Integration\Fixtures\SuspendableChangeableIdentity;
 use Tests\TestCase;
 
 /**
@@ -496,6 +497,47 @@ final class IdentifierChangeConfirmationTest extends TestCase
         }
 
         self::assertCount(5, $left);
+    }
+
+    /**
+     * An identity deactivated after it requested a change confirms nothing, by
+     * link (which needs no session, so no guard checked it) or by code:
+     * `invalid`, reported as `identity_inactive`, before anything is read,
+     * counted or spent, so the change confirms once the identity is active
+     * again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnInactiveIdentityConfirmsNothing(): void
+    {
+        config()->set('auth.providers.suspendables', ['driver' => 'model', 'model' => SuspendableChangeableIdentity::class]);
+        config()->set('auth.guards.suspendable', ['driver' => 'jwt', 'provider' => 'suspendables', 'audience' => ['methods' => ['password', 'phone_code']]]);
+
+        self::seedChangeable(self::EMAIL, self::PHONE);
+
+        $identity = SuspendableChangeableIdentity::query()->sole();
+        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+
+        self::assertIsString($link);
+        self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
+
+        DB::table('changeable_identities')->update(['is_active' => false]);
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByCode($identity->refresh(), 'phone', self::CODE));
+        $reasons = array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures());
+
+        self::assertSame([FailureReason::IDENTITY_INACTIVE, FailureReason::IDENTITY_INACTIVE], $reasons);
+        self::assertSame([self::EMAIL, self::PHONE, 0, 2], [$identity->refresh()->email, $identity->phone, self::codeAttempts(), self::rows('identifier_changes')]);
+
+        DB::table('changeable_identities')->update(['is_active' => true]);
+
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('suspendable')->confirmByLink(Request::create($link)));
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('suspendable')->confirmByCode($identity->refresh(), 'phone', self::CODE));
     }
 
     /**

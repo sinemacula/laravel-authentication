@@ -26,6 +26,7 @@ use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
+use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
@@ -178,7 +179,8 @@ final readonly class IdentifierChangeService
 
     /**
      * Confirm the identity's pending change of the type, requested through this
-     * guard, with the code sent to the new identifier, and make it.
+     * guard, with the code sent to the new identifier, and make it, while the
+     * identity is active.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -220,9 +222,9 @@ final readonly class IdentifierChangeService
      * Confirm the pending change a request to a change link names, and make it.
      * The link must be validly signed, unexpired, for this guard, and name the
      * identity's pending change of its type as it stands: the same request and
-     * the same new identifier. Call it from a form the link's page posts back
-     * to the same signed address, not from the link's `GET` itself, which mail
-     * scanners and link previews fetch unasked.
+     * the same new identifier; and the identity must be active. Call it from a
+     * form the link's page posts back to the same signed address, not from the
+     * link's `GET` itself, which mail scanners and link previews fetch unasked.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome
@@ -330,6 +332,10 @@ final readonly class IdentifierChangeService
      * pending change of the type (of this guard, unexpired), check the proof
      * against it, and make it. A refused proof commits, so a code's attempt is
      * counted; a change refused after the proof was accepted rolls back whole.
+     * An identity that is not active (see `ActivationPolicy`) is refused first,
+     * with nothing read or counted: a link needs no session, so no guard has
+     * checked it, and a suspended account must not have its identifier moved by
+     * a change requested before the suspension.
      *
      * @formatter:off
      *
@@ -359,6 +365,10 @@ final readonly class IdentifierChangeService
         \Closure $prove,
         FailureReason $expired,
     ): IdentifierChangeOutcome {
+        if (!ActivationPolicy::isActive($identity)) {
+            return $this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::IDENTITY_INACTIVE, $context);
+        }
+
         $now = CarbonImmutable::now()->startOfSecond();
 
         try {
