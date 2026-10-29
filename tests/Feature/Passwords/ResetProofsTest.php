@@ -100,6 +100,47 @@ final class ResetProofsTest extends TestCase
     }
 
     /**
+     * An identity with no identifier of one type still has the reset codes of
+     * its other types ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentifierTheIdentityLacksSkipsOnlyItsType(): void
+    {
+        $identity = self::seedResettable(['email' => null]);
+        $code     = self::issueCode('web', 'phone', self::PHONE);
+
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->resetWithCode('phone', self::takeover('phone', self::PHONE, $code))->status);
+    }
+
+    /**
+     * A guard whose passwords are identified by a type with no normaliser has
+     * its reset links for that identifier ended too.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardsOwnPasswordIdentifierIsOutdatedToo(): void
+    {
+        config()->set('auth.guards.nicknames', [
+            'driver'   => 'jwt',
+            'provider' => 'password_identities',
+            'audience' => ['methods' => ['password']],
+            'sign_in'  => ['password_identifier' => 'nickname'],
+        ]);
+
+        $identity = self::seedResettable(['nickname' => 'ada']);
+        $token    = self::issue(CodeBinding::passwordResetLink('nicknames', 'nickname', 'ada'), true);
+
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertSame(ResetStatus::INVALID, $this->passwords('nicknames')->reset(['nickname' => 'ada', 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+    }
+
+    /**
      * A change rolled back with the caller's transaction leaves every link and
      * code as it was.
      *

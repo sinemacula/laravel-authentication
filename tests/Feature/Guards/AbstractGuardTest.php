@@ -961,6 +961,42 @@ final class AbstractGuardTest extends AbstractGuardTestCase
     }
 
     /**
+     * `authenticateAs()` refuses scopes for a human identity, which no
+     * credential limits, and binds nothing.
+     *
+     * @return void
+     */
+    public function testAuthenticateAsRefusesScopesForAHuman(): void
+    {
+        $events = $this->recordEvents();
+
+        try {
+            $this->makeGuard()->authenticateAs($this->mockIdentity(), $this->mockPrincipal(), null, ['invoices:read']);
+            self::fail('A human identity was bound with scopes.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringStartsWith('Scopes limit the credential of a machine identity; ', $exception->getMessage());
+        }
+
+        self::assertSame([], $events->getArrayCopy());
+    }
+
+    /**
+     * Every credential check first tells the guard's timebox that it may not
+     * return early, since an early return a success asked for would otherwise
+     * stay set for every later check on the guard.
+     *
+     * @return void
+     */
+    public function testACredentialCheckClearsAnEarlierEarlyReturnFirst(): void
+    {
+        $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->once()->ordered()->andReturnSelf();
+        $this->timebox->shouldReceive('call')->once()->ordered()->andReturn(false);
+
+        self::assertFalse($this->makeGuard()->validate(['email' => 'ada@example.test', 'password' => 'irrelevant']));
+    }
+
+    /**
      * `forgetUser()` forgets the bound identity, principal and device with no
      * event, returns the guard itself, and keeps it signed out for the rest of
      * the request: the request's credential is not resolved again.

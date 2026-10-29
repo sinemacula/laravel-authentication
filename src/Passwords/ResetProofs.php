@@ -89,7 +89,8 @@ final readonly class ResetProofs
 
     /**
      * The identifier types a reset can be bound to: every type with a
-     * registered normaliser, and each guard's password identifier.
+     * registered normaliser, and each guard's password identifier. A type may
+     * be named twice, which binds nothing more.
      *
      * @param  list<string>  $guards
      * @return list<string>
@@ -99,14 +100,12 @@ final readonly class ResetProofs
      */
     private function types(array $guards): array
     {
-        $types = array_fill_keys($this->container->make(IdentifierNormalisers::class)->types(), true);
-        $sign  = $this->container->make(PasswordSignIn::class);
+        $sign = $this->container->make(PasswordSignIn::class);
 
-        foreach ($guards as $guard) {
-            $types[$sign->identifierType($guard)] = true;
-        }
-
-        return array_keys($types);
+        return [
+            ...$this->container->make(IdentifierNormalisers::class)->types(),
+            ...array_map(static fn (string $guard): string => $sign->identifierType($guard), $guards),
+        ];
     }
 
     /**
