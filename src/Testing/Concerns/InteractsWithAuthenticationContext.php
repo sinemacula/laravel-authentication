@@ -56,8 +56,8 @@ trait InteractsWithAuthenticationContext
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @param  ?string  $guard
      * @param  ?list<string>  $scopes
+     * @param  ?string  $guard
      * @return static
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -65,7 +65,7 @@ trait InteractsWithAuthenticationContext
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function actingAsIdentity(Identity $identity, ?Principal $principal = null, ?Device $device = null, ?string $guard = null, ?array $scopes = null): static
+    public function actingAsIdentity(Identity $identity, ?Principal $principal = null, ?Device $device = null, ?array $scopes = null, ?string $guard = null): static
     {
         $resolved = ActingContext::guard($guard);
 
@@ -79,15 +79,15 @@ trait InteractsWithAuthenticationContext
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @param  ?string  $guard
      * @param  ?list<string>  $scopes
+     * @param  ?string  $guard
      * @return static
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function actingAsPrincipal(Principal $principal, ?Device $device = null, ?string $guard = null, ?array $scopes = null): static
+    public function actingAsPrincipal(Principal $principal, ?Device $device = null, ?array $scopes = null, ?string $guard = null): static
     {
         return $this->actOnGuard(ActingContext::guard($guard), $principal->getIdentity(), $principal, $device, $scopes);
     }

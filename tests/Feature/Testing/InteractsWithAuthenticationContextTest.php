@@ -141,7 +141,7 @@ final class InteractsWithAuthenticationContextTest extends TestCase
 
         $other->forceFill(['identity_id' => $member->getKey()])->save();
 
-        $this->actingAsIdentity($member, $other, $device, 'members');
+        $this->actingAsIdentity($member, $other, $device, null, 'members');
 
         $this->getJson('/members/me')->assertOk()->assertExactJson([
             'identity'  => $member->getKey(),

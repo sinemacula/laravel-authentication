@@ -8,16 +8,20 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 
 ## Invariants
 
-- Production code paths are untouched. The helpers use only the guard's public, trusted `authenticateAs()`,
-  `forgetUser()` and its collaborator accessors; `setRequest()`, `forgetGuardState()`, the service provider and the
-  guards' own rebinding callbacks behave exactly as without the helpers.
+- Production code paths are untouched but for one parameter. The helpers use only the guard's public, trusted
+  `authenticateAs()`, `forgetUser()` and its collaborator accessors; `setRequest()`, `forgetGuardState()`, the service
+  provider and the guards' own rebinding callbacks behave exactly as without the helpers. `authenticateAs()` takes the
+  scopes for a machine identity (`?array $scopes`, which binds `[]`, none, when it is `null`) and refuses scopes for a
+  human one with an `InvalidArgumentException` before anything is bound (`BindsContextualState::assertScopable()`), so
+  a test can act as a machine whose credential granted them.
 - A guard acted on is bound again on every `request` rebinding, after the guard's own `setRequest()` reset: the guard
   registers its callback when it is created, and the helpers register theirs once per guard instance afterwards, so
   each request the kernel binds is authenticated as the test acted, before any middleware runs.
 - Each guard has at most one acting context, keyed by its name and tied to the guard instance acted on. Acting again on
   the guard replaces it; acting on another guard leaves it alone.
 - The context is bound as given: no ownership, activity, revocation or session-deadline check. A machine identity
-  bound this way is limited to no scope (`[]`), as every trusted bind of one is.
+  bound this way is limited to the scopes the test names, as if its credential granted them, and to none (`[]`) when it
+  names none; scopes named for a human identity are refused, and nothing is kept.
 - Acting makes the guard the default (`shouldUse()`), as Laravel's `actingAs()` does, and a model created for the test
   is no longer reported as just created, so a route returning it answers `200`, as with `be()`.
 - A queued job a worker runs starts signed out (`ForgetGuardStateBeforeJob` calls `setRequest()` directly, not through
@@ -81,7 +85,9 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 - `tests/Unit/Testing/ActingContextTest.php`
 - `tests/Feature/Testing/ActingContextTest.php`
 - `tests/Feature/Testing/InteractsWithAuthenticationContextTest.php`
-- `tests/Feature/Testing/MachineInteractsWithAuthenticationContextTest.php`
+- `tests/Feature/Testing/MachineInteractsWithAuthenticationContextTest.php` (a machine acted as with and without scopes)
+- `tests/Feature/Guards/BindsContextualStateTest.php` (`authenticateAs()` limits a machine to the scopes given),
+  `tests/Feature/Guards/AbstractGuardTest.php` (`authenticateAs()` refuses scopes for a human)
 - `tests/Integration/Testing/QueuedJobInteractsWithAuthenticationContextTest.php`
 - `tests/Unit/Testing/FakeOneTimeCodeSenderTest.php`, `tests/Unit/Testing/FakePasswordResetLinkSenderTest.php`,
   `tests/Unit/Testing/FakeIdentifierChangeNotifierTest.php`, `tests/Unit/Testing/FakeBreachedPasswordCheckerTest.php`

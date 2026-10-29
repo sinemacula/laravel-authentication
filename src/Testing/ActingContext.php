@@ -30,10 +30,11 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  * queued job a worker runs still starts signed out, as in production, and the
  * next request acts again.
  *
- * Acting on a guard ends with `stop()`, with Laravel's `Logout` for the guard
- * (a sign-out the request made), or when a new context replaces it. It is tied
- * to the guard instance acted on, so a guard forgotten and created afresh
- * (`Auth::forgetGuards()`) is not acted on until the test acts again.
+ * Acting on a guard ends with `forget()` (which the trait's `stopActing()`
+ * calls), with Laravel's `Logout` for the guard (a sign-out the request made),
+ * or when a new context replaces it. It is tied to the guard instance acted on,
+ * so a guard forgotten and created afresh (`Auth::forgetGuards()`) is not acted
+ * on until the test acts again.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
