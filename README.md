@@ -3672,15 +3672,14 @@ and the identifier change settings (`authentication.identifier_changes`). Every 
 problem, each as `[<guard>] <message>` (`[device]` for the device model and retention, `[sign_in]` for the pending
 lifetime, `[passwords]` for the password policy, `[codes]` for the code settings and sender, `[delivery]` for the
 delivery queue, `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings, `[identifier_changes]`
-for the identifier change settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync` queue
-connection, or on a `failover` one that can fall back to `sync`, while a guard allows a code method, is a `[delivery]`
-warning that leaves the exit code alone, as is a `jwt` guard whose password resets or identifier change confirmations
-would refuse to run: its provider's model on another connection than the device model, or, for resets, a password
-identifier other than `email` while Laravel's notification is the reset link sender (see
-[Password reset](#password-reset)). Only the named guards are checked with `--guard=api --guard=admin`; a named guard
-that is not configured, or neither a `jwt` nor an `api_key` guard, is a problem. The command reads configuration only:
-it opens no database connection and never prints a key. The package does not run these checks at boot; a
-misconfiguration otherwise surfaces when a guard first uses the setting.
+for the identifier change settings), and a subject without one as `[<guard>] OK`. Delivery on a `sync` queue connection,
+or on a `failover` one that can fall back to `sync`, while a guard allows a code method, is a `[delivery]` warning that
+leaves the exit code alone, as is a `jwt` guard whose password resets or identifier changes would refuse to run: its
+provider's model on another connection than the device model, or, for resets, a password identifier other than `email`
+while Laravel's notification is the reset link sender (see [Password reset](#password-reset)). Only the named guards are
+checked with `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key`
+guard, is a problem. The command reads configuration only: it opens no database connection and never prints a key. The
+package does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Testing
 

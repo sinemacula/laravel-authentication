@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\IdentifierChanges;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
@@ -18,6 +19,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
+use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -61,12 +63,12 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
  *
  * A confirmation writes the proof, the pending change and the identity in one
  * transaction, so the identity must be an Eloquent model on the device model's
- * connection, where the codes and the pending changes are kept; a machine
- * identity has no identifiers to change. Misconfiguration throws before
- * anything is counted or written; every refusal is a result, reported by
- * `AuthenticationFailed` (flow `identifier_change`), and is not concealed,
- * since the caller holds the identity. The service keeps no state between
- * calls: it reads the guard's request and dispatcher, and resolves the
+ * connection (see `SharedConnection`), where the codes and the pending changes
+ * are kept; a machine identity has no identifiers to change. Misconfiguration
+ * throws before anything is counted or written; every refusal is a result,
+ * reported by `AuthenticationFailed` (flow `identifier_change`), and is not
+ * concealed, since the caller holds the identity. The service keeps no state
+ * between calls: it reads the guard's request and dispatcher, and resolves the
  * settings, limiter, engine and delivery from the container, each time.
  *
  * @api
@@ -76,6 +78,9 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
  */
 final readonly class IdentifierChangeService
 {
+    /** @var string What the flow is called in a connection refusal. */
+    public const string FLOW = 'An identifier change';
+
     /**
      * Constructor.
      *
@@ -410,20 +415,7 @@ final readonly class IdentifierChangeService
             throw new \LogicException(sprintf('No %s is bound to tell an old identifier of its change: bind one before changing identifiers.', IdentifierChangeNotifier::class));
         }
 
-        $connection = $changeable->getConnection()->getName();
-        $shared     = (new IdentifierChange)->getConnection()->getName();
-
-        if ($connection !== $shared) {
-            $message = sprintf(
-                '%s is stored on connection [%s], but the device model, the codes and the pending identifier changes are on [%s]: '
-                    . 'a change is confirmed in one transaction, so they must share one.',
-                $changeable::class,
-                $connection,
-                $shared,
-            );
-
-            throw new \LogicException($message);
-        }
+        SharedConnection::assert($changeable, self::FLOW, $this->collaborator(ConfigRepository::class));
 
         return $changeable;
     }

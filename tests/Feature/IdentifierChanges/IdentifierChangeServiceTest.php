@@ -446,8 +446,8 @@ final class IdentifierChangeServiceTest extends TestCase
 
         $identity->setConnection('identities');
 
-        $message = ChangeableIdentity::class . ' is stored on connection [identities], but the device model, the codes and the pending identifier changes are on [testing]: '
-            . 'a change is confirmed in one transaction, so they must share one.';
+        $message = 'An identifier change spends its proof with its change to the identity in one transaction, so '
+            . ChangeableIdentity::class . ' must be on the device model\'s connection: the identity is on [identities], the devices on [testing].';
 
         foreach (
             [

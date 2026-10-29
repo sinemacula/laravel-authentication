@@ -41,7 +41,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
     use InteractsWithDevices;
 
     /** @var string The refusal every reset here throws. */
-    private const string REFUSAL = 'A password reset writes the identity and its sessions in one transaction, so '
+    private const string REFUSAL = 'A password reset spends its proof with its change to the identity in one transaction, so '
         . SeparateConnectionCutoffIdentity::class . ' must be on the device model\'s connection: the identity is on [testing], the devices on [device_store].';
 
     /**

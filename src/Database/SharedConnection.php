@@ -10,13 +10,14 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 
 /**
  * The connection rule of the helpers that spend a proof together with a change
- * to an identity and its sessions (a password reset, an identifier change's
- * confirmation): the proof (a code or token, on the device model's connection),
- * the identity, its "tokens valid after" cutoff and its devices must be written
- * in one transaction, so the identity must live on the device model's
- * connection. Two connections cannot commit as one, and a failure between their
- * commits would leave a proof spent without its change, or a change made with
- * its proof still live.
+ * to an identity (a password reset, an identifier change): the proof (a code or
+ * token, and an identifier change's pending row, on the device model's
+ * connection) and the identity, with a reset's "tokens valid after" cutoff and
+ * devices, must be written in one transaction, so the identity must live on the
+ * device model's connection. Two connections cannot commit as one, and a
+ * failure between their commits would leave a proof spent without its change,
+ * or a change made with its proof still live. Both helpers refuse such an
+ * identity before anything is counted or written.
  *
  * Connections are compared by name, the model's own or the default one, so the
  * check opens none.
@@ -49,7 +50,7 @@ final class SharedConnection
         $mismatch = self::mismatch($identity, $config);
 
         if ($mismatch !== null) {
-            throw new \LogicException(sprintf('%s writes the identity and its sessions in one transaction, so %s', $flow, $mismatch));
+            throw new \LogicException(sprintf('%s spends its proof with its change to the identity in one transaction, so %s', $flow, $mismatch));
         }
     }
 

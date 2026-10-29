@@ -35,7 +35,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
   new identifier, the identity's account and the IP address, never given back. It never looks for another holder of the
   new identifier, so its answer cannot tell whether one exists.
 - A confirmation runs in one transaction on the identity's connection, which must be the device model's (the codes'
-  and the pending changes'), checked before anything is counted or written. It reads the change (this guard's, live),
+  and the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything
+  is counted or written. It reads the change (this guard's, live),
   checks the proof, deletes the change while it still names its request, looks for another holder through the guard's
   provider, invalidates the outdated proofs and replaces the identifier conditionally on `previous`
   (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one as verified). A refused proof commits, so

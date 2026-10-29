@@ -655,8 +655,9 @@ final class CheckConfigurationCommandTest extends TestCase
         config()->set('database.connections.device_store', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
         config()->set('authentication.device.model', SeparateConnectionDevice::class);
 
-        $warning = static fn (string $guard): string => "[{$guard}] Password resets and identifier change confirmations write the identity and its sessions in one transaction, so "
-            . IntegrationIdentity::class . ' must be on the device model\'s connection: the identity is on [unreachable], the devices on [device_store].';
+        $warning = static fn (string $guard): string => "[{$guard}] Password resets and identifier changes spend their proof with their change to the identity "
+            . 'in one transaction, so ' . IntegrationIdentity::class
+            . ' must be on the device model\'s connection: the identity is on [unreachable], the devices on [device_store].';
 
         [$code, $output] = $this->check();
 

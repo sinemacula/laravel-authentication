@@ -60,7 +60,7 @@ final class SharedConnectionTest extends TestCase
         self::assertSame($expected, SharedConnection::mismatch(new SeparateConnectionCutoffIdentity, self::config()));
 
         $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('An identifier change writes the identity and its sessions in one transaction, so ' . $expected);
+        $this->expectExceptionMessage('An identifier change spends its proof with its change to the identity in one transaction, so ' . $expected);
 
         SharedConnection::assert(new SeparateConnectionCutoffIdentity, 'An identifier change', self::config());
     }
