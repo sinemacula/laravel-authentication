@@ -2068,9 +2068,10 @@ every guard, but the device in `$except` (the request's own device, to keep it s
 ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
 (see [Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked`
 and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
-password reset link and code still waiting for the identity's identifiers, through every guard (see
-[Password reset](#password-reset)): a link or code someone else obtained before cannot take the account back once its
-owner has set a new password.
+password reset link and code still waiting for the identity's identifiers, through every guard whose provider returns
+the identity (see [Password reset](#password-reset)): a link or code someone else obtained before cannot take the
+account back once its owner has set a new password. A guard whose provider reads another table binds its links and
+codes to the identities there, so they are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
@@ -2191,8 +2192,8 @@ token or code is checked whatever the identity, a code counting its attempt as a
 the job would not have sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with
 the new password in the same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see
 [Setting a password](#setting-a-password)): every session of the identity ended, its cutoff moved, its pending sign-ins
-ended, every other reset link and code for its identifiers invalidated, through every guard, and `PasswordSet` reported
-once that commits. Only a reset returns before the timebox ends. The result is a
+ended, every other reset link and code for its identifiers invalidated, through every guard whose provider returns it,
+and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends. The result is a
 `ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with `retryAfter`, or
 `password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
 `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`, `machine_identity`,
@@ -2374,9 +2375,11 @@ so the identity must be stored on the device model's connection, where the codes
 for a password reset, any other identity throws a `LogicException` naming both connections before anything is counted,
 and `authentication:check` warns about its guard. A wrong code's attempt is kept; a change refused once its proof is
 accepted (`taken`, an identifier changed meanwhile, a database error, or a transaction you roll back) rolls back whole,
-so the proof is not spent. The same transaction invalidates, for every `jwt` guard and for both the old identifier and
-the new one, the sign-in, password reset and reset link codes waiting for it, and the identity's verification codes; a
-verification link for the old identifier stops working by itself, since it carries that identifier's digest.
+so the proof is not spent. The same transaction invalidates, for every `jwt` guard whose provider returns the identity
+and for both the old identifier and the new one, the sign-in, password reset and reset link codes waiting for it, and
+the identity's verification codes; a verification link for the old identifier stops working by itself, since it carries
+that identifier's digest. A guard whose provider reads another table binds its codes to the identities there, which keep
+them.
 
 Once the change commits, `IdentifierChanged` is dispatched and, when the identity had an identifier of the type, the
 notice to the old one is queued on the delivery queue (`delivery.queue`). The change stands if the notice fails: the job

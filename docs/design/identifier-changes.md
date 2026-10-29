@@ -41,9 +41,12 @@ outdates, and why the change stands when the notice to the old identifier fails.
   the identifier conditionally on `previous` (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one
   as verified). A refused proof commits, so a code's attempt count is durable; any refusal after the proof is accepted
   throws inside the transaction, so it rolls back whole and the proof is not spent.
-- A change invalidates, in one statement, for every `jwt` guard and for both the canonical previous identifier and the
-  new one: the sign-in, password reset and password reset link codes, and the identity's verification codes. Verification
-  links need nothing: they carry the digest of the identifier they verify.
+- A change invalidates, in one statement, for every `jwt` guard whose provider can return the identity
+  (`JwtGuards::namesFor()`: its configured model reads the identity's table on the identity's connection, or it names no
+  model) and for both the canonical previous identifier and the new one: the sign-in, password reset and password reset
+  link codes, and the identity's verification codes. A sign-in or reset code names its guard, type and identifier, not
+  an identity, so through a guard over another table it belongs to whoever holds the identifier there, and is kept.
+  Verification links need nothing: they carry the digest of the identifier they verify.
 - `IdentifierChangeRequested` and `IdentifierChanged` are dispatched once the write commits on the identity's connection;
   the code's delivery and the notice are queued through `Delivery\QueuedDelivery` on the same commit. A caller's
   rollback undoes the write and dispatches nothing.
@@ -104,6 +107,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `src/Events/IdentifierChangeRequested.php`, `src/Events/IdentifierChanged.php`.
 - `src/Console/CheckConfigurationCommand.php` (`[identifier_changes]`), `src/Database/SharedConnection.php` and
   `src/Console/PasswordChecks.php` (the connection rule and its warning, shared with password resets).
+- `src/Guards/JwtGuards.php` (`namesFor()`: the guards whose proofs a change outdates).
 
 ## Authoritative Tests
 
@@ -122,6 +126,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,
   `PendingChangesTest.php`; `tests/Integration/Models/IdentifierChangeTest.php`,
   `tests/Integration/Migration/IdentifierChangesTableSchemaTest.php`.
+- `tests/Unit/Guards/JwtGuardsTest.php`: which guards' provider can return an identity.
 - `tests/Performance/IdentifierChangeQueryBudgetTest.php`.
 
 ## Change Triggers

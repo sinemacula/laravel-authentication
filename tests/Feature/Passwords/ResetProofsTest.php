@@ -100,6 +100,32 @@ final class ResetProofsTest extends TestCase
     }
 
     /**
+     * A guard whose provider reads another table binds its links to another
+     * identity: the one holding the same address there keeps its link when this
+     * identity's password changes, and resets with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardOverAnotherModelKeepsItsProofs(): void
+    {
+        $this->createSessionTables();
+
+        try {
+            $other    = $this->seedIdentity(self::EMAIL);
+            $identity = self::seedResettable();
+            $token    = self::issueToken('plain');
+
+            self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+            self::assertSame(ResetStatus::RESET, $this->passwords('plain')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::TAKEOVER_PASSWORD])->status);
+            self::assertTrue(app(Hasher::class)->check(self::TAKEOVER_PASSWORD, self::storedPassword($other->fresh()?->password)));
+        } finally {
+            $this->dropSessionTables();
+        }
+    }
+
+    /**
      * An identity with no identifier of one type still has the reset codes of
      * its other types ended.
      *

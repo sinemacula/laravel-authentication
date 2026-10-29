@@ -435,11 +435,14 @@ final class IdentifierChangeConfirmationTest extends TestCase
     }
 
     /**
-     * A confirmed change invalidates, in every jwt guard, the codes of both the
-     * replaced and the new identifier: sign-in, password reset and reset link
-     * codes, and the identity's verification codes, a guard named with digits
-     * included. Other identifiers' codes are kept, and a guard of another
-     * driver, wherever it is listed, is passed over.
+     * A confirmed change invalidates, in every jwt guard whose provider reads
+     * the identity's table, the codes of both the replaced and the new
+     * identifier: sign-in, password reset and reset link codes, and the
+     * identity's verification codes, a guard named with digits and one over
+     * another model of the same table included. Other identifiers' codes are
+     * kept, and so are the codes of a guard over another table, which belong to
+     * whoever holds the identifier there; a guard of another driver, wherever
+     * it is listed, is passed over.
      *
      * @return void
      *
@@ -464,7 +467,12 @@ final class IdentifierChangeConfirmationTest extends TestCase
             CodeBinding::verification('machines', 'email', self::NEW_EMAIL, $identity),
             CodeBinding::signIn('2024', 'email', self::EMAIL),
         ];
-        $kept = [CodeBinding::signIn('web', 'email', 'other@example.test'), CodeBinding::signIn('web', 'phone', self::PHONE)];
+        $kept = [
+            CodeBinding::signIn('web', 'email', 'other@example.test'),
+            CodeBinding::signIn('web', 'phone', self::PHONE),
+            CodeBinding::signIn('verifiable', 'email', self::NEW_EMAIL),
+            CodeBinding::passwordResetLink('verifiable', 'email', self::EMAIL),
+        ];
 
         foreach ([...$outdated, ...$kept] as $binding) {
             $codes->issue($binding, $this->now);
@@ -482,7 +490,7 @@ final class IdentifierChangeConfirmationTest extends TestCase
             self::assertContains(self::bindingDigest($binding), $left);
         }
 
-        self::assertCount(3, $left);
+        self::assertCount(5, $left);
     }
 
     /**

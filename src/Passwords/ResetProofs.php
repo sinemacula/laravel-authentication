@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Passwords;
 
-use Illuminate\Contracts\Config\Repository;
+use Illuminate\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
@@ -22,7 +22,8 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * while it was compromised) then cannot take the account back once its owner
  * has recovered it.
  *
- * Outdated are the reset links and codes of every `jwt` guard for each
+ * Outdated are the reset links and codes, through every `jwt` guard whose
+ * provider can return the identity (see `JwtGuards::namesFor()`), of each
  * identifier the identity holds, in canonical form (see `ResetRecipient`), of a
  * type a reset can be bound to: a guard's password identifier, for links, and
  * any type with a registered normaliser, for codes. A type the identity cannot
@@ -66,7 +67,7 @@ final readonly class ResetProofs
      */
     public function invalidate(Identity&Model $identity): int
     {
-        $guards   = JwtGuards::names($this->container->make(Repository::class));
+        $guards   = JwtGuards::namesFor($identity, $this->container->make(Repository::class));
         $verifier = $this->container->make(IdentifierVerifier::class);
         $bindings = [];
 

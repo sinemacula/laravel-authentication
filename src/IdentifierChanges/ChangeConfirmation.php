@@ -5,7 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\IdentifierChanges;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Contracts\Config\Repository;
+use Illuminate\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -44,11 +44,13 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * when the identity had an identifier of the type before, the notice to it is
  * queued.
  *
- * Invalidated, for every `jwt` guard and for both the replaced identifier (in
- * its canonical form) and the new one: the sign-in, password reset and password
- * reset link codes of the identifier, and the identity's verification code for
- * it. A verification link needs nothing: it carries the digest of the
- * identifier it verifies, so it stops working once that is not the identity's.
+ * Invalidated, for every `jwt` guard whose provider can return the identity
+ * (see `JwtGuards::namesFor()`: a guard over another table binds its proofs to
+ * other identities) and for both the replaced identifier (in its canonical
+ * form) and the new one: the sign-in, password reset and password reset link
+ * codes of the identifier, and the identity's verification code for it. A
+ * verification link needs nothing: it carries the digest of the identifier it
+ * verifies, so it stops working once that is not the identity's.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -138,21 +140,21 @@ final readonly class ChangeConfirmation
     /**
      * The bindings of every code the change outdates.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Models\IdentifierChange  $change
      * @return list<\SineMacula\Laravel\Authentication\Codes\CodeBinding>
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
-    private function outdatedProofs(Identity $identity, IdentifierChange $change): array
+    private function outdatedProofs(Identity&Model $identity, IdentifierChange $change): array
     {
         $type        = $change->type;
         $previous    = $change->previous === null ? null : $this->container->make(IdentifierVerifier::class)->canonical($type, $change->previous);
         $identifiers = array_filter([$previous, $change->identifier], is_string(...));
         $bindings    = [];
 
-        foreach (JwtGuards::names($this->container->make(Repository::class)) as $guard) {
+        foreach (JwtGuards::namesFor($identity, $this->container->make(Repository::class)) as $guard) {
             foreach ($identifiers as $identifier) {
                 $bindings[] = CodeBinding::signIn($guard, $type, $identifier);
                 $bindings[] = CodeBinding::passwordReset($guard, $type, $identifier);

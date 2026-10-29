@@ -84,7 +84,9 @@ only duplicate them.
   dispatched once that commits (`Database\AfterCommit`), never for a rollback, and never by the automatic rehash.
 - A new password outdates every reset link and code still waiting for the identity, whatever the flow: the same
   transaction invalidates them (`ResetProofs`), so a link or code someone else obtained earlier (a forwarded mail, a
-  mailbox read while it was compromised) cannot take the account back after its owner recovers it, through any guard.
+  mailbox read while it was compromised) cannot take the account back after its owner recovers it, through any guard
+  whose provider can return the identity. A guard whose provider reads another table binds its links and codes to the
+  identities there, so they are kept (`JwtGuards::namesFor()`).
 
 ## Success Path
 
@@ -100,12 +102,13 @@ only duplicate them.
      a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.
    - `ResetProofs::invalidate()`: one `DELETE` on the codes' table of the reset link and code bindings of every `jwt`
-     guard for each identifier the identity holds, in canonical form, of a type a reset can be bound to (each guard's
-     password identifier, for links, and every type with a registered normaliser, for codes). An identifier is read as
-     `ResetRecipient` reads it (through `HasVerifiableIdentifiers`, else the attribute named after the type, skipped
-     when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
-     invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
-     cannot be built) fails the write closed.
+     guard whose provider can return the identity (its configured model reads the identity's table on the identity's
+     connection, or it names no model) for each identifier the identity holds, in canonical form, of a type a reset can
+     be bound to (each guard's password identifier, for links, and every type with a registered normaliser, for codes).
+     An identifier is read as `ResetRecipient` reads it (through `HasVerifiableIdentifiers`, else the attribute named
+     after the type, skipped when the model has none); a type the identity's verification throws a `LogicException` for
+     has nothing to invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a
+     normaliser that cannot be built) fails the write closed.
    - `CHANGE`: `SessionService::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every guard's
      devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended, their events after their
      commit); `REGISTRATION`: nothing.
@@ -216,7 +219,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
   `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
   `tests/Feature/Database/SharedConnectionTest.php`
-- `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests)
+- `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests), `tests/Unit/Guards/JwtGuardsTest.php`
 - `tests/Performance/PasswordResetEnumerationTest.php`, `tests/Performance/PasswordResetQueryBudgetTest.php`
 
 ## Change Triggers
