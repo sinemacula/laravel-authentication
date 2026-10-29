@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Codes;
 
 use Illuminate\Contracts\Config\Repository;
+use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
  * The one-time code settings in `authentication.codes`, read on every call and
@@ -120,17 +121,6 @@ final readonly class CodeSettings
     {
         [$default, $least, $most] = self::NUMBERS[$key];
 
-        $most  = $greatest ?? $most;
-        $value = $this->config->get(self::PREFIX . $key, $default);
-
-        if (is_string($value) && preg_match('/^(?:0|[1-9]\d{0,8})$/D', $value) === 1) {
-            $value = (int) $value;
-        }
-
-        if (!is_int($value) || $value < $least || $value > $most) {
-            throw new \InvalidArgumentException(sprintf('%s%s must be an integer from %d to %d.', self::PREFIX, $key, $least, $most));
-        }
-
-        return $value;
+        return IntegerSetting::read($this->config, self::PREFIX . $key, $default, $least, $greatest ?? $most);
     }
 }
