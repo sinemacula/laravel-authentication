@@ -79,11 +79,12 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A first request proven by a confirmation time reads the identifier from
-     * the identity in hand, counts the limits (an update, then an insert, for
-     * each of the identifier, the identity and the IP address), issues the code
-     * (an update, then an insert), reads the pending change it would replace,
-     * and writes its own (an update, then an insert).
+     * A first request proven by a confirmation time locks the identity's row,
+     * reads the identifier from the identity in hand, counts the limits (an
+     * update, then an insert, for each of the identifier, the identity and the
+     * IP address), issues the code (an update, then an insert), reads the
+     * pending change it would replace, and writes its own (an update, then an
+     * insert).
      *
      * @return void
      *
@@ -95,7 +96,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
         $changes  = Auth::identifierChanges('web');
 
         $proof   = Reauthentication::confirmedAt(now());
-        $request = $this->assertQueryBudget(1, 10, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
+        $request = $this->assertQueryBudget(2, 10, static fn (): IdentifierChangeRequest => $changes->requestByCode($identity, 'email', self::NEW_EMAIL, $proof));
 
         self::assertTrue($request->isSent());
     }
@@ -117,7 +118,7 @@ final class IdentifierChangeQueryBudgetTest extends PerformanceContractTestCase
 
         $changes->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'confirm');
 
-        $request = $this->assertQueryBudget(1, 6, static fn (): IdentifierChangeRequest => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'confirm'));
+        $request = $this->assertQueryBudget(2, 6, static fn (): IdentifierChangeRequest => $changes->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'confirm'));
 
         self::assertTrue($request->isSent());
     }

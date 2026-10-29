@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Feature\IdentifierChanges;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -534,10 +535,10 @@ final class IdentifierChangeConfirmationTest extends TestCase
     /**
      * An identity deactivated after it requested a change confirms nothing, by
      * link (which needs no session, so no guard checked it) or by code:
-     * `invalid`, reported as `identity_inactive`, before anything is read,
-     * counted or spent, so the change confirms once the identity is active
-     * again: a deactivation that only clears the flag ends no session (one
-     * through `identityDeactivated()` cancels the change too).
+     * `invalid`, reported as `identity_inactive`, before anything but its row
+     * is read, counted or spent, so the change confirms once the identity is
+     * active again: a deactivation that only clears the flag ends no session
+     * (one through `identityDeactivated()` cancels the change too).
      *
      * @return void
      *
@@ -571,6 +572,82 @@ final class IdentifierChangeConfirmationTest extends TestCase
 
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('suspendable')->confirmByLink(Request::create($link)));
         self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes('suspendable')->confirmByCode($identity->refresh(), 'phone', self::CODE));
+    }
+
+    /**
+     * Whether the identity is active is read from its row under the lock, not
+     * from the instance given: one deactivated after the caller loaded it
+     * confirms nothing by code, and one deactivated after a link loaded it,
+     * before the lock, confirms nothing by link. Both are `invalid`, reported
+     * as `identity_inactive`, with nothing counted or spent.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityDeactivatedAfterItWasLoadedConfirmsNothing(): void
+    {
+        config()->set('auth.providers.suspendables', ['driver' => 'model', 'model' => SuspendableChangeableIdentity::class]);
+        config()->set('auth.guards.suspendable', ['driver' => 'jwt', 'provider' => 'suspendables', 'audience' => ['methods' => ['password', 'phone_code']]]);
+
+        self::seedChangeable(self::EMAIL, self::PHONE);
+
+        $identity = SuspendableChangeableIdentity::query()->sole();
+        $link     = $this->changes('suspendable')->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now), 'email.confirm')->link();
+
+        self::assertIsString($link);
+        self::assertTrue($this->changes('suspendable')->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        DB::table('changeable_identities')->update(['is_active' => false]);
+
+        self::assertTrue($identity->isActive());
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByCode($identity, 'phone', self::CODE));
+
+        DB::table('changeable_identities')->update(['is_active' => true]);
+
+        $deactivated = false;
+
+        DB::listen(static function (QueryExecuted $query) use (&$deactivated): void {
+            if ($deactivated || !str_starts_with($query->sql, 'select') || !str_contains($query->sql, 'changeable_identities')) {
+                return;
+            }
+
+            $deactivated = true;
+
+            DB::table('changeable_identities')->update(['is_active' => false]);
+        });
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes('suspendable')->confirmByLink(Request::create($link)));
+        self::assertTrue($deactivated);
+
+        $reasons = array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures());
+
+        self::assertSame([FailureReason::IDENTITY_INACTIVE, FailureReason::IDENTITY_INACTIVE], $reasons);
+        self::assertSame([self::EMAIL, self::PHONE, 0, 2], [$identity->refresh()->email, $identity->phone, self::codeAttempts(), self::rows('identifier_changes')]);
+    }
+
+    /**
+     * An identity no longer stored confirms nothing with the instance the
+     * caller still holds: `invalid`, reported as `invalid_credentials`, with
+     * its code's attempt not counted.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityNoLongerStoredConfirmsNothing(): void
+    {
+        $identity = $this->requestedByCode();
+
+        DB::table('changeable_identities')->delete();
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        self::assertSame(IdentifierChangeOutcome::INVALID, $this->changes()->confirmByCode($identity, 'email', self::CODE));
+        self::assertSame([FailureReason::INVALID_CREDENTIALS], array_map(static fn (AuthenticationFailed $event): FailureReason => $event->reason, $this->failures()));
+        self::assertSame([0, 1], [self::codeAttempts(), self::rows('identifier_changes')]);
     }
 
     /**

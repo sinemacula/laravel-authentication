@@ -294,7 +294,9 @@ final readonly class IdentifierChangeService
      * Cancel the identity's change of the identifier of the type pending
      * through this guard, so its code and link stop working; returns whether
      * there was one to cancel (an expired one is cancelled too). A change
-     * requested through another guard is left alone.
+     * requested through another guard is left alone. The identity's row is
+     * locked first (see `IdentityLock`), so a confirmation or a request racing
+     * the cancellation waits for it rather than deadlocks.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $type
@@ -318,6 +320,9 @@ final readonly class IdentifierChangeService
         (new CodeKeys($this->collaborator(Repository::class)))->validate();
 
         return (new IdentifierChange)->getConnection()->transaction(function () use ($changeable, $type): bool {
+
+            IdentityLock::acquire($changeable);
+
             $change = PendingChanges::find($changeable, $type);
 
             if ($change === null || $change->guard !== $this->guard->getName() || !PendingChanges::delete($change)) {
@@ -335,11 +340,12 @@ final readonly class IdentifierChangeService
      * (see `IdentityLock`), read its pending change of the type (of this guard,
      * unexpired), check the proof against it, and make it. A refused proof
      * commits, so a code's attempt is counted; a change refused after the proof
-     * was accepted rolls back whole. An identity that is not active (see
-     * `ActivationPolicy`) is refused first, with nothing read or counted: a
-     * link needs no session, so no guard has checked it, and a suspended
-     * account must not have its identifier moved by a change requested before
-     * the suspension.
+     * was accepted rolls back whole. An identity no longer stored, or not
+     * active (see `ActivationPolicy`) as its row reads under the lock, whatever
+     * the instance given says, is refused first, with nothing else read or
+     * counted: a link needs no session, so no guard has checked it, and a
+     * suspended account must not have its identifier moved by a change
+     * requested before the suspension.
      *
      * @formatter:off
      *
@@ -369,40 +375,86 @@ final readonly class IdentifierChangeService
         \Closure $prove,
         FailureReason $expired,
     ): IdentifierChangeOutcome {
-        if (!ActivationPolicy::isActive($identity)) {
-            return $this->refuseConfirmation(IdentifierChangeOutcome::INVALID, FailureReason::IDENTITY_INACTIVE, $context);
-        }
-
-        $now = CarbonImmutable::now()->startOfSecond();
+        $now     = CarbonImmutable::now()->startOfSecond();
+        $attempt = fn (): ?ChangeRefused => self::lockedRefusal($identity) ?? $this->make($identity, $type, $context, $prove, $expired, $now);
 
         try {
-            $refused = $identity->getConnection()->transaction(function () use ($identity, $context, $prove, $expired, $type, $now): ?ChangeRefused {
-
-                IdentityLock::acquire($identity);
-
-                $change = PendingChanges::find($identity, $type);
-
-                if ($change === null || $change->guard !== $this->guard->getName()) {
-                    return new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS);
-                }
-
-                if (PendingChanges::hasExpired($change, $now)) {
-                    return new ChangeRefused(IdentifierChangeOutcome::EXPIRED, $expired);
-                }
-
-                $refused = $prove($change, $now);
-
-                if ($refused === null) {
-                    (new ChangeConfirmation($this->guard, $this->container))->complete($identity, $change, $context, $now);
-                }
-
-                return $refused;
-            });
+            $refused = $identity->getConnection()->transaction($attempt);
         } catch (ChangeRefused $refusal) {
             $refused = $refusal;
         }
 
         return $refused === null ? IdentifierChangeOutcome::CHANGED : $this->refuseConfirmation($refused->outcome, $refused->reason, $context);
+    }
+
+    /**
+     * Inside the confirmation's transaction, once the identity's row is locked:
+     * read its pending change of the type (of this guard, unexpired), check the
+     * proof against it, and make it; the refusal, or `null` once made.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $type
+     * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Models\IdentifierChange, \Carbon\CarbonImmutable): ?\SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused  $prove
+     * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $expired
+     * @param  \Carbon\CarbonImmutable  $now
+     * @return ?\SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
+     */
+    private function make(
+        HasChangeableIdentifiers&Identity&Model $identity,
+        string $type,
+        EventContext $context,
+        \Closure $prove,
+        FailureReason $expired,
+        CarbonImmutable $now,
+    ): ?ChangeRefused {
+        $change = PendingChanges::find($identity, $type);
+
+        if ($change === null || $change->guard !== $this->guard->getName()) {
+            return new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS);
+        }
+
+        if (PendingChanges::hasExpired($change, $now)) {
+            return new ChangeRefused(IdentifierChangeOutcome::EXPIRED, $expired);
+        }
+
+        $refused = $prove($change, $now);
+
+        if ($refused === null) {
+            (new ChangeConfirmation($this->guard, $this->container))->complete($identity, $change, $context, $now);
+        }
+
+        return $refused;
+    }
+
+    /**
+     * Lock the identity's row (see `IdentityLock`) and refuse a confirmation
+     * for it when the row is no longer stored, or reads as not active; `null`
+     * otherwise.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $identity
+     * @return ?\SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRefused
+     */
+    private static function lockedRefusal(Model $identity): ?ChangeRefused
+    {
+        $stored = IdentityLock::acquire($identity);
+
+        return match (true) {
+            $stored === null                     => new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::INVALID_CREDENTIALS),
+            !ActivationPolicy::isActive($stored) => new ChangeRefused(IdentifierChangeOutcome::INVALID, FailureReason::IDENTITY_INACTIVE),
+            default                              => null,
+        };
     }
 
     /**

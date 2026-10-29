@@ -206,7 +206,7 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
         [$known, $knownSql]     = $this->recorded(static fn (): ResetResult => $reset(self::EMAIL, $knownClient));
         [$unknown, $unknownSql] = $this->recorded(static fn (): ResetResult => $reset(self::UNKNOWN_EMAIL, $unknownClient));
 
-        $lock = (new PasswordIdentity)->newQueryWithoutScopes()->whereKey(1)->toBase()->lockForUpdate()->limit(1)->select('id')->toSql();
+        $lock = (new PasswordIdentity)->newModelQuery()->whereKey(1)->lockForUpdate()->limit(1)->toSql();
         $at   = array_search($lock, $knownSql, true);
 
         self::assertEquals($known, $unknown);

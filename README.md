@@ -2212,7 +2212,8 @@ missing or malformed identifier, token, code or password is `invalid`; a passwor
 `password_rejected` with its violations, and spends nothing; then the identity is looked up and, in one transaction, the
 token or code is checked whatever the identity, a code counting its attempt as a sign-in does. The transaction locks the
 identity's row before it touches the proof, as a password change does, so a reset and a change of the password or of an
-identifier racing on one identity wait for each other instead of failing. A refused proof is `invalid` (an expired or
+identifier racing on one identity wait for each other instead of failing, and decides again on the row as locked whether
+the identity may reset, so a deactivation committed since the lookup counts. A refused proof is `invalid` (an expired or
 exhausted one included) and its attempt stays counted; a proof accepted for no identity, or one the job would not have
 sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with the new password in the
 same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see [Setting a password](#setting-a-password)):
@@ -2318,7 +2319,11 @@ your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `id
 `requestByLink()` signs a link to your named route instead, which `link()` returns for you to send to the new identifier
 (and only there: never return it to the client). The new identifier must be one the type's normaliser accepts and not the
 current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests are
-limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address.
+limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address. A
+request runs in one transaction that locks the identity's row before it checks the proof (and the proving device's row,
+for a device proof), so a password change, a reset or a bulk revocation racing it comes either before the proof is
+checked, which then fails, or after the change is written, which it then cancels; the current identifier is read from
+the row as locked.
 
 ```php
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -2372,7 +2377,8 @@ Route::middleware('auth:api')->post('/email/change/link', function (Request $req
 One change waits per identity and type, in `identifier_changes.table`: a newer request, through any guard, replaces it,
 so the code and the link of an earlier one stop working at once. It waits `identifier_changes.ttl_seconds` (3600 by
 default), and a change proven by code no longer than its code works (`codes.ttl_seconds`). `pending($identity, $type)`
-reports the change waiting through this guard (its new identifier and times) and `cancel($identity, $type)` drops it.
+reports the change waiting through this guard (its new identifier and times) and `cancel($identity, $type)` drops it,
+locking the identity's row first, as a request and a confirmation do, so the three wait for each other.
 Ending the identity's sessions in bulk drops every change it has waiting, of each type and through each guard, in the
 same transaction: `signOutEverywhere()`, `revokeDevices()` and the security-change methods that end an identity's
 sessions (see [Revoking on security changes](#revoking-on-security-changes)), so also a change or a reset of the
@@ -2425,7 +2431,8 @@ Route::post('/email/change/link/confirm', function (Request $request) {
 | `taken`     | Another identity holds the new identifier; the proof is not used up                                                                                                   |
 
 A confirmation locks the identity's row, reads the change, checks the proof and makes the change in one transaction on
-the identity's connection (the row lock comes first, as in a password change or reset, so they wait for each other), so
+the identity's connection (the row lock comes first, as in a password change or reset, so they wait for each other;
+whether the identity is still stored and active is read from the row as locked, not from the instance you pass), so
 the identity must be stored on the device model's connection, where the codes and the pending changes are kept: as for a
 password reset, any other identity throws a `LogicException` naming both connections before anything is counted, and
 `authentication:check` warns about its guard. A wrong code's attempt is kept; a change refused once its proof is

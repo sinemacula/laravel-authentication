@@ -30,6 +30,13 @@ outdates, and why the change stands when the notice to the old identifier fails.
   on a guard whose audience allows the `password` method only, checked in the guard's credential timebox against the
   identity read again through the guard's provider, counted under `sign_in` against the account and the IP address and
   given back when correct; or a trusted confirmation time, not in the future.
+- A request runs in one transaction on the identity's connection that locks the identity's row first
+  (`Database\IdentityLock`), and, for a device proof, the device's row (`Jwt\DeviceLookup::lock()`), before it checks
+  the proof: a password write takes the identity's lock with its `UPDATE`, and a standalone bulk revocation updates the
+  device's row before it deletes the pending changes, so either comes before the proof is checked, which then fails, or
+  waits until the change is written, which it then cancels. The current identifier and whether it is verified are read
+  from the row as locked. A password proof's limiter slot and timebox therefore run inside the transaction; a refusal
+  writes nothing and commits.
 - A request then needs a new identifier the type's normaliser accepts (a type without a normaliser is a
   misconfiguration) that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the
   new identifier, the identity's account and the IP address, never given back. It never looks for another holder of the
@@ -37,8 +44,10 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - A confirmation runs in one transaction on the identity's connection, which must be the device model's (the codes' and
   the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything is
   counted or written. It locks the identity's row first (`Database\IdentityLock`, the lock order every transaction that
-  writes an identity with its proofs follows, so a password write or a reset racing it waits rather than deadlocks),
-  reads the change (this guard's, live), checks the proof, deletes the change while it still names its request, looks
+  writes an identity with its proofs follows, so a password write, a reset, a request or a cancellation racing it waits
+  rather than deadlocks), refuses an identity no longer stored (`invalid_credentials`) or not active as its row reads
+  under the lock (`identity_inactive`), whatever the instance given says, with nothing counted, reads the change (this
+  guard's, live), checks the proof, deletes the change while it still names its request, looks
   for another holder through the guard's provider, invalidates the outdated proofs and replaces the identifier
   conditionally on `previous` (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one as verified).
   A refused proof commits, so a code's attempt count is durable; any refusal after the proof is accepted throws inside
@@ -88,11 +97,11 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - The identifier changed by another path between request and confirmation: the conditional replacement writes nothing,
   the transaction rolls back, `invalid`.
 - A confirmation through another guard, or a link signed for another guard: `invalid`; the change is left waiting.
-- A confirmation for an identity that is not active (`ActivationPolicy::isActive()`): `invalid`, reported as
-  `identity_inactive`, before anything is read, counted or spent. The link needs no session, so no guard has checked the
-  identity, and an account suspended after the request must keep its identifier; once active again, the change can
-  still be confirmed while it waits, unless the suspension ended its sessions through `identityDeactivated()`, which
-  cancels it (below).
+- A confirmation for an identity that is not active (`ActivationPolicy::isActive()`, on the row as locked): `invalid`,
+  reported as `identity_inactive`, before anything else is read, counted or spent. The link needs no session, so no
+  guard has checked the identity, and an account suspended after the request must keep its identifier; once active
+  again, the change can still be confirmed while it waits, unless the suspension ended its sessions through
+  `identityDeactivated()`, which cancels it (below).
 - An expired change: `expired` (`code_expired`, or `link_expired` for a link, also when the link's own signature has
   not yet expired at the change's last second).
 - The notifier fails: the job fails and the queue retries; the change stands. The new identifier was proven and the
@@ -125,7 +134,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
   `PresentedChangeLink.php`, `IdentifierChangeSettings.php`, `IdentifierChangeRequest.php`,
   `PendingIdentifierChange.php`, `IdentifierChangeNotice.php`, `Enums/*`.
 - `src/IdentifierChanges/SendIdentifierChangeCode.php`, `SendIdentifierChangeNotice.php`.
-- `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`.
+- `src/Sessions/Reauthentication.php`, `src/Sessions/RecentAuthentication.php`, `src/Jwt/DeviceLookup.php` (`lock()`),
+  `src/Database/IdentityLock.php`.
 - `src/Contracts/HasChangeableIdentifiers.php`, `src/Concerns/ProvidesIdentifierVerification.php`
   (`replaceIdentifier()`), `src/Contracts/IdentifierChangeNotifier.php`, `src/Testing/FakeIdentifierChangeNotifier.php`.
 - `src/Models/IdentifierChange.php`, `database/migrations/2026_04_06_000007_create_identifier_changes_table.php`.
@@ -148,8 +158,9 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `tests/Feature/IdentifierChanges/EndedSessionsCancelChangesTest.php`: every bulk revocation of the identity cancels its
   pending changes; one device or a principal's sessions keep them.
 - `tests/Integration/IdentifierChanges/ConcurrentIdentifierChangesTest.php`: races on PostgreSQL and MySQL;
-  `tests/Integration/Passwords/ConcurrentProofSpendingTest.php`: a confirmation racing a password write, a reset and a
-  bulk revocation.
+  `tests/Integration/Passwords/ConcurrentProofSpendingTest.php`: a confirmation racing a password write, a reset, a
+  bulk revocation, a cancellation and a replacing request; a request proven by the password racing a password change,
+  either way, and one proven by its device racing a bulk revocation; `tests/Integration/Jwt/DeviceLookupLockTest.php`.
 - `tests/Integration/IdentifierChanges/ReplicaIdentifierChangesTest.php`: `pending()`, the code's delivery and a
   device's reauthentication read what only the primary holds yet, behind a lagging replica.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,

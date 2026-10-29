@@ -29,8 +29,10 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * A time is within the window from the second it names until, and not
  * including, the second the window after it: a time in the future proves
  * nothing. A device proof is read again by its key on the write connection, so
- * the instance the caller holds cannot stand in for the stored row, and must be
- * the identity's own (its recorded owner), of the guard, not revoked, with its
+ * the instance the caller holds cannot stand in for the stored row, and its row
+ * is locked until the transaction the check runs in ends, so a revocation
+ * cannot fall between the check and what the proof allows; it must be the
+ * identity's own (its recorded owner), of the guard, not revoked, with its
  * session not ended, and signed in within the window. A password proof is
  * accepted only on a guard whose audience allows the password method (one that
  * signs in only by code or passkey takes none); it is checked inside the
@@ -117,7 +119,7 @@ final readonly class RecentAuthentication
      */
     private function isRecentDevice(Identity $identity, Device $device): bool
     {
-        $stored = DeviceLookup::find($device->getDeviceIdentifier());
+        $stored = DeviceLookup::lock($device->getDeviceIdentifier());
 
         return $stored !== null
             && DeviceOwnership::isOwner($stored, $identity)

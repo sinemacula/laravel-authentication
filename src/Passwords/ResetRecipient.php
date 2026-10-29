@@ -61,8 +61,26 @@ final class ResetRecipient
      */
     public static function find(JwtGuard $guard, CodeBinding $binding, Container $container): FailureReason|(Identity&Model)
     {
-        $found = $guard->getProvider()->retrieveByCredentials([$binding->type => $binding->identifier]);
+        return self::eligible($guard, $guard->getProvider()->retrieveByCredentials([$binding->type => $binding->identifier]), $binding, $container);
+    }
 
+    /**
+     * The identity found, when it may reset its password with the binding, or
+     * why it may not (see `find()`): a reset calls it again on the row it
+     * locked, so a deactivation committed since the lookup is not missed.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Guards\JwtGuard  $guard
+     * @param  mixed  $found
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  \Illuminate\Contracts\Container\Container  $container
+     * @return (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity)|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public static function eligible(JwtGuard $guard, mixed $found, CodeBinding $binding, Container $container): FailureReason|(Identity&Model)
+    {
         return match (true) {
             !$found instanceof Identity || !$found instanceof Model                     => FailureReason::INVALID_CREDENTIALS,
             $found instanceof MachineIdentity                                           => FailureReason::MACHINE_IDENTITY,

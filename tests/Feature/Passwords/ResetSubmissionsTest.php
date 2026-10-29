@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
+use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -165,6 +166,46 @@ final class ResetSubmissionsTest extends TestCase
         self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::TOO_SHORT]], [$result->status, $result->violations]);
         self::assertFalse($result->isReset());
         self::assertSame([], $this->recordedClasses());
+        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+    }
+
+    /**
+     * Whether the identity may reset is decided again on its row once it is
+     * locked: one deactivated after the lookup found it, before the lock, is
+     * `invalid`, reported as `identity_inactive`, and its link stays unspent,
+     * so it resets once the identity is active again.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityDeactivatedAfterTheLookupResetsNothing(): void
+    {
+        self::seedResettable();
+
+        $token       = $this->requestLink();
+        $deactivated = false;
+
+        DB::listen(static function (QueryExecuted $query) use (&$deactivated): void {
+            if ($deactivated || !str_starts_with($query->sql, 'select') || !str_contains($query->sql, 'password_identities')) {
+                return;
+            }
+
+            $deactivated = true;
+
+            DB::table('password_identities')->update(['is_active' => false]);
+        });
+
+        $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
+
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+        self::assertTrue($deactivated);
+        self::assertSame([AuthenticationFailed::class], $this->recordedClasses());
+        self::assertSame(FailureReason::IDENTITY_INACTIVE, $this->recordedEvent(AuthenticationFailed::class)->reason);
+        self::assertSame(0, DB::table('one_time_codes')->whereNotNull('consumed_at')->count());
+
+        DB::table('password_identities')->update(['is_active' => true]);
+
         self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
     }
 
@@ -481,7 +522,7 @@ final class ResetSubmissionsTest extends TestCase
         $identity   = self::seedResettable();
         $token      = $this->requestLink();
         $statements = self::recordStatements();
-        $lock       = $identity->newQueryWithoutScopes()->whereKey($identity->getKey())->toBase()->lockForUpdate()->limit(1)->select('id')->toSql();
+        $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
         self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
 

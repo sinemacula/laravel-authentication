@@ -514,12 +514,39 @@ final class IdentifierChangeServiceTest extends TestCase
         $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now));
 
         $statements = self::recordStatements();
-        $lock       = $identity->newQueryWithoutScopes()->whereKey($identity->getKey())->toBase()->lockForUpdate()->limit(1)->select('id')->toSql();
+        $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
 
         $this->changes()->confirmByCode($identity, 'email', self::CODE);
 
         self::assertSame(['begin', $lock], array_slice($statements(), 0, 2));
         self::assertStringContainsString('identifier_changes', $statements()[2]);
+    }
+
+    /**
+     * A request locks the identity's row as its transaction starts, before it
+     * checks the proof or reads the pending change it replaces, so a password
+     * write or a confirmation racing it waits instead of falling in between;
+     * so does a cancellation, before it reads the change it deletes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestAndACancellationLockTheIdentitysRowFirst(): void
+    {
+        $identity   = self::seedChangeable();
+        $statements = self::recordStatements();
+        $lock       = $identity->newModelQuery()->whereKey($identity->getKey())->lockForUpdate()->limit(1)->toSql();
+
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD))->isSent());
+        self::assertSame(['begin', $lock], array_slice($statements(), 0, 2));
+        self::assertStringContainsString('rate_limits', $statements()[2]);
+
+        $cancelling = self::recordStatements();
+
+        self::assertTrue($this->changes()->cancel($identity, 'email'));
+        self::assertSame(['begin', $lock], array_slice($cancelling(), 0, 2));
+        self::assertStringContainsString('identifier_changes', $cancelling()[2]);
     }
 
     /**

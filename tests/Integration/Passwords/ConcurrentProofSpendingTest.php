@@ -18,24 +18,29 @@ use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Database\IdentityLock;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
+use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\ResetSubmissions;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
+use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
 /**
  * Races, on PostgreSQL and MySQL, a password write against the flows that spend
- * a proof bound to the same identity (an identifier change confirmation, a
- * password reset), and a bulk revocation against a confirmation, each in a
- * process with a database connection of its own. The first is held open right
- * after the statement that would make the two lock their rows in opposite
- * orders; the second, started meanwhile, waits for it on the identity's row
- * (see `IdentityLock`) instead of deadlocking, so both answer a result and
- * neither throws.
+ * or take a proof bound to the same identity (an identifier change request and
+ * confirmation, a password reset), a bulk revocation against a confirmation and
+ * a request, and a cancellation and a replacing request against a confirmation,
+ * each in a process with a database connection of its own. The first is held
+ * open right after the statement that would make the two lock their rows in
+ * opposite orders, or let one act on what the other is about to undo; the
+ * second, started meanwhile, waits for it on the identity's row (see
+ * `IdentityLock`) or the device's, so both answer a result, neither throws, and
+ * the second sees what the first left.
  *
  * Skipped on SQLite, whose in-memory database each process would have to
  * itself, and where `pcntl` is not available.
@@ -49,6 +54,9 @@ use Tests\TestCase;
 #[CoversClass(IdentifierChangeService::class)]
 #[CoversClass(ResetSubmissions::class)]
 #[CoversClass(DeviceRevocations::class)]
+#[CoversClass(ChangeRequests::class)]
+#[CoversClass(RecentAuthentication::class)]
+#[CoversClass(DeviceLookup::class)]
 final class ConcurrentProofSpendingTest extends TestCase
 {
     use ChangesIdentifiers;
@@ -244,6 +252,150 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
+     * A password change racing a request proven by the password, held once it
+     * locked the identity's row, waits for it, then cancels the change it
+     * wrote: its link confirms nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasswordChangeWaitsForARequestProvenByThePasswordAndCancelsIt(): void
+    {
+        $identity = self::seedChangeable();
+        $link     = null;
+
+        [$first, $second] = $this->race(
+            'select',
+            'changeable_identities',
+            function () use ($identity, &$link): string {
+                $request = $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD), 'email.confirm');
+                $link    = $request->link();
+
+                return $request->status->value;
+            },
+            static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
+        );
+
+        self::assertSame(['sent', 'set'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(0, DB::table('identifier_changes')->count());
+        self::assertIsString($link);
+        self::assertSame('invalid', $this->changes()->confirmByLink(Request::create($link))->value);
+        self::assertSame(self::EMAIL, self::reloaded($identity)->email);
+    }
+
+    /**
+     * A request proven by the old password racing a password change held after
+     * it wrote the new one waits for it, then checks the password against the
+     * new one: reauthentication is required, and nothing is written.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestProvenByTheOldPasswordWaitsForAPasswordChangeAndIsRefused(): void
+    {
+        $identity = self::seedChangeable();
+        $proof    = Reauthentication::password(self::PASSWORD);
+
+        [$first, $second] = $this->race(
+            'update',
+            'changeable_identities',
+            static fn (): string => Auth::passwords('web')->set(self::reloaded($identity), self::NEW_PASSWORD, PasswordFlow::CHANGE)->isSet() ? 'set' : 'rejected',
+            fn (): string => $this->changes()->requestByLink(self::reloaded($identity), 'email', self::NEW_EMAIL, $proof, 'email.confirm')->status->value,
+        );
+
+        self::assertSame(['set', 'reauthentication_required'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(0, DB::table('identifier_changes')->count());
+    }
+
+    /**
+     * A revocation of every device racing a request proven by one of them, held
+     * once it locked that device's row, waits for it, then cancels the change
+     * it wrote.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABulkRevocationWaitsForARequestProvenByItsDeviceAndCancelsIt(): void
+    {
+        $identity = self::seedChangeable();
+        $device   = self::seedDevice($identity);
+
+        [$first, $second] = $this->race(
+            'select',
+            'devices',
+            fn (): string => $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, Reauthentication::device($device), 'email.confirm')->status->value,
+            static fn (): string => (string) Auth::sessions('web')->revokeDevices(self::reloaded($identity), RevocationReason::REVOKED),
+        );
+
+        self::assertSame(['sent', '1'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(0, DB::table('identifier_changes')->count());
+    }
+
+    /**
+     * A cancellation racing a confirmation by code, held once it counted the
+     * code's attempt, waits for it on the identity's row instead of deadlocking
+     * over the pending change and the code, then finds nothing to cancel.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACancellationWaitsForAConfirmationByCode(): void
+    {
+        $identity = self::seedChangeable();
+
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
+
+        [$first, $second] = $this->race(
+            'update',
+            'one_time_codes',
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::CODE)->value,
+            fn (): string => $this->changes()->cancel(self::reloaded($identity), 'email') ? 'cancelled' : 'none',
+        );
+
+        self::assertSame(['changed', 'none'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(self::NEW_EMAIL, self::reloaded($identity)->email);
+    }
+
+    /**
+     * A request replacing the change a confirmation by code is making, held
+     * once it counted the code's attempt, waits for it on the identity's row
+     * instead of deadlocking over the pending change and the code: the change
+     * is made, then the new request is pending.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAReplacingRequestWaitsForAConfirmationByCode(): void
+    {
+        $identity = self::seedChangeable();
+
+        $proof = Reauthentication::confirmedAt($this->now);
+
+        self::assertTrue($this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, $proof)->isSent());
+
+        [$first, $second] = $this->race(
+            'update',
+            'one_time_codes',
+            fn (): string => $this->changes()->confirmByCode($identity, 'email', self::CODE)->value,
+            fn (): string => $this->changes()->requestByLink(self::reloaded($identity), 'email', 'ada@later.example.test', $proof, 'email.confirm')->status->value,
+        );
+
+        self::assertSame(['changed', 'sent'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertSame(self::NEW_EMAIL, self::reloaded($identity)->email);
+        self::assertSame(['ada@later.example.test', self::NEW_EMAIL], [DB::table('identifier_changes')->value('identifier'), DB::table('identifier_changes')->value('previous')]);
+    }
+
+    /**
      * Register the guards the tests change identifiers and passwords through.
      *
      * @param  mixed  $app
@@ -352,7 +504,7 @@ final class ConcurrentProofSpendingTest extends TestCase
 
         self::assertTrue($held);
         self::assertIsArray($outcome);
-        self::assertArrayNotHasKey('error', $outcome);
+        self::assertArrayNotHasKey('error', $outcome, is_string($outcome['error'] ?? null) ? $outcome['error'] : '');
 
         /** @var array{result: string, waited: float} $outcome */
         return [$result, $outcome];

@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
+use SineMacula\Laravel\Authentication\Database\IdentityLock;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -36,20 +37,28 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
  * Requests changes of identifier for the identifier change service, once it has
- * checked the configuration: in order, the proof of a recent authentication,
- * the new identifier (one the type's normaliser accepts, and not the current
- * one), and a slot of the `identifier_change` limits, counted on the new
- * identifier, on the identity and on the IP address. Each refusal is answered
- * and reported by `AuthenticationFailed` (flow `identifier_change`, with the
- * identifier as given). Whether another identity holds the new identifier is
- * not looked at, so the answer says nothing about it.
+ * checked the configuration, in one transaction on the identity's connection
+ * that first locks the identity's row (see `IdentityLock`): a password write,
+ * which cancels the pending changes, and a bulk revocation, which waits on the
+ * lock of the device that proves the request, then fall before the request's
+ * proof is checked or after its change is written, never in between. The
+ * current identifier, and whether it is verified, are read from the row as
+ * locked (the instance given, once it is no longer stored).
  *
- * Then, in one transaction on the identity's connection: a code is issued, for
- * a change proven by code; the pending change is written in place of any the
- * identity had for the type, through any guard, and the code of the one it
- * replaced is invalidated, so the newest request wins; and the code's delivery
- * is queued, or the link signed. Once committed, `IdentifierChangeRequested` is
- * dispatched. A change proven by code waits no longer than its code works.
+ * In order: the proof of a recent authentication, the new identifier (one the
+ * type's normaliser accepts, and not the current one), and a slot of the
+ * `identifier_change` limits, counted on the new identifier, on the identity
+ * and on the IP address. Each refusal is answered and reported by
+ * `AuthenticationFailed` (flow `identifier_change`, with the identifier as
+ * given), and writes nothing. Whether another identity holds the new identifier
+ * is not looked at, so the answer says nothing about it.
+ *
+ * Then a code is issued, for a change proven by code; the pending change is
+ * written in place of any the identity had for the type, through any guard, and
+ * the code of the one it replaced is invalidated, so the newest request wins;
+ * and the code's delivery is queued, or the link signed. Once committed,
+ * `IdentifierChangeRequested` is dispatched. A change proven by code waits no
+ * longer than its code works.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -108,22 +117,33 @@ final readonly class ChangeRequests
         ?array $link,
         EventContext $context,
     ): IdentifierChangeRequest {
-        $now        = CarbonImmutable::now()->startOfSecond();
-        $settings   = new IdentifierChangeSettings($this->container->make(Repository::class));
-        $normalised = $this->container->make(IdentifierNormalisers::class)->get($type)->normalise($identifier);
-        $previous   = WriteConnection::during($identity, static fn (): ?string => $identity->getIdentifierForVerification($type));
-        $verified   = WriteConnection::during($identity, static fn (): bool => $identity->hasVerifiedIdentifier($type));
+        $now      = CarbonImmutable::now()->startOfSecond();
+        $settings = new IdentifierChangeSettings($this->container->make(Repository::class));
 
-        $refused = $this->unauthenticated($identity, $proof, $settings, $context, $identifier, $now)
-            ?? $this->unacceptable($type, $previous, $normalised, $context, $identifier)
-            ?? $this->limited($identity, $type, (string) $normalised, $context, $identifier);
+        // `#[\SensitiveParameter]` does not cover what a closure captures,
+        // which a dump of the trace shows.
+        $given = new \SensitiveParameterValue($identifier);
 
-        if ($refused !== null) {
-            return $refused;
-        }
+        $requested = $identity->getConnection()->transaction(function () use ($identity, $type, $given, $proof, $link, $context, $settings, $now): IdentifierChangeRequest|int {
 
-        $change    = new RequestedChange($type, $previous, $verified, (string) $normalised, Str::uuid()->toString(), $now, $now->addSeconds($settings->ttlSeconds()));
-        $requested = $identity->getConnection()->transaction(fn (): IdentifierChangeRequest|int => $this->write($identity, $change, $link, $context));
+            $stored     = IdentityLock::acquire($identity) ?? $identity;
+            $identifier = $given->getValue();
+            $normalised = $this->container->make(IdentifierNormalisers::class)->get($type)->normalise($identifier);
+            $previous   = WriteConnection::during($stored, static fn (): ?string => $stored->getIdentifierForVerification($type));
+            $verified   = WriteConnection::during($stored, static fn (): bool => $stored->hasVerifiedIdentifier($type));
+
+            $refused = $this->unauthenticated($identity, $proof, $settings, $context, $identifier, $now)
+                ?? $this->unacceptable($type, $previous, $normalised, $context, $identifier)
+                ?? $this->limited($identity, $type, (string) $normalised, $context, $identifier);
+
+            if ($refused !== null) {
+                return $refused;
+            }
+
+            $change = new RequestedChange($type, $previous, $verified, (string) $normalised, Str::uuid()->toString(), $now, $now->addSeconds($settings->ttlSeconds()));
+
+            return $this->write($identity, $change, $link, $context);
+        });
 
         return is_int($requested) ? $this->refuse(IdentifierChangeRequest::rateLimited($requested), FailureReason::RATE_LIMITED, $context, $identifier, $requested) : $requested;
     }
@@ -226,12 +246,8 @@ final readonly class ChangeRequests
     }
 
     /**
-     * Inside the request's transaction: issue the code (for a change proven by
-     * code), write the pending change, invalidate the code of the one it
-     * replaced, queue the code's delivery or sign the link, and dispatch
-     * `IdentifierChangeRequested` once committed. When the engine refuses to
-     * issue the code, nothing is written and the seconds until it would are
-     * returned.
+     * Write the change as the class describes; when the engine refuses to issue
+     * the code, nothing is written and the seconds until it would are returned.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\IdentifierChanges\RequestedChange  $change

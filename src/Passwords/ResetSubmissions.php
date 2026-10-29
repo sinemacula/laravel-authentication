@@ -48,13 +48,13 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * malformed identifier, token, code or password is `invalid`; a password the
  * policy rejects is `password_rejected`, with nothing spent; the identity is
  * looked up (see `ResetRecipient`); and, in one transaction on the codes'
- * connection, the proof is checked whatever the identity, a code counting its
- * attempt as a sign-in's does. A refused proof commits (the attempt stays
- * counted) and is `invalid`; an accepted proof for no identity, or one that may
- * not reset, rolls back, so the proof stays unspent, and is `invalid`; an
- * accepted proof for an eligible identity sets the password (see
- * `PasswordWriter`, flow `reset`) and commits. Any exception rolls everything
- * back together.
+ * connection, the row of an eligible one is locked and judged again as stored,
+ * then the proof is checked whatever the identity, a code counting its attempt
+ * as a sign-in's does. A refused proof commits (the attempt stays counted) and
+ * is `invalid`; an accepted proof for no identity, or one that may not reset,
+ * rolls back, so the proof stays unspent, and is `invalid`; an accepted proof
+ * for an eligible identity sets the password (see `PasswordWriter`, flow
+ * `reset`) and commits. Any exception rolls everything back together.
  *
  * Every refusal but a rejected password is reported by `AuthenticationFailed`
  * (`password_reset`) with its reason; the result says only `invalid`. A reset
@@ -215,13 +215,14 @@ final readonly class ResetSubmissions
 
     /**
      * In one transaction on the codes' connection: lock the row of the eligible
-     * identity found (see `IdentityLock`), check the proof, then set its
-     * password, committing a refused proof (its attempt counted) and rolling
-     * back an accepted one that no eligible identity can use. The identity
-     * found is held to the connection rule only once the proof is accepted, so
-     * whether the rule refuses it (for a provider whose configuration names no
-     * model, which `validate()` cannot check) never says, to someone without a
-     * valid proof, that the identifier is held.
+     * identity found (see `IdentityLock`) and decide again, on the row as
+     * locked, whether it may reset, check the proof, then set its password,
+     * committing a refused proof (its attempt counted) and rolling back an
+     * accepted one that no eligible identity can use. The identity found is
+     * held to the connection rule only once the proof is accepted, so whether
+     * the rule refuses it (for a provider whose configuration names no model,
+     * which `validate()` cannot check) never says, to someone without a valid
+     * proof, that the identifier is held.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  string  $proof
@@ -245,7 +246,7 @@ final readonly class ResetSubmissions
 
         try {
             if ($recipient instanceof Model) {
-                IdentityLock::acquire($recipient);
+                $recipient = ResetRecipient::eligible($this->guard, IdentityLock::acquire($recipient), $binding, $this->container);
             }
 
             $check = $this->checkProof($binding, $proof);

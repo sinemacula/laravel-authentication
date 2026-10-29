@@ -83,8 +83,8 @@ final class IdentityLockTest extends TestCase
     }
 
     /**
-     * The lock is one read of the identity's key column by its key, limited to
-     * one row, with the engine's row lock (none on SQLite).
+     * The lock is one read of the identity's row by its key, limited to one
+     * row, with the engine's row lock (none on SQLite).
      *
      * @return void
      */
@@ -102,9 +102,35 @@ final class IdentityLockTest extends TestCase
         $grammar = DB::connection()->getQueryGrammar();
         $lock    = DB::connection()->getDriverName() === 'sqlite' ? '' : ' for update';
         $table   = $grammar->wrapTable('changeable_identities');
-        $sql     = sprintf('select %s from %s where %s = ? limit 1%s', $grammar->wrap('id'), $table, $grammar->wrap('changeable_identities.id'), $lock);
+        $sql     = sprintf('select * from %s where %s = ? limit 1%s', $table, $grammar->wrap('changeable_identities.id'), $lock);
 
         self::assertSame([[$sql, [$identity->getKey()]]], $statements);
+    }
+
+    /**
+     * The row comes back as stored, not as the instance given holds it, and as
+     * a new instance; a row no longer stored comes back as `null`.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testItReturnsTheRowAsStored(): void
+    {
+        $identity = self::seedChangeable();
+
+        DB::table('changeable_identities')->update(['email' => 'stored@example.test']);
+
+        $stored = DB::transaction(static fn () => IdentityLock::acquire($identity));
+
+        self::assertInstanceOf($identity::class, $stored);
+        self::assertNotSame($identity, $stored);
+        self::assertSame(['stored@example.test', $identity->getKey()], [$stored->email, $stored->getKey()]);
+        self::assertNotSame('stored@example.test', $identity->email);
+
+        DB::table('changeable_identities')->delete();
+
+        self::assertNull(DB::transaction(static fn () => IdentityLock::acquire($identity)));
     }
 
     /**
