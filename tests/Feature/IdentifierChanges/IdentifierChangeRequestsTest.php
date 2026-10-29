@@ -288,6 +288,37 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
+     * A first request inserts its pending change without trying an update of
+     * the missing key, and a replacing one updates the change it read in place
+     * without trying an insert: on MySQL an update of a missing key inside the
+     * transaction would lock a gap another request's insert waits on.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARequestInsertsANewChangeAndUpdatesAReplacedOneInPlace(): void
+    {
+        $identity = self::seedChangeable();
+        $proof    = Reauthentication::confirmedAt($this->now);
+        $writes   = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$writes): void {
+            if (!str_contains($query->sql, 'identifier_changes') || str_starts_with($query->sql, 'select')) {
+                return;
+            }
+
+            $writes[] = strtok($query->sql, ' ');
+        });
+
+        $this->changes()->requestByLink($identity, 'email', 'ada@first.example.test', $proof, 'email.confirm');
+        $this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm');
+
+        self::assertSame(['insert', 'update'], $writes);
+        self::assertSame(self::NEW_EMAIL, self::stored('identifier_changes', 'identifier'));
+    }
+
+    /**
      * A pending change deleted between this request's read, which found it, and
      * its update, which then finds none (a revocation cancelling it), is
      * inserted again: the request still leaves its change pending.
