@@ -9,6 +9,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -19,6 +20,7 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
+use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
  * Decides whether a `Reauthentication` proves that an identity authenticated
@@ -30,12 +32,13 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * the instance the caller holds cannot stand in for the stored row, and must be
  * the identity's own (its recorded owner), of the guard, not revoked, with its
  * session not ended, and signed in within the window. A password proof is
- * checked inside the guard's credential timebox, against the identity read
- * again through the guard's identity provider on the write connection (it must
- * still be the same row), and counted first against the identity's account and
- * the IP address under the guard's `sign_in` limits, as a sign-in's password
- * is; a correct one gives its slot back. A confirmation time is trusted as
- * given.
+ * accepted only on a guard whose audience allows the password method (one that
+ * signs in only by code or passkey takes none); it is checked inside the
+ * guard's credential timebox, against the identity read again through the
+ * guard's identity provider on the write connection (it must still be the same
+ * row), and counted first against the identity's account and the IP address
+ * under the guard's `sign_in` limits, as a sign-in's password is; a correct one
+ * gives its slot back. A confirmation time is trusted as given.
  *
  * Made for one check and dropped with it; it keeps nothing between calls.
  *
@@ -120,7 +123,8 @@ final readonly class RecentAuthentication
      * Whether the password is the identity's current one, checked inside the
      * guard's credential timebox once a slot of the account's and the IP
      * address's sign-in limits is taken; the seconds until another may be
-     * checked when they had none.
+     * checked when they had none. A guard whose audience does not allow the
+     * password method accepts no password as proof, and counts nothing.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
@@ -132,6 +136,10 @@ final readonly class RecentAuthentication
      */
     private function isCurrentPassword(Identity $identity, #[\SensitiveParameter] string $password, ?string $ip): bool|int
     {
+        if (!$this->container->make(AudiencePolicy::class)->allowsMethod($this->guard->getName(), PasswordSignIn::NAME)) {
+            return false;
+        }
+
         $limiter = $this->container->make(AttemptLimiter::class);
 
         return $this->guard->timeboxed(function (Timebox $timebox) use ($identity, $password, $ip, $limiter): bool|int {

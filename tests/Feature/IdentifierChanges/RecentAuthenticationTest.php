@@ -243,6 +243,33 @@ final class RecentAuthenticationTest extends TestCase
     }
 
     /**
+     * A guard whose audience does not allow the password method, one that signs
+     * in only by code, takes no password as proof, even the right one: nothing
+     * is counted, and a request is refused as needing reauthentication.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAGuardWithoutPasswordsTakesNoPassword(): void
+    {
+        config()->set('auth.guards.web.audience', ['methods' => ['email_code']]);
+
+        $identity = self::seedChangeable();
+        $check    = $this->check();
+
+        self::assertSame(FailureReason::REAUTHENTICATION_REQUIRED, $check->refusal($identity, Reauthentication::password(self::PASSWORD), self::CLIENT_IP));
+        self::assertSame(0, DB::table('rate_limits')->count());
+
+        $this->recordEvents([AuthenticationFailed::class]);
+
+        $request = $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::password(self::PASSWORD));
+
+        self::assertSame(IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED, $request->status);
+        self::assertSame([AuthenticationFlow::IDENTIFIER_CHANGE, FailureReason::REAUTHENTICATION_REQUIRED], [$this->failures()[0]->flow, $this->failures()[0]->reason]);
+    }
+
+    /**
      * A password check takes the guard's whole credential timebox when the
      * password is wrong, and ends as soon as it is known to be right.
      *

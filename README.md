@@ -2247,7 +2247,8 @@ never from the future.
   the window. A refresh or a principal switch does not renew it; a fresh sign-in does.
 - `Reauthentication::password($password)`: the identity's current password, checked in the guard's credential timebox
   against the identity read again through the guard's provider. It counts against the identity's account and the IP
-  address under the `sign_in` limits, and a correct one is given back.
+  address under the `sign_in` limits, and a correct one is given back. A guard whose audience does not allow the
+  `password` method takes no password as proof (`reauthentication_required`, nothing counted).
 - `Reauthentication::confirmedAt($at)`: a further factor, or another proof your code verified, at `$at`. It is trusted,
   as `start()` is: never build it from a time the client sent.
 
