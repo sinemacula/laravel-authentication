@@ -69,6 +69,9 @@ final class FailureReasonTest extends TestCase
             'credential_expired',
             'credential_guard_mismatch',
             'scope_invalid',
+            'reauthentication_required',
+            'identifier_taken',
+            'link_expired',
         ], array_map(static fn (FailureReason $reason): string => $reason->value, FailureReason::cases()));
     }
 
@@ -95,7 +98,8 @@ final class FailureReasonTest extends TestCase
 
     /**
      * The reasons only the server-side event carries, so a sign-in's result
-     * reveals neither an account nor a code.
+     * reveals neither an account nor a code, and a reset's result says an
+     * expired link is invalid.
      *
      * @return void
      */
@@ -108,6 +112,7 @@ final class FailureReasonTest extends TestCase
             FailureReason::CODE_EXPIRED,
             FailureReason::CODE_EXHAUSTED,
             FailureReason::PASSKEY_COUNTER_REGRESSED,
+            FailureReason::LINK_EXPIRED,
         ], $concealed);
     }
 
@@ -120,7 +125,18 @@ final class FailureReasonTest extends TestCase
     {
         $flows = array_map(static fn (AuthenticationFlow $flow): string => $flow->value, AuthenticationFlow::cases());
 
-        self::assertSame(['sign_in', 'bearer', 'refresh', 'principal_switch', 'code_request', 'identifier_verification', 'api_key', 'client_credentials'], $flows);
+        self::assertSame([
+            'sign_in',
+            'bearer',
+            'refresh',
+            'principal_switch',
+            'code_request',
+            'identifier_verification',
+            'api_key',
+            'client_credentials',
+            'password_reset',
+            'identifier_change',
+        ], $flows);
     }
 
     /**

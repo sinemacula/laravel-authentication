@@ -26,12 +26,14 @@ use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Codes\SendOneTimeCode;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use Tests\Concerns\InteractsWithCodeIdentities;
 use Tests\Integration\Fixtures\CodeIdentity;
 use Tests\Integration\Fixtures\CodeMachineClient;
 use Tests\TestCase;
+use Tests\Unit\Stubs\PlainIdentityFixture;
 
 /**
  * Integration tests for the queued delivery of one-time codes: whom the job
@@ -48,6 +50,7 @@ use Tests\TestCase;
 #[CoversClass(SendOneTimeCode::class)]
 #[CoversClass(CodeService::class)]
 #[CoversClass(OneTimeCodeMessage::class)]
+#[CoversClass(QueuedDelivery::class)]
 final class SendOneTimeCodeTest extends TestCase
 {
     use InteractsWithCodeIdentities;
@@ -385,6 +388,48 @@ final class SendOneTimeCodeTest extends TestCase
     }
 
     /**
+     * Rows of a binding of a purpose this job does not deliver.
+     *
+     * @return iterable<string, array{0: \Closure(): \SineMacula\Laravel\Authentication\Codes\CodeBinding}>
+     */
+    public static function provideOtherPurposes(): iterable
+    {
+        yield from [
+            'a reset code'         => [static fn (): CodeBinding => CodeBinding::passwordReset('mobile', 'phone', self::PHONE)],
+            'a reset link'         => [static fn (): CodeBinding => CodeBinding::passwordResetLink('mobile', 'phone', self::PHONE)],
+            'an identifier change' => [static fn (): CodeBinding => CodeBinding::identifierChange('mobile', 'phone', self::PHONE, new PlainIdentityFixture(1), 'request-1')],
+        ];
+    }
+
+    /**
+     * A code of any purpose but a sign-in or a verification has a delivery job
+     * of its own, so this one refuses it before reading the code or finding a
+     * recipient, even when the code is live and someone holds the number.
+     *
+     * @param  \Closure(): \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideOtherPurposes')]
+    public function testOtherPurposesAreRefused(\Closure $binding): void
+    {
+        self::seedCodeIdentity();
+
+        $bound = $binding();
+        $job   = new SendOneTimeCode($bound, $this->issue($bound, $this->now));
+
+        try {
+            $job->handle(app());
+            self::fail('The job delivered a code of another purpose.');
+        } catch (\LogicException $exception) {
+            self::assertSame(SendOneTimeCode::class . " delivers only sign-in and verification codes, not [{$bound->purpose->value}] codes.", $exception->getMessage());
+        }
+
+        self::assertSame(0, $this->sender->count());
+    }
+
+    /**
      * On a worker-backed connection the job is pushed with its payload
      * encrypted (neither the code nor the number can be read from the queue),
      * and a worker delivers it.
@@ -491,7 +536,7 @@ final class SendOneTimeCodeTest extends TestCase
 
         config()->set('queue.connections.broken', ['driver' => 'database', 'connection' => 'missing', 'table' => 'jobs', 'queue' => 'default']);
         config()->set('queue.connections.failover', ['driver' => 'failover', 'connections' => ['broken', 'sync']]);
-        config()->set('authentication.codes.queue.connection', 'failover');
+        config()->set('authentication.delivery.queue.connection', 'failover');
 
         $sender = $this->sender;
 
@@ -522,7 +567,7 @@ final class SendOneTimeCodeTest extends TestCase
 
         config()->set('queue.connections.database', ['driver' => 'database', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]);
         config()->set('queue.connections.failover', ['driver' => 'failover', 'connections' => ['database', 'sync']]);
-        config()->set('authentication.codes.queue.connection', 'failover');
+        config()->set('authentication.delivery.queue.connection', 'failover');
 
         Route::post('/codes', static function (): array {
             $sent = Auth::codes('mobile')->send('phone_code', ['phone' => self::PHONE])->isSent();

@@ -655,6 +655,50 @@ final class OneTimeCodesTest extends TestCase
     }
 
     /**
+     * Invalidating deletes exactly the live codes of the bindings listed,
+     * whatever their state (live, used, locked), in one statement, and leaves
+     * every other binding's code working; a binding listed twice or with no
+     * code costs nothing more, and an empty list runs no statement.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testInvalidatingDeletesExactlyTheListedBindings(): void
+    {
+        $ada    = new PlainIdentityFixture(1);
+        $signIn = self::binding();
+        $reset  = CodeBinding::passwordReset('mobile', 'phone', self::PHONE);
+        $link   = CodeBinding::passwordResetLink('mobile', 'phone', self::PHONE);
+        $change = CodeBinding::identifierChange('mobile', 'phone', self::PHONE, $ada, 'request-1');
+        $kept   = CodeBinding::verification('mobile', 'phone', self::PHONE, $ada);
+
+        foreach ([$signIn, $reset, $link, $change, $kept] as $binding) {
+            self::issued($binding);
+        }
+
+        self::codes()->check($signIn, '000000', $this->now);
+
+        /** @var \ArrayObject<int, string> $statements */
+        $statements = new \ArrayObject;
+
+        DB::listen(static function (QueryExecuted $query) use ($statements): void {
+            $statements->append($query->sql);
+        });
+
+        self::assertSame(0, self::codes()->invalidate([]));
+        self::assertCount(0, $statements);
+
+        $deleted = self::codes()->invalidate([$signIn, $reset, $link, $change, $reset, CodeBinding::signIn('web', 'phone', self::PHONE)]);
+
+        self::assertSame(4, $deleted);
+        self::assertCount(1, $statements);
+        self::assertStringStartsWith('delete', strtolower($statements[0]));
+        self::assertSame([self::bindingDigest($kept)], DB::table('one_time_codes')->pluck('id')->all());
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($reset, '000000', $this->now));
+    }
+
+    /**
      * The attempts counted against the live code.
      *
      * @return int

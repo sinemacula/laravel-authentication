@@ -37,4 +37,10 @@ enum AuthenticationFlow: string
 
     // A client credentials exchange for an access token
     case CLIENT_CREDENTIALS = 'client_credentials';
+
+    // A request for a password reset link or code, or a reset with one
+    case PASSWORD_RESET = 'password_reset';
+
+    // A request for, or a confirmation of, a change of identifier
+    case IDENTIFIER_CHANGE = 'identifier_change';
 }

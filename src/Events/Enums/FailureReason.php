@@ -6,16 +6,17 @@ namespace SineMacula\Laravel\Authentication\Events\Enums;
 
 /**
  * Machine-readable reason a sign-in, a request's access token or API key, a
- * refresh, a principal switch, a code request or a client credentials exchange
- * failed, carried on the `AuthenticationFailed` event and on a failed
- * `SignInResult`.
+ * refresh, a principal switch, a code request, a client credentials exchange, a
+ * password reset or an identifier change failed, carried on the
+ * `AuthenticationFailed` event and on a failed `SignInResult`.
  *
  * Backed, so SIEM consumers count failure modes without scraping log messages.
  * The concealed reasons (`isConcealed()`) are ones a sign-in's result never
  * carries: a refusal by the account's own limit, an expired or exhausted code
  * and a passkey whose sign counter did not advance are answered as
  * `invalid_credentials`, so the result does not reveal that the account or a
- * code exists, and only the server-side event says why.
+ * code exists, and only the server-side event says why; an expired reset link
+ * is answered as an invalid one in the same way.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -160,6 +161,19 @@ enum FailureReason: string
     // A requested scope is malformed or not granted to the credential
     case SCOPE_INVALID = 'scope_invalid';
 
+    // A change of identifier was asked for without a recent sign-in,
+    // reauthentication or confirmed further factor, or the password given to
+    // reauthenticate was wrong
+    case REAUTHENTICATION_REQUIRED = 'reauthentication_required';
+
+    // The identifier a change would set is held by another identity (found by
+    // the guard's provider, or refused by the application's unique index)
+    case IDENTIFIER_TAKEN = 'identifier_taken';
+
+    // The reset or change link's token exists but has expired; only on the
+    // event
+    case LINK_EXPIRED = 'link_expired';
+
     /**
      * Whether a sign-in method may answer with this reason. Every other reason
      * is the session service's to decide, so a method that returns one is
@@ -195,6 +209,7 @@ enum FailureReason: string
             self::ACCOUNT_RATE_LIMITED,
             self::CODE_EXPIRED,
             self::CODE_EXHAUSTED,
+            self::LINK_EXPIRED,
             self::PASSKEY_COUNTER_REGRESSED => true,
             default                         => false,
         };

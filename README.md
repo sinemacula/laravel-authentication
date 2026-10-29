@@ -584,7 +584,10 @@ when a password sign-in runs. A sign-in that needs a further factor waits in `pe
     'ttl_seconds'             => 600,
     'max_attempts'            => 5,
     'resend_cooldown_seconds' => 60,
-    'queue'                   => ['connection' => null, 'name' => null],
+],
+
+'delivery' => [
+    'queue' => ['connection' => null, 'name' => null],
 ],
 ```
 
@@ -607,8 +610,9 @@ and the table holds neither a code nor an identifier. Rotating the key, or `app.
 invalidates the codes outstanding. A shorter `key` fails closed.
 
 A code is delivered by a queued job, `ShouldBeEncrypted` so its payload (which carries the code and the number) is
-encrypted with `app.key` on the queue, pushed to `queue.connection` and `queue.name` (`null` for your defaults) once the
-code is committed on its connection. Delivery is never part of the request: on Laravel's `sync` driver, which would run
+encrypted with `app.key` on the queue, pushed to `delivery.queue.connection` and `delivery.queue.name` (`null` for your
+defaults; every job the package queues, password reset deliveries included, uses them) once the code is committed on its
+connection. Delivery is never part of the request: on Laravel's `sync` driver, which would run
 the job during its dispatch, it is dispatched after the response instead, in the application's terminating callbacks
 (and in a console command, when it ends); if you turn after-response dispatching off
 (`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. A `failover` connection that lists a `sync` one
@@ -703,7 +707,8 @@ offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by def
 
 ### Rate limits
 
-Sign-in, requests for one-time codes and refresh are limited per identifier and per IP address; requests for passkey
+Sign-in, requests for one-time codes, password resets, identifier changes and refresh are limited per identifier and per
+IP address; requests for passkey
 sign-in options and client credentials exchanges per IP address (an exchange per client id too, only when you opt in).
 Every limit is counted in the database on the write connection, so the limits hold across servers and do not depend on
 a cache. Publish the migration with the others (`authentication-migrations` creates
@@ -724,17 +729,23 @@ a cache. Publish the migration with the others (`authentication-migrations` crea
 ],
 ```
 
-| Flow                 | Scope            | Default             | Counts                                                                                                         |
-|----------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
-| `sign_in`            | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
-| `sign_in`            | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
-| `refresh`            | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
-| `refresh`            | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
-| `code_request`       | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
-| `code_request`       | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
-| `passkey_options`    | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
-| `client_credentials` | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                    |
-| `client_credentials` | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
+| Flow                     | Scope            | Default             | Counts                                                                                                         |
+|--------------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
+| `sign_in`                | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
+| `sign_in`                | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
+| `refresh`                | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
+| `refresh`                | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
+| `code_request`           | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
+| `code_request`           | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
+| `passkey_options`        | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
+| `client_credentials`     | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                    |
+| `client_credentials`     | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
+| `password_reset_request` | `per_identifier` | 5 per 3600 seconds  | Every request for a reset link or code to the identifier, held or not; never given back                        |
+| `password_reset_request` | `per_ip`         | 50 per 3600 seconds | Every request for a reset link or code from the IP address; never given back                                   |
+| `password_reset`         | `per_identifier` | 10 per 900 seconds  | Every reset submission naming the identifier, before anything is checked; a success is given back              |
+| `password_reset`         | `per_ip`         | 50 per 900 seconds  | Every reset submission from the IP address, before anything is checked; a success is given back                |
+| `identifier_change`      | `per_identifier` | 5 per 3600 seconds  | Every change request to the new identifier, and every one the identity's account makes; never given back       |
+| `identifier_change`      | `per_ip`         | 50 per 3600 seconds | Every change request from the IP address; never given back                                                     |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -884,14 +895,15 @@ limits; and, for the whole package, the configured device model and pruning rete
 (`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
 (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
 choice of principal), the one-time code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when
-any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the passkey
-challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`) and the API key settings
-(`authentication.api_keys`). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]`
-for the device model and retention, `[sign_in]` for the pending lifetime, `[codes]` for the code settings and sender,
+any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the delivery
+queue (`authentication.delivery.queue`), the passkey challenge lifetime
+(`authentication.passkeys.challenge_ttl_seconds`) and the API key settings (`authentication.api_keys`). Every check
+runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for the device model and retention,
+`[sign_in]` for the pending lifetime, `[codes]` for the code settings and sender, `[delivery]` for the delivery queue,
 `[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a subject without one as
-`[<guard>] OK`. Code delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while a
-guard allows a code method, is a warning that leaves the exit code alone. Only the named guards are checked with
-`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
+`[<guard>] OK`. Delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while a
+guard allows a code method, is a `[delivery]` warning that leaves the exit code alone. Only the named guards are checked
+with `--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
 problem. The command reads configuration only: it opens no database connection and never prints a key. The package does
 not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 

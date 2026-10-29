@@ -255,15 +255,23 @@ return [
     | identifier, so its `per_identifier` must stay `null`). A client
     | credentials exchange counts only failures, per IP address; not per client
     | id by default, since a client id is not a secret and a count on it would
-    | let anyone who knows it lock the client out. Counts on `connection` are
-    | rolled back with any transaction a caller opened there around a sign-in. A
-    | guard overrides any limit in a `rate_limits` block on its
-    | `config/auth.php` entry, where a scope that is present wins, `null`
-    | included, and a flow set to `null` turns both of its limits off. A
-    | malformed limit or an unknown key fails closed with an
-    | `InvalidArgumentException` naming the guard and the key. Counters are
-    | stored under digests keyed from `app.key`, so rotating it starts every
-    | window afresh. Prune ended windows with `model:prune`.
+    | let anyone who knows it lock the client out. A request for a password
+    | reset link or code counts every request, per identifier and per IP
+    | address, and never gives one back (`password_reset_request`); a reset
+    | submission counts every submission, per the identifier it names and per
+    | IP address, before anything else is checked, and gives a successful one
+    | back (`password_reset`); both count an identifier no one holds the same.
+    | A request to change an identifier counts every request against the new
+    | identifier, under `per_identifier`, the identity's own account under the
+    | same limit, and the IP address, and never gives one back
+    | (`identifier_change`). Counts on `connection` are rolled back with any
+    | transaction a caller opened there around a sign-in. A guard overrides any
+    | limit in a `rate_limits` block on its `config/auth.php` entry, where a
+    | scope that is present wins, `null` included, and a flow set to `null`
+    | turns both of its limits off. A malformed limit or an unknown key fails
+    | closed with an `InvalidArgumentException` naming the guard and the key.
+    | Counters are stored under digests keyed from `app.key`, so rotating it
+    | starts every window afresh. Prune ended windows with `model:prune`.
     |
     */
 
@@ -294,6 +302,21 @@ return [
         'client_credentials' => [
             'per_identifier' => null,
             'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
+        ],
+
+        'password_reset_request' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 3600],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 3600],
+        ],
+
+        'password_reset' => [
+            'per_identifier' => ['max' => 10, 'decay_seconds' => 900],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 900],
+        ],
+
+        'identifier_change' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 3600],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 3600],
         ],
     ],
 
@@ -408,14 +431,10 @@ return [
     | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a key
     | derived from `app.key` when `key` is not set; rotating either only
     | invalidates the codes outstanding. Requests for codes are limited by the
-    | `code_request` rate limits. Delivery is a queued job, never part of the
-    | request, pushed to the `queue` connection and queue named (`null` for the
-    | defaults); on a `sync` connection it runs after the response is sent, a
-    | `failover` connection that can fall back to `sync` is pushed to after the
-    | response, and `authentication:check` warns about both, since a worker is
-    | the production setting. The application binds its `OneTimeCodeSender`. A
-    | malformed value fails closed when a code is first issued, and
-    | `authentication:check` reports it. Prune expired codes with `model:prune`.
+    | `code_request` rate limits. Delivery is a queued job (see `delivery`). The
+    | application binds its `OneTimeCodeSender`. A malformed value fails closed
+    | when a code is first issued, and `authentication:check` reports it. Prune
+    | expired codes with `model:prune`.
     |
     */
 
@@ -426,10 +445,30 @@ return [
         'ttl_seconds'             => env('AUTHENTICATION_CODES_TTL_SECONDS', 600),
         'max_attempts'            => env('AUTHENTICATION_CODES_MAX_ATTEMPTS', 5),
         'resend_cooldown_seconds' => env('AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS', 60),
+    ],
 
+    /*
+    |---------------------------------------------------------------------------
+    | Delivery
+    |---------------------------------------------------------------------------
+    |
+    | Everything the package sends (one-time codes, password reset links and
+    | codes, identifier change codes and notices) is a queued job, never part
+    | of the request, pushed once the write it reports has committed to the
+    | `queue` connection and queue named (`null` for the defaults; the
+    | connection must be configured in `queue.connections`). On a `sync`
+    | connection it runs after the response is sent, and a `failover`
+    | connection that can fall back to `sync` is pushed to after the response;
+    | `authentication:check` warns about both, since a worker is the
+    | production setting. A malformed value fails closed before anything is
+    | counted or sent, and `authentication:check` reports it.
+    |
+    */
+
+    'delivery' => [
         'queue' => [
-            'connection' => env('AUTHENTICATION_CODES_QUEUE_CONNECTION'),
-            'name'       => env('AUTHENTICATION_CODES_QUEUE'),
+            'connection' => env('AUTHENTICATION_DELIVERY_QUEUE_CONNECTION'),
+            'name'       => env('AUTHENTICATION_DELIVERY_QUEUE'),
         ],
     ],
 

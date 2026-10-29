@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\DeviceRetention;
+use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
@@ -48,8 +49,9 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * are reported as `[device]` (the device model and the pruning retention),
  * `[sign_in]` (the pending sign-in lifetime), `[codes]` (the one-time code
  * settings and key, and a sender bound when a guard allows a code sign-in
- * method, the package's or an application's own `CodeSignIn`, with a warning,
- * not a problem, when their delivery runs on a `sync` queue connection),
+ * method, the package's or an application's own `CodeSignIn`), `[delivery]`
+ * (the delivery queue, with a warning, not a problem, when a guard allows a
+ * code sign-in method and deliveries run on a `sync` queue connection),
  * `[passkeys]` (the passkey challenge lifetime) and `[api_keys]` (the key
  * prefix, the rotation overlaps, the last-use throttle and the pruning
  * retention). The command reads configuration only: it opens no database
@@ -97,7 +99,7 @@ final class CheckConfigurationCommand extends Command
             $problems = [...$problems, ...$found];
         }
 
-        $this->warnAboutSynchronousCodeDelivery($config);
+        $this->warnAboutSynchronousDelivery($config);
 
         foreach ($guards as $guard) {
             $problems = [...$problems, ...self::prefixed($guard, $this->guardProblems($guard, $config))];
@@ -132,6 +134,11 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
             'codes'    => $this->codeChecks($config),
+            'delivery' => [
+                static function () use ($config): void {
+                    (new DeliverySettings($config))->validate();
+                },
+            ],
             'passkeys' => [
                 static fn (): int => (new PasskeyChallenges($config))->ttlSeconds(),
             ],
@@ -146,8 +153,8 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * The checks of the one-time code settings, each of which otherwise fails
-     * only when a code is first issued: the numbers and the queue settings, the
-     * key, and a sender bound when a guard allows a code sign-in method.
+     * only when a code is first issued: the numbers, the key, and a sender
+     * bound when a guard allows a code sign-in method.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return list<\Closure(): mixed>
@@ -176,17 +183,17 @@ final class CheckConfigurationCommand extends Command
 
     /**
      * Warn, without failing, when a guard allows a code sign-in method and the
-     * codes are delivered on a `sync` queue connection, or on a `failover` one
-     * that can fall back to `sync`: delivery then runs in the web process after
-     * a response, where a worker is the production setting. Malformed queue
-     * settings are left to the `[codes]` checks.
+     * package's deliveries run on a `sync` queue connection, or on a `failover`
+     * one that can fall back to `sync`: delivery then runs in the web process
+     * after a response, where a worker is the production setting. Malformed
+     * queue settings are left to the `[delivery]` check.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
      */
-    private function warnAboutSynchronousCodeDelivery(ConfigRepository $config): void
+    private function warnAboutSynchronousDelivery(ConfigRepository $config): void
     {
-        $settings = new CodeSettings($config);
+        $settings = new DeliverySettings($config);
 
         try {
             $synchronous = $settings->deliversSynchronously();
@@ -200,10 +207,10 @@ final class CheckConfigurationCommand extends Command
         }
 
         $this->warn($synchronous
-            ? '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-                . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.'
-            : '[codes] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
-                . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.codes.queue.connection` '
+            ? '[delivery] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
+                . 'set `authentication.delivery.queue.connection` to a worker-backed connection in production.'
+            : '[delivery] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
+                . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.delivery.queue.connection` '
                 . 'to a worker-backed connection that cannot in production.');
     }
 

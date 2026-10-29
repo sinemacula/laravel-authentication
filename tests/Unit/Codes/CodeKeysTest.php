@@ -83,6 +83,63 @@ final class CodeKeysTest extends TestCase
     }
 
     /**
+     * A reset code and a reset link's token are bound to the identifier alone,
+     * with no identity, and each under a purpose of its own: neither digest is
+     * a sign-in code's, nor the other's, for the same identifier.
+     *
+     * @return void
+     */
+    public function testResetBindingsCarryNoIdentityAndAPurposeOfTheirOwn(): void
+    {
+        $secret = hash_hmac('sha256', 'sinemacula/laravel-authentication one-time code bindings', self::APP_KEY, true);
+        $code   = CodeBinding::passwordReset('web', 'email', 'ada@example.com');
+        $link   = CodeBinding::passwordResetLink('web', 'email', 'ada@example.com');
+
+        self::assertSame(['password_reset', 'web', 'email', 'ada@example.com', ''], [$code->purpose->value, $code->guard, $code->type, $code->identifier, $code->identity]);
+        self::assertSame(['password_reset_link', 'web', 'email', 'ada@example.com', ''], [$link->purpose->value, $link->guard, $link->type, $link->identifier, $link->identity]);
+        self::assertSame(hash_hmac('sha256', implode("\0", ['binding', 'password_reset', 'web', 'email', 'ada@example.com', '']), $secret), self::keys()->binding($code));
+        self::assertSame(hash_hmac('sha256', implode("\0", ['binding', 'password_reset_link', 'web', 'email', 'ada@example.com', '']), $secret), self::keys()->binding($link));
+
+        $digests = [
+            self::keys()->binding($code),
+            self::keys()->binding($link),
+            self::keys()->binding(CodeBinding::signIn('web', 'email', 'ada@example.com')),
+        ];
+
+        self::assertCount(3, array_unique($digests));
+    }
+
+    /**
+     * A change code is bound to the identity and to its change request, so
+     * every request, and every identity, has a binding of its own for the same
+     * new identifier.
+     *
+     * @return void
+     */
+    public function testAnIdentifierChangeBindingNamesItsIdentityAndRequest(): void
+    {
+        $ada     = new PlainIdentityFixture(1);
+        $ben     = new PlainIdentityFixture(2);
+        $secret  = hash_hmac('sha256', 'sinemacula/laravel-authentication one-time code bindings', self::APP_KEY, true);
+        $binding = CodeBinding::identifierChange('web', 'email', 'new@example.com', $ada, 'request-1');
+
+        self::assertSame(['change_identifier', AccountAttempts::account($ada) . "\0request-1"], [$binding->purpose->value, $binding->identity]);
+        self::assertSame(
+            hash_hmac('sha256', implode("\0", ['binding', 'change_identifier', 'web', 'email', 'new@example.com', AccountAttempts::account($ada), 'request-1']), $secret),
+            self::keys()->binding($binding),
+        );
+
+        $digests = [
+            self::keys()->binding($binding),
+            self::keys()->binding(CodeBinding::identifierChange('web', 'email', 'new@example.com', $ada, 'request-2')),
+            self::keys()->binding(CodeBinding::identifierChange('web', 'email', 'new@example.com', $ben, 'request-1')),
+            self::keys()->binding(CodeBinding::verification('web', 'email', 'new@example.com', $ada)),
+        ];
+
+        self::assertCount(4, array_unique($digests));
+    }
+
+    /**
      * Rows of a binding differing from the reference in one part.
      *
      * @return iterable<string, array{0: \SineMacula\Laravel\Authentication\Codes\CodeBinding}>

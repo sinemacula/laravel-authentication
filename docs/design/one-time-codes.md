@@ -37,12 +37,14 @@ request for a code looks the same whether or not anyone has the identifier, and 
   room, taken on every request and never given back, and the cooldown must have passed. A code is then issued for any
   identifier and its delivery queued, so the result, the statements and the time are the same for an identifier no one
   has.
-- Delivery is the `SendOneTimeCode` job (`ShouldQueue`, `ShouldBeEncrypted`), dispatched through `AfterCommit` on the
-  code row's connection, so only a committed code is delivered and a rolled-back one never is. It is never inline: on a
+- Delivery is the `SendOneTimeCode` job (`ShouldQueue`, `ShouldBeEncrypted`), dispatched through
+  `Delivery\QueuedDelivery` (every delivery job the package queues goes through it, with the
+  `authentication.delivery.queue` settings), which waits on `AfterCommit` for the code row's connection, so only a
+  committed code is delivered and a rolled-back one never is. It is never inline: on a
   connection whose driver is `sync` it is dispatched with `dispatchAfterResponse()`, which runs in the application's
   terminating callbacks. A `failover` connection that lists a `sync` one, directly or through another `failover` (a
   connection already on the path is not followed again), runs the job during its dispatch whenever the connections
-  before it fail, so the job is pushed to it from the terminating callbacks instead (`CodeSettings::fallsBackToSync()`):
+  before it fail, so the job is pushed to it from the terminating callbacks instead (`DeliverySettings::fallsBackToSync()`):
   a worker-backed connection still receives it, and a fall back runs it after the response. `authentication:check`
   warns about both settings. The job sets `beforeCommit()`, since the
   package has already waited for its own row's commit.

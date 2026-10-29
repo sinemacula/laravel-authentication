@@ -171,6 +171,30 @@ final readonly class OneTimeCodes
     }
 
     /**
+     * Delete the live code of each binding, whatever its state, in one
+     * statement, so none of them can be checked again. Returns how many rows it
+     * deleted.
+     *
+     * @param  iterable<\SineMacula\Laravel\Authentication\Codes\CodeBinding>  $bindings
+     * @return int
+     *
+     * @throws \InvalidArgumentException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     *
+     * @imperative
+     */
+    public function invalidate(iterable $bindings): int
+    {
+        $digests = [];
+
+        foreach ($bindings as $binding) {
+            $digests[] = $this->keys->binding($binding);
+        }
+
+        return $digests === [] ? 0 : $this->table()->whereIn('id', array_values(array_unique($digests)))->delete();
+    }
+
+    /**
      * Whether the code is exactly `length` ASCII digits.
      *
      * @param  string  $code

@@ -65,6 +65,6 @@ final class AttemptReservationTest extends TestCase
     {
         $flows = array_map(static fn (AttemptFlow $flow): string => $flow->value, AttemptFlow::cases());
 
-        self::assertSame(['sign_in', 'refresh', 'code_request', 'passkey_options', 'client_credentials'], $flows);
+        self::assertSame(['sign_in', 'refresh', 'code_request', 'passkey_options', 'client_credentials', 'password_reset_request', 'password_reset', 'identifier_change'], $flows);
     }
 }

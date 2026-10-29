@@ -42,6 +42,12 @@ final class CheckConfigurationCommandTest extends TestCase
     /** @var string A signing secret long enough for HS256. */
     private const string SECRET = 'a-signing-secret-of-at-least-32-bytes!!';
 
+    /** @var list<string> What a run prints for the package-wide settings when none has a problem. */
+    private const array PACKAGE_OK = ['[device] OK', '[sign_in] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK'];
+
+    /** @var list<string> What a run prints when nothing the default setup configures has a problem. */
+    private const array EVERY_SUBJECT_OK = [...self::PACKAGE_OK, '[api] OK', '[admin] OK', '[machine] OK'];
+
     /**
      * A configuration without problems passes, says so for each guard and the
      * device model, ignores guards of other drivers, and opens no database
@@ -60,7 +66,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK'], $output);
+        self::assertSame(self::EVERY_SUBJECT_OK, $output);
         self::assertSame(0, $queries);
     }
 
@@ -161,8 +167,8 @@ final class CheckConfigurationCommandTest extends TestCase
             '[codes] authentication.codes.key must be a string of at least 32 bytes, or null to derive the key from `app.key`.',
         ];
         yield 'a code delivery connection not configured' => [
-            ['authentication.codes.queue.connection' => 'missing'],
-            '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
+            ['authentication.delivery.queue.connection' => 'missing'],
+            '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
         ];
         yield 'a code method with no sender bound' => [
             ['auth.guards.api.audience' => ['methods' => ['password', 'phone_code']]],
@@ -289,7 +295,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         FakeOneTimeCodeSender::fake($this->app);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
     }
 
     /**
@@ -345,8 +351,8 @@ final class CheckConfigurationCommandTest extends TestCase
 
         self::assertSame(1, $code);
         self::assertContains('[codes] Guards [api] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
-        self::assertContains('[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.', $output);
+        self::assertContains('[delivery] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
+            . 'set `authentication.delivery.queue.connection` to a worker-backed connection in production.', $output);
     }
 
     /**
@@ -358,22 +364,22 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testSynchronousCodeDeliveryIsAWarning(): void
     {
         config()->set([
-            'queue.default'                         => 'database',
-            'queue.connections.database'            => ['driver' => 'database'],
-            'queue.connections.sync'                => ['driver' => 'sync'],
-            'authentication.codes.queue.connection' => 'sync',
+            'queue.default'                            => 'database',
+            'queue.connections.database'               => ['driver' => 'database'],
+            'queue.connections.sync'                   => ['driver' => 'sync'],
+            'authentication.delivery.queue.connection' => 'sync',
         ]);
 
         FakeOneTimeCodeSender::fake($this->app);
 
-        $warning = '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.';
+        $warning = '[delivery] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
+            . 'set `authentication.delivery.queue.connection` to a worker-backed connection in production.';
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
 
         config()->set('auth.guards.admin.audience', ['methods' => ['phone_code']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', $warning, '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, [...self::PACKAGE_OK, $warning, '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
     }
 
     /**
@@ -386,28 +392,28 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testCodeDeliveryThatCanFallBackToSyncIsAWarning(): void
     {
         config()->set([
-            'queue.default'                         => 'database',
-            'queue.connections.database'            => ['driver' => 'database'],
-            'queue.connections.sync'                => ['driver' => 'sync'],
-            'queue.connections.workers'             => ['driver' => 'failover', 'connections' => ['database']],
-            'queue.connections.failover'            => ['driver' => 'failover', 'connections' => ['database', 'sync']],
-            'authentication.codes.queue.connection' => 'failover',
+            'queue.default'                            => 'database',
+            'queue.connections.database'               => ['driver' => 'database'],
+            'queue.connections.sync'                   => ['driver' => 'sync'],
+            'queue.connections.workers'                => ['driver' => 'failover', 'connections' => ['database']],
+            'queue.connections.failover'               => ['driver' => 'failover', 'connections' => ['database', 'sync']],
+            'authentication.delivery.queue.connection' => 'failover',
         ]);
 
         FakeOneTimeCodeSender::fake($this->app);
 
-        $warning = '[codes] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
-            . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.codes.queue.connection` '
+        $warning = '[delivery] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
+            . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.delivery.queue.connection` '
             . 'to a worker-backed connection that cannot in production.';
-        $checked = ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK'];
+        $checked = self::EVERY_SUBJECT_OK;
 
         self::assertSame([0, $checked], $this->check());
 
         config()->set('auth.guards.admin.audience', ['methods' => ['email_code']]);
 
-        self::assertSame([0, [...array_slice($checked, 0, 5), $warning, ...array_slice($checked, 5)]], $this->check());
+        self::assertSame([0, [...array_slice($checked, 0, 6), $warning, ...array_slice($checked, 6)]], $this->check());
 
-        config()->set('authentication.codes.queue.connection', 'workers');
+        config()->set('authentication.delivery.queue.connection', 'workers');
 
         self::assertSame([0, $checked], $this->check());
     }
@@ -422,9 +428,9 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testMalformedSettingsAreReportedOnceWhereTheyBelong(): void
     {
         config()->set([
-            'auth.guards.api.audience'              => ['methods' => []],
-            'auth.guards.admin.audience'            => ['methods' => ['phone_code']],
-            'authentication.codes.queue.connection' => 'missing',
+            'auth.guards.api.audience'                 => ['methods' => []],
+            'auth.guards.admin.audience'               => ['methods' => ['phone_code']],
+            'authentication.delivery.queue.connection' => 'missing',
         ]);
 
         [$code, $output] = $this->check();
@@ -437,8 +443,8 @@ final class CheckConfigurationCommandTest extends TestCase
             '[api_keys] OK',
             '[admin] OK',
             '[machine] OK',
-            '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
+            '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
             '[api] Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
                 . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.',
         ], $output);
@@ -476,6 +482,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[device] OK',
             '[sign_in] OK',
             '[codes] OK',
+            '[delivery] OK',
             '[passkeys] OK',
             '[api_keys] OK',
             '[api] OK',
@@ -497,11 +504,11 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt or api_key guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK'], $output);
+        self::assertSame(['No jwt or api_key guards are configured.', ...self::PACKAGE_OK], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt or api_key guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK']], $this->check());
+        self::assertSame([0, ['No jwt or api_key guards are configured.', ...self::PACKAGE_OK]], $this->check());
     }
 
     /**
@@ -514,7 +521,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[2024] OK']], $this->check());
+        self::assertSame([0, [...self::PACKAGE_OK, '[2024] OK']], $this->check());
     }
 
     /**
@@ -556,7 +563,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         $failing = $this->check();
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $passing);
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $passing);
         self::assertSame(1, $failing[0]);
     }
 
@@ -569,7 +576,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards.api.principal_resolver', StubReplacementPrincipalResolver::class);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
     }
 
     /**
@@ -587,7 +594,7 @@ final class CheckConfigurationCommandTest extends TestCase
             'authentication.passkeys.relying_party.origins' => ['https://example.test'],
         ]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
     }
 
     /**
