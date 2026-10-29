@@ -147,6 +147,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/passkeys.md`
 - `docs/design/machine-credentials.md`
 - `docs/design/identifier-changes.md`
+- `docs/design/testing-helpers.md`
 
 ## Installation
 
@@ -1358,9 +1359,10 @@ that only happens for one bound through `login()`, `setUser()` or `setPrincipal(
 `setUser()`, which Laravel's `actingAs()` uses, replaces the whole context: it binds the identity with its default
 principal (and no device), and throws an `InvalidArgumentException` when the identity has none. Use the guard's
 `login($identity, $principal, $device)` to bind a specific principal or a device. `actingAs()` binds the guard for code
-that runs in the test itself; it does not yet carry through an HTTP request the test sends through the kernel, such as
-`$this->actingAs($user, 'api')->getJson('/me')`, because each request rebinds the guard to its own request and starts
-the context over.
+that runs in the test itself only: a request the test sends through the HTTP kernel, such as
+`$this->actingAs($user, 'api')->getJson('/me')`, rebinds the guard to its own request and starts the context over. In
+tests, act through `InteractsWithAuthenticationContext` instead (see [Testing](#testing)), whose context survives those
+requests.
 
 Sign in with credentials through `attempt()`, optionally pinning the principal and device to act as:
 
@@ -3437,9 +3439,74 @@ twice), and each is given back.
 
 ## Testing
 
-`Testing\FakeOneTimeCodeSender` stands in for your sender in tests: `FakeOneTimeCodeSender::fake()` binds a fresh one
-and returns it, and it keeps every message instead of delivering it, so a test reads the code a request sent and signs
-in with it:
+### Acting as an identity, principal or device
+
+Use `Testing\Concerns\InteractsWithAuthenticationContext` in a Laravel (or Testbench) test case to act on a package
+guard (`jwt` or `api_key`). Unlike Laravel's `actingAs()`, the context also authenticates every request the test then
+sends through the HTTP kernel:
+
+```php
+use SineMacula\Laravel\Authentication\Testing\Concerns\InteractsWithAuthenticationContext;
+
+final class ProfileTest extends TestCase
+{
+    use InteractsWithAuthenticationContext;
+
+    public function testTheProfileShowsTheMembership(): void
+    {
+        $this->actingAsPrincipal($membership, guard: 'api')
+            ->getJson('/me')
+            ->assertOk();
+
+        $this->assertBoundIdentity($user)
+            ->assertBoundPrincipal($membership)
+            ->assertBoundTenant($tenant)
+            ->assertBoundDevice(null)
+            ->assertBoundScopes(null);
+    }
+}
+```
+
+| Method                                                         | What it does                                                                                              |
+|----------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| `actingAsIdentity($identity, ?$principal, ?$device, ?$guard)`  | Acts as the identity, as the principal given or the resolver's default, on the device given or none       |
+| `actingAsPrincipal($principal, ?$device, ?$guard)`             | Acts as the principal, for the identity its `getIdentity()` returns                                       |
+| `actingOnDevice($device, ?$guard)`                             | Acts on a device's session: its owner, the principal it records and the guard it records                  |
+| `stopActing(?$guard)`                                          | Ends acting: signed out for the rest of the request, and the next request uses its own credential, if any |
+| `assertBoundIdentity()`, `Principal()`, `Tenant()`, `Device()` | What the guard has bound: `null` for nothing, otherwise the same class with the same identifier           |
+| `assertBoundScopes(?array $scopes)`                            | The scopes, exactly and in order: `null` for no ceiling (a human's session), `[]` for none (a machine)    |
+| `assertBoundType(?string $type)`                               | The principal's type: its own, else its tenant's                                                          |
+
+`actingAsIdentity()` without a principal throws an `InvalidArgumentException` when the identity has no default one, as
+`setUser()` does. `actingOnDevice()` finds the owner through the guard's provider and the principal through the guard's
+resolver, and throws an `InvalidArgumentException` when either is not found or when a guard is named that the device
+does not record.
+
+Every method takes the guard last and uses the default guard when it is left out; acting makes the guard the default,
+as `actingAs()` does. The context is bound through the guard's trusted `authenticateAs()`, so nothing is checked: a
+test can act as a revoked device, an inactive principal or a machine (which is limited to no scope, `[]`). Each request
+the test sends fires `Authenticated`, `PrincipalAssigned` and, with a device, `DeviceAuthenticated` (which records the
+device's use), as a bearer request does, and a context acted as wins over a credential the request carries.
+
+Acting on a guard ends with `stopActing()`, when the request signs out (Laravel's `Logout` for the guard, which
+`Auth::logout()`, `Auth::sessions()->signOut()` and a sign-out endpoint dispatch), or when the test acts on that guard
+again; each guard keeps its own context. With `Logout` faked (`Event::fake()` without a list of events fakes it) the
+helpers cannot see a sign-out, so call `stopActing()`. `Auth::forgetGuards()` creates new guards, which are not acted
+on until the test acts again. A queued job a worker runs (`queue:work`, or a
+`Worker` in the test) still starts signed out, as in production, and the next request is acted as again.
+
+### Fakes
+
+Each fake binds a fresh instance in place of the package's or the application's binding with `fake()` (in the
+application's container, or in the one given) and keeps what it is given instead of delivering it, so a test reads it
+back: `sent()` and `hasSent()` take an optional filter, `count()` counts everything, and `forget()` clears it.
+
+| Fake                            | Stands in for       | Reads back                                                                              |
+|---------------------------------|---------------------|-----------------------------------------------------------------------------------------|
+| `Testing\FakeOneTimeCodeSender` | `OneTimeCodeSender` | `lastCodeFor($identifier, ?CodePurpose $purpose)`: the last code sent to the identifier |
+
+`FakeOneTimeCodeSender::fake()` keeps every message instead of delivering it, so a test reads the code a request sent
+and signs in with it:
 
 ```php
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
@@ -3455,8 +3522,7 @@ $this->postJson('/sign-in/code', ['phone' => '+447700900123', 'code' => $code])-
 
 The message arrives when the delivery job runs: on a `sync` queue connection once the response is sent (a test's HTTP
 request ends with it; call `$this->app->terminate()` after calling the service directly), on a faked queue when the test
-runs the pushed job. `sent()` and `hasSent()` take an optional filter over the messages, `count()` counts them all, and
-`forget()` clears them.
+runs the pushed job.
 
 `Testing\FakeBreachedPasswordChecker` stands in for your breached-password checker: `fake(['password123'])` binds a
 fresh one that finds exactly those passwords breached, `unavailable()` makes it throw
@@ -3496,6 +3562,8 @@ $this->postJson('/password/reset', ['email' => 'ada@example.test', 'token' => $t
 `FakeIdentifierChangeNotifier::fake()` binds a fresh one and returns it, `noticesFor($identity)` lists the notices about
 that identity's changes, and `sent()`, `hasSent()`, `count()` and `forget()` work as the sender fake's do. A notice
 arrives when its queued job runs, as a code does.
+
+### Running the package's tests
 
 ```bash
 composer test               # all suites in parallel (Paratest)

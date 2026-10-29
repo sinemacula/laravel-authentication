@@ -48,6 +48,8 @@ The current note set is:
   carried, never interpreted, and held to an optional registry when a credential is issued.
 - `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
   after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
+- `testing-helpers.md`: how a test acts as an identity, principal or device's session on a package guard, how that
+  survives the requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
 the test should be treated as authoritative until the mismatch is resolved.
