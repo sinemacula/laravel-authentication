@@ -101,8 +101,9 @@ authorization package decides what they allow.
 - A request is refused with exactly one `AuthenticationFailed` (flow `api_key`), naming the key once its public part
   found one. The guard counts no attempts: the secret cannot be guessed, and counting would put a write on every
   refused request.
-- Enumeration: a malformed key, an unknown public part and a wrong secret cost the same statements and the same digest
-  work (an unknown public part is compared against a fixed digest), and the key's status is read only once its secret
+- Enumeration: an unknown public part and a wrong secret in a well-formed key cost the same one lookup, and a
+  malformed key costs none (its form is the caller's to see anyway); all three cost the same digest work (an unknown
+  public part or a malformed key is compared against a fixed digest), and the key's status is read only once its secret
   verifies; every client failure of an exchange answers the same `invalid_client` body, and a `slow_down` limit on the
   client id, when set, counts it as given, so an id no key has is limited like one that exists. Neither uses a password
   hasher. Codes and passkeys are held to the same criterion (`one-time-codes.md`, `passkeys.md`).
