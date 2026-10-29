@@ -48,7 +48,7 @@ final class CheckConfigurationCommandTest extends TestCase
     private const string SECRET = 'a-signing-secret-of-at-least-32-bytes!!';
 
     /** @var list<string> What a run prints for the package-wide settings when none has a problem. */
-    private const array PACKAGE_OK = ['[device] OK', '[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK'];
+    private const array PACKAGE_OK = ['[device] OK', '[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
 
     /** @var list<string> What a run prints when nothing the default setup configures has a problem. */
     private const array EVERY_SUBJECT_OK = [...self::PACKAGE_OK, '[api] OK', '[admin] OK', '[machine] OK'];
@@ -432,7 +432,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         config()->set('auth.guards.admin.audience', ['methods' => ['email_code']]);
 
-        self::assertSame([0, [...array_slice($checked, 0, 7), $warning, ...array_slice($checked, 7)]], $this->check());
+        self::assertSame([0, [...self::PACKAGE_OK, $warning, ...array_slice($checked, count(self::PACKAGE_OK))]], $this->check());
 
         config()->set('authentication.delivery.queue.connection', 'workers');
 
@@ -452,6 +452,7 @@ final class CheckConfigurationCommandTest extends TestCase
             'auth.guards.api.audience'                 => ['methods' => []],
             'auth.guards.admin.audience'               => ['methods' => ['phone_code']],
             'authentication.delivery.queue.connection' => 'missing',
+            'authentication.identifier_changes'        => ['ttl_seconds' => 3600, 'recent_authentication_seconds' => '59'],
         ]);
 
         [$code, $output] = $this->check();
@@ -467,6 +468,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[machine] OK',
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
             '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
+            '[identifier_changes] authentication.identifier_changes.recent_authentication_seconds must be an integer from 60 to 86400.',
             '[api] Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
                 . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.',
         ], $output);
@@ -508,6 +510,7 @@ final class CheckConfigurationCommandTest extends TestCase
             '[delivery] OK',
             '[passkeys] OK',
             '[api_keys] OK',
+            '[identifier_changes] OK',
             '[api] OK',
             '[web] Not a jwt or api_key guard.',
             '[missing] Not configured.',

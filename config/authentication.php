@@ -466,6 +466,36 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Identifier changes
+    |---------------------------------------------------------------------------
+    |
+    | `Auth::identifierChanges($guard)` changes an identity's email address or
+    | phone number only once the new one is proven, by a one-time code sent to
+    | it or a signed link the application sends it; until then the identity
+    | keeps the current one. A request must come within
+    | `recent_authentication_seconds` (60 to 86400) of the identity's sign-in
+    | on the device it is made from, or of a proof the application confirmed
+    | itself, or give the current password. It waits in `table`, on the device
+    | model's connection, for at most `ttl_seconds` (300 to 86400; a code
+    | request also no longer than its code), and a newer request for the same
+    | identity and type replaces it. Requests are limited by the
+    | `identifier_change` rate limits, counted on the new identifier and on the
+    | identity. Each number is an integer, or a digit string as `env()` returns
+    | one; anything else fails closed when a change is first requested or
+    | confirmed, and `authentication:check` reports it. The application binds
+    | an `IdentifierChangeNotifier` to tell the old identifier; the change
+    | stands if that notice fails. Prune expired changes with `model:prune`.
+    |
+    */
+
+    'identifier_changes' => [
+        'table'                         => env('AUTHENTICATION_IDENTIFIER_CHANGES_TABLE', 'identifier_changes'),
+        'ttl_seconds'                   => env('AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS', 3600),
+        'recent_authentication_seconds' => env('AUTHENTICATION_IDENTIFIER_CHANGES_RECENT_AUTHENTICATION_SECONDS', 900),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | One-time codes
     |---------------------------------------------------------------------------
     |

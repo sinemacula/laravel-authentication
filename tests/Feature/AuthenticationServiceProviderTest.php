@@ -749,6 +749,7 @@ final class AuthenticationServiceProviderTest extends TestCase
             realpath($source . '2026_04_06_000004_create_passkeys_table.php')           => database_path('migrations/2026_04_06_000004_create_passkeys_table.php'),
             realpath($source . '2026_04_06_000005_create_passkey_challenges_table.php') => database_path('migrations/2026_04_06_000005_create_passkey_challenges_table.php'),
             realpath($source . '2026_04_06_000006_create_api_keys_table.php')           => database_path('migrations/2026_04_06_000006_create_api_keys_table.php'),
+            realpath($source . '2026_04_06_000007_create_identifier_changes_table.php') => database_path('migrations/2026_04_06_000007_create_identifier_changes_table.php'),
         ], $paths);
     }
 

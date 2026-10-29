@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
+use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeSettings;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
@@ -53,9 +54,10 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * application's own `CodeSignIn`), `[delivery]` (the delivery queue, with a
  * warning, not a problem, when a guard allows a code sign-in method and
  * deliveries run on a `sync` queue connection), `[passkeys]` (the passkey
- * challenge lifetime) and `[api_keys]` (the key prefix, the rotation overlaps,
- * the last-use throttle and the pruning retention). It also warns about a `jwt`
- * guard whose password resets would refuse to run (see
+ * challenge lifetime), `[api_keys]` (the key prefix, the rotation overlaps, the
+ * last-use throttle and the pruning retention) and `[identifier_changes]` (the
+ * pending change lifetime and the recent-authentication window). It also warns
+ * about a `jwt` guard whose password resets would refuse to run (see
  * `warnAboutPasswordResets()`). The command reads configuration only: it opens
  * no database connection and prints no secret.
  *
@@ -121,8 +123,9 @@ final class CheckConfigurationCommand extends Command
     /**
      * The package-wide checks, by what they check: the device model and how
      * long pruning keeps a device, the lifetime of a pending sign-in (a further
-     * factor or a principal choice), and the API key settings, each of which
-     * otherwise fails only when it is first used.
+     * factor or a principal choice), the API key settings and the identifier
+     * change settings, each of which otherwise fails only when it is first
+     * used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return array<string, list<\Closure(): mixed>>
@@ -155,6 +158,24 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => ApiKeySettings::lastUsedThrottleSeconds(),
                 static fn (): int => ApiKeySettings::pruneAfterDays(),
             ],
+            'identifier_changes' => self::identifierChangeChecks($config),
+        ];
+    }
+
+    /**
+     * The checks of the identifier change settings, each of which otherwise
+     * fails only when a change is first requested or confirmed: the pending
+     * change's lifetime and the recent-authentication window.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return list<\Closure(): mixed>
+     */
+    private static function identifierChangeChecks(ConfigRepository $config): array
+    {
+        return [
+            static function () use ($config): void {
+                (new IdentifierChangeSettings($config))->validate();
+            },
         ];
     }
 

@@ -80,6 +80,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
         '2026_04_06_000004_create_passkeys_table.php',
         '2026_04_06_000005_create_passkey_challenges_table.php',
         '2026_04_06_000006_create_api_keys_table.php',
+        '2026_04_06_000007_create_identifier_changes_table.php',
     ];
 
     /**

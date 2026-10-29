@@ -100,7 +100,8 @@ device record live in the `devices` table so replay and stale credentials can be
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed` /
   `Logout` alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
   `AdditionalFactorRequired` / `PrincipalChoiceRequired` / `PrincipalSwitched` / `Refreshed` / `DeviceRevoked` /
-  `SignedOutEverywhere` / `IdentifierVerified` / `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` / `ApiKeyIssued` /
+  `SignedOutEverywhere` / `IdentifierVerified` / `IdentifierChangeRequested` / `IdentifierChanged` / `PasskeyAdded` /
+  `PasskeyUsed` / `PasskeyRemoved` / `ApiKeyIssued` /
   `ApiKeyRotated` / `ApiKeyRevoked` / `ClientCredentialsGranted` and one `AuthenticationFailed` with a reason, each
   carrying the same context (guard, client, identity, principal, tenant, device, method, and the credential and its
   scopes where one is used) and never a secret. A bearer request is not a sign-in: it fires only `Authenticated` and the
@@ -114,12 +115,17 @@ device record live in the `devices` table so replay and stale credentials can be
   counted atomically on the write connection without a cache.
 - **Identifier verification**: signed verification links or one-time codes bound to their purpose and identifier, and
   an opt-in, per-guard requirement that sign-in identifiers be verified.
+- **Changing identifiers**: an email address or phone number replaced only once the new one is proven by a code or a
+  signed link, after a recent sign-in, reauthentication or confirmed factor, unique on its normalised value (the
+  application's index decides a race), invalidating the proofs it outdates, and telling the old identifier through a
+  notifier the application binds.
 - **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` and `api_key` guard's
   settings and fails the deploy on a problem, listing all of them.
 - **Safe in long-running processes**: nothing one request or queued job binds reaches the next under Octane or a queue
   worker.
 - **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
-  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, scope registry, table names.
+  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, identifier change notifier,
+  scope registry, table names.
 
 ## Design Notes
 
@@ -140,6 +146,7 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/one-time-codes.md`
 - `docs/design/passkeys.md`
 - `docs/design/machine-credentials.md`
+- `docs/design/identifier-changes.md`
 
 ## Installation
 
@@ -148,7 +155,7 @@ composer require sinemacula/laravel-authentication
 ```
 
 Publish the config and the migrations (the `devices`, `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
-`passkey_challenges` and `api_keys` tables), then migrate:
+`passkey_challenges`, `api_keys` and `identifier_changes` tables), then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -159,7 +166,7 @@ php artisan migrate
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
 `TableAlreadyExistsException` that names the configuration key renaming its table (`device.table`,
 `sign_in.pending_table`, `rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`,
-`api_keys.table`).
+`api_keys.table`, `identifier_changes.table`).
 
 Generate a random JWT signing key into `.env`:
 
@@ -1203,7 +1210,8 @@ verification reads the identity's row again under a lock (`SELECT ... FOR UPDATE
 when the row's identifier is the proven one byte for byte and still unverified, all in one transaction, so a proof for
 one address can never verify another, even when the address changes while the proof is checked to one the column's
 collation counts as equal (`Ben@` or `bén@` for `ben@`); it fires no model events and leaves `updated_at` alone. When
-an identifier changes, clear its `<type>_verified_at` with it.
+an identifier changes, clear its `<type>_verified_at` with it, or change it through
+[`Auth::identifierChanges()`](#changing-identifiers), which records the proven one as verified.
 
 Verify by signed link with `Verification\VerificationLinks`. The application owns the route, the message and its
 delivery:
@@ -2743,6 +2751,172 @@ twice, reads its tokens from a replica, keys tokens by email address only and li
 mean replacing every behaviour it has (see `docs/design/passwords.md`). If you keep Laravel's broker instead,
 `RevokeDevicesOnPasswordReset` still answers its `PasswordReset`; do not combine the two flows.
 
+### Changing identifiers
+
+`Auth::identifierChanges($guard)` changes an identity's email address or phone number once the new one is proven, and
+keeps the current one until then. A change is requested, then confirmed by a one-time code sent to the new identifier or
+by a signed link the application sends there; the confirmation replaces the identifier, records the new one as
+verified, and tells the old one. The application owns the routes, the messages and their delivery.
+
+The identity implements `HasChangeableIdentifiers` (it extends `HasVerifiableIdentifiers`); the
+`ProvidesIdentifierVerification` trait already implements it from the identifier's column and `<type>_verified_at`, so
+the model only declares it. The application binds an `IdentifierChangeNotifier`, which tells the old identifier: no
+change is requested or confirmed while none is bound.
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
+use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
+
+class User extends Model implements HasChangeableIdentifiers, HasDevices, Identity, Principal
+{
+    use ActsAsPrincipal, Authenticatable, ProvidesIdentifierVerification;
+}
+
+final class MailIdentifierChangeNotifier implements IdentifierChangeNotifier
+{
+    public function notify(IdentifierChangeNotice $notice): void
+    {
+        // $notice->previous is the destination; $notice->identifier is the new one.
+        Mail::to($notice->previous)->send(new EmailAddressChanged($notice->identifier, $notice->changedAt));
+    }
+}
+
+// In a service provider's register():
+$this->app->singleton(IdentifierChangeNotifier::class, MailIdentifierChangeNotifier::class);
+```
+
+**Uniqueness.** Give the identifier's column a unique index on the stored, normalised value (the `NormalisedIdentifier`
+cast stores it so; see [Identifiers](#identifiers)), and a composite one with the tenant's key for identifiers unique per
+tenant. A confirmation checks first that the guard's identity provider finds no other identity holding the new
+identifier, but only the index decides a race between two confirmations of one value: the one that loses is refused as
+`taken`, inside a savepoint, so the change, its proof and any transaction you hold stay usable. Without the index the
+check is best effort and a race can leave two identities with one identifier.
+
+**Recent authentication.** A request carries a `Sessions\Reauthentication`, the proof that the identity authenticated
+recently: within `identifier_changes.recent_authentication_seconds` (900 by default), from the second it names, and
+never from the future.
+
+- `Reauthentication::device($device)`: the session the change is made from. Read again on the write connection, it
+  must be one of the identity's own live sessions of the guard (not revoked, deadlines not passed), signed in within
+  the window. A refresh or a principal switch does not renew it; a fresh sign-in does.
+- `Reauthentication::password($password)`: the identity's current password, checked in the guard's credential timebox
+  against the identity read again through the guard's provider. It counts against the identity's account and the IP
+  address under the `sign_in` limits, and a correct one is given back.
+- `Reauthentication::confirmedAt($at)`: a further factor, or another proof your code verified, at `$at`. It is trusted,
+  as `start()` is: never build it from a time the client sent.
+
+An identity that signs in only with codes or passkeys reauthenticates by signing in again on the device it changes from.
+
+**Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
+your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
+`requestByLink()` signs a link to your named route instead, which `link()` returns for you to send to the new identifier
+(and only there: never return it to the client). The new identifier must be one the type's normaliser accepts and not the
+current one; whether another identity holds it is not checked here, so the answer says nothing about it. Requests are
+limited by `rate_limits.identifier_change`, counted on the new identifier, on the identity and on the IP address.
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeRequestStatus;
+use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
+
+Route::middleware('auth:api')->post('/email/change', function (Request $request) {
+    $input  = $request->validate(['email' => ['required', 'email']]);
+    $result = Auth::identifierChanges('api')->requestByCode(Auth::identity(), 'email', $input['email'], Reauthentication::device(Auth::device()));
+
+    return match ($result->status) {
+        IdentifierChangeRequestStatus::SENT                      => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
+        IdentifierChangeRequestStatus::RATE_LIMITED              => response()->json([], 429, ['Retry-After' => $result->retryAfter]),
+        IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password first.'], 403),
+        IdentifierChangeRequestStatus::IDENTIFIER_INVALID,
+        IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED      => response()->json(['message' => 'Enter a new email address.'], 422),
+    };
+});
+
+Route::middleware('auth:api')->post('/email/change/link', function (Request $request) {
+    $input  = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string']]);
+    $result = Auth::identifierChanges('api')->requestByLink(Auth::identity(), 'email', $input['email'], Reauthentication::password($input['password']), 'email.change.confirm');
+
+    if ($result->isSent()) {
+        Mail::to($input['email'])->send(new ConfirmNewEmailAddress($result->link()));
+    }
+
+    return response()->json(['status' => $result->status->value], $result->isSent() ? 202 : 422);
+});
+```
+
+| Status                      | When                                                                                |
+|-----------------------------|-------------------------------------------------------------------------------------|
+| `sent`                      | The change waits for its proof until `expiresAt`                                    |
+| `rate_limited`              | The `identifier_change` limits, or a password proof's `sign_in` limits, are used up |
+| `reauthentication_required` | The proof shows no recent authentication, or the password is wrong                  |
+| `identifier_invalid`        | The type's normaliser rejects the new identifier                                    |
+| `identifier_unchanged`      | The new identifier, in its normal form, is the identity's current one               |
+
+One change waits per identity and type, in `identifier_changes.table`: a newer request, through any guard, replaces it,
+so the code and the link of an earlier one stop working at once. It waits `identifier_changes.ttl_seconds` (3600 by
+default), and a change proven by code no longer than its code works (`codes.ttl_seconds`). `pending($identity, $type)`
+reports the change waiting through this guard (its new identifier and times) and `cancel($identity, $type)` drops it.
+Prune expired changes with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
+
+**Confirming.** `confirmByCode($identity, $type, $code)` takes the code; `confirmByLink($request)` takes the request to
+the link's route, which needs no session (the link names the identity, signed). Each acts only on a change requested
+through the same guard.
+
+```php
+use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
+
+Route::middleware('auth:api')->post('/email/change/confirm', function (Request $request) {
+    $input = $request->validate(['code' => ['required', 'string']]);
+
+    return match (Auth::identifierChanges('api')->confirmByCode(Auth::identity(), 'email', $input['code'])) {
+        IdentifierChangeOutcome::CHANGED => response()->noContent(),
+        IdentifierChangeOutcome::TAKEN   => response()->json(['message' => 'That address is in use.'], 409),
+        default                          => response()->json(['message' => 'That code does not work.'], 422),
+    };
+});
+
+Route::get('/email/change/confirm', function (Request $request) {
+    return Auth::identifierChanges('api')->confirmByLink($request) === IdentifierChangeOutcome::CHANGED
+        ? response()->noContent()
+        : abort(403);
+})->name('email.change.confirm');
+```
+
+| Outcome     | When                                                                                                                                      |
+|-------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `changed`   | The identifier was replaced by the new one, recorded as verified                                                                          |
+| `invalid`   | No change of this guard waits, a newer request or another confirmation won, the proof does not match, or the identifier changed meanwhile |
+| `expired`   | The change, its code or its link has expired                                                                                              |
+| `exhausted` | The code used up its attempts; request the change again                                                                                   |
+| `taken`     | Another identity holds the new identifier; the proof is not used up                                                                       |
+
+A confirmation reads the change, checks the proof and makes the change in one transaction on the identity's connection,
+so the identity must be stored on the device model's connection, where the codes and the pending changes are kept (a
+`LogicException` otherwise). A wrong code's attempt is kept; a change refused once its proof is accepted (`taken`, an
+identifier changed meanwhile, a database error, or a transaction you roll back) rolls back whole, so the proof is not
+spent. The same transaction invalidates, for every `jwt` guard and for both the old identifier and the new one, the
+sign-in, password reset and reset link codes waiting for it, and the identity's verification codes; a verification link
+for the old identifier stops working by itself, since it carries that identifier's digest.
+
+Once the change commits, `IdentifierChanged` is dispatched and, when the identity had an identifier of the type, the
+notice to the old one is queued on the delivery queue (`delivery.queue`). The change stands if the notice fails: the job
+fails and the queue's retries apply. The new identifier was proven and the request recently authenticated, so rolling
+the change back on a mail outage would block the owner while protecting nothing the proof did not. The identity's
+sessions are not revoked: changing an identifier is not a security change of its own; end them with `signOutEverywhere()`
+if your application wants that.
+
+Every refusal is reported by `AuthenticationFailed` on the `identifier_change` flow, not concealed, since the caller
+holds the identity: `reauthentication_required`, `rate_limited` (with `retryAfter`), `invalid_credentials`,
+`code_expired`, `link_expired`, `code_exhausted` or `identifier_taken`; a request's event carries the new identifier as
+given. `IdentifierChangeRequested` (type, new identifier, expiry) and `IdentifierChanged` (type, previous and new
+identifiers, time) carry the identifiers as strings, so a queued audit listener needs no query back. A machine identity
+has no identifiers to change, so every method throws an `InvalidArgumentException` for one; an identity that is not an
+Eloquent model implementing `HasChangeableIdentifiers`, a type with no registered normaliser, malformed settings, an
+unbound notifier or a link route whose parameters or placeholders take a name the link sets (`guard`, `identity`, `type`,
+`purpose`, `request`, `hash`, `expires`, `signature`) throw before anything is counted or written, and
+`authentication:check` reports the settings (`[identifier_changes]`).
+
 ### Long-running processes
 
 One application can serve many requests (Octane) or run many queued jobs (a queue worker), so nothing one of them binds
@@ -2783,6 +2957,7 @@ enforces this at every entry point that verifies something:
 | A one-time code for sign-in                                        | never delivered; one it holds anyway is refused at admission |
 | `Auth::codes()->sendVerification()` / `verify()`                   | refused with an `InvalidArgumentException`                   |
 | Registering, listing or removing passkeys, or a passkey factor     | refused with an `InvalidArgumentException`: it holds none    |
+| `Auth::identifierChanges()`, every method                          | refused with an `InvalidArgumentException`: it has none      |
 
 The trusted binds stay trusted: `login()`, `setUser()` and `authenticateAs()` (and so Laravel's `actingAs()` in tests)
 bind a machine as given, limited to no scope (`Auth::scopes()` is `[]`), since the caller has proven it.
@@ -3038,34 +3213,36 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 
 ## Events
 
-| Event                                            | Fired when                                                       |
-|--------------------------------------------------|------------------------------------------------------------------|
-| `Illuminate\Auth\Events\Attempting`              | A sign-in or refresh starts (never a bearer request)             |
-| `Illuminate\Auth\Events\Validated`               | A sign-in or refresh is about to bind context                    |
-| `Illuminate\Auth\Events\Authenticated`           | Identity bound to the guard, bearer requests included            |
-| `Illuminate\Auth\Events\Login`                   | A sign-in or refresh bound the guard                             |
-| `Illuminate\Auth\Events\Failed`                  | A sign-in or refresh was rejected (never a bearer token)         |
-| `Illuminate\Auth\Events\Logout`                  | `logout()` or `signOut()` ended a signed-in request              |
-| `SineMacula\...\Events\PrincipalAssigned`        | Principal resolved and bound                                     |
-| `SineMacula\...\Events\DeviceAuthenticated`      | Device hydrated and bound; listeners may persist metadata        |
-| `SineMacula\...\Events\Refreshed`                | Refresh exchange completed, once committed                       |
-| `SineMacula\...\Events\DeviceRevoked`            | The package revoked a device, once committed; with reason        |
-| `SineMacula\...\Events\SignedOutEverywhere`      | A bulk revocation ended a scope's sessions, once committed       |
-| `SineMacula\...\Events\DeviceCreated`            | The session service created a device, once committed             |
-| `SineMacula\...\Events\SignedIn`                 | A session started or was refreshed, once committed               |
-| `SineMacula\...\Events\AdditionalFactorRequired` | A sign-in waits for a further factor, once committed             |
-| `SineMacula\...\Events\PrincipalChoiceRequired`  | A sign-in waits for a choice of principal, once committed        |
-| `SineMacula\...\Events\PrincipalSwitched`        | A session switched its principal, once committed                 |
-| `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type          |
-| `SineMacula\...\Events\PasswordSet`              | A password was set or reset, once committed; with flow           |
-| `SineMacula\...\Events\PasskeyAdded`             | A passkey was registered, once committed                         |
-| `SineMacula\...\Events\PasskeyUsed`              | A passkey's assertion was verified, once committed               |
-| `SineMacula\...\Events\PasskeyRemoved`           | A passkey was removed, once committed                            |
-| `SineMacula\...\Events\ApiKeyIssued`             | An API key was issued, once committed                            |
-| `SineMacula\...\Events\ApiKeyRotated`            | An API key was rotated, once committed; previous key id          |
-| `SineMacula\...\Events\ApiKeyRevoked`            | An API key was revoked, once committed                           |
-| `SineMacula\...\Events\ClientCredentialsGranted` | A client credentials exchange issued an access token             |
-| `SineMacula\...\Events\AuthenticationFailed`     | Any sign-in, refresh, switch, bearer, key, code or reset failure |
+| Event                                             | Fired when                                                       |
+|---------------------------------------------------|------------------------------------------------------------------|
+| `Illuminate\Auth\Events\Attempting`               | A sign-in or refresh starts (never a bearer request)             |
+| `Illuminate\Auth\Events\Validated`                | A sign-in or refresh is about to bind context                    |
+| `Illuminate\Auth\Events\Authenticated`            | Identity bound to the guard, bearer requests included            |
+| `Illuminate\Auth\Events\Login`                    | A sign-in or refresh bound the guard                             |
+| `Illuminate\Auth\Events\Failed`                   | A sign-in or refresh was rejected (never a bearer token)         |
+| `Illuminate\Auth\Events\Logout`                   | `logout()` or `signOut()` ended a signed-in request              |
+| `SineMacula\...\Events\PrincipalAssigned`         | Principal resolved and bound                                     |
+| `SineMacula\...\Events\DeviceAuthenticated`       | Device hydrated and bound; listeners may persist metadata        |
+| `SineMacula\...\Events\Refreshed`                 | Refresh exchange completed, once committed                       |
+| `SineMacula\...\Events\DeviceRevoked`             | The package revoked a device, once committed; with reason        |
+| `SineMacula\...\Events\SignedOutEverywhere`       | A bulk revocation ended a scope's sessions, once committed       |
+| `SineMacula\...\Events\DeviceCreated`             | The session service created a device, once committed             |
+| `SineMacula\...\Events\SignedIn`                  | A session started or was refreshed, once committed               |
+| `SineMacula\...\Events\AdditionalFactorRequired`  | A sign-in waits for a further factor, once committed             |
+| `SineMacula\...\Events\PrincipalChoiceRequired`   | A sign-in waits for a choice of principal, once committed        |
+| `SineMacula\...\Events\PrincipalSwitched`         | A session switched its principal, once committed                 |
+| `SineMacula\...\Events\IdentifierVerified`        | An identifier was verified (after commit); carries type          |
+| `SineMacula\...\Events\IdentifierChangeRequested` | A change of identifier waits for its proof, once committed       |
+| `SineMacula\...\Events\IdentifierChanged`         | An identifier was replaced by a proven one, once committed       |
+| `SineMacula\...\Events\PasswordSet`               | A password was set or reset, once committed; with flow           |
+| `SineMacula\...\Events\PasskeyAdded`              | A passkey was registered, once committed                         |
+| `SineMacula\...\Events\PasskeyUsed`               | A passkey's assertion was verified, once committed               |
+| `SineMacula\...\Events\PasskeyRemoved`            | A passkey was removed, once committed                            |
+| `SineMacula\...\Events\ApiKeyIssued`              | An API key was issued, once committed                            |
+| `SineMacula\...\Events\ApiKeyRotated`             | An API key was rotated, once committed; previous key id          |
+| `SineMacula\...\Events\ApiKeyRevoked`             | An API key was revoked, once committed                           |
+| `SineMacula\...\Events\ClientCredentialsGranted`  | A client credentials exchange issued an access token             |
+| `SineMacula\...\Events\AuthenticationFailed`      | Any sign-in, refresh, switch, bearer, key, code or reset failure |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -3314,6 +3491,11 @@ $token = $links->lastTokenFor('ada@example.test');
 
 $this->postJson('/password/reset', ['email' => 'ada@example.test', 'token' => $token, 'password' => 'a new passphrase'])->assertNoContent();
 ```
+
+`Testing\FakeIdentifierChangeNotifier` does the same for the notices of changed identifiers:
+`FakeIdentifierChangeNotifier::fake()` binds a fresh one and returns it, `noticesFor($identity)` lists the notices about
+that identity's changes, and `sent()`, `hasSent()`, `count()` and `forget()` work as the sender fake's do. A notice
+arrives when its queued job runs, as a code does.
 
 ```bash
 composer test               # all suites in parallel (Paratest)

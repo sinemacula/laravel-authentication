@@ -46,6 +46,8 @@ The current note set is:
   its link's token or code with the new password and the revocation.
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
+- `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
+  after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
 the test should be treated as authoritative until the mismatch is resolved.
