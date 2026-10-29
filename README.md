@@ -2326,12 +2326,13 @@ Route::get('/email/change/confirm', function (Request $request) {
 | `taken`     | Another identity holds the new identifier; the proof is not used up                                                                       |
 
 A confirmation reads the change, checks the proof and makes the change in one transaction on the identity's connection,
-so the identity must be stored on the device model's connection, where the codes and the pending changes are kept (a
-`LogicException` otherwise). A wrong code's attempt is kept; a change refused once its proof is accepted (`taken`, an
-identifier changed meanwhile, a database error, or a transaction you roll back) rolls back whole, so the proof is not
-spent. The same transaction invalidates, for every `jwt` guard and for both the old identifier and the new one, the
-sign-in, password reset and reset link codes waiting for it, and the identity's verification codes; a verification link
-for the old identifier stops working by itself, since it carries that identifier's digest.
+so the identity must be stored on the device model's connection, where the codes and the pending changes are kept: as
+for a password reset, any other identity throws a `LogicException` naming both connections before anything is counted,
+and `authentication:check` warns about its guard. A wrong code's attempt is kept; a change refused once its proof is
+accepted (`taken`, an identifier changed meanwhile, a database error, or a transaction you roll back) rolls back whole,
+so the proof is not spent. The same transaction invalidates, for every `jwt` guard and for both the old identifier and
+the new one, the sign-in, password reset and reset link codes waiting for it, and the identity's verification codes; a
+verification link for the old identifier stops working by itself, since it carries that identifier's digest.
 
 Once the change commits, `IdentifierChanged` is dispatched and, when the identity had an identifier of the type, the
 notice to the old one is queued on the delivery queue (`delivery.queue`). The change stands if the notice fails: the job

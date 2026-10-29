@@ -34,14 +34,13 @@ outdates, and why the change stands when the notice to the old identifier fails.
   misconfiguration) that is not the current one in canonical form, and a slot of `rate_limits.identifier_change` for the
   new identifier, the identity's account and the IP address, never given back. It never looks for another holder of the
   new identifier, so its answer cannot tell whether one exists.
-- A confirmation runs in one transaction on the identity's connection, which must be the device model's (the codes'
-  and the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything
-  is counted or written. It reads the change (this guard's, live),
-  checks the proof, deletes the change while it still names its request, looks for another holder through the guard's
-  provider, invalidates the outdated proofs and replaces the identifier conditionally on `previous`
-  (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one as verified). A refused proof commits, so
-  a code's attempt count is durable; any refusal after the proof is accepted throws inside the transaction, so it rolls
-  back whole and the proof is not spent.
+- A confirmation runs in one transaction on the identity's connection, which must be the device model's (the codes' and
+  the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything is
+  counted or written. It reads the change (this guard's, live), checks the proof, deletes the change while it still
+  names its request, looks for another holder through the guard's provider, invalidates the outdated proofs and replaces
+  the identifier conditionally on `previous` (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one
+  as verified). A refused proof commits, so a code's attempt count is durable; any refusal after the proof is accepted
+  throws inside the transaction, so it rolls back whole and the proof is not spent.
 - A change invalidates, in one statement, for every `jwt` guard and for both the canonical previous identifier and the
   new one: the sign-in, password reset and password reset link codes, and the identity's verification codes. Verification
   links need nothing: they carry the digest of the identifier they verify.
@@ -97,7 +96,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
   (`replaceIdentifier()`), `src/Contracts/IdentifierChangeNotifier.php`, `src/Testing/FakeIdentifierChangeNotifier.php`.
 - `src/Models/IdentifierChange.php`, `database/migrations/2026_04_06_000007_create_identifier_changes_table.php`.
 - `src/Events/IdentifierChangeRequested.php`, `src/Events/IdentifierChanged.php`.
-- `src/Console/CheckConfigurationCommand.php` (`[identifier_changes]`).
+- `src/Console/CheckConfigurationCommand.php` (`[identifier_changes]`), `src/Database/SharedConnection.php` and
+  `src/Console/PasswordChecks.php` (the connection rule and its warning, shared with password resets).
 
 ## Authoritative Tests
 
@@ -108,8 +108,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
   invalidated proofs, notices and their failure.
 - `tests/Feature/IdentifierChanges/RecentAuthenticationTest.php`: the window from its first second to its last, devices
   that prove nothing, a refresh that does not renew, passwords checked and counted.
-- `tests/Feature/IdentifierChanges/IdentifierChangeServiceTest.php` (misconfiguration), `IdentifierChangeRoutesTest.php`,
-  `ChangeLinksTest.php`.
+- `tests/Feature/IdentifierChanges/IdentifierChangeServiceTest.php` (misconfiguration, the connection rule),
+  `IdentifierChangeRoutesTest.php`, `ChangeLinksTest.php`; `tests/Feature/Database/SharedConnectionTest.php`.
 - `tests/Integration/IdentifierChanges/ConcurrentIdentifierChangesTest.php`: races on PostgreSQL and MySQL.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,
   `PendingChangesTest.php`; `tests/Integration/Models/IdentifierChangeTest.php`,

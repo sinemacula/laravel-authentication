@@ -113,7 +113,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 ## Reset submissions (`reset()`, `resetWithCode()`)
 
 1. Settings fail closed, and the provider's configured model must be on the device model's connection
-   (`SharedConnection`; `LogicException` naming both) before anything is counted.
+   (`SharedConnection`, the rule identifier changes share; `LogicException` naming both) before anything is counted.
 2. `acquire()` on `password_reset` for the identifier as given and the IP address (`rate_limited`), before any other
    work, released only by a reset that succeeds.
 3. Inside `JwtGuard::timeboxed()`: a missing or malformed identifier, token, code or password is `invalid`
@@ -181,7 +181,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `tests/Feature/Passwords/ResetRequestsTest.php`, `ResetSubmissionsTest.php`, `ResetRecipientTest.php`,
   `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
 - `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
-  `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`
+  `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
+  `tests/Feature/Database/SharedConnectionTest.php`
 - `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests)
 - `tests/Performance/PasswordResetEnumerationTest.php`, `tests/Performance/PasswordResetQueryBudgetTest.php`
 
