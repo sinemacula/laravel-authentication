@@ -11,14 +11,16 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
+use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 
 /**
  * The sessions a bulk revocation ends: an identity's, or a principal's, with
  * the devices that hold them, the pending sign-ins that could still start one,
- * and the "tokens valid after" cutoff that ends its access tokens issued
- * without a device.
+ * the "tokens valid after" cutoff that ends its access tokens issued without a
+ * device, and, for an identity whose identifiers can be changed, its pending
+ * identifier changes, which end with them.
  *
  * An identity's devices are those its `devices()` relation returns, of every
  * guard; a principal's are the configured device model's devices that record it
@@ -26,7 +28,9 @@ use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
  * device or a pending sign-in (the session service refuses to start a session
  * for any other), so a scope whose identity does not (access-only mode, where
  * the package's tables may not exist) touches neither and only moves its
- * cutoff, and an unsaved principal has neither to find.
+ * cutoff, and an unsaved principal has neither to find. A principal's scope
+ * ends no identifier change: the identity that requested one keeps its other
+ * sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -48,6 +52,7 @@ final readonly class RevocationScope
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @param  list<string>  $changes
      *
      * @phpcs:enable Generic.Files.LineLength.TooLong
      *
@@ -72,23 +77,31 @@ final readonly class RevocationScope
 
         /** The tenant whose deactivation ends them, if that is why. */
         public ?Tenant $tenant = null,
+
+        /** The keys of the identity's pending identifier changes that end with its sessions (see `PendingChanges::key()`); none for a principal's scope. */
+        public array $changes = [],
     ) {}
 
     /**
      * Every session of the identity, through its `devices()` relation, read on
-     * the write connection.
+     * the write connection, and its pending identifier changes of the types
+     * given, for an identity whose identifiers can be changed: a change link
+     * needs no session, so one requested from a session that ends must end with
+     * it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  list<string>  $changeTypes
      * @return self
      *
      * @throws \LogicException
      */
-    public static function identity(Identity $identity): self
+    public static function identity(Identity $identity, array $changeTypes = []): self
     {
         $devices  = $identity instanceof HasDevices ? IdentityDevices::query($identity) : null;
         $pendings = $identity instanceof HasDevices && $identity instanceof Model ? self::owner($identity) : null;
+        $changes  = array_map(static fn (string $type): string => PendingChanges::key($identity, $type), $changeTypes);
 
-        return new self($devices, $pendings, $identity instanceof HasTokensValidAfter ? $identity : null, $identity, null);
+        return new self($devices, $pendings, $identity instanceof HasTokensValidAfter ? $identity : null, $identity, null, changes: $changes);
     }
 
     /**
@@ -141,7 +154,7 @@ final readonly class RevocationScope
      */
     public function keepingCutoff(): self
     {
-        return new self($this->devices, $this->pendings, null, $this->identity, $this->principal, $this->tenant);
+        return new self($this->devices, $this->pendings, null, $this->identity, $this->principal, $this->tenant, $this->changes);
     }
 
     /**

@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
 use Tests\Concerns\InteractsWithSessions;
 use Tests\Integration\Fixtures\AccessOnlyMember;
@@ -188,6 +189,24 @@ final class RevocationScopeTest extends TestCase
     }
 
     /**
+     * An identity's scope carries the keys of its pending identifier changes of
+     * the types given, none when none are given; a principal's carries none,
+     * and keeping the cutoff keeps them.
+     *
+     * @return void
+     */
+    public function testAnIdentityScopeCarriesTheKeysOfItsPendingChanges(): void
+    {
+        $identity = $this->cutoffIdentity();
+        $scope    = RevocationScope::identity($identity, ['email', 'phone']);
+
+        self::assertSame([PendingChanges::key($identity, 'email'), PendingChanges::key($identity, 'phone')], $scope->changes);
+        self::assertSame($scope->changes, $scope->keepingCutoff()->changes);
+        self::assertSame([], RevocationScope::identity($identity)->changes);
+        self::assertSame([], RevocationScope::principal($identity)->changes);
+    }
+
+    /**
      * Keeping the cutoff leaves the scope's devices, pending sign-ins and parts
      * as they were and drops only the cutoff to move.
      *
@@ -203,6 +222,7 @@ final class RevocationScopeTest extends TestCase
         self::assertNull($kept->cutoff);
         self::assertSame($scope->devices, $kept->devices);
         self::assertSame($scope->pendings, $kept->pendings);
+        self::assertSame($scope->changes, $kept->changes);
         self::assertSame($identity, $kept->identity);
         self::assertNull($kept->principal);
         self::assertNull($kept->tenant);

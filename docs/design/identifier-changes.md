@@ -89,20 +89,26 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - A confirmation for an identity that is not active (`ActivationPolicy::isActive()`): `invalid`, reported as
   `identity_inactive`, before anything is read, counted or spent. The link needs no session, so no guard has checked the
   identity, and an account suspended after the request must keep its identifier; once active again, the change can
-  still be confirmed while it waits.
+  still be confirmed while it waits, unless the suspension ended its sessions through `identityDeactivated()`, which
+  cancels it (below).
 - An expired change: `expired` (`code_expired`, or `link_expired` for a link, also when the link's own signature has
   not yet expired at the change's last second).
 - The notifier fails: the job fails and the queue retries; the change stands. The new identifier was proven and the
   request recently authenticated, so rolling back on a mail outage would block the owner while protecting nothing the
   proof did not, and notices are dispatched after commit by design, outside the atomic unit.
 - Sessions are not revoked by a change; the application may sign the identity out everywhere if it wants that.
-- A change or a reset of the password (`PasswordService::set()`, a reset by link or code) deletes every pending change
-  of the identity, of each type with a registered normaliser and through any guard, in one `DELETE` by key inside the
-  password's transaction (`PendingChanges::forget()`, from `Passwords\OutdatedProofs`). A link needs no session, so a
-  change requested from a session the new password ended (an attacker's) would otherwise still move the account to the
-  requester's address once its owner had recovered it. The change's code needs nothing: it is checked only against its
-  pending change's binding, so without the row it confirms nothing until it is pruned. A registration ends no session
-  and keeps them.
+- Every bulk revocation of an identity's sessions deletes every pending change of the identity, of each type with a
+  registered normaliser and through any guard, in one `DELETE` by key inside the revocation's transaction on the device
+  model's connection (`PendingChanges::forget()`, from `Sessions\DeviceRevocations` for the scope
+  `SessionService::revokeDevices()` builds): `signOutEverywhere()`, `revokeDevices()`, `passwordChanged()`,
+  `passwordReset()`, `factorRemoved()`, `identityDeactivated()`, and so `PasswordService::set()` for a change or a reset,
+  a reset by link or code, and the listeners. A link needs no session, so a change requested from a session that ended
+  (an attacker's) would otherwise still move the account to the requester's address once its owner had signed it out,
+  reset its password or had it suspended, whether or not the identity has a password at all. The change's code needs
+  nothing: it is checked only against its pending change's binding, so without the row it confirms nothing until it is
+  pruned. Revoking one device, ending a principal's sessions and a registration leave the identity's other sessions,
+  and so its pending changes. A deactivation that only clears the identity's active flag, without
+  `identityDeactivated()`, keeps them, and the change can be confirmed once the identity is active again.
 
 ## Implementation Anchors
 
@@ -131,6 +137,8 @@ outdates, and why the change stands when the notice to the old identifier fails.
   that prove nothing, a refresh that does not renew, passwords checked and counted.
 - `tests/Feature/IdentifierChanges/IdentifierChangeServiceTest.php` (misconfiguration, the connection rule),
   `IdentifierChangeRoutesTest.php`, `ChangeLinksTest.php`; `tests/Feature/Database/SharedConnectionTest.php`.
+- `tests/Feature/IdentifierChanges/EndedSessionsCancelChangesTest.php`: every bulk revocation of the identity cancels its
+  pending changes; one device or a principal's sessions keep them.
 - `tests/Integration/IdentifierChanges/ConcurrentIdentifierChangesTest.php`: races on PostgreSQL and MySQL.
 - `tests/Integration/IdentifierChanges/ReplicaIdentifierChangesTest.php`: `pending()`, the code's delivery and a
   device's reauthentication read what only the primary holds yet, behind a lagging replica.

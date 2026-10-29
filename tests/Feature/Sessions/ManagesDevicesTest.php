@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
@@ -29,7 +30,7 @@ use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
-use Tests\Concerns\InteractsWithSessions;
+use Tests\Concerns\InteractsWithChangeableIdentities;
 use Tests\TestCase;
 
 /**
@@ -51,7 +52,7 @@ use Tests\TestCase;
 #[CoversTrait(ManagesDevices::class)]
 final class ManagesDevicesTest extends TestCase
 {
-    use InteractsWithSessions;
+    use InteractsWithChangeableIdentities;
 
     /**
      * Create the tables and register the routes.
@@ -227,6 +228,35 @@ final class ManagesDevicesTest extends TestCase
     }
 
     /**
+     * Revoking every device of an identity whose identifiers can be changed
+     * cancels its pending changes of every type with a normaliser, a change
+     * link needing no session; another identity's, whose identifiers cannot be
+     * changed, keeps the row its key would name.
+     *
+     * @return void
+     */
+    public function testRevokingEveryDeviceCancelsTheChangesOfAnIdentityWhoseIdentifiersChange(): void
+    {
+        self::createChangeableIdentitiesTable();
+
+        try {
+            $changeable = self::seedChangeable();
+            $plain      = $this->seedIdentity();
+
+            self::insertPendingChange(PendingChanges::key($changeable, 'email'), 'email', '0195f4a2-7b1c-4000-8000-000000000001');
+            self::insertPendingChange(PendingChanges::key($changeable, 'phone'), 'phone', '0195f4a2-7b1c-4000-8000-000000000002');
+            self::insertPendingChange(PendingChanges::key($plain, 'email'), 'email', '0195f4a2-7b1c-4000-8000-000000000003');
+
+            Auth::sessions('api')->revokeDevices($changeable, RevocationReason::REVOKED);
+            Auth::sessions('api')->revokeDevices($plain, RevocationReason::REVOKED);
+
+            self::assertSame([PendingChanges::key($plain, 'email')], DB::table('identifier_changes')->pluck('id')->all());
+        } finally {
+            self::dropChangeableIdentitiesTable();
+        }
+    }
+
+    /**
      * A device list revokes only the signed-in identity's own devices: another
      * identity's device, an unknown one and a malformed id are all simply not
      * found, and revoking a device twice reports it once, naming the owner and
@@ -351,5 +381,27 @@ final class ManagesDevicesTest extends TestCase
         Auth::forgetGuards();
 
         return $this->withHeaders(['Authorization' => 'Bearer ' . $session->tokens->accessToken])->json($method, $path, $body);
+    }
+
+    /**
+     * Insert a pending change of the type under the key, for the request.
+     *
+     * @param  string  $key
+     * @param  string  $type
+     * @param  string  $requestId
+     * @return void
+     */
+    private static function insertPendingChange(string $key, string $type, string $requestId): void
+    {
+        DB::table('identifier_changes')->insert([
+            'id'           => $key,
+            'guard'        => 'api',
+            'type'         => $type,
+            'previous'     => null,
+            'identifier'   => 'ada@new.example.test',
+            'request_id'   => $requestId,
+            'requested_at' => '2026-04-06 12:00:00',
+            'expires_at'   => '2026-04-06 13:00:00',
+        ]);
     }
 }

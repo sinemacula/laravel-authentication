@@ -152,23 +152,22 @@ final class PendingChanges
     }
 
     /**
-     * Delete every pending change of the identity of the types, whatever its
-     * request or the guard it was requested through, in one statement. Their
+     * Delete the pending changes of the keys (see `key()`), whatever their
+     * request or the guard they were requested through, in one statement. Their
      * codes need nothing: a code is checked only against its pending change's
      * binding, which names that change's request, so without the change it
      * confirms nothing, and it is pruned once it expires.
      *
-     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @param  list<string>  $types
+     * @param  non-empty-list<string>  $keys
      * @return void
      *
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @imperative
      */
-    public static function forget(Identity $identity, array $types): void
+    public static function forget(array $keys): void
     {
-        self::table()->whereIn('id', array_map(static fn (string $type): string => self::key($identity, $type), $types))->delete();
+        self::table()->whereIn('id', $keys)->delete();
     }
 
     /**

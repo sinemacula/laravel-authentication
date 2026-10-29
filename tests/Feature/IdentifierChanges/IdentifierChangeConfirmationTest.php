@@ -504,7 +504,8 @@ final class IdentifierChangeConfirmationTest extends TestCase
      * link (which needs no session, so no guard checked it) or by code:
      * `invalid`, reported as `identity_inactive`, before anything is read,
      * counted or spent, so the change confirms once the identity is active
-     * again.
+     * again: a deactivation that only clears the flag ends no session (one
+     * through `identityDeactivated()` cancels the change too).
      *
      * @return void
      *

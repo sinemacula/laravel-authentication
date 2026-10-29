@@ -1728,7 +1728,11 @@ unknown or already revoked one. `revokeDevices()` covers every device the identi
 `revokePrincipalDevices()` every device of the configured model that records the principal. Both keep the `except`
 device when one is given, return how many devices they revoked, and also end the scope's pending sign-ins (a further
 factor or a principal choice waiting to be completed), so a credential issued before the revocation cannot start a
-session after it. `signOutEverywhere()` is `revokeDevices()` for the request's identity with reason
+session after it. `revokeDevices()` also cancels the identity's pending identifier changes, of every type and through
+every guard: a change link needs no session, so one requested from a session that ends could otherwise still move the
+account to an identifier of the requester's (see [Changing identifiers](#changing-identifiers)). `revokeDevice()` and
+`revokePrincipalDevices()` leave them, since the identity keeps its other sessions. `signOutEverywhere()` is
+`revokeDevices()` for the request's identity with reason
 `signed_out_everywhere`; it returns `0` on a guest request, and it leaves the guard bound for the rest of the request
 (call `signOut()` as well to end the current session too). With `keepCurrentDevice: true` on a request whose session has
 no device (an access-only token), the session is kept by leaving the identity's "tokens valid after" cutoff where it is,
@@ -1737,7 +1741,8 @@ device-less tokens keep working too, until they expire.
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
 (`HasTokensValidAfter`), then, in one transaction on the device model's connection, revokes each unrevoked device, read
-on the write connection in key order 500 at a time, and deletes the pending sign-ins. Once that transaction commits,
+on the write connection in key order 500 at a time, and deletes the pending sign-ins and, for an identity, its pending
+identifier changes. Once that transaction commits,
 `DeviceRevoked` reports each device it revoked (with the device's own guard) and then `SignedOutEverywhere` reports the
 scope, with the acting guard, the reason, the count (also `0`, so the action itself is recorded), the cutoff it set (or
 `null`), and the device it kept. If the device transaction fails, the cutoff it already moved stands: more is cut off,
@@ -1777,7 +1782,8 @@ Device::query()->active()->where('guard', 'api')->count();
 ### Revoking on security changes
 
 Call the session service from your own flows when something about an identity's security changes; each ends the
-affected sessions as a bulk revocation, with its own reason, moves the scope's cutoff, and ends its pending sign-ins:
+affected sessions as a bulk revocation, with its own reason, moves the scope's cutoff, and ends its pending sign-ins
+and, for the four that end an identity's sessions, its pending identifier changes:
 
 | Method                                             | Ends                                       | Reason                  |
 |----------------------------------------------------|--------------------------------------------|-------------------------|
@@ -1789,10 +1795,11 @@ affected sessions as a bulk revocation, with its own reason, moves the scope's c
 | `tenantDeactivated($tenant, iterable $principals)` | Every session acting as a listed principal | `tenant_deactivated`    |
 
 Never call `passwordChanged()` for the automatic rehash of a password on sign-in: the password did not change. These
-methods end sessions only. A new password set through `Auth::passwords()->set()` (see
-[Setting a password](#setting-a-password)) calls them and also ends what could take the account back without a session:
-the reset links and codes, the sign-in codes and the pending identifier changes of the identity; a password your own
-flow saves another way leaves those as they are.
+methods end sessions, pending sign-ins and pending identifier changes only. A change or a reset set through
+`Auth::passwords()->set()` (see [Setting a password](#setting-a-password)) calls them and also ends the other proofs
+that could take the account back without a session: the reset links and codes and the sign-in codes of the identity. A
+registration calls none of them and ends only the reset links and codes. A password your own flow saves another way
+leaves those proofs as they are.
 `factorRemoved()` is the seam a further-factor package calls when an identity removes a factor. Devices record
 principals, not tenants, so `tenantDeactivated()` takes the tenant's principals from you: each must act within the
 tenant (read on the write connection from the principal as stored, so a `tenant` relation you loaded does not decide and
@@ -2346,10 +2353,12 @@ One change waits per identity and type, in `identifier_changes.table`: a newer r
 so the code and the link of an earlier one stop working at once. It waits `identifier_changes.ttl_seconds` (3600 by
 default), and a change proven by code no longer than its code works (`codes.ttl_seconds`). `pending($identity, $type)`
 reports the change waiting through this guard (its new identifier and times) and `cancel($identity, $type)` drops it.
-A change or a reset of the password through `Auth::passwords()->set()` (or a reset by link or code) drops every change
-the identity has waiting, of each type and through each guard, in the same transaction: a link needs no session, so
-one requested from a session the new password ended could otherwise still move the account to an address of the
-requester's. A registration keeps them.
+Ending the identity's sessions in bulk drops every change it has waiting, of each type and through each guard, in the
+same transaction: `signOutEverywhere()`, `revokeDevices()` and the security-change methods that end an identity's
+sessions (see [Revoking on security changes](#revoking-on-security-changes)), so also a change or a reset of the
+password through `Auth::passwords()->set()`, a reset by link or code, and the listeners that call them. A link needs no
+session, so one requested from a session that ended could otherwise still move the account to an address of the
+requester's. Revoking one device, ending a principal's sessions and a registration keep them.
 Prune expired changes with `php artisan model:prune --model="SineMacula\Laravel\Authentication\Models\IdentifierChange"`.
 
 **Confirming.** `confirmByCode($identity, $type, $code)` takes the code; `confirmByLink($request)` takes the request to

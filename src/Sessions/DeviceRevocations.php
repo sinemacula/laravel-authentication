@@ -12,6 +12,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Database\AfterCommit;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
+use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
@@ -30,10 +31,13 @@ use SineMacula\Laravel\Authentication\Models\PendingSignIn;
  * `$now` on the scope's own connection, then, in one transaction on the device
  * model's connection (which also holds the pending sign-ins), revokes every
  * unrevoked device of each scope, read on the write connection in key order in
- * chunks of 500, and deletes the scope's pending sign-ins, so a further factor
- * or a principal choice issued before cannot start a session afterwards. A
- * failure in the transaction leaves the cutoffs moved: more is cut off, never
- * less, and a retry is idempotent.
+ * chunks of 500, deletes the scope's pending sign-ins, so a further factor or a
+ * principal choice issued before cannot start a session afterwards, and deletes
+ * the pending identifier changes of an identity's scope (also kept on that
+ * connection), so a change link requested from a session that ends, which needs
+ * no session to confirm, cannot move the account afterwards. A failure in the
+ * transaction leaves the cutoffs moved: more is cut off, never less, and a
+ * retry is idempotent.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -125,6 +129,7 @@ final readonly class DeviceRevocations
                 $revoked = $this->revokeDevicesOf($scope, $reason, $except, $now, $deviceRevoked);
 
                 self::deletePendings($scope);
+                self::forgetChanges($scope);
 
                 $cutoff = $cutoffs[$index];
 
@@ -206,5 +211,23 @@ final readonly class DeviceRevocations
         }
 
         (new PendingSignIn)->newQueryWithoutScopes()->toBase()->where($scope->pendings)->delete();
+    }
+
+    /**
+     * Delete the scope's pending identifier changes, whatever guard requested
+     * them, in one statement.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    private static function forgetChanges(RevocationScope $scope): void
+    {
+        if ($scope->changes === []) {
+            return;
+        }
+
+        PendingChanges::forget($scope->changes);
     }
 }

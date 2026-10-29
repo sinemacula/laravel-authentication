@@ -19,8 +19,9 @@ use SineMacula\Laravel\Authentication\Sessions\RevocationScope;
  * The session service's answers to security changes an application makes in its
  * own flows: each ends the affected sessions with its reason, as a bulk
  * revocation (see `ManagesDevices`), moving the scope's "tokens valid after"
- * cutoff when it records one and ending its pending sign-ins. Each returns how
- * many devices it revoked.
+ * cutoff when it records one and ending its pending sign-ins, and, for an
+ * identity, cancelling its pending identifier changes. Each returns how many
+ * devices it revoked.
  *
  * Deactivation already stops every token at once through the live activity
  * checks; revoking makes the end outlast a reactivation and records why.
@@ -42,6 +43,8 @@ trait RevokesOnSecurityChanges
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
      * @return int
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */
@@ -57,6 +60,8 @@ trait RevokesOnSecurityChanges
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */
@@ -74,6 +79,8 @@ trait RevokesOnSecurityChanges
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
      * @return int
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */
@@ -89,6 +96,8 @@ trait RevokesOnSecurityChanges
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @return int
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */

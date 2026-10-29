@@ -83,8 +83,9 @@ only duplicate them.
 - The write, the cutoff and the revocation run in one transaction on the identity's connection; `PasswordSet` is
   dispatched once that commits (`Database\AfterCommit`), never for a rollback, and never by the automatic rehash.
 - A new password outdates every reset link and code still waiting for the identity, whatever the flow, and a change or a
-  reset, which end sessions, outdates its sign-in codes and cancels its pending identifier changes too (a registration
-  ends no session and leaves them): the same transaction invalidates them (`OutdatedProofs`), so a link or code someone
+  reset, which end sessions, outdates its sign-in codes too, and their revocation cancels its pending identifier changes
+  (a registration ends no session and leaves them): the same transaction invalidates them (`OutdatedProofs`,
+  `DeviceRevocations`), so a link or code someone
   else obtained earlier (a forwarded mail, a mailbox read while it was compromised) cannot take the account back after
   its owner recovers it, through any guard whose provider can return the identity. A guard whose provider reads another
   table binds its links and codes to the identities there, so they are kept (`JwtGuards::namesFor()`).
@@ -113,11 +114,10 @@ only duplicate them.
      skipped when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
      invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
      cannot be built) fails the write closed.
-   - a change or a reset of a `HasChangeableIdentifiers` identity: `PendingChanges::forget()`, one `DELETE` of its
-     pending identifier changes by key, for every type with a registered normaliser (see the identifier changes note).
    - `CHANGE`: `SessionService::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every guard's
-     devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended, their events after their
-     commit); `REGISTRATION`: nothing.
+     devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended and, for a
+     `HasChangeableIdentifiers` identity, its pending identifier changes deleted by key, for every type with a registered
+     normaliser, their events after their commit; see the identifier changes note); `REGISTRATION`: nothing.
    - `PasswordSet($context, $flow)` queued on the identity connection's commit; the context names the guard, the client,
      the identity and, for a change, the device kept.
 4. `PasswordResult::set($revoked)`.

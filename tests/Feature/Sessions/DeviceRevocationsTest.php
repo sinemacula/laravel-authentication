@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\RevocationReason;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
@@ -425,6 +426,46 @@ final class DeviceRevocationsTest extends TestCase
 
         self::assertSame(3, $this->sessions('members')->tenantDeactivated($tenant, [$first, $second]));
         self::assertSame([2, 1], array_map(static fn (object $event): int => $event instanceof SignedOutEverywhere ? $event->revoked : -1, $this->recorded));
+    }
+
+    /**
+     * A bulk revocation deletes the pending identifier changes its identity
+     * scopes name, in the same transaction as their devices, and no other: a
+     * principal's scope names none.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testABulkRevocationDeletesThePendingChangesItsScopesName(): void
+    {
+        $identity = $this->seedIdentity();
+        $other    = $this->seedIdentity('grace@example.test');
+        $keys     = [PendingChanges::key($identity, 'email'), PendingChanges::key($identity, 'phone'), PendingChanges::key($other, 'email')];
+
+        foreach ($keys as $index => $key) {
+            DB::table('identifier_changes')->insert([
+                'id'           => $key,
+                'guard'        => 'api',
+                'type'         => 'email',
+                'previous'     => null,
+                'identifier'   => "new{$index}@example.test",
+                'request_id'   => "0195f4a2-7b1c-4000-8000-00000000000{$index}",
+                'requested_at' => self::NOW,
+                'expires_at'   => self::NOW,
+            ]);
+        }
+
+        $revocations = new DeviceRevocations(app('db'), static fn (): mixed => null);
+        $none        = static function (): void {};
+
+        $revocations->revokeScopes([RevocationScope::principal($identity)], RevocationReason::REVOKED, null, CarbonImmutable::now(), $none, $none);
+
+        self::assertSame(3, DB::table('identifier_changes')->count());
+
+        $revocations->revokeScopes([RevocationScope::identity($identity, ['email', 'phone'])], RevocationReason::REVOKED, null, CarbonImmutable::now(), $none, $none);
+
+        self::assertSame([$keys[2]], DB::table('identifier_changes')->pluck('id')->all());
     }
 
     /**
