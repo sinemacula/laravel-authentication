@@ -76,7 +76,8 @@ final readonly class PasswordService
     /**
      * Laravel's `Password` rule with the configured length and composition, for
      * a form. It runs no breached check and cannot express bcrypt's 72-byte
-     * ceiling: `check()` and `set()` stay authoritative.
+     * ceiling or its refusal of a null character: `check()` and `set()` stay
+     * authoritative.
      *
      * @return \Illuminate\Validation\Rules\Password
      *

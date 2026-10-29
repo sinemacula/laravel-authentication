@@ -60,12 +60,15 @@ only duplicate them.
   holds: those paths are not touched, and an older password shorter than the policy still signs in and is rehashed.
 - Length is counted in characters as Laravel's `min` and `max` rules count them (`mb_strlen`); `min_length` is 8 to 128
   (default 15, NIST SP 800-63B's minimum for a single factor) and `max_length` `min_length` to 4096 (default 128).
+- While Laravel's hashing driver is bcrypt, a password holding a null character is `null_character`: PHP's bcrypt
+  refuses one with a `ValueError`, which Laravel's hasher turns into a `RuntimeException`, so without the rule `set()`
+  and a reset with a valid proof would throw instead of answering `password_rejected`.
 - While Laravel's hashing driver is bcrypt, a password of more than 72 bytes is `too_long` (bcrypt reads only 72 and,
   with `hashing.bcrypt.limit`, `make()` would throw), and `min_length` may be at most 72.
 - The composition rules (`letters`, `mixed_case`, `numbers`, `symbols`, off by default) use exactly the expressions of
   Laravel's `Password` rule, and `rule()` builds that rule from the same settings, so a form and `check()` agree on every
-  password the rule can judge. The two differences are deliberate and pinned by a parity test: the rule runs no
-  breached check, and cannot see bcrypt's byte ceiling.
+  password the rule can judge. The three differences are deliberate and pinned by a parity test: the rule runs no
+  breached check, and cannot see bcrypt's byte ceiling or its refusal of a null character.
 - The breached check runs only for a password that passes the other rules. The default `BreachedPasswordChecker`,
   `NoBreachedPasswordCheck`, finds nothing. A checker that cannot answer throws
   `BreachedPasswordCheckUnavailableException`; the policy reports it to the exception handler and then rejects the
@@ -93,8 +96,9 @@ only duplicate them.
 ## Success Path
 
 1. `settable()`: refuse a machine, a non-model, a change or reset of an unsaved model, and `$except` outside a change.
-2. `PasswordPolicy::check()`: validate every setting, then length (`too_short` / `too_long`, with bcrypt's bytes),
-   then the enabled composition rules, then, only when none failed, the breached check.
+2. `PasswordPolicy::check()`: validate every setting, then length (`too_short` / `too_long`, with bcrypt's bytes), then
+   bcrypt's null character (`null_character`), then the enabled composition rules, then, only when none failed, the
+   breached check.
 3. `PasswordWriter::write()`: hash outside the transaction (the costly part), then in
    `$identity->getConnection()->transaction()`:
    - a stored identity: one query-builder `UPDATE` of the password column (and `updated_at` when the model keeps
@@ -179,7 +183,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - Devices on another connection than the identity: the bulk revocation commits on the device connection inside the
   identity's transaction; a failure after it (a throwing `DeviceRevoked` listener, say) rolls the password and the
   cutoff back but leaves the devices revoked. More is ended, never less, and calling again finishes the job.
-- Laravel's `Password` rule in a form accepts a breached password and a bcrypt password over 72 bytes; `set()` refuses
+- Laravel's `Password` rule in a form accepts a breached password, and a bcrypt password over 72 bytes or holding a null
+  character; `set()` refuses
   both.
 - Two resets with one token or code: the conditional consume lets exactly one reset; the other is `invalid`.
 - A password write racing a reset or an identifier change confirmation on one identity: every transaction that writes an

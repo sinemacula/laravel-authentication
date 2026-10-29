@@ -317,6 +317,35 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
+     * Under bcrypt, a password holding a null character, which the hasher would
+     * refuse with an exception, is rejected instead, in every flow: nothing is
+     * written or reported.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testANullCharacterIsRejectedUnderBcrypt(): void
+    {
+        config()->set('hashing.driver', 'bcrypt');
+
+        $identity = self::seedPasswordIdentity();
+        $before   = $identity->password;
+
+        $this->recordEvents([PasswordSet::class]);
+
+        foreach (PasswordFlow::cases() as $flow) {
+
+            $result = $this->passwords()->set($identity, "correct horse battery\0staple", $flow);
+
+            self::assertSame([false, [PasswordViolation::NULL_CHARACTER]], [$result->set, $result->violations]);
+        }
+
+        self::assertSame($before, $identity->fresh()?->password);
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
      * A breached password is rejected after the other rules pass; with the
      * checker down, the default fails closed and nothing is written.
      *
@@ -569,8 +598,8 @@ final class PasswordServiceTest extends TestCase
     /**
      * `rule()` is Laravel's `Password` rule for the same length and
      * composition, so a form and `check()` agree on every password the rule can
-     * judge; the two differences are pinned: the rule runs no breached check,
-     * and cannot see bcrypt's byte ceiling.
+     * judge; the three differences are pinned: the rule runs no breached check,
+     * and cannot see bcrypt's byte ceiling or its refusal of a null character.
      *
      * @return void
      */
@@ -603,6 +632,11 @@ final class PasswordServiceTest extends TestCase
 
         self::assertTrue(Validator::make(['password' => $wide], ['password' => [$this->passwords()->rule()]])->passes());
         self::assertSame([PasswordViolation::TOO_LONG], $this->passwords()->check($wide)->violations);
+
+        $null = "Aa1!Aa1!\0Aa";
+
+        self::assertTrue(Validator::make(['password' => $null], ['password' => [$this->passwords()->rule()]])->passes());
+        self::assertSame([PasswordViolation::NULL_CHARACTER], $this->passwords()->check($null)->violations);
     }
 
     /**

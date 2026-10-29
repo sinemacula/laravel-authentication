@@ -427,23 +427,24 @@ return [
     | least `min_length` characters (8 to 128) and at most `max_length`
     | (`min_length` to 4096), counted as Laravel's `min` and `max` rules count
     | them; each is an integer, or a digit string as `env()` returns one. The
-    | default minimum of 15 is NIST SP 800-63B's for a password that is the
-    | only factor; an application that always requires a further factor may
-    | lower it to 8. While the hashing driver is bcrypt, which reads only 72
-    | bytes, a longer password is refused as too long and `min_length` may be
-    | at most 72. `letters`, `mixed_case`, `numbers` and `symbols` (booleans,
-    | off by default, as NIST advises) turn on the composition rules of
-    | Laravel's `Password` rule. A password that passes is then given to the
+    | default minimum of 15 is NIST SP 800-63B's for a password that is the only
+    | factor; an application that always requires a further factor may lower it
+    | to 8. While the hashing driver is bcrypt, which reads only 72 bytes, a
+    | longer password is refused as too long and `min_length` may be at most 72,
+    | and a password holding a null character, which bcrypt cannot hash, is
+    | refused as well. `letters`, `mixed_case`, `numbers` and `symbols`
+    | (booleans, off by default, as NIST advises) turn on the composition rules
+    | of Laravel's `Password` rule. A password that passes is then given to the
     | bound `BreachedPasswordChecker`: the default one blocks nothing, and NIST
     | expects a blocklist check, so bind one of your own. When the checker
-    | cannot answer (it throws `BreachedPasswordCheckUnavailableException`)
-    | the exception is reported and `breached.when_unavailable` decides:
-    | `reject` refuses the password (fail closed, the default), `allow` lets it
-    | through (fail open). A password reset link works for
-    | `reset.link_ttl_seconds` (300 to 86400) after it is requested; a reset
-    | code lives as long as any one-time code (see `codes`), and both share the
-    | codes' table, key and resend cooldown. Requests for either are limited by
-    | the `password_reset_request` rate limits, and submissions by the
+    | cannot answer (it throws `BreachedPasswordCheckUnavailableException`) the
+    | exception is reported and `breached.when_unavailable` decides: `reject`
+    | refuses the password (fail closed, the default), `allow` lets it through
+    | (fail open). A password reset link works for `reset.link_ttl_seconds` (300
+    | to 86400) after it is requested; a reset code lives as long as any
+    | one-time code (see `codes`), and both share the codes' table, key and
+    | resend cooldown. Requests for either are limited by the
+    | `password_reset_request` rate limits, and submissions by the
     | `password_reset` ones. A malformed value fails closed when a password is
     | first checked, and `authentication:check` reports it.
     |

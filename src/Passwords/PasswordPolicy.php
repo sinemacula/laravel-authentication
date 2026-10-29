@@ -14,8 +14,9 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
 
 /**
  * The password policy a new password must pass: its length in characters, the
- * composition rules switched on, bcrypt's 72-byte ceiling when the hashing
- * driver is bcrypt, and then the breached-password check.
+ * composition rules switched on, bcrypt's 72-byte ceiling and its refusal of a
+ * null character when the hashing driver is bcrypt, and then the
+ * breached-password check.
  *
  * Length counts characters as Laravel's `min` and `max` rules do (`mb_strlen`),
  * and the composition rules use exactly the expressions of Laravel's `Password`
@@ -67,7 +68,11 @@ final readonly class PasswordPolicy
     public function check(#[\SensitiveParameter] string $password): PasswordCheck
     {
         $settings   = $this->settings();
-        $violations = [...$this->lengthViolations($settings, $password), ...self::compositionViolations($settings, $password)];
+        $violations = [
+            ...$this->lengthViolations($settings, $password),
+            ...self::hashingViolations($settings, $password),
+            ...self::compositionViolations($settings, $password),
+        ];
 
         if ($violations !== []) {
             return new PasswordCheck($violations);
@@ -81,7 +86,7 @@ final readonly class PasswordPolicy
     /**
      * Laravel's `Password` rule with the configured length and composition, for
      * a form's validation. It cannot express the breached check or bcrypt's
-     * byte ceiling, so `check()` stays authoritative.
+     * byte ceiling and null character, so `check()` stays authoritative.
      *
      * @return \Illuminate\Validation\Rules\Password
      *
@@ -150,6 +155,20 @@ final readonly class PasswordPolicy
             $settings->hashesWithBcrypt() && strlen($password) > PasswordSettings::BCRYPT_BYTES => [PasswordViolation::TOO_LONG],
             default                                                                             => [],
         };
+    }
+
+    /**
+     * The rule the password breaks for the hasher: a null character, which
+     * bcrypt refuses (PHP throws, and Laravel's hasher with it, rather than
+     * hash it), while the hashing driver is bcrypt.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Passwords\PasswordSettings  $settings
+     * @param  string  $password
+     * @return list<\SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation>
+     */
+    private static function hashingViolations(PasswordSettings $settings, #[\SensitiveParameter] string $password): array
+    {
+        return $settings->hashesWithBcrypt() && str_contains($password, "\0") ? [PasswordViolation::NULL_CHARACTER] : [];
     }
 
     /**

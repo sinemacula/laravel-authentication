@@ -20,6 +20,10 @@ enum PasswordViolation: string
     // when the hashing driver is bcrypt
     case TOO_LONG = 'too_long';
 
+    // A null character, which bcrypt refuses to hash, when the hashing driver
+    // is bcrypt
+    case NULL_CHARACTER = 'null_character';
+
     // No letter, while `letters` is on
     case LETTERS = 'letters';
 

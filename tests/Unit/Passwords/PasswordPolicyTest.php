@@ -158,6 +158,28 @@ final class PasswordPolicyTest extends TestCase
     }
 
     /**
+     * Under bcrypt, which refuses to hash a null character, a password holding
+     * one breaks that rule alongside any other, and the breached check is not
+     * asked; under another driver it passes.
+     *
+     * @return void
+     */
+    public function testANullCharacterOnlyUnderBcrypt(): void
+    {
+        $checker = FakeBreachedPasswordChecker::fake([], $this->container);
+
+        self::assertSame([], $this->policy()->check("correct horse battery\0staple")->violations);
+
+        $this->config->set('hashing.driver', 'bcrypt');
+
+        self::assertSame([PasswordViolation::NULL_CHARACTER], $this->policy()->check("correct horse battery\0staple")->violations);
+        self::assertSame([PasswordViolation::NULL_CHARACTER], $this->policy()->check("\0correct horse battery staple")->violations);
+        self::assertSame([PasswordViolation::TOO_SHORT, PasswordViolation::NULL_CHARACTER], $this->policy()->check("short\0")->violations);
+        self::assertSame([], $this->policy()->check('correct horse battery staple')->violations);
+        self::assertSame(["correct horse battery\0staple", 'correct horse battery staple'], $checker->checked());
+    }
+
+    /**
      * The breached check runs only for a password that passes the other rules,
      * and finds what the checker finds.
      *

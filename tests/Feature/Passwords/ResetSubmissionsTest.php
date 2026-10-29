@@ -169,6 +169,38 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
+     * Under bcrypt, a new password holding a null character, which the hasher
+     * would refuse with an exception, is rejected with that violation before
+     * the proof is checked: neither the link nor the code is spent or counted,
+     * and the code then resets with a password the hasher takes.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testANullCharacterIsRejectedBeforeTheProofIsSpent(): void
+    {
+        config()->set('hashing.driver', 'bcrypt');
+
+        self::seedResettable();
+
+        $token = $this->requestLink();
+
+        self::assertTrue($this->passwords()->sendResetCode('phone', ['phone' => self::PHONE])->isSent());
+
+        app()->terminate();
+
+        $code   = (string) $this->codes->lastCodeFor(self::PHONE, CodePurpose::PASSWORD_RESET);
+        $link   = $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => "correct horse battery\0staple"]);
+        $byCode = $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $code, 'password' => "correct horse battery\0staple"]);
+
+        self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::NULL_CHARACTER]], [$link->status, $link->violations]);
+        self::assertSame([ResetStatus::PASSWORD_REJECTED, [PasswordViolation::NULL_CHARACTER]], [$byCode->status, $byCode->violations]);
+        self::assertSame([0, 0], [(int) DB::table('one_time_codes')->sum('attempts'), DB::table('one_time_codes')->whereNotNull('consumed_at')->count()]);
+        self::assertSame(ResetStatus::RESET, $this->passwords()->resetWithCode('phone', ['phone' => self::PHONE, 'code' => $code, 'password' => self::NEW_PASSWORD])->status);
+    }
+
+    /**
      * A link expires from the second its lifetime ends, configured or not: it
      * is then `invalid`, reported as `link_expired`.
      *

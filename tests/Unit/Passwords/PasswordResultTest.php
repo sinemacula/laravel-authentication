@@ -60,7 +60,7 @@ final class PasswordResultTest extends TestCase
     {
         self::assertSame(['registration', 'change', 'reset'], array_map(static fn (PasswordFlow $flow): string => $flow->value, PasswordFlow::cases()));
         self::assertSame(
-            ['too_short', 'too_long', 'letters', 'mixed_case', 'numbers', 'symbols', 'breached', 'breach_check_unavailable'],
+            ['too_short', 'too_long', 'null_character', 'letters', 'mixed_case', 'numbers', 'symbols', 'breached', 'breach_check_unavailable'],
             array_map(static fn (PasswordViolation $violation): string => $violation->value, PasswordViolation::cases()),
         );
     }

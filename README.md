@@ -1955,7 +1955,8 @@ counted as Laravel's `min` and `max` rules count them (`mb_strlen`). The default
 a password used as the only factor; if every sign-in also requires a further factor (see
 [Additional factors](#additional-factors)), you may lower it to 8. While Laravel's hashing driver is bcrypt (its
 default), which reads only the first 72 bytes and ignores the rest, a password of more than 72 bytes is refused as too
-long, and `min_length` may be at most 72. `letters`, `mixed_case`, `numbers` and `symbols` turn on the composition
+long, and `min_length` may be at most 72; bcrypt also cannot hash a null character, so a password holding one is refused
+as `null_character` rather than failing in the hasher. `letters`, `mixed_case`, `numbers` and `symbols` turn on the composition
 rules of Laravel's `Password` rule, with its exact expressions; they are off by default, as NIST advises against them.
 Each value fails closed with an `InvalidArgumentException` naming the key when a password is first checked, and
 `authentication:check` reports it under `[passwords]`.
@@ -2005,7 +2006,8 @@ passwords rather than letting a breached one through; `allow` lets it through, f
 checker throws propagates.
 
 `check($password)` gives the policy's verdict, a `PasswordCheck` whose `violations` list every rule the password breaks
-(`passes()` when there is none), as `PasswordViolation` cases: `too_short`, `too_long`, `letters`, `mixed_case`,
+(`passes()` when there is none), as `PasswordViolation` cases: `too_short`, `too_long`, `null_character`, `letters`,
+`mixed_case`,
 `numbers`, `symbols`, and, only once the others pass, `breached` or `breach_check_unavailable`. `rule()` returns
 Laravel's `Password` rule with the same length and composition, for a form request's validation:
 
@@ -2015,7 +2017,8 @@ use SineMacula\Laravel\Authentication\Facades\Auth;
 $request->validate(['password' => ['required', 'confirmed', Auth::passwords('api')->rule()]]);
 ```
 
-The rule runs no breached check (it does not add `uncompromised()`) and cannot see bcrypt's byte limit, so `set()` (or
+The rule runs no breached check (it does not add `uncompromised()`) and cannot see bcrypt's byte limit or its null
+character, so `set()` (or
 `check()`) has the last word. It is built from the package's settings, not from `Password::defaults()`: a form that
 validates with your own defaults is checked against those, and `set()` still applies the package's policy. The
 policy applies only to passwords being set: the automatic rehash of an outdated hash on sign-in re-encodes the password
