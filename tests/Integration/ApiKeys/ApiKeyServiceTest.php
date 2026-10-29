@@ -325,12 +325,14 @@ final class ApiKeyServiceTest extends TestCase
             'empty'        => [''],
             'too long'     => [str_repeat('é', 256)],
             'invalid utf8' => ["\xC3\x28"],
+            'NUL byte'     => ["prod\0hidden"],
         ];
     }
 
     /**
-     * A name must be 1 to 255 characters of valid UTF-8; 255 multibyte
-     * characters fit.
+     * A name must be 1 to 255 characters of valid UTF-8 without a NUL byte,
+     * which PostgreSQL would otherwise store cut short; 255 multibyte
+     * characters fit, and a refused name leaves no key and no event behind.
      *
      * @param  string  $name
      * @return void
@@ -340,12 +342,20 @@ final class ApiKeyServiceTest extends TestCase
     {
         $machine = $this->seedMachine();
 
+        $this->recordMachineEvents([ApiKeyIssued::class]);
+
         self::assertSame(str_repeat('é', 255), $this->apiKeys()->issue($machine, $machine, name: str_repeat('é', 255))->summary->name);
 
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('An API key\'s name must be null or 1 to 255 characters of valid UTF-8.');
+        try {
+            $this->apiKeys()->issue($machine, $machine, name: $name);
 
-        $this->apiKeys()->issue($machine, $machine, name: $name);
+            self::fail('Expected the name to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('An API key\'s name must be null or 1 to 255 characters of valid UTF-8 without a NUL byte.', $exception->getMessage());
+        }
+
+        self::assertSame([str_repeat('é', 255)], DB::table('api_keys')->pluck('name')->all());
+        self::assertCount(1, $this->machineEventsOf(ApiKeyIssued::class));
     }
 
     /**

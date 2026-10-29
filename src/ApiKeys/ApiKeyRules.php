@@ -54,8 +54,8 @@ final class ApiKeyRules
     }
 
     /**
-     * The key's name: `null`, or a string of 1 to 255 characters of valid
-     * UTF-8.
+     * The key's name: `null`, or a string of 1 to 255 characters of valid UTF-8
+     * without a NUL byte.
      *
      * @param  ?string  $name
      * @return ?string
@@ -64,8 +64,8 @@ final class ApiKeyRules
      */
     public static function name(?string $name): ?string
     {
-        if ($name !== null && ($name === '' || !mb_check_encoding($name, 'UTF-8') || mb_strlen($name, 'UTF-8') > self::MAX_NAME_LENGTH)) {
-            throw new \InvalidArgumentException('An API key\'s name must be null or 1 to ' . self::MAX_NAME_LENGTH . ' characters of valid UTF-8.');
+        if ($name !== null && !self::isWellFormedName($name)) {
+            throw new \InvalidArgumentException('An API key\'s name must be null or 1 to ' . self::MAX_NAME_LENGTH . ' characters of valid UTF-8 without a NUL byte.');
         }
 
         return $name;
@@ -114,5 +114,21 @@ final class ApiKeyRules
         }
 
         return $overlap;
+    }
+
+    /**
+     * Whether the name is 1 to 255 characters of valid UTF-8 without a NUL
+     * byte; PostgreSQL would store a name cut short at its first NUL byte.
+     *
+     * @param  string  $name
+     * @return bool
+     */
+    private static function isWellFormedName(string $name): bool
+    {
+        if ($name === '' || str_contains($name, "\0")) {
+            return false;
+        }
+
+        return mb_check_encoding($name, 'UTF-8') && mb_strlen($name, 'UTF-8') <= self::MAX_NAME_LENGTH;
     }
 }

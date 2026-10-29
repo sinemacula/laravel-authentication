@@ -18,8 +18,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 /**
  * Unit tests for what issuing or rotating an API key accepts: the principal the
  * resolver returned and the audience admitted, a name of 1 to 255 characters of
- * valid UTF-8, an expiry after the current second, and an overlap from 0 to the
- * configured maximum.
+ * valid UTF-8 without a NUL byte, an expiry after the current second, and an
+ * overlap from 0 to the configured maximum.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -122,6 +122,8 @@ final class ApiKeyRulesTest extends TestCase
             'empty'                    => [''],
             '256 multibyte characters' => [str_repeat("\u{E9}", 256)],
             'invalid UTF-8'            => ["\xC3\x28"],
+            'NUL byte inside'          => ["prod\0hidden"],
+            'NUL byte alone'           => ["\0"],
         ];
     }
 
@@ -135,7 +137,7 @@ final class ApiKeyRulesTest extends TestCase
     public function testRefusesANameOutOfBounds(string $name): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('An API key\'s name must be null or 1 to 255 characters of valid UTF-8.');
+        $this->expectExceptionMessage('An API key\'s name must be null or 1 to 255 characters of valid UTF-8 without a NUL byte.');
 
         ApiKeyRules::name($name);
     }
