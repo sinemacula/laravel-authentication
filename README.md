@@ -1366,15 +1366,18 @@ and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a 
 No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
 yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
 
-| Flow                 | Same outcome for an unknown identifier                                                                                                                                      | Delivery                                  | Timing                                                                                                       |
-|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------|--------------------------------------------------------------------------------------------------------------|
-| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                      | None                                      | Padded to the credential timebox                                                                             |
-| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                   | Queued job (after the response on `sync`) | No identity work at all, so nothing to pad                                                                   |
-| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                             | None                                      | Padded to the credential timebox                                                                             |
-| Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job (after the response on `sync`) | Not applicable                                                                                               |
-| Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                                      | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
-| API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                                      | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
-| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited        | None                                      | As API key                                                                                                   |
+| Flow                      | Same outcome for an unknown identifier                                                                                                                                                              | Delivery                                          | Timing                                                                                                       |
+|---------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| Password sign-in          | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                                              | None                                              | Padded to the credential timebox                                                                             |
+| Code request              | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                                           | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
+| Code sign-in              | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                                                     | None                                              | Padded to the credential timebox                                                                             |
+| Verification by code      | Not applicable: the caller holds the identity                                                                                                                                                       | Queued job (after the response on `sync`)         | Not applicable                                                                                               |
+| Reset request             | A token or code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                                  | Queued job (after the response on `sync`)         | No identity work at all, so nothing to pad                                                                   |
+| Reset submission          | `invalid` for an unknown identifier and for a wrong, expired, exhausted, used or ineligible proof (an inactive, machine or unverified holder); the policy's verdict does not depend on the identity | None                                              | Padded to the credential timebox; a held address adds only the lock of its row                               |
+| Identifier change request | Not applicable: the caller holds the identity; the answer never depends on whether another identity holds the new identifier                                                                        | Queued job for a code; a link is returned to send | Not applicable                                                                                               |
+| Passkey sign-in           | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials`                         | None                                              | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
+| API key                   | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                                                 | None                                              | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
+| Client credentials        | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited                                | None                                              | As API key                                                                                                   |
 
 The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
 looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity, or to one that holds
@@ -2083,13 +2086,15 @@ ends every session. Both move the identity's "tokens valid after" cutoff when it
 (see [Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked`
 and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
 password reset link and code still waiting for the identity's identifiers, through every guard whose provider returns
-the identity (see [Password reset](#password-reset)): a link or code someone else obtained before cannot take the
+the identity (a provider whose configuration names no model, a custom `Auth::provider()` driver, is assumed to; see
+[Password reset](#password-reset)): a link or code someone else obtained before cannot take the
 account back once its owner has set a new password. A change or a reset also invalidates the sign-in codes waiting for
 those identifiers, which would open a session after the ones it ended, and cancels every identifier change the identity
 has pending (see [Changing identifiers](#changing-identifiers)); a registration ends no session and leaves them.
 The identifiers are those its row holds, read again inside the
 transaction, so a model you loaded with only some columns, or before its identifier changed, outdates them all. A
-guard whose provider reads another table binds its links and codes to the identities there, so they are left alone.
+guard whose provider's configured model reads another table binds its links and codes to the identities there, so they
+are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
@@ -2213,12 +2218,12 @@ sent to, is `invalid` and stays unspent; a proof accepted for an eligible identi
 same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see [Setting a password](#setting-a-password)):
 every session of the identity ended, its cutoff moved, its pending sign-ins and identifier changes ended, every other
 reset link and code and every sign-in code for its identifiers invalidated, through every guard whose provider returns
-it, and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends. The result is a
-`ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with `retryAfter`, or
-`password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
-`rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`, `machine_identity`,
-`identity_inactive` or `identifier_unverified`; the result never does. A reset signs no one in and verifies no
-identifier.
+it (a provider whose configuration names no model is assumed to), and `PasswordSet` reported once that commits. Only a
+reset returns before the timebox ends. The result is a `ResetResult`: `reset` with how many devices were `revoked`,
+`invalid`, `rate_limited` with `retryAfter`, or `password_rejected` with `violations`. `AuthenticationFailed` (flow
+`password_reset`) says why a reset failed: `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`,
+`link_expired`, `machine_identity`, `identity_inactive` or `identifier_unverified`; the result never does. A reset signs
+no one in and verifies no identifier.
 
 Spending the proof with the password and the revocation needs one transaction, so the identity must live on the device
 model's connection (which the codes' table shares): a guard whose provider's model is on another throws a
@@ -2411,13 +2416,13 @@ Route::post('/email/change/link/confirm', function (Request $request) {
 });
 ```
 
-| Outcome     | When                                                                                                                                      |
-|-------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `changed`   | The identifier was replaced by the new one, recorded as verified                                                                          |
-| `invalid`   | No change of this guard waits, a newer request or another confirmation won, the proof does not match, or the identifier changed meanwhile |
-| `expired`   | The change, its code or its link has expired                                                                                              |
-| `exhausted` | The code used up its attempts; request the change again                                                                                   |
-| `taken`     | Another identity holds the new identifier; the proof is not used up                                                                       |
+| Outcome     | When                                                                                                                                                                  |
+|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `changed`   | The identifier was replaced by the new one, recorded as verified                                                                                                      |
+| `invalid`   | No change of this guard waits, a newer request or another confirmation won, the proof does not match, the identifier changed meanwhile, or the identity is not active |
+| `expired`   | The change, its code or its link has expired                                                                                                                          |
+| `exhausted` | The code used up its attempts; request the change again                                                                                                               |
+| `taken`     | Another identity holds the new identifier; the proof is not used up                                                                                                   |
 
 A confirmation locks the identity's row, reads the change, checks the proof and makes the change in one transaction on
 the identity's connection (the row lock comes first, as in a password change or reset, so they wait for each other), so
@@ -2426,10 +2431,11 @@ password reset, any other identity throws a `LogicException` naming both connect
 `authentication:check` warns about its guard. A wrong code's attempt is kept; a change refused once its proof is
 accepted (`taken`, an identifier changed meanwhile, a database error, or a transaction you roll back) rolls back whole,
 so the proof is not spent. The same transaction invalidates, for every `jwt` guard whose provider returns the identity
-and for both the old identifier and the new one, the sign-in, password reset and reset link codes waiting for it, and
+(a provider whose configuration names no model, a custom `Auth::provider()` driver, is assumed to) and for both the old
+identifier and the new one, the sign-in, password reset and reset link codes waiting for it, and
 the identity's verification codes; a verification link for the old identifier stops working by itself, since it carries
-that identifier's digest. A guard whose provider reads another table binds its codes to the identities there, which keep
-them.
+that identifier's digest. A guard whose provider's configured model reads another table binds its codes to the
+identities there, which keep them.
 
 Once the change commits, `IdentifierChanged` is dispatched and, when the identity had an identifier of the type, the
 notice to the old one is queued on the delivery queue (`delivery.queue`). The change stands if the notice fails: the job
@@ -2440,14 +2446,14 @@ if your application wants that.
 
 Every refusal is reported by `AuthenticationFailed` on the `identifier_change` flow, not concealed, since the caller
 holds the identity: `reauthentication_required`, `rate_limited` (with `retryAfter`), `invalid_credentials`,
-`code_expired`, `link_expired`, `code_exhausted` or `identifier_taken`; a request's event carries the new identifier as
-given. `IdentifierChangeRequested` (type, new identifier, expiry) and `IdentifierChanged` (type, previous and new
-identifiers, time) carry the identifiers as strings, so a queued audit listener needs no query back. A machine identity
-has no identifiers to change, so every method throws an `InvalidArgumentException` for one; an identity that is not an
-Eloquent model implementing `HasChangeableIdentifiers`, a type with no registered normaliser, malformed settings, an
-unbound notifier or a link route whose parameters or placeholders take a name the link sets (`guard`, `identity`, `type`,
-`purpose`, `request`, `hash`, `expires`, `signature`) throw before anything is counted or written, and
-`authentication:check` reports the settings (`[identifier_changes]`).
+`identity_inactive`, `code_expired`, `link_expired`, `code_exhausted` or `identifier_taken`; a request's event carries
+the new identifier as given. `IdentifierChangeRequested` (type, new identifier, expiry) and `IdentifierChanged` (type,
+previous and new identifiers, time) carry the identifiers as strings, so a queued audit listener needs no query back. A
+machine identity has no identifiers to change, so every method throws an `InvalidArgumentException` for one; an identity
+that is not an Eloquent model implementing `HasChangeableIdentifiers`, a type with no registered normaliser, malformed
+settings, an unbound notifier or a link route whose parameters or placeholders take a name the link sets (`guard`,
+`identity`, `type`, `purpose`, `request`, `hash`, `expires`, `signature`) throw before anything is counted or written,
+and `authentication:check` reports the settings (`[identifier_changes]`).
 
 ## Machine credentials
 

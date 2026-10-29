@@ -16,8 +16,9 @@ enum IdentifierChangeOutcome: string
     case CHANGED = 'changed';
 
     // No change of this guard is pending, it was replaced by a newer request or
-    // already confirmed, the code or link does not prove it, or the identifier
-    // changed by another path since it was requested
+    // already confirmed, the code or link does not prove it, the identifier
+    // changed by another path since it was requested, or the identity is not
+    // active
     case INVALID = 'invalid';
 
     // The pending change, its code or its link has expired
