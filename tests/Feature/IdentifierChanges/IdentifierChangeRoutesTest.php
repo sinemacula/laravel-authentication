@@ -124,7 +124,9 @@ final class IdentifierChangeRoutesTest extends TestCase
 
     /**
      * A session signed in longer ago than the window is asked to
-     * reauthenticate, and an address that is not new is refused.
+     * reauthenticate, and an address that is not new is refused; the current
+     * password, sent with the request, then proves it without signing in again,
+     * and a wrong one does not.
      *
      * @return void
      */
@@ -138,9 +140,16 @@ final class IdentifierChangeRoutesTest extends TestCase
 
         $this->moveTo($this->now->addSeconds(900));
 
-        $this->bearer($access, 'post', '/email/change', ['email' => self::NEW_EMAIL])->assertForbidden();
+        $this->bearer($access, 'post', '/email/change', ['email' => self::NEW_EMAIL])
+            ->assertForbidden()
+            ->assertExactJson(['message' => 'Confirm your password, or sign in again.']);
+        $this->bearer($access, 'post', '/email/change', ['email' => self::NEW_EMAIL, 'password' => 'not the password'])->assertForbidden();
 
         self::assertSame(0, $this->sender->count());
+
+        $this->bearer($access, 'post', '/email/change', ['email' => self::NEW_EMAIL, 'password' => self::PASSWORD])->assertAccepted();
+
+        self::assertIsString($this->sender->lastCodeFor(self::NEW_EMAIL));
     }
 
     /**
@@ -195,8 +204,9 @@ final class IdentifierChangeRoutesTest extends TestCase
     }
 
     /**
-     * The README's route that starts a change proven by code: the session's
-     * recent sign-in is the proof, and the code goes to the new address.
+     * The README's route that starts a change proven by code: the password,
+     * when one is sent, or else the session's recent sign-in is the proof, and
+     * the code goes to the new address.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
@@ -205,13 +215,23 @@ final class IdentifierChangeRoutesTest extends TestCase
      */
     private static function requestByCode(Request $request): JsonResponse
     {
-        $input    = $request->validate(['email' => ['required', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
+        $input    = $request->validate(['email' => ['required', 'string'], 'password' => ['nullable', 'string']]); // @phpstan-ignore staticMethod.dynamicCall
         $identity = Auth::identity();
         $device   = Auth::device();
 
-        abort_unless($identity instanceof Identity && $device instanceof Device, 401);
+        abort_unless($identity instanceof Identity, 401);
 
-        return self::answer(Auth::identifierChanges('web')->requestByCode($identity, 'email', $input['email'], Reauthentication::device($device)));
+        $proof = match (true) {
+            is_string($input['password'] ?? null) => Reauthentication::password($input['password']),
+            $device instanceof Device             => Reauthentication::device($device),
+            default                               => null,
+        };
+
+        if ($proof === null) {
+            return response()->json(['message' => 'Confirm your password.'], 403);
+        }
+
+        return self::answer(Auth::identifierChanges('web')->requestByCode($identity, 'email', $input['email'], $proof));
     }
 
     /**
@@ -295,7 +315,7 @@ final class IdentifierChangeRoutesTest extends TestCase
         return match ($result->status) {
             IdentifierChangeRequestStatus::SENT                      => response()->json(['expires_at' => $result->expiresAt?->toIso8601String()], 202),
             IdentifierChangeRequestStatus::RATE_LIMITED              => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => (string) $result->retryAfter]),
-            IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password first.'], 403),
+            IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password, or sign in again.'], 403),
             IdentifierChangeRequestStatus::IDENTIFIER_INVALID,
             IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED => response()->json(['message' => 'Enter a new email address.'], 422),
         };

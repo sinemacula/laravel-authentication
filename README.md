@@ -2282,8 +2282,9 @@ never from the future.
 
 An identity that signs in only with codes or passkeys reauthenticates by signing in again on the device it changes from.
 A token with no device (in [access-only mode](#access-only-mode-no-devices-no-refresh), or any access token without a
-`did`) has no session to offer, so `Auth::device()` is `null` there and the request must ask for another proof, as the
-first route below does with the password.
+`did`) has no session to offer, so `Auth::device()` is `null` there and the request must ask for another proof. The
+first route below takes the password whenever one is sent, so a session signed in longer ago than the window can
+confirm it instead of signing in again, and the device's recent sign-in otherwise.
 
 **Requesting.** `requestByCode()` sends a code to the new identifier, delivered after commit by a queued job through
 your `OneTimeCodeSender` with the purpose `change_identifier` (the message's `identifier` is the new one);
@@ -2300,13 +2301,22 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 Route::middleware('auth:api')->post('/email/change', function (Request $request) {
     $input  = $request->validate(['email' => ['required', 'email'], 'password' => ['nullable', 'string']]);
     $device = Auth::device();
-    $proof  = $device === null ? Reauthentication::password((string) ($input['password'] ?? '')) : Reauthentication::device($device);
+    $proof  = match (true) {
+        isset($input['password']) => Reauthentication::password($input['password']),
+        $device !== null          => Reauthentication::device($device),
+        default                   => null,
+    };
+
+    if ($proof === null) {
+        return response()->json(['message' => 'Confirm your password.'], 403);
+    }
+
     $result = Auth::identifierChanges('api')->requestByCode(Auth::identity(), 'email', $input['email'], $proof);
 
     return match ($result->status) {
         IdentifierChangeRequestStatus::SENT                      => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
         IdentifierChangeRequestStatus::RATE_LIMITED              => response()->json([], 429, ['Retry-After' => $result->retryAfter]),
-        IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password first.'], 403),
+        IdentifierChangeRequestStatus::REAUTHENTICATION_REQUIRED => response()->json(['message' => 'Confirm your password, or sign in again.'], 403),
         IdentifierChangeRequestStatus::IDENTIFIER_INVALID,
         IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED      => response()->json(['message' => 'Enter a new email address.'], 422),
     };
@@ -2324,13 +2334,13 @@ Route::middleware('auth:api')->post('/email/change/link', function (Request $req
 });
 ```
 
-| Status                      | When                                                                                |
-|-----------------------------|-------------------------------------------------------------------------------------|
-| `sent`                      | The change waits for its proof until `expiresAt`                                    |
-| `rate_limited`              | The `identifier_change` limits, or a password proof's `sign_in` limits, are used up |
-| `reauthentication_required` | The proof shows no recent authentication, or the password is wrong                  |
-| `identifier_invalid`        | The type's normaliser rejects the new identifier                                    |
-| `identifier_unchanged`      | The new identifier, in its normal form, is the identity's current one               |
+| Status                      | When                                                                                                  |
+|-----------------------------|-------------------------------------------------------------------------------------------------------|
+| `sent`                      | The change waits for its proof until `expiresAt`                                                      |
+| `rate_limited`              | The `identifier_change` limits, or a password proof's `sign_in` limits, are used up                   |
+| `reauthentication_required` | The proof shows no recent authentication, the password is wrong, or the guard does not take passwords |
+| `identifier_invalid`        | The type's normaliser rejects the new identifier                                                      |
+| `identifier_unchanged`      | The new identifier, in its normal form, is the identity's current one                                 |
 
 One change waits per identity and type, in `identifier_changes.table`: a newer request, through any guard, replaces it,
 so the code and the link of an earlier one stop working at once. It waits `identifier_changes.ttl_seconds` (3600 by
