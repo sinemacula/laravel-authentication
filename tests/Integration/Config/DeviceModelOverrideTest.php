@@ -62,8 +62,6 @@ final class DeviceModelOverrideTest extends TestCase
     {
         parent::setUp();
 
-        // Anonymous subclass of the shipped Device model - the FQCN is
-        // synthetic but usable as a `class-string` across the test.
         $anonymous = new class extends Device {};
 
         /** @var class-string<\SineMacula\Laravel\Authentication\Models\Device> $class */
@@ -174,10 +172,7 @@ final class DeviceModelOverrideTest extends TestCase
      * @return void
      */
     #[\Override]
-    protected function defineDatabaseMigrations(): void
-    {
-        // intentionally empty - the test creates the custom table in setUp().
-    }
+    protected function defineDatabaseMigrations(): void {}
 
     /**
      * Register the manual `custom-jwt` guard config used by the guard-scoped

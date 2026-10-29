@@ -166,10 +166,7 @@ final class AccessOnlyIntegrationTest extends TestCase
      * @return void
      */
     #[\Override]
-    protected function defineDatabaseMigrations(): void
-    {
-        // intentionally empty
-    }
+    protected function defineDatabaseMigrations(): void {}
 
     /**
      * Minimal Testbench environment: in-memory sqlite, a single `identities`
