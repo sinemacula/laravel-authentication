@@ -140,7 +140,7 @@ final class StubVerifiableIdentity implements HasVerifiableIdentifiers, Identity
     /**
      * Set the token value for the "remember me" session.
      *
-     * @param  string  $value
+     * @param  ?string  $value
      * @return void
      */
     #[\Override]
