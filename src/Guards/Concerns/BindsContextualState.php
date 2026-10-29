@@ -5,8 +5,8 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards\Concerns;
 
 use Illuminate\Contracts\Events\Dispatcher;
+use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
-use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -87,9 +87,11 @@ trait BindsContextualState
     }
 
     /**
-     * Return the active tenant's type string, if the tenant declares the
-     * `HasType` capability, resolving the request on first access. Throws as
-     * `tenant()` does.
+     * Return the active principal's type, if any, resolving the request on
+     * first access: the principal's own type when it declares the `HasType`
+     * capability, otherwise its tenant's (see `Audience\PrincipalType`). Read
+     * from the principal live, not from the token's `pty` claim. Throws as
+     * `tenant()` does when the tenant has to be read.
      *
      * @return ?string
      *
@@ -99,9 +101,9 @@ trait BindsContextualState
      */
     public function type(): ?string
     {
-        $tenant = $this->tenant();
+        $principal = $this->principal();
 
-        return $tenant instanceof HasType ? $tenant->getType() : null;
+        return $principal === null ? null : PrincipalType::of($principal);
     }
 
     /**

@@ -83,7 +83,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => $identity->getMorphClass(),
             'authenticatable_id'   => '21',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -148,7 +148,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -193,7 +193,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
@@ -240,7 +240,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '9',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -292,7 +292,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '10',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -349,7 +349,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '15',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -406,7 +406,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '11',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -463,7 +463,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '25',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -516,7 +516,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '7',
             'refresh_key'          => $oldDigest,
@@ -608,7 +608,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '19',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -677,7 +677,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '7',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -734,7 +734,7 @@ final class JwtGuardRefreshResolutionTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::GUARD_NAME),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '17',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),

@@ -119,4 +119,22 @@ interface Device
      * @return ?string
      */
     public function getRevokedReason(): ?string;
+
+    /**
+     * Return the name of the guard whose session the device holds, or `null`
+     * when none was recorded. A device of another guard is never accepted by
+     * this guard's sign-in, refresh or bearer paths.
+     *
+     * @return ?string
+     */
+    public function getGuard(): ?string;
+
+    /**
+     * Return the name of the sign-in method that started the device's session
+     * (or last restarted it on the same client), or `null` when none was
+     * recorded.
+     *
+     * @return ?string
+     */
+    public function getSignInMethod(): ?string;
 }

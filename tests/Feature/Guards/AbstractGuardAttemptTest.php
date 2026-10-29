@@ -12,10 +12,11 @@ use Illuminate\Auth\Events\Validated;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
-use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Events\Enums\SignInFailureReason;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
+use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 
@@ -37,7 +38,8 @@ use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
 final class AbstractGuardAttemptTest extends AbstractGuardTestCase
 {
     /**
-     * attempt() dispatches Attempting first, then Failed on failure.
+     * attempt() dispatches Attempting first, then Failed and SignInFailed on
+     * failure.
      *
      * @return void
      *
@@ -59,7 +61,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             });
 
         self::assertFalse($guard->attempt(['email' => 'x']));
-        self::assertSame([Attempting::class, Failed::class], $dispatched);
+        self::assertSame([Attempting::class, Failed::class, SignInFailed::class], $dispatched);
     }
 
     /**
@@ -180,6 +182,16 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
                     && $event->user  === $identity),
             );
 
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
+                    && $event->reason     === SignInFailureReason::INVALID_CREDENTIALS
+                    && $event->identity   === null
+                    && $event->identifier === 'x'
+                    && $event->method     === 'password'),
+            );
+
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
     }
 
@@ -209,17 +221,22 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
                     && $event->user  === null),
             );
 
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
+                    && $event->reason === SignInFailureReason::INVALID_CREDENTIALS),
+            );
+
         self::assertFalse($guard->attempt(['email' => 'x']));
     }
 
     /**
-     * `attempt()` MUST route the entire `retrieveByCredentials` →
-     * `hasValidCredentials` → `fireFailedEvent` pipeline through
-     * `Timebox::call()` so the elapsed time is uniform regardless of whether
-     * the supplied identifier resolved to a persisted user. Before the fix, the
-     * short-circuit on a null user bypassed the timebox entirely, leaking "user
-     * exists" vs "user does not exist" over a timing side-channel. This test
-     * asserts `Timebox::call` is invoked once even on the null-user path.
+     * `attempt()` MUST route the entire `retrieveByCredentials` → credential
+     * check → `fireFailedEvent` pipeline through `Timebox::call()` so the
+     * elapsed time is uniform regardless of whether the supplied identifier
+     * resolved to a persisted user; otherwise the null-user path would leak
+     * whether the identifier exists through timing.
      *
      * @return void
      *
@@ -227,9 +244,6 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
      */
     public function testAttemptAlwaysInvokesTimeboxOnNullUserPath(): void
     {
-        // Replace the default pass-through timebox expectation with a strict
-        // "called exactly once" expectation that still invokes the closure so
-        // the rest of the test observes the failure event dispatch.
         $this->timebox->shouldReceive('call')
             ->once()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
@@ -245,6 +259,8 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->with(\Mockery::type(Attempting::class));
         $this->events->shouldReceive('dispatch')
             ->with(\Mockery::type(Failed::class));
+        $this->events->shouldReceive('dispatch')
+            ->with(\Mockery::type(SignInFailed::class));
 
         self::assertFalse($guard->attempt(['email' => 'nonexistent@example.test']));
     }
@@ -284,6 +300,15 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(\Mockery::type(Failed::class));
 
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
+                    && $event->reason    === SignInFailureReason::PRINCIPAL_UNRESOLVED
+                    && $event->identity  === $identity
+                    && $event->principal === null),
+            );
+
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
     }
 
@@ -300,7 +325,7 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
     {
         $guard = $this->makeGuard();
 
-        $identity = \Mockery::mock(Identity::class, CanBeActive::class);
+        $identity = $this->mockIdentity(CanBeActive::class);
         $identity->shouldReceive('isActive')->once()->andReturnFalse();
 
         $this->provider->shouldReceive('retrieveByCredentials')
@@ -319,6 +344,14 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::type(Failed::class));
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
+                    && $event->reason   === SignInFailureReason::IDENTITY_INACTIVE
+                    && $event->identity === $identity),
+            );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
     }
@@ -365,6 +398,15 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
             ->once()
             ->with(\Mockery::type(Failed::class));
 
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
+                    && $event->reason    === SignInFailureReason::PRINCIPAL_INACTIVE
+                    && $event->principal === $principal
+                    && $event->tenant    === null),
+            );
+
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
     }
 
@@ -409,6 +451,15 @@ final class AbstractGuardAttemptTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::type(Failed::class));
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(
+                \Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
+                    && $event->reason    === SignInFailureReason::TENANT_INACTIVE
+                    && $event->principal === $principal
+                    && $event->tenant    === null),
+            );
 
         self::assertFalse($guard->attempt(['email' => 'x', 'password' => 'y']));
         self::assertNull($guard->identity());

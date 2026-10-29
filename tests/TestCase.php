@@ -56,6 +56,7 @@ abstract class TestCase extends OrchestraTestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = app(ConfigRepository::class);
 
+        $config->set('app.key', 'base64:' . base64_encode('laravel-authentication test key!'));
         $config->set('database.default', 'testing');
         $config->set('database.connections.testing', $this->databaseConnection());
 
@@ -71,13 +72,14 @@ abstract class TestCase extends OrchestraTestCase
     }
 
     /**
-     * Run the package's shipped devices migration so the default `devices`
-     * table exists for tests that bind devices via the shipped `Device`
-     * Eloquent model.
+     * Run the package's shipped migrations so the default `devices`,
+     * `pending_sign_ins` and `rate_limits` tables exist for tests that use the
+     * shipped models.
      *
-     * With persistent databases (MySQL, PostgreSQL) the table survives between
-     * test classes, so it must be dropped on teardown to prevent the migration
-     * collision guard from throwing on the next class.
+     * With persistent databases (MySQL, PostgreSQL) the tables survive between
+     * test classes, so they must be dropped on teardown to prevent the
+     * migration collision guard, or a duplicate table, from failing the next
+     * class.
      *
      * @return void
      */
@@ -91,9 +93,12 @@ abstract class TestCase extends OrchestraTestCase
         }
 
         $this->beforeApplicationDestroyed(function (): void {
-            Schema::dropIfExists(
-                app(ConfigRepository::class)->string('authentication.device.table', 'devices'),
-            );
+
+            $config = app(ConfigRepository::class);
+
+            Schema::dropIfExists($config->string('authentication.device.table', 'devices'));
+            Schema::dropIfExists($config->string('authentication.sign_in.pending_table', 'pending_sign_ins'));
+            Schema::dropIfExists($config->string('authentication.rate_limits.table', 'rate_limits'));
         });
     }
 

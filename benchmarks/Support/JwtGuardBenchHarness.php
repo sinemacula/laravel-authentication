@@ -24,6 +24,7 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Integration\Fixtures\Coexist2dIdentity;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
@@ -63,6 +64,9 @@ final class JwtGuardBenchHarness
     /** @var int Number of mutable write-path tokens to pre-seed. */
     private const int TOKEN_POOL_SIZE = 128;
 
+    /** @var string Path of the requests the set-up check sends. */
+    private const string CHECK_PATH = '/bench/check';
+
     /** @var \SineMacula\Laravel\Authentication\Jwt\JwtTokenService */
     private readonly JwtTokenService $tokens;
 
@@ -96,8 +100,8 @@ final class JwtGuardBenchHarness
     /** @var string Coexist 2D bearer token. */
     private string $coexistTwoDToken;
 
-    /** @var string Device bearer with fresh timestamp. */
-    private string $deviceFreshToken;
+    /** @var string Device bearer with fresh timestamp; empty until seeded, which the set-up check refuses. */
+    private string $deviceFreshToken = '';
 
     /** @var string 3D bearer token. */
     private string $threeDToken;
@@ -111,12 +115,17 @@ final class JwtGuardBenchHarness
     /** @var list<string> */
     private array $deviceWriteTokens = [];
 
+    /** @var string Device bearer token, outside the write pool, whose device has never been used, for the set-up check. */
+    private string $deviceWriteCheckToken = '';
+
     /** @var int Current index into the write-token pool. */
     private int $deviceWriteIndex = 0;
 
     /**
-     * Seed the bearer-auth benchmark fixtures.
+     * Seed the bearer-auth benchmark fixtures, and check that each path reaches
+     * the outcome it measures.
      *
+     * @throws \LogicException
      * @throws \Random\RandomException
      */
     public function __construct()
@@ -163,6 +172,8 @@ final class JwtGuardBenchHarness
         $this->seedDeviceFixtures($hasher);
         $this->seedThreeDimensionalFixtures($hasher);
         $this->seedTenantAwareThreeDimensionalFixtures($hasher);
+
+        $this->assertEachPathReachesItsOutcome();
     }
 
     /**
@@ -172,13 +183,7 @@ final class JwtGuardBenchHarness
      */
     public function runAccessOnlyBearer(): void
     {
-        $guard = $this->makeGuard(
-            'access_only',
-            $this->accessOnlyProvider,
-            $this->makeBearerRequest('/bench/jwt/access-only', $this->accessOnlyToken),
-        );
-
-        $guard->user();
+        $this->bearer('access_only', $this->accessOnlyProvider, '/bench/jwt/access-only', $this->accessOnlyToken);
     }
 
     /**
@@ -189,13 +194,7 @@ final class JwtGuardBenchHarness
      */
     public function runDeviceBearerNoWrite(): void
     {
-        $guard = $this->makeGuard(
-            'device_api',
-            $this->deviceProvider,
-            $this->makeBearerRequest('/bench/jwt/device-fresh', $this->deviceFreshToken),
-        );
-
-        $guard->user();
+        $this->bearer('device_api', $this->deviceProvider, '/bench/jwt/device-fresh', $this->deviceFreshToken);
     }
 
     /**
@@ -209,13 +208,7 @@ final class JwtGuardBenchHarness
         $token = $this->deviceWriteTokens[$this->deviceWriteIndex % count($this->deviceWriteTokens)];
         $this->deviceWriteIndex++;
 
-        $guard = $this->makeGuard(
-            'device_api',
-            $this->deviceProvider,
-            $this->makeBearerRequest('/bench/jwt/device-write', $token),
-        );
-
-        $guard->user();
+        $this->bearer('device_api', $this->deviceProvider, '/bench/jwt/device-write', $token);
     }
 
     /**
@@ -225,13 +218,7 @@ final class JwtGuardBenchHarness
      */
     public function runThreeDimensionalBearer(): void
     {
-        $guard = $this->makeGuard(
-            'api_3d',
-            $this->threeDProvider,
-            $this->makeBearerRequest('/bench/jwt/3d', $this->threeDToken),
-        );
-
-        $guard->user();
+        $this->bearer('api_3d', $this->threeDProvider, '/bench/jwt/3d', $this->threeDToken);
     }
 
     /**
@@ -241,13 +228,8 @@ final class JwtGuardBenchHarness
      */
     public function runThreeDimensionalBearerTenantAccess(): void
     {
-        $guard = $this->makeGuard(
-            'tenant_api_3d',
-            $this->tenantAwareThreeDProvider,
-            $this->makeBearerRequest('/bench/jwt/tenant-3d', $this->tenantAwareThreeDToken),
-        );
+        $guard = $this->bearer('tenant_api_3d', $this->tenantAwareThreeDProvider, '/bench/jwt/tenant-3d', $this->tenantAwareThreeDToken);
 
-        $guard->user();
         $guard->principal()?->getIdentity();
         $guard->tenant();
         $guard->type();
@@ -260,13 +242,8 @@ final class JwtGuardBenchHarness
      */
     public function runThreeDimensionalBearerSecondaryTenantAccess(): void
     {
-        $guard = $this->makeGuard(
-            'tenant_api_3d',
-            $this->tenantAwareThreeDProvider,
-            $this->makeBearerRequest('/bench/jwt/tenant-3d-secondary', $this->tenantAwareSecondaryToken),
-        );
+        $guard = $this->bearer('tenant_api_3d', $this->tenantAwareThreeDProvider, '/bench/jwt/tenant-3d-secondary', $this->tenantAwareSecondaryToken);
 
-        $guard->user();
         $guard->principal()?->getIdentity();
         $guard->tenant();
         $guard->type();
@@ -279,23 +256,8 @@ final class JwtGuardBenchHarness
      */
     public function runGuardCoexistenceBearer(): void
     {
-        $twoDimensionalGuard = $this->makeGuard(
-            'api_2d',
-            $this->coexistTwoDProvider,
-            $this->makeBearerRequest('/bench/jwt/coexist-2d', $this->coexistTwoDToken),
-        );
-
-        $twoDimensionalGuard->user();
-        $twoDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
-
-        $threeDimensionalGuard = $this->makeGuard(
-            'api_3d',
-            $this->threeDProvider,
-            $this->makeBearerRequest('/bench/jwt/coexist-3d', $this->threeDToken),
-        );
-
-        $threeDimensionalGuard->user();
-        $threeDimensionalGuard->principal(); // @phpstan-ignore method.resultUnused
+        $this->bearer('api_2d', $this->coexistTwoDProvider, '/bench/jwt/coexist-2d', $this->coexistTwoDToken)->principal(); // @phpstan-ignore method.resultUnused
+        $this->bearer('api_3d', $this->threeDProvider, '/bench/jwt/coexist-3d', $this->threeDToken)->principal(); // @phpstan-ignore method.resultUnused
     }
 
     /**
@@ -396,7 +358,7 @@ final class JwtGuardBenchHarness
         if (!$freshDevice instanceof Device) {
             $freshDevice = new Device;
             $freshDevice->forceFill([
-                ...BenchSchema::liveSession(),
+                ...BenchSchema::signedIn('device_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
                 'client_name'          => 'bench-device-fresh',
@@ -410,11 +372,22 @@ final class JwtGuardBenchHarness
             return;
         }
 
+        $checkDevice = new Device;
+        $checkDevice->forceFill([
+            ...BenchSchema::signedIn('device_api'),
+            'authenticatable_type' => IntegrationIdentity::class,
+            'authenticatable_id'   => $identityId,
+            'client_name'          => 'bench-device-write-check',
+            'last_used_at'         => null,
+        ])->save();
+
+        $this->deviceWriteCheckToken = $this->tokens->issueAccessToken($identity, $identity, $checkDevice);
+
         for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
 
             $device = new Device;
             $device->forceFill([
-                ...BenchSchema::liveSession(),
+                ...BenchSchema::signedIn('device_api'),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
                 'client_name'          => 'bench-device-write-' . $index,
@@ -501,6 +474,63 @@ final class JwtGuardBenchHarness
     }
 
     /**
+     * Run each benchmarked path once and throw unless it reaches the outcome
+     * its name describes: every bearer authenticates, a device bearer binds its
+     * device, writing its last use only on the path that measures the write, a
+     * 3D bearer binds its principal, and a tenant-aware one its tenant. The
+     * write path runs on a device of its own, outside the benchmark's pool.
+     *
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    private function assertEachPathReachesItsOutcome(): void
+    {
+        BenchOutcome::assert('access-only bearer', $this->bearer('access_only', $this->accessOnlyProvider, self::CHECK_PATH, $this->accessOnlyToken)->hasUser());
+        BenchOutcome::assert('2D coexistence bearer', $this->bearer('api_2d', $this->coexistTwoDProvider, self::CHECK_PATH, $this->coexistTwoDToken)->hasUser());
+        BenchOutcome::assert('3D bearer', $this->bearer('api_3d', $this->threeDProvider, self::CHECK_PATH, $this->threeDToken)->principal() instanceof Coexist3dPrincipal);
+
+        foreach ([$this->tenantAwareThreeDToken, $this->tenantAwareSecondaryToken] as $token) {
+            BenchOutcome::assert('tenant-aware 3D bearer', $this->bearer('tenant_api_3d', $this->tenantAwareThreeDProvider, self::CHECK_PATH, $token)->tenant() !== null);
+        }
+
+        $devicePaths = [
+            'device bearer without a write' => [$this->deviceFreshToken, false],
+            'device bearer with a write'    => [$this->deviceWriteCheckToken, true],
+        ];
+
+        foreach ($devicePaths as $path => [$token, $writes]) {
+
+            $bound      = false;
+            $statements = BenchOutcome::statementsOf(function () use ($token, &$bound): void {
+                $bound = $this->bearer('device_api', $this->deviceProvider, self::CHECK_PATH, $token)->device() !== null;
+            });
+
+            $wrote = array_filter($statements, static fn (string $statement): bool => str_starts_with($statement, 'update')) !== [];
+
+            BenchOutcome::assert($path, $bound && $wrote === $writes);
+        }
+    }
+
+    /**
+     * Authenticate a bearer request through a fresh guard and return the guard.
+     *
+     * @param  string  $name
+     * @param  \SineMacula\Laravel\Authentication\Providers\ModelProvider  $provider
+     * @param  string  $path
+     * @param  string  $token
+     * @return \SineMacula\Laravel\Authentication\Guards\JwtGuard
+     */
+    private function bearer(string $name, ModelProvider $provider, string $path, #[\SensitiveParameter] string $token): JwtGuard
+    {
+        $guard = $this->makeGuard($name, $provider, $this->makeBearerRequest($path, $token));
+
+        $guard->user();
+
+        return $guard;
+    }
+
+    /**
      * Instantiate a fresh JwtGuard for the supplied request.
      *
      * @param  string  $name
@@ -529,6 +559,14 @@ final class JwtGuardBenchHarness
             $this->timebox,
             $this->tokens,
             $exchange,
+            fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
+                $guard,
+                $timebox,
+                $this->tokens,
+                new Container,
+                BenchDatabase::connectionResolver(),
+                static fn (): null => null,
+            ),
         );
     }
 

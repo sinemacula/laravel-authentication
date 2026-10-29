@@ -10,10 +10,15 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\Tenant;
+use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use Tests\Unit\Stubs\PlainPrincipalFixture;
 
 /**
  * Claim-policy unit tests for `JwtTokenService`: the `grd` claim that binds
@@ -256,6 +261,107 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
     }
 
     /**
+     * An access token carries the principal's type in `pty`, its own type
+     * winning over its tenant's, while the token type stays in `typ`; a
+     * principal without a type gets a token without the claim, and a refresh
+     * token never carries it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAccessTokensCarryThePrincipalTypeWhenThereIsOne(): void
+    {
+        $service  = $this->makeService();
+        $identity = $this->mockIdentity('identity-7');
+
+        $typed = \Mockery::mock(Principal::class, HasType::class);
+        $typed->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
+        $typed->shouldReceive('getType')->andReturn('client_admin');
+
+        $tenant = \Mockery::mock(Tenant::class, HasType::class);
+        $tenant->shouldReceive('getType')->andReturn('staff');
+
+        $own      = $service->parse($service->issueAccessToken($identity, $typed, null), TokenType::ACCESS);
+        $fallback = $service->parse($service->issueAccessToken($identity, new PlainPrincipalFixture('principal-4', tenant: $tenant), null), TokenType::ACCESS);
+        $untyped  = $service->parse($service->issueAccessToken($identity, $this->mockPrincipal('principal-5'), null), TokenType::ACCESS);
+        $refresh  = $service->parse($service->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id', $typed), TokenType::REFRESH);
+
+        self::assertIsArray($own);
+        self::assertIsArray($fallback);
+        self::assertIsArray($untyped);
+        self::assertIsArray($refresh);
+        self::assertSame('client_admin', $own[Claims::PRINCIPAL_TYPE->value]);
+        self::assertSame(TokenType::ACCESS->value, $own[Claims::TYPE->value]);
+        self::assertSame('staff', $fallback[Claims::PRINCIPAL_TYPE->value]);
+        self::assertArrayNotHasKey(Claims::PRINCIPAL_TYPE->value, $untyped);
+        self::assertArrayNotHasKey(Claims::PRINCIPAL_TYPE->value, $refresh);
+    }
+
+    /**
+     * A service without lifetimes per principal type gives every principal the
+     * guard's lifetimes without reading its type, so a guard that does not key
+     * lifetimes on types never loads a tenant for them.
+     *
+     * @return void
+     */
+    public function testLifetimesForWithoutPerTypeLifetimesNeverReadsTheType(): void
+    {
+        $service   = $this->makeService();
+        $principal = \Mockery::mock(Principal::class, HasType::class);
+        $principal->shouldNotReceive('getType');
+        $principal->shouldNotReceive('getTenant');
+
+        self::assertSame($service->lifetimes(), $service->lifetimesFor($principal));
+    }
+
+    /**
+     * With lifetimes per principal type, a principal of a listed type gets its
+     * type's lifetimes, its tenant's type counting as its own, and any other
+     * principal, or none, gets the guard's.
+     *
+     * @return void
+     */
+    public function testLifetimesForSelectsThePrincipalTypesLifetimes(): void
+    {
+        $staff   = new TokenLifetimes(2, 60, 600, 30);
+        $service = new JwtTokenService(
+            $this->makeKeyring(),
+            self::GUARD,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
+            30,
+            principalTypeLifetimes: ['staff' => $staff],
+        );
+
+        $tenant = \Mockery::mock(Tenant::class, HasType::class);
+        $tenant->shouldReceive('getType')->andReturn('staff');
+
+        self::assertSame($staff, $service->lifetimesFor(new PlainPrincipalFixture(1, tenant: $tenant)));
+        self::assertSame($service->lifetimes(), $service->lifetimesFor(new PlainPrincipalFixture(2)));
+        self::assertSame($service->lifetimes(), $service->lifetimesFor(null));
+    }
+
+    /**
+     * Issuing reports a principal whose tenant cannot be loaded instead of
+     * issuing a token without its type.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testIssuingReportsAPrincipalWhoseTenantCannotBeLoaded(): void
+    {
+        $principal = \Mockery::mock(Principal::class);
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('principal-3');
+        $principal->shouldReceive('getTenant')->andThrow(new TenantUnavailableException('tenant gone'));
+
+        $this->expectException(TenantUnavailableException::class);
+        $this->expectExceptionMessage('tenant gone');
+
+        $this->makeService()->issueAccessToken($this->mockIdentity('identity-7'), $principal, null);
+    }
+
+    /**
      * An access token issued for another guard with the same key is rejected,
      * whether or not a token type is expected.
      *
@@ -348,6 +454,100 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $this->expectExceptionMessage('JWT token service requires a non-empty guard name.');
 
         $this->makeServiceFor('');
+    }
+
+    /**
+     * A refresh token offered as proof of a device is accepted after it has
+     * expired, with the same claims `parse()` returns for a live one, while
+     * `parse()` itself rejects it.
+     *
+     * @return void
+     */
+    public function testParseRefreshProofAcceptsAnExpiredRefreshToken(): void
+    {
+        $service = $this->makeService();
+        $device  = $this->mockDeviceEndingAt('device-42', $this->now->copy()->addMinutes(10), $this->now->copy()->addMinutes(20));
+        $token   = $service->issueRefreshToken($device, 'rotation-id', $this->mockPrincipal('principal-3'));
+        $live    = $service->parseRefreshProof($token);
+
+        self::assertSame($service->parse($token, TokenType::REFRESH), $live);
+
+        $this->advanceClock(60 * 24 * 365);
+
+        self::assertNull($service->parse($token, TokenType::REFRESH));
+        self::assertSame($live, $service->parseRefreshProof($token));
+        self::assertSame('device-42', $live[Claims::DEVICE_ID->value] ?? null);
+        self::assertSame('rotation-id', $live[Claims::JWT_ID->value] ?? null);
+    }
+
+    /**
+     * Every check but expiry still applies to a proof: a token that is not a
+     * refresh token, that another guard issued, that is signed with another
+     * key, that is issued in the future, that lacks a claim a refresh token
+     * requires, or that is not a JWT at all, proves nothing; and a failure is
+     * logged as `parse()` logs it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testParseRefreshProofKeepsEveryOtherCheck(): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')->atLeast()->once();
+
+        $service = new JwtTokenService(
+            $this->makeKeyring(),
+            self::GUARD,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
+            30,
+            logger: $logger,
+        );
+
+        $claims = $this->completeClaims(TokenType::REFRESH);
+
+        unset($claims[Claims::DEVICE_ID->value]);
+
+        $future = $this->completeClaims(TokenType::REFRESH);
+
+        $future[Claims::ISSUED_AT->value] = $this->now->getTimestamp() + 3600;
+
+        $otherKey = new JwtTokenService($this->makeKeyring(str_repeat('k', 32)), self::GUARD, $service->lifetimes(), 30);
+
+        self::assertNull($service->parseRefreshProof($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null)));
+        self::assertNull($service->parseRefreshProof($this->makeServiceFor(self::OTHER_GUARD)->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id')));
+        self::assertNull($service->parseRefreshProof($otherKey->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id')));
+        self::assertNull($service->parseRefreshProof($this->encode($future)));
+        self::assertNull($service->parseRefreshProof($this->encode($claims)));
+        self::assertNull($service->parseRefreshProof('not-a-jwt'));
+        self::assertIsArray($service->parseRefreshProof($this->encode($this->completeClaims(TokenType::REFRESH))));
+    }
+
+    /**
+     * Checking a proof applies the service's leeway only while it decodes, and
+     * restores the leeway set before, whether the proof is accepted or not.
+     *
+     * @return void
+     */
+    public function testParseRefreshProofRestoresThePreviousLeeway(): void
+    {
+        $previous = JWT::$leeway;
+
+        JWT::$leeway = 7;
+
+        try {
+            $service = $this->makeService();
+
+            $service->parseRefreshProof($service->issueRefreshToken($this->mockDevice('device-42'), 'rotation-id'));
+
+            self::assertSame(7, JWT::$leeway);
+
+            $service->parseRefreshProof('not-a-jwt');
+
+            self::assertSame(7, JWT::$leeway);
+        } finally {
+            JWT::$leeway = $previous;
+        }
     }
 
     /**

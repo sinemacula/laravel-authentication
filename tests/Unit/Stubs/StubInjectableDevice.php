@@ -11,9 +11,9 @@ use Illuminate\Database\Eloquent\Builder;
  * instead of the default Eloquent builder.
  *
  * Used by `JwtGuardTest::swapDeviceModelToInMemoryInstance()` to wire the
- * guard's `findDeviceById()` path through a pre-built in-memory device whose
- * `authenticatable` relation has been manually set - the refresh-token tests
- * need the relation to survive the round trip without hitting a real
+ * guard's `DeviceLookup::find()` path through a pre-built in-memory device
+ * whose `authenticatable` relation has been manually set - the refresh-token
+ * tests need the relation to survive the round trip without hitting a real
  * polymorphic query.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>

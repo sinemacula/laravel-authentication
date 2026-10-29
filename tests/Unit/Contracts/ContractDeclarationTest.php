@@ -12,16 +12,23 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\HasPrincipals;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
+use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\ResolvesHintedPrincipal;
+use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 
@@ -72,9 +79,10 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `Device` declares exactly the read surface the guards, the refresh
-     * exchange, and the package events depend on: the identifier, last use,
-     * both refresh digests and the rotation time, both deadlines, and the
-     * revocation.
+     * exchange, the session service, and the package events depend on: the
+     * identifier, last use, both refresh digests and the rotation time, both
+     * deadlines, the revocation, and the guard and sign-in method that started
+     * the session.
      *
      * @return void
      */
@@ -83,6 +91,7 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame([
             'getAbsoluteExpiresAt',
             'getDeviceIdentifier',
+            'getGuard',
             'getIdleExpiresAt',
             'getLastUsedAt',
             'getPreviousRefreshKey',
@@ -90,6 +99,7 @@ final class ContractDeclarationTest extends TestCase
             'getRefreshRotatedAt',
             'getRevokedAt',
             'getRevokedReason',
+            'getSignInMethod',
         ], self::declaredMethods(Device::class));
     }
 
@@ -108,9 +118,10 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * `EloquentDevice` adds exactly the owner relation and the column names the
-     * refresh, revocation, and last-use writes need. The identifier has no
-     * column name: it is always the primary key.
+     * `EloquentDevice` adds exactly the owner and principal relations and the
+     * column names the session creation, refresh, revocation, and last-use
+     * writes need. The identifier has no column name: it is always the primary
+     * key.
      *
      * @return void
      */
@@ -119,31 +130,40 @@ final class ContractDeclarationTest extends TestCase
         self::assertSame([
             'authenticatable',
             'getAbsoluteExpiresAtName',
+            'getClientNameName',
+            'getCreatedIpName',
+            'getCreatedUserAgentName',
+            'getGuardName',
             'getIdleExpiresAtName',
             'getLastUsedAtName',
             'getLastUsedIpName',
             'getLastUsedUserAgentName',
+            'getPlatformName',
             'getPreviousRefreshKeyName',
             'getRefreshKeyName',
             'getRefreshRotatedAtName',
             'getRevokedAtName',
             'getRevokedReasonName',
+            'getSignInMethodName',
+            'principal',
         ], self::declaredMethods(EloquentDevice::class));
     }
 
     /**
-     * `EloquentDevice::authenticatable()` must return a MorphTo relation, and
-     * the persistence column-name accessors must return strings.
+     * `EloquentDevice::authenticatable()` and `principal()` must return MorphTo
+     * relations, and the persistence column-name accessors must return strings.
      *
      * @return void
      */
     public function testEloquentDeviceDeclaresExpectedReturnTypes(): void
     {
-        $authenticatableReturn = (new \ReflectionMethod(EloquentDevice::class, 'authenticatable'))->getReturnType();
-        self::assertInstanceOf(\ReflectionNamedType::class, $authenticatableReturn);
-        self::assertSame(MorphTo::class, $authenticatableReturn->getName());
+        foreach (['authenticatable', 'principal'] as $relation) {
+            $relationReturn = (new \ReflectionMethod(EloquentDevice::class, $relation))->getReturnType();
+            self::assertInstanceOf(\ReflectionNamedType::class, $relationReturn);
+            self::assertSame(MorphTo::class, $relationReturn->getName());
+        }
 
-        $columnNameAccessors = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable']);
+        $columnNameAccessors = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable', 'principal']);
 
         foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
@@ -196,8 +216,7 @@ final class ContractDeclarationTest extends TestCase
 
     /**
      * `Tenant` declares the identifier accessor used by the contextual
-     * accessors. Tenant scoping is otherwise opt-in via the `HasType`
-     * capability interface.
+     * accessors.
      *
      * @return void
      */
@@ -207,6 +226,74 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(Tenant::class))->hasMethod('getTenantIdentifier'),
             'Tenant contract must declare getTenantIdentifier().',
         );
+    }
+
+    /**
+     * `AudiencePolicy` declares exactly the three questions the session layer
+     * asks a guard's audience: may this method start a session, may this
+     * principal hold one, and for how long.
+     *
+     * @return void
+     */
+    public function testAudiencePolicyDeclaresExactlyItsChecks(): void
+    {
+        self::assertSame(['admit', 'allowsMethod', 'lifetimes'], self::declaredMethods(AudiencePolicy::class));
+    }
+
+    /**
+     * `AttemptLimiter` declares the reserve-and-release pair for flows that
+     * guess a secret and the read-and-count pair for flows that count only
+     * failures.
+     *
+     * @return void
+     */
+    public function testAttemptLimiterDeclaresExactlyItsTwoCountingModes(): void
+    {
+        self::assertSame(['acquire', 'blocked', 'recordFailure', 'release'], self::declaredMethods(AttemptLimiter::class));
+    }
+
+    /**
+     * Verifiable identifiers are a capability an identity opts into:
+     * `HasVerifiableIdentifiers` declares reading the identifier, reading its
+     * verification, and recording it, and `Identity` declares none of them.
+     *
+     * @return void
+     */
+    public function testVerifiableIdentifiersAreACapabilityOfTheIdentity(): void
+    {
+        self::assertSame(
+            ['getIdentifierForVerification', 'hasVerifiedIdentifier', 'markIdentifierAsVerified'],
+            self::declaredMethods(HasVerifiableIdentifiers::class),
+        );
+        self::assertFalse((new \ReflectionClass(Identity::class))->hasMethod('hasVerifiedIdentifier'));
+    }
+
+    /**
+     * `IdentifierNormaliser` declares only `normalise()`, which may refuse a
+     * value by returning `null`.
+     *
+     * @return void
+     */
+    public function testIdentifierNormaliserDeclaresOnlyNormalise(): void
+    {
+        $method = new \ReflectionMethod(IdentifierNormaliser::class, 'normalise');
+
+        self::assertSame(['normalise'], self::declaredMethods(IdentifierNormaliser::class));
+        self::assertSame('?string', (string) $method->getReturnType());
+    }
+
+    /**
+     * A type is a capability a principal or a tenant opts into: `HasType`
+     * declares only `getType()`, and neither `Principal` nor `Tenant` declares
+     * it.
+     *
+     * @return void
+     */
+    public function testTypeIsDeclaredOnlyByTheHasTypeCapability(): void
+    {
+        self::assertSame(['getType'], self::declaredMethods(HasType::class));
+        self::assertFalse((new \ReflectionClass(Principal::class))->hasMethod('getType'));
+        self::assertFalse((new \ReflectionClass(Tenant::class))->hasMethod('getType'));
     }
 
     /**
@@ -327,6 +414,28 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(JwtGuard::class))->hasMethod($method),
             "JwtGuard must declare {$method}().",
         );
+    }
+
+    /**
+     * `SignInMethod` declares exactly what the session service asks of a
+     * method: the identifier type, the identifier the input names, and the
+     * verification itself.
+     *
+     * @return void
+     */
+    public function testSignInMethodDeclaresExactlyItsVerificationSurface(): void
+    {
+        self::assertSame(['authenticate', 'identifier', 'identifierType'], self::declaredMethods(SignInMethod::class));
+    }
+
+    /**
+     * `AdditionalFactorPolicy` declares the one decision it makes.
+     *
+     * @return void
+     */
+    public function testAdditionalFactorPolicyDeclaresOneDecision(): void
+    {
+        self::assertSame(['requiresAdditionalFactor'], self::declaredMethods(AdditionalFactorPolicy::class));
     }
 
     /**

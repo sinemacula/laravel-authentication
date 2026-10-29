@@ -9,12 +9,16 @@ use Firebase\JWT\JWT;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\HasType;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth as PackageAuth;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
@@ -1160,6 +1164,189 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * A guard's lifetimes for a principal type override the guard's own key by
+     * key: each key a type sets wins (a digit string included), every other key
+     * and the grace window stay the guard's, and a principal of a type the
+     * guard does not list, or none, gets the guard's lifetimes.
+     *
+     * @return void
+     */
+    public function testPrincipalTypeLifetimesOverrideTheGuardKeyByKey(): void
+    {
+        $this->setGuardOverrides([
+            'refresh_idle_ttl_minutes' => 9000,
+            'by_principal_type'        => [
+                'staff'   => ['access_ttl_minutes' => 2, 'refresh_absolute_ttl_minutes' => 600],
+                'service' => ['refresh_idle_ttl_minutes' => '30', 'access_ttl_minutes' => null],
+            ],
+        ]);
+
+        $service = $this->lifetimeService();
+        $guard   = $service->lifetimes();
+        $staff   = $service->lifetimesFor($this->principalOfType('staff'));
+        $robot   = $service->lifetimesFor($this->principalOfType('service'));
+
+        self::assertSame([2, 9000, 600, $guard->refreshGraceSeconds], $this->lifetimeValues($staff));
+        self::assertSame([45, 30, $guard->refreshAbsoluteTtlMinutes, $guard->refreshGraceSeconds], $this->lifetimeValues($robot));
+        self::assertSame($guard, $service->lifetimesFor($this->principalOfType('customer')));
+        self::assertSame($guard, $service->lifetimesFor($this->principalOfType('')));
+        self::assertSame($guard, $service->lifetimesFor(null));
+    }
+
+    /**
+     * An access token for a principal of a type with its own access lifetime
+     * expires after that lifetime, not the guard's.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAccessTokensExpireAfterTheirPrincipalTypesAccessLifetime(): void
+    {
+        $this->setGuardOverrides(['by_principal_type' => ['staff' => ['access_ttl_minutes' => 2]]]);
+
+        $service  = $this->lifetimeService();
+        $identity = \Mockery::mock(Identity::class);
+        $identity->shouldReceive('getAuthIdentifier')->andReturn('id-1');
+
+        $staff = $this->principalOfType('staff');
+        $staff->shouldReceive('getPrincipalIdentifier')->andReturn('pid-1');
+
+        $other = $this->principalOfType('customer');
+        $other->shouldReceive('getPrincipalIdentifier')->andReturn('pid-2');
+
+        $staffClaims = $service->parse($service->issueAccessToken($identity, $staff, null), TokenType::ACCESS);
+        $otherClaims = $service->parse($service->issueAccessToken($identity, $other, null), TokenType::ACCESS);
+
+        self::assertIsArray($staffClaims);
+        self::assertIsArray($otherClaims);
+        self::assertSame(Carbon::now()->addMinutes(2)->getTimestamp(), $staffClaims[Claims::EXPIRES_AT->value]);
+        self::assertSame(Carbon::now()->addMinutes(45)->getTimestamp(), $otherClaims[Claims::EXPIRES_AT->value]);
+    }
+
+    /**
+     * Malformed `by_principal_type` maps, each with the message that names the
+     * guard.
+     *
+     * @return iterable<string, array{0: mixed, 1: string}>
+     */
+    public static function provideMalformedPrincipalTypeMaps(): iterable
+    {
+        $keys = 'Auth guard [package_default] `jwt.by_principal_type.staff` may set only `access_ttl_minutes`,'
+            . ' `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, not ';
+        $map  = 'Auth guard [package_default] `jwt.by_principal_type` must be an array keyed by principal type.';
+        $type = 'Auth guard [package_default] `jwt.by_principal_type` must map each principal type name to an array of lifetimes.';
+
+        yield from [
+            'a string'                  => ['staff', $map],
+            'a list'                    => [[['access_ttl_minutes' => 2]], $type],
+            'an empty type name'        => [['' => ['access_ttl_minutes' => 2]], $type],
+            'lifetimes not an array'    => [['staff' => 2], $type],
+            'lifetimes null'            => [['staff' => null], $type],
+            'the grace window'          => [['staff' => ['refresh_grace_seconds' => 0]], $keys . '`refresh_grace_seconds`.'],
+            'a misspelt and a list key' => [['staff' => ['access_ttl' => 2, 3]], $keys . '`access_ttl`, `0`.'],
+        ];
+    }
+
+    /**
+     * A malformed `by_principal_type` map fails closed when the guard's service
+     * is resolved rather than being ignored.
+     *
+     * @param  mixed  $map
+     * @param  string  $message
+     * @return void
+     */
+    #[DataProvider('provideMalformedPrincipalTypeMaps')]
+    public function testMalformedPrincipalTypeMapFailsClosed(mixed $map, string $message): void
+    {
+        $this->setGuardOverrides(['by_principal_type' => $map]);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage($message);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A `null` map means no lifetimes per type.
+     *
+     * @return void
+     */
+    public function testNullPrincipalTypeMapMeansNone(): void
+    {
+        $this->setGuardOverrides(['by_principal_type' => null]);
+
+        $service = $this->lifetimeService();
+
+        self::assertSame($service->lifetimes(), $service->lifetimesFor($this->principalOfType('staff')));
+    }
+
+    /**
+     * A per-type lifetime that is not an integer fails closed, naming the
+     * guard, the type and the key.
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideMalformedValues')]
+    public function testMalformedPrincipalTypeLifetimeFailsClosed(mixed $value): void
+    {
+        $this->setGuardOverrides(['by_principal_type' => ['staff' => ['refresh_idle_ttl_minutes' => $value]]]);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage('Auth guard [package_default] `jwt.by_principal_type.staff.refresh_idle_ttl_minutes` must be an integer from 1 to 5256000.');
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * Rows of `[key, value, maximum, accepted]` at and beyond each per-type
+     * range bound.
+     *
+     * @return iterable<string, array{0: string, 1: int, 2: int, 3: bool}>
+     */
+    public static function providePrincipalTypeRangeBounds(): iterable
+    {
+        $ranges = [
+            ['access_ttl_minutes', 1440],
+            ['refresh_idle_ttl_minutes', 5256000],
+            ['refresh_absolute_ttl_minutes', 5256000],
+        ];
+
+        foreach ($ranges as [$key, $max]) {
+            yield "{$key} below the minimum" => [$key, 0, $max, false];
+            yield "{$key} at the minimum" => [$key, 1, $max, true];
+            yield "{$key} at the maximum" => [$key, $max, $max, true];
+            yield "{$key} above the maximum" => [$key, $max + 1, $max, false];
+        }
+    }
+
+    /**
+     * Each per-type lifetime accepts exactly the range of the guard's.
+     *
+     * @param  string  $key
+     * @param  int  $value
+     * @param  int  $max
+     * @param  bool  $accepted
+     * @return void
+     */
+    #[DataProvider('providePrincipalTypeRangeBounds')]
+    public function testEachPrincipalTypeLifetimeAcceptsExactlyItsRange(string $key, int $value, int $max, bool $accepted): void
+    {
+        $this->setGuardOverrides(['by_principal_type' => ['staff' => [$key => $value]]]);
+
+        if (!$accepted) {
+            $this->expectException(InvalidJwtConfigurationException::class);
+            $this->expectExceptionMessage("Auth guard [package_default] `jwt.by_principal_type.staff.{$key}` must be an integer from 1 to {$max}.");
+        }
+
+        $lifetimes = $this->lifetimeService()->lifetimesFor($this->principalOfType('staff'));
+        $values    = array_combine(['access_ttl_minutes', 'refresh_idle_ttl_minutes', 'refresh_absolute_ttl_minutes', 'refresh_grace_seconds'], $this->lifetimeValues($lifetimes));
+
+        self::assertSame($value, $values[$key]);
+    }
+
+    /**
      * Register the package service provider against the Testbench application.
      *
      * @param  mixed  $app
@@ -1337,6 +1524,33 @@ final class JwtTokenServiceFactoryTest extends TestCase
         JWT::$timestamp = Carbon::now()->getTimestamp();
 
         return $leeway + 1;
+    }
+
+    /**
+     * Build a principal of the given type, acting within no tenant.
+     *
+     * @param  string  $type
+     * @return \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasType&\SineMacula\Laravel\Authentication\Contracts\Principal
+     */
+    private function principalOfType(string $type): MockInterface
+    {
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\HasType&\SineMacula\Laravel\Authentication\Contracts\Principal $principal */
+        $principal = \Mockery::mock(Principal::class, HasType::class);
+        $principal->shouldReceive('getType')->andReturn($type);
+        $principal->shouldReceive('getTenant')->andReturn(null);
+
+        return $principal;
+    }
+
+    /**
+     * The access, idle, absolute and grace values of the lifetimes, in order.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
+     * @return list<int>
+     */
+    private function lifetimeValues(TokenLifetimes $lifetimes): array
+    {
+        return [$lifetimes->accessTtlMinutes, $lifetimes->refreshIdleTtlMinutes, $lifetimes->refreshAbsoluteTtlMinutes, $lifetimes->refreshGraceSeconds];
     }
 
     /**

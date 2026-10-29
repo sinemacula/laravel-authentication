@@ -17,9 +17,15 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use SineMacula\Laravel\Authentication\Guards\Concerns\ExposesCollaborators;
+use SineMacula\Laravel\Authentication\Guards\Concerns\SignsInWithCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
 use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
+use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
  * Abstract base for the package's stateless contextual guards.
@@ -29,16 +35,18 @@ use SineMacula\Laravel\Authentication\Guards\Concerns\VerifiesPinnedContext;
  * conformance. Concrete subclasses provide payload extraction and call
  * `attempt()`/`login()` to bind the resolved context.
  *
- * Contextual binding is composed via `BindsContextualState`;
- * credential-validation primitives via `ValidatesGuardCredentials`; ownership
- * checks for principal hints and pinned context via `VerifiesPinnedContext`.
+ * Contextual binding is composed via `BindsContextualState`; the credential
+ * event helpers via `ValidatesGuardCredentials`; the sign-in policy checks
+ * behind `attempt()` via `SignsInWithCredentials`; ownership checks for
+ * principal hints and pinned context via `VerifiesPinnedContext`; read access
+ * to the guard's collaborators via `ExposesCollaborators`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 abstract class AbstractGuard implements ContextualGuard
 {
-    use BindsContextualState, ValidatesGuardCredentials, VerifiesPinnedContext;
+    use BindsContextualState, ExposesCollaborators, SignsInWithCredentials, ValidatesGuardCredentials, VerifiesPinnedContext;
 
     /** @var ?\Illuminate\Contracts\Auth\Authenticatable Last retrieved user; attached to the `Failed` event. */
     protected ?Authenticatable $lastRetrievedUser = null;
@@ -161,12 +169,14 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Validate credentials without mutating guard state.
+     * Validate credentials without mutating guard state, firing `Validated`
+     * when they are accepted.
      *
-     * Wraps the whole retrieve -> validate pipeline in a single
-     * `Timebox::call()` so elapsed time is uniform regardless of whether the
-     * identifier resolves; preserves the timing-safety guarantee against
-     * user-enumeration.
+     * Runs the password sign-in method's credential check inside a single
+     * `Timebox::call()`, so elapsed time is uniform whether or not the
+     * identifier resolves. Only the credentials are checked: no attempt limit,
+     * audience policy or activity check applies, and the password is never
+     * rehashed, as with Laravel's own guards.
      *
      * @param  array<array-key, mixed>  $credentials
      * @return bool
@@ -176,17 +186,21 @@ abstract class AbstractGuard implements ContextualGuard
     #[\Override]
     public function validate(#[\SensitiveParameter] array $credentials = []): bool
     {
-        return $this->timebox->call(function (Timebox $timebox) use ($credentials): bool {
+        $password = self::signInCollaborator(PasswordSignIn::class);
 
-            $user = $this->provider->retrieveByCredentials($credentials);
+        return $this->timebox->call(function (Timebox $timebox) use ($password, $credentials): bool {
 
-            if ($this->hasValidCredentials($user, $credentials)) {
-                $timebox->returnEarly();
+            $identity = $password->verifyCredentials($this->provider, $credentials);
 
-                return true;
+            if ($identity === null) {
+                return false;
             }
 
-            return false;
+            $this->fireValidatedEvent($identity);
+
+            $timebox->returnEarly();
+
+            return true;
         }, $this->timeboxMicroseconds());
     }
 
@@ -241,15 +255,36 @@ abstract class AbstractGuard implements ContextualGuard
     }
 
     /**
-     * Attempt to authenticate a request against the identity provider,
-     * optionally pinning a specific principal and device on success.
+     * Sign in with credentials through the password sign-in method, optionally
+     * pinning a specific principal and device on success.
+     *
+     * The guard's audience policy must allow the `password` method, and the
+     * attempt takes one slot from the identifier's and the IP address's sign-in
+     * limits before the credentials are checked; a successful sign-in gives its
+     * slots back. The credentials keep their full provider semantics, closures
+     * included, but the identifier the limits count and the verified-identifier
+     * requirement checks is always the guard's password identifier key (its own
+     * `sign_in.password_identifier`, or the package's), however the lookup was
+     * written. A value under that key that is not a string, a `Stringable`, an
+     * integer or a query closure fails as invalid credentials before any
+     * lookup, and the password check is counted against the account it is made
+     * for. Once the password is accepted, the identity, the principal and its
+     * tenant must be active, the pins must hold, the audience policy must admit
+     * the identity as the principal, and the additional-factor policy must not
+     * ask for a further factor: `attempt()` cannot hand out a pending sign-in,
+     * so a required factor fails it (use the session service's `signIn()`). No
+     * device is created.
      *
      * Pins are verified, not trusted, because callers may take them from
      * request input: the principal must resolve through the resolver's hinted
      * path to the same principal of the same class, and the device must be one
-     * of the identity's own devices that is not revoked and whose session has
-     * not ended. The resolved instances are bound, and a pin that fails either
+     * of the identity's own devices of this guard that is not revoked and whose
+     * session has not ended (a device of another guard, or of none, counts as
+     * missing). The resolved instances are bound, and a pin that fails either
      * check fails the attempt.
+     *
+     * A failure fires Laravel's `Failed`, carrying the account the credentials
+     * named when there is one, and then `SignInFailed` with the reason.
      *
      * @param  array<string, mixed>  $credentials
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -263,28 +298,40 @@ abstract class AbstractGuard implements ContextualGuard
     #[\Override]
     public function attempt(#[\SensitiveParameter] array $credentials, ?Principal $principal = null, ?Device $device = null): bool
     {
-        return $this->timebox->call(function (Timebox $timebox) use ($credentials, $principal, $device): bool {
+        $this->lastRetrievedUser = null;
 
-            $this->fireAttemptingEvent($credentials);
+        $this->fireAttemptingEvent($credentials);
 
-            $resolved = $this->resolveContextForCredentials($credentials, $principal, $device);
+        $password   = self::signInCollaborator(PasswordSignIn::class);
+        $identifier = $password->identifier($this->name, $credentials);
+        $client     = ClientContext::fromRequest($this->request);
+        $outcome    = $this->signInWithCredentials($password, $credentials, $principal, $device, $client);
 
-            if ($resolved === null) {
-                $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
+        if ($outcome instanceof RefusedSignIn) {
 
-                return false;
-            }
+            $this->fireFailedEvent($this->lastRetrievedUser, $credentials);
 
-            [$identity, $resolvedPrincipal, $resolvedDevice] = $resolved;
+            $this->events->dispatch(new SignInFailed(
+                $this->name,
+                $outcome->identity,
+                $outcome->principal,
+                $outcome->tenant,
+                $outcome->device,
+                PasswordSignIn::NAME,
+                $client,
+                $outcome->reason,
+                $identifier,
+                $outcome->retryAfter,
+            ));
 
-            // hasValidCredentials() already fired Validated; bind directly and
-            // skip login() to avoid double-dispatching.
-            $this->bindAuthenticationLifecycle($identity, $resolvedPrincipal, $resolvedDevice);
+            return false;
+        }
 
-            $timebox->returnEarly();
+        // Validated fired when the password was accepted; bind directly and
+        // skip login() to avoid double-dispatching.
+        $this->bindAuthenticationLifecycle($outcome->identity, $outcome->principal, $outcome->device);
 
-            return true;
-        }, $this->timeboxMicroseconds());
+        return true;
     }
 
     /**
@@ -294,9 +341,9 @@ abstract class AbstractGuard implements ContextualGuard
      * Public, trusted entry point for callers that validated the identity
      * out-of-band (refresh, OAuth, SSO): the principal and device are bound as
      * given, without the ownership checks `attempt()` applies to its pins.
-     * Paths that already went through `hasValidCredentials()` should call
-     * `bindAuthenticationLifecycle()` directly to avoid double-firing
-     * `Validated`.
+     * Paths that already fired `Validated` (as `attempt()` does once the
+     * password sign-in method accepts the credentials) call
+     * `bindAuthenticationLifecycle()` directly to avoid firing it twice.
      *
      * Previously bound state is cleared first so callers cannot inherit a stale
      * device from a prior login on the same instance.
@@ -479,56 +526,5 @@ abstract class AbstractGuard implements ContextualGuard
         }
 
         $this->setDevice($device);
-    }
-
-    /**
-     * Resolve the (identity, principal, device) triple for an `attempt()` call,
-     * or `null` if any check fails. Stores the retrieved user on
-     * `$this->lastRetrievedUser` so the caller can attribute the `Failed` event
-     * without re-fetching.
-     *
-     * @formatter:off
-     *
-     * @phpcs:disable Generic.Files.LineLength.TooLong
-     *
-     * @param  array<string, mixed>  $credentials
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
-     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
-     * @return array{0: \SineMacula\Laravel\Authentication\Contracts\Identity, 1: \SineMacula\Laravel\Authentication\Contracts\Principal, 2: ?\SineMacula\Laravel\Authentication\Contracts\Device}|null
-     *
-     * @phpcs:enable Generic.Files.LineLength.TooLong
-     *
-     * @formatter:on
-     *
-     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
-     */
-    private function resolveContextForCredentials(#[\SensitiveParameter] array $credentials, ?Principal $principal, ?Device $device): ?array
-    {
-        $this->lastRetrievedUser = $this->provider->retrieveByCredentials($credentials);
-        $user                    = $this->lastRetrievedUser;
-
-        // `hasValidCredentials` is called unconditionally (even on a null user)
-        // so elapsed time is uniform regardless of resolution; the trait
-        // handles the null case internally.
-        $credentialsAccepted = $this->hasValidCredentials($user, $credentials)
-            && $user instanceof Identity
-            && ActivationPolicy::isActive($user);
-
-        if (!$credentialsAccepted) {
-            return null;
-        }
-
-        /** @var \SineMacula\Laravel\Authentication\Contracts\Identity $user */
-        $resolvedPrincipal = $principal === null
-            ? $this->resolvePrincipal($user)
-            : $this->resolvePinnedPrincipal($user, $principal);
-
-        if ($resolvedPrincipal === null || !ActivationPolicy::isPrincipalActive($resolvedPrincipal)) {
-            return null;
-        }
-
-        $resolvedDevice = $device === null ? null : $this->resolvePinnedDevice($user, $device);
-
-        return $device !== null && $resolvedDevice === null ? null : [$user, $resolvedPrincipal, $resolvedDevice];
     }
 }

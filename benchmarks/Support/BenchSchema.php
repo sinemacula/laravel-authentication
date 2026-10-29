@@ -156,6 +156,19 @@ final class BenchSchema
     }
 
     /**
+     * A session the guard's password sign-in started now: the guard and method
+     * a device records, which refresh and the bearer path check, with the
+     * deadlines of `liveSession()`.
+     *
+     * @param  string  $guard
+     * @return array{idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface, guard: string, sign_in_method: string}
+     */
+    public static function signedIn(string $guard): array
+    {
+        return [...self::liveSession(), 'guard' => $guard, 'sign_in_method' => 'password'];
+    }
+
+    /**
      * Create a table from its blueprint definition unless it already exists.
      *
      * @param  string  $table

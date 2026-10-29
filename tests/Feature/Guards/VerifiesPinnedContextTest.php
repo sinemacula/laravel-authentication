@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
@@ -183,7 +184,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
 
         $this->acceptIdentity($identity);
 
-        $other = \Mockery::mock(Identity::class, HasDevices::class);
+        $other = $this->mockIdentity(HasDevices::class);
         $other->shouldReceive('getAuthIdentifier')->andReturn(7);
 
         $pinned = $this->principal('p-1', $other);
@@ -411,6 +412,43 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     }
 
     /**
+     * Rows of `[guard]` a device may record other than the attempting guard.
+     *
+     * @return iterable<string, array{0: ?string}>
+     */
+    public static function provideOtherGuards(): iterable
+    {
+        yield from [
+            'another guard' => ['admin'],
+            'no guard'      => [null],
+        ];
+    }
+
+    /**
+     * A pinned device of another guard's sessions, or of none, fails the
+     * attempt like a missing one.
+     *
+     * @param  ?string  $guard
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideOtherGuards')]
+    public function testPinnedDeviceOfAnotherGuardFailsTheAttempt(?string $guard): void
+    {
+        $foreign = \Mockery::mock(Device::class);
+        $foreign->shouldReceive('getDeviceIdentifier')->andReturn(self::DEVICE_ID);
+        $foreign->shouldReceive('getRevokedAt')->andReturnNull();
+        $foreign->shouldReceive('getGuard')->andReturn($guard);
+        $foreign->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now()->addDays(90));
+        $foreign->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDays(180));
+
+        $guard = $this->guardWithDevices($foreign);
+
+        $this->assertAttemptFails($guard->attempt(['email' => 'x'], null, $foreign), $guard);
+    }
+
+    /**
      * A pinned device whose session has ended fails the attempt, like a revoked
      * one.
      *
@@ -422,6 +460,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     {
         $ended = \Mockery::mock(Device::class);
         $ended->shouldReceive('getDeviceIdentifier')->andReturn(self::DEVICE_ID);
+        $ended->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
         $ended->shouldReceive('getRevokedAt')->andReturnNull();
         $ended->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now());
         $ended->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDay());
@@ -463,7 +502,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $devices->shouldNotReceive('useWritePdo');
         $devices->shouldNotReceive('find');
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $this->acceptIdentity($identity);
@@ -487,7 +526,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $devices = $this->writerDevices();
         $devices->shouldNotReceive('find');
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $this->acceptIdentity($identity);
@@ -545,7 +584,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     {
         $guard = $this->makeStubGuard();
 
-        $identity  = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity  = $this->mockIdentity(HasDevices::class);
         $principal = $this->principal('p-1', $identity);
         $device    = $this->device(self::DEVICE_ID, null);
 
@@ -635,7 +674,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
         $devices = $this->writerDevices();
         $devices->shouldReceive('find')->once()->with(self::DEVICE_ID)->andReturn($owned);
 
-        $identity = \Mockery::mock(Identity::class, HasDevices::class);
+        $identity = $this->mockIdentity(HasDevices::class);
         $identity->shouldReceive('devices')->andReturn($devices);
 
         $this->acceptIdentity($identity);
@@ -692,6 +731,7 @@ final class VerifiesPinnedContextTest extends AbstractGuardTestCase
     {
         $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')->andReturn($identifier);
+        $device->shouldReceive('getGuard')->andReturn(self::GUARD_NAME);
         $device->shouldReceive('getRevokedAt')->andReturn($revokedAt);
         $device->shouldReceive('getIdleExpiresAt')->andReturn(CarbonImmutable::now()->addDays(90));
         $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(CarbonImmutable::now()->addDays(180));

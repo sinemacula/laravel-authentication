@@ -25,18 +25,6 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 final class StubCredentialGuard extends AbstractGuard
 {
     /**
-     * Validate credentials through the inherited `hasValidCredentials()` hook.
-     *
-     * @param  ?\Illuminate\Contracts\Auth\Authenticatable  $user
-     * @param  array<string, mixed>  $credentials
-     * @return bool
-     */
-    public function hasAcceptedCredentials(?Authenticatable $user, #[\SensitiveParameter] array $credentials): bool
-    {
-        return $this->hasValidCredentials($user, $credentials);
-    }
-
-    /**
      * Bind a resolved context through the inherited
      * `bindAuthenticationLifecycle()` hook.
      *

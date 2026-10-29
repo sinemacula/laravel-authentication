@@ -129,6 +129,40 @@ final class ActivationPolicyTest extends TestCase
     }
 
     /**
+     * `activeTenant()` returns the very tenant it loaded and checked when that
+     * tenant is active, whether or not it opts into activation, so a caller
+     * reporting the tenant reports the one that passed.
+     *
+     * @return void
+     */
+    public function testActiveTenantReturnsTheTenantItChecked(): void
+    {
+        $plain  = \Mockery::mock(Tenant::class);
+        $active = $this->tenant(true);
+
+        self::assertSame($plain, ActivationPolicy::activeTenant($this->principalWithTenant($plain)));
+        self::assertSame($active, ActivationPolicy::activeTenant($this->principalWithTenant($active)));
+    }
+
+    /**
+     * `activeTenant()` returns `null` for a principal that acts within no
+     * tenant, and `false`, never the tenant, for one whose tenant is inactive
+     * or cannot be loaded.
+     *
+     * @return void
+     */
+    public function testActiveTenantTellsNoTenantFromATenantThatMayNotAuthenticate(): void
+    {
+        self::assertNull(ActivationPolicy::activeTenant($this->principalWithTenant(null)));
+        self::assertFalse(ActivationPolicy::activeTenant($this->principalWithTenant($this->tenant(false))));
+
+        $unavailable = \Mockery::mock(Principal::class);
+        $unavailable->shouldReceive('getTenant')->once()->andThrow(new TenantUnavailableException('gone'));
+
+        self::assertFalse(ActivationPolicy::activeTenant($unavailable));
+    }
+
+    /**
      * `ActivationPolicy` is a static utility; instantiation is disallowed via
      * the private constructor so consumers cannot create a stateful activation
      * policy. Reflection invokes the private constructor so the line is covered

@@ -7,10 +7,12 @@ namespace Tests\Performance;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
@@ -22,6 +24,8 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
+use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
@@ -30,6 +34,12 @@ use Tests\Unit\Stubs\StubPrincipal;
 
 /**
  * Query-budget contracts for the refresh-token exchange hot paths.
+ *
+ * Every refresh first reads its device's and its IP address's refresh limits in
+ * one query. A failed refresh then counts the failure against both: on a fresh
+ * window, for each counter, an update that changes nothing and the insert that
+ * creates it, so four writes. A successful refresh writes nothing to the
+ * limits.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -115,15 +125,15 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * Refresh success should do the device lookup and authenticatable
-     * hydration, then one CAS write. The timestamp write is suppressed here by
-     * seeding `last_used_at` inside the throttle window.
+     * Refresh success should read its limits, do the device lookup and
+     * authenticatable hydration, then one CAS write. The timestamp write is
+     * suppressed here by seeding `last_used_at` inside the throttle window.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRefreshSuccessUsesTwoReadsAndOneWrite(): void
+    public function testRefreshSuccessUsesThreeReadsAndOneWrite(): void
     {
         $identity   = $this->seedIdentity();
         $rotationId = 'refresh-success-rotation-id';
@@ -143,19 +153,20 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($device, $rotationId, $identity);
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(2, 1, static fn () => $guard->refresh($token));
+        $result = $this->assertQueryBudget(3, 1, static fn () => $guard->refresh($token));
 
         self::assertNotNull($result);
     }
 
     /**
-     * Unknown-device refresh failures should stop at the first device lookup.
+     * Unknown-device refresh failures should stop at the first device lookup,
+     * then count the failure.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testUnknownDeviceRefreshFailureUsesOneReadAndNoWrites(): void
+    public function testUnknownDeviceRefreshFailureStopsAtTheDeviceLookup(): void
     {
         $missingDevice = new Device;
         $missingDevice->forceFill([...self::liveSession(), 'id' => '00000000-0000-0000-0000-000000000000']);
@@ -167,20 +178,21 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token));
+        $result = $this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token));
 
         self::assertNull($result);
     }
 
     /**
      * A device id that cannot be a key of the device model is rejected before
-     * the device lookup, so the failure costs no query at all.
+     * the device lookup, so the failure costs only the limits' read and its
+     * count.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testMalformedDeviceIdRefreshFailureUsesNoQueries(): void
+    public function testMalformedDeviceIdRefreshFailureSkipsTheDeviceLookup(): void
     {
         $malformedDevice = new Device;
         $malformedDevice->forceFill([...self::liveSession(), 'id' => 'not-a-uuid']);
@@ -192,7 +204,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        $result = $this->assertQueryBudget(0, 0, static fn () => $guard->refresh($token));
+        $result = $this->assertQueryBudget(1, 4, static fn () => $guard->refresh($token));
 
         self::assertNull($result);
     }
@@ -200,13 +212,13 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     /**
      * A replayed refresh token is judged from the device row alone, before the
      * owner is loaded, and costs the device read plus the one guarded
-     * revocation write.
+     * revocation write, besides the limits' read and the failure's count.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testReplayRevocationUsesOneReadAndOneWrite(): void
+    public function testReplayRevocationReadsTheDeviceAndRevokesItInOneWrite(): void
     {
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity, ['refresh_key' => RefreshTokenHasher::hash('stored-rotation-id')]);
@@ -214,19 +226,20 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $this->tokens()->issueRefreshToken($device, 'replayed-rotation-id');
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertNull($this->assertQueryBudget(1, 1, static fn () => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(2, 5, static fn () => $guard->refresh($token)));
         self::assertSame('rotation_reuse', Device::query()->whereKey($device->getKey())->firstOrFail()->getRevokedReason());
     }
 
     /**
-     * A grace retry is answered from the device row and the owner with no write
-     * at all: the current credential is re-issued, not rotated again.
+     * A grace retry is answered from the limits, the device row and the owner
+     * with no write at all: the current credential is re-issued, not rotated
+     * again.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testGraceRetryUsesTwoReadsAndNoWrites(): void
+    public function testGraceRetryUsesThreeReadsAndNoWrites(): void
     {
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity, [
@@ -239,19 +252,19 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $this->tokens()->issueRefreshToken($device, 'previous-rotation-id', $identity);
         $guard = $this->freshJwtGuard(self::GUARD);
 
-        self::assertNotNull($this->assertQueryBudget(2, 0, static fn () => $guard->refresh($token)));
+        self::assertNotNull($this->assertQueryBudget(3, 0, static fn () => $guard->refresh($token)));
     }
 
     /**
      * A refresh that loses its swap to a parallel refresh with the same token
-     * pays the device and owner reads, the missed swap, and one locking re-read
-     * of the device, then succeeds as a grace retry.
+     * pays the limits, device and owner reads, the missed swap, and one locking
+     * re-read of the device, then succeeds as a grace retry.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testLostRotationResolvedAsAGraceRetryUsesThreeReadsAndOneWrite(): void
+    public function testLostRotationResolvedAsAGraceRetryUsesFourReadsAndOneWrite(): void
     {
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity, [
@@ -282,18 +295,18 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
                 ]);
         });
 
-        self::assertNotNull($this->assertQueryBudget(3, 1, static fn () => $guard->refresh($token)));
+        self::assertNotNull($this->assertQueryBudget(4, 1, static fn () => $guard->refresh($token)));
     }
 
     /**
      * A refresh for a device that holds no refresh credential stops at the
-     * device lookup and writes nothing.
+     * device lookup and writes nothing but the failure's count.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testMissingRefreshCredentialUsesOneReadAndNoWrites(): void
+    public function testMissingRefreshCredentialStopsAtTheDeviceLookup(): void
     {
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity, ['refresh_key' => null]);
@@ -302,19 +315,20 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
         self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::REFRESH_KEY_MISSING, $device->getKey())], $events->getArrayCopy());
     }
 
     /**
      * A refresh replaying a token against a device already revoked for reuse
-     * stops at the device lookup: it writes nothing and revokes nothing again.
+     * stops at the device lookup: it revokes nothing again, and writes nothing
+     * but the failure's count.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testRevokedDeviceRefreshFailureUsesOneReadAndNoWrites(): void
+    public function testRevokedDeviceRefreshFailureStopsAtTheDeviceLookup(): void
     {
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity, [
@@ -328,7 +342,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
         self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_REVOKED, $device->getKey())], $events->getArrayCopy());
     }
 
@@ -370,14 +384,14 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * A refresh for a device whose session has ended stops at the device
-     * lookup: the deadlines are read from the loaded row, and nothing is
-     * written.
+     * lookup: the deadlines are read from the loaded row, and nothing but the
+     * failure's count is written.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testEndedSessionRefreshFailureUsesOneReadAndNoWrites(): void
+    public function testEndedSessionRefreshFailureStopsAtTheDeviceLookup(): void
     {
         $identity   = $this->seedIdentity();
         $rotationId = 'ended-session-rotation-id';
@@ -400,27 +414,128 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $guard  = $this->freshJwtGuard(self::GUARD);
         $events = $this->recordRefreshEvents();
 
-        self::assertNull($this->assertQueryBudget(1, 0, static fn () => $guard->refresh($token)));
+        self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
         self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::SESSION_EXPIRED, $device->getKey())], $events->getArrayCopy());
     }
 
     /**
-     * Tenant-aware 3D refresh success should pay exactly the device read, the
-     * authenticatable read, the joined principal+tenant read, and one rotation
-     * write.
+     * A refresh for a device of another guard is refused from the device row,
+     * before the owner is loaded: the limits' read, the device read, and the
+     * failure's count.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testThreeDimensionalRefreshPathWithTenantAccessUsesThreeReadsAndOneWrite(): void
+    public function testGuardMismatchRefreshFailureStopsAtTheDeviceLookup(): void
+    {
+        $device = $this->seedDevice($this->seedIdentity(), ['guard' => 'other', 'refresh_key' => RefreshTokenHasher::hash('other-guard-rotation-id')]);
+        $token  = $this->tokens()->issueRefreshToken($device, 'other-guard-rotation-id');
+        $guard  = $this->freshJwtGuard(self::GUARD);
+        $events = $this->recordRefreshEvents();
+
+        self::assertNull($this->assertQueryBudget(2, 4, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::DEVICE_GUARD_MISMATCH, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh whose session began with a method the guard no longer allows is
+     * refused once the owner is loaded, before any rotation write.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testDisallowedMethodRefreshFailureStopsBeforeTheRotation(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity, ['sign_in_method' => 'sso', 'refresh_key' => RefreshTokenHasher::hash('sso-rotation-id')]);
+        $token    = $this->tokens()->issueRefreshToken($device, 'sso-rotation-id', $identity);
+        $guard    = $this->freshJwtGuard(self::GUARD);
+        $events   = $this->recordRefreshEvents();
+
+        self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::METHOD_NOT_ALLOWED, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh for a principal the guard's audience no longer admits is
+     * refused once the owner is loaded, before any rotation write.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testIneligiblePrincipalRefreshFailureStopsBeforeTheRotation(): void
+    {
+        $identity = $this->seedIdentity();
+        $device   = $this->seedDevice($identity, ['refresh_key' => RefreshTokenHasher::hash('ineligible-rotation-id')]);
+        $token    = $this->tokens()->issueRefreshToken($device, 'ineligible-rotation-id', $identity);
+
+        app(ConfigRepository::class)->set('auth.guards.' . self::GUARD . '.audience', ['principal_types' => ['staff']]);
+
+        $guard  = $this->freshJwtGuard(self::GUARD);
+        $events = $this->recordRefreshEvents();
+
+        self::assertNull($this->assertQueryBudget(3, 4, static fn () => $guard->refresh($token)));
+        self::assertEquals([new RefreshFailed(self::GUARD, RefreshFailureReason::PRINCIPAL_INELIGIBLE, $device->getKey())], $events->getArrayCopy());
+    }
+
+    /**
+     * A refresh for a device that has used up its failures is refused from the
+     * limits' read alone, with a 429 and nothing written, so a flood of them
+     * never reaches the device.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testRateLimitedRefreshIsRefusedFromTheLimitsAlone(): void
+    {
+        $device = $this->seedDevice($this->seedIdentity(), ['refresh_key' => RefreshTokenHasher::hash('limited-rotation-id')]);
+        $token  = $this->tokens()->issueRefreshToken($device, 'limited-rotation-id');
+
+        $limits = ['refresh' => ['per_identifier' => ['max' => 1, 'decay_seconds' => 60], 'per_ip' => null]];
+
+        app(ConfigRepository::class)->set('auth.guards.' . self::GUARD . '.rate_limits', $limits);
+
+        $guard = $this->freshJwtGuard(self::GUARD);
+
+        app(AttemptLimiter::class)->recordFailure(new AttemptSubject(self::GUARD, AttemptFlow::REFRESH, (string) $device->getKey(), null, null)); // @phpstan-ignore cast.string
+
+        $events = $this->recordRefreshEvents();
+        $thrown = $this->assertQueryBudget(1, 0, static function () use ($guard, $token): ?\Throwable {
+            try {
+                $guard->refresh($token);
+            } catch (ThrottleRequestsException $e) {
+                return $e;
+            }
+
+            return null;
+        });
+
+        self::assertInstanceOf(ThrottleRequestsException::class, $thrown);
+        self::assertCount(1, $events);
+        self::assertSame(RefreshFailureReason::RATE_LIMITED, $events[0]->reason ?? null);
+    }
+
+    /**
+     * Tenant-aware 3D refresh success should pay exactly the limits' read, the
+     * device read, the authenticatable read, the joined principal+tenant read,
+     * and one rotation write.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testThreeDimensionalRefreshPathWithTenantAccessUsesFourReadsAndOneWrite(): void
     {
         [$identity, $principal] = $this->seedTenantAwareThreeDimensionalFixtures();
         $rotationId             = 'refresh-tenant-aware-success';
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::TENANT_AWARE_GUARD),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -433,7 +548,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($device, $rotationId, $principal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token): ?RefreshResult {
+        $result = $this->assertQueryBudget(4, 1, static function () use ($guard, $token): ?RefreshResult {
             $tokens = $guard->refresh($token);
             $guard->principal()?->getIdentity();
             $guard->tenant();
@@ -447,21 +562,21 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
     /**
      * A tenant-aware refresh for a secondary tenant hint should still pay the
-     * same device + identity + joined principal read budget as the primary
-     * tenant path.
+     * same limits + device + identity + joined principal read budget as the
+     * primary tenant path.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesThreeReadsAndOneWrite(): void
+    public function testThreeDimensionalRefreshPathWithSecondaryTenantHintUsesFourReadsAndOneWrite(): void
     {
         [$identity, , $secondaryPrincipal] = $this->seedTenantAwareThreeDimensionalFixturesWithSecondaryTenant();
         $rotationId                        = 'refresh-tenant-aware-secondary-success';
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::TENANT_AWARE_GUARD),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -474,7 +589,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($device, $rotationId, $secondaryPrincipal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(3, 1, static function () use ($guard, $token): ?RefreshResult {
+        $result = $this->assertQueryBudget(4, 1, static function () use ($guard, $token): ?RefreshResult {
             $tokens = $guard->refresh($token);
             $guard->principal()?->getIdentity();
             $guard->tenant();
@@ -489,7 +604,8 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
     }
 
     /**
-     * A failure on the 3D pid path must still stop before the rotation write.
+     * A failure on the 3D pid path must still stop before the rotation write;
+     * it writes only the failure's count.
      *
      * @return void
      *
@@ -505,7 +621,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::TENANT_AWARE_GUARD),
             'authenticatable_type' => TenantAware3dIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($rotationId),
@@ -518,7 +634,7 @@ final class RefreshTokenExchangeQueryBudgetTest extends PerformanceContractTestC
         $token = $jwt->issueRefreshToken($device, $rotationId, $principal);
         $guard = $this->freshJwtGuard(self::TENANT_AWARE_GUARD);
 
-        $result = $this->assertQueryBudget(3, 0, static function () use ($guard, $token): ?RefreshResult {
+        $result = $this->assertQueryBudget(4, 4, static function () use ($guard, $token): ?RefreshResult {
             $tokens = $guard->refresh($token);
             $guard->tenant();
 

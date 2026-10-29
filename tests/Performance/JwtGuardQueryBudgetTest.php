@@ -183,7 +183,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::DEVICE_GUARD),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => null,
@@ -224,7 +224,7 @@ final class JwtGuardQueryBudgetTest extends PerformanceContractTestCase
 
         $device = new Device;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession(self::DEVICE_GUARD),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => null,

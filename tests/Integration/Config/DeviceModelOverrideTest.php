@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubLookupIdentityProvider;
@@ -50,7 +51,8 @@ final class DeviceModelOverrideTest extends TestCase
     /**
      * Configure the custom device model class and table name, then replay the
      * shipped migration body inline against the in-memory connection so the
-     * custom table exists for the test.
+     * custom table exists for the test, and run the shipped rate limits
+     * migration, whose table the refresh exchange counts failures in.
      *
      * @return void
      */
@@ -73,6 +75,8 @@ final class DeviceModelOverrideTest extends TestCase
 
         self::createDeviceTable('custom_devices');
 
+        (include __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php')->up();
+
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
             $blueprint->id();
             $blueprint->boolean('is_active')->default(true);
@@ -90,6 +94,7 @@ final class DeviceModelOverrideTest extends TestCase
     {
         Schema::dropIfExists('custom_devices');
         Schema::dropIfExists('stub_principals');
+        Schema::dropIfExists('rate_limits');
 
         parent::tearDown();
     }
@@ -140,7 +145,7 @@ final class DeviceModelOverrideTest extends TestCase
         /** @var \SineMacula\Laravel\Authentication\Models\Device $device */
         $device = new $this->customModel;
         $device->forceFill([
-            ...self::liveSession(),
+            ...self::liveSession('custom-jwt'),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $principal->getKey(), // @phpstan-ignore cast.string
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
@@ -230,6 +235,14 @@ final class DeviceModelOverrideTest extends TestCase
             app(Timebox::class),
             $tokens,
             $exchange,
+            static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
+                $guard,
+                $timebox,
+                $tokens,
+                app(),
+                app(ConnectionResolverInterface::class),
+                static fn (): mixed => app('db.transactions'),
+            ),
         );
     }
 }

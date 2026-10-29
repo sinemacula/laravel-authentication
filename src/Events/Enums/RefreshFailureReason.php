@@ -19,8 +19,15 @@ enum RefreshFailureReason: string
     // Token decode/expiry/missing claim/typ/guard/iss/aud failure
     case TOKEN_INVALID = 'token_invalid';
 
+    // Too many failed refreshes for the device or from the IP address; the
+    // request is answered with 429
+    case RATE_LIMITED = 'rate_limited';
+
     // Device id is not a key of the device model or names no device
     case DEVICE_UNKNOWN = 'device_unknown';
+
+    // Device belongs to another guard's sessions, or to none; not revoked
+    case DEVICE_GUARD_MISMATCH = 'device_guard_mismatch';
 
     // A rotated refresh token was presented: neither the current rotation id
     // nor the previous one inside the grace window; device revoked
@@ -58,4 +65,12 @@ enum RefreshFailureReason: string
     // Tenant the resolved principal acts within reported inactive, or opts into
     // activation and cannot be loaded
     case TENANT_INACTIVE = 'tenant_inactive';
+
+    // The guard no longer lets the method that started the session start its
+    // sessions, or the device records no method; not revoked
+    case METHOD_NOT_ALLOWED = 'method_not_allowed';
+
+    // The guard's audience policy no longer admits the identity as the
+    // principal; not revoked
+    case PRINCIPAL_INELIGIBLE = 'principal_ineligible';
 }

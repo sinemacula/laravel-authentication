@@ -9,7 +9,6 @@ use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Events\QueryExecuted;
-use Illuminate\Foundation\Testing\DatabaseTransactionsManager as TestingTransactionsManager;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -22,10 +21,9 @@ use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
 
 /**
- * Feature tests for the guarded refresh-state writes, the locking re-read, and
- * work deferred until the device's connection commits, against a real device
- * table on whichever engine the suite runs on, and a device kept on a second
- * connection.
+ * Feature tests for the guarded refresh-state writes and the locking re-read,
+ * against a real device table on whichever engine the suite runs on, and a
+ * device kept on a second connection.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -299,187 +297,6 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Outside any transaction, deferred work runs at once.
-     *
-     * @return void
-     */
-    public function testAfterCommitRunsAtOnceOutsideATransaction(): void
-    {
-        $calls = new \ArrayObject;
-
-        $this->store()->afterCommit($this->device(), self::counter($calls));
-
-        self::assertCount(1, $calls);
-    }
-
-    /**
-     * Inside a transaction on the device's connection, deferred work waits for
-     * that transaction to commit, including an outer one it is nested in, and
-     * never runs when the transaction is rolled back.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAfterCommitWaitsForTheDeviceConnectionsTransaction(): void
-    {
-        $device = $this->device();
-        $calls  = new \ArrayObject;
-        $count  = self::counter($calls);
-
-        DB::beginTransaction();
-        DB::beginTransaction();
-
-        $this->store()->afterCommit($device, $count);
-
-        DB::commit();
-
-        self::assertCount(0, $calls);
-
-        DB::commit();
-
-        self::assertCount(1, $calls);
-
-        DB::beginTransaction();
-
-        $this->store()->afterCommit($device, $count);
-
-        DB::rollBack();
-
-        self::assertCount(1, $calls);
-    }
-
-    /**
-     * Work deferred inside a nested transaction on the device's connection is
-     * dropped when that nested transaction is rolled back, even though the
-     * outer transaction it was nested in later commits.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAfterCommitDropsWorkRolledBackWithANestedTransaction(): void
-    {
-        $device = $this->device();
-        $calls  = new \ArrayObject;
-
-        DB::beginTransaction();
-        DB::beginTransaction();
-
-        $this->store()->afterCommit($device, self::counter($calls));
-
-        DB::rollBack();
-        DB::commit();
-
-        self::assertCount(0, $calls);
-    }
-
-    /**
-     * Under the transactions manager of Laravel's testing traits, the
-     * transaction that wraps each test never commits, so it does not delay
-     * deferred work; a transaction opened inside it still does, until it
-     * commits.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAfterCommitIgnoresTheTransactionWrappingATest(): void
-    {
-        $device     = $this->device();
-        $calls      = new \ArrayObject;
-        $count      = self::counter($calls);
-        $manager    = new TestingTransactionsManager([null]);
-        $store      = $this->store(static fn (): TestingTransactionsManager => $manager);
-        $connection = DB::connection();
-
-        $connection->setTransactionManager($manager);
-        $connection->beginTransaction();
-
-        try {
-            $store->afterCommit($device, $count);
-
-            self::assertCount(1, $calls);
-
-            DB::beginTransaction();
-
-            $store->afterCommit($device, $count);
-
-            self::assertCount(1, $calls);
-
-            DB::commit();
-
-            self::assertCount(2, $calls);
-        } finally {
-            $connection->rollBack();
-            $connection->setTransactionManager(app('db.transactions'));
-        }
-    }
-
-    /**
-     * A transaction open on another connection neither delays nor cancels work
-     * deferred for a device on its own connection, whether it is the only
-     * transaction or opened inside one on the device's connection.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAfterCommitIgnoresTransactionsOnOtherConnections(): void
-    {
-        $device = new SeparateConnectionDevice;
-        $calls  = new \ArrayObject;
-        $count  = self::counter($calls);
-
-        DB::beginTransaction();
-
-        $this->store()->afterCommit($device, $count);
-
-        self::assertCount(1, $calls);
-
-        DB::rollBack();
-
-        self::assertCount(1, $calls);
-
-        $separate = DB::connection(SeparateConnectionDevice::CONNECTION);
-
-        $separate->beginTransaction();
-        DB::beginTransaction();
-
-        $this->store()->afterCommit($device, $count);
-
-        DB::rollBack();
-
-        self::assertCount(1, $calls);
-
-        $separate->commit();
-
-        self::assertCount(2, $calls);
-    }
-
-    /**
-     * Without a transactions manager, nothing can be deferred, so the work runs
-     * at once even inside a transaction.
-     *
-     * @return void
-     *
-     * @throws \Throwable
-     */
-    public function testAfterCommitRunsAtOnceWithoutATransactionsManager(): void
-    {
-        $device = $this->device();
-        $calls  = new \ArrayObject;
-
-        DB::beginTransaction();
-
-        $this->store(static fn (): null => null)->afterCommit($device, self::counter($calls));
-
-        DB::rollBack();
-
-        self::assertCount(1, $calls);
-    }
-
-    /**
      * Add the second connection a device can be kept on.
      *
      * @param  mixed  $app
@@ -497,31 +314,13 @@ final class RefreshRotationStoreTest extends TestCase
     }
 
     /**
-     * Build the store on the application's connections and its transactions
-     * manager, or on the given manager resolver.
+     * Build the store on the application's connections.
      *
-     * @param  (\Closure(): mixed)|null  $transactions
      * @return \SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore
      */
-    private function store(?\Closure $transactions = null): RefreshRotationStore
+    private function store(): RefreshRotationStore
     {
-        return new RefreshRotationStore(
-            app(ConnectionResolverInterface::class),
-            $transactions ?? static fn (): mixed => app('db.transactions'),
-        );
-    }
-
-    /**
-     * A callback that records each call it receives.
-     *
-     * @param  \ArrayObject<int, true>  $calls
-     * @return \Closure(): void
-     */
-    private static function counter(\ArrayObject $calls): \Closure
-    {
-        return static function () use ($calls): void {
-            $calls->append(true);
-        };
+        return new RefreshRotationStore(app(ConnectionResolverInterface::class));
     }
 
     /**

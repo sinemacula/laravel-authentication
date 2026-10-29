@@ -23,6 +23,7 @@ final readonly class RefreshFailed
      * @param  string  $guard
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason  $reason
      * @param  ?string  $deviceId
+     * @param  ?int  $retryAfter
      */
     public function __construct(
 
@@ -34,5 +35,8 @@ final readonly class RefreshFailed
 
         /** Device identifier from the token, when parseable. */
         public ?string $deviceId = null,
+
+        /** Seconds until refreshing may be tried again, when rate limited. */
+        public ?int $retryAfter = null,
     ) {}
 }

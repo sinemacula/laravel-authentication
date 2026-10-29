@@ -6,14 +6,14 @@ namespace Tests\Unit\Traits\Fixtures\Enums;
 
 /**
  * Fixture unit enum exercising the non-backed UnitEnum branch of the
- * ProvidesTenantType type resolver.
+ * ProvidesType type resolver.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-enum ProvidesTenantTypeTestUnitType
+enum ProvidesTypeTestUnitType
 {
     case STAFF;
     case CUSTOMER;

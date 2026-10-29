@@ -11,6 +11,7 @@ use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
@@ -55,22 +56,63 @@ final class AuthManagerTest extends TestCase
      */
     public function testAuthManagerExposesJwtMethod(): void
     {
-        config()->set('auth.providers.identities', [
-            'driver' => 'model',
-            'model'  => StubAuthenticatableModel::class,
-        ]);
-        config()->set('auth.guards.test_jwt', [
-            'driver'   => 'jwt',
-            'provider' => 'identities',
-        ]);
-        config()->set('authentication.jwt.keys', ['default' => 'test-secret-key-with-at-least-32-bytes!']);
-        config()->set('authentication.jwt.active_kid', 'default');
-        config()->set('authentication.jwt.algorithm', 'HS256');
+        $this->configureJwtGuard();
 
         /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
         $manager = app('auth');
 
         self::assertInstanceOf(JwtTokenService::class, $manager->jwt('test_jwt'));
+    }
+
+    /**
+     * `sessions()` hands out the named JWT guard's own session service, or the
+     * default guard's when no name is given.
+     *
+     * @return void
+     */
+    public function testSessionsReturnsTheJwtGuardsSessionService(): void
+    {
+        $this->configureJwtGuard();
+
+        config()->set('auth.defaults.guard', 'test_jwt');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+        $guard   = $manager->guard('test_jwt');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+        self::assertSame($guard->sessions(), $manager->sessions('test_jwt'));
+        self::assertSame($guard->sessions(), $manager->sessions());
+    }
+
+    /**
+     * A guard that is not a JWT guard has no session service, and asking for
+     * one names the guard.
+     *
+     * @return void
+     */
+    public function testSessionsRejectsAGuardThatIsNotAJwtGuard(): void
+    {
+        $this->configureJwtGuard();
+
+        config()->set('auth.defaults.guard', 'web');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        try {
+            $manager->sessions();
+            self::fail('Expected the session guard to be refused.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame('Auth guard [web] is not a jwt guard, so it has no session service.', $exception->getMessage());
+        }
+
+        config()->set('auth.defaults.guard', 'test_jwt');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Auth guard [web] is not a jwt guard, so it has no session service.');
+
+        $manager->sessions('web');
     }
 
     /**
@@ -164,5 +206,25 @@ final class AuthManagerTest extends TestCase
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthenticationServiceProvider::class];
+    }
+
+    /**
+     * Configure the `test_jwt` guard over the stub identity model.
+     *
+     * @return void
+     */
+    private function configureJwtGuard(): void
+    {
+        config()->set('auth.providers.identities', [
+            'driver' => 'model',
+            'model'  => StubAuthenticatableModel::class,
+        ]);
+        config()->set('auth.guards.test_jwt', [
+            'driver'   => 'jwt',
+            'provider' => 'identities',
+        ]);
+        config()->set('authentication.jwt.keys', ['default' => 'test-secret-key-with-at-least-32-bytes!']);
+        config()->set('authentication.jwt.active_kid', 'default');
+        config()->set('authentication.jwt.algorithm', 'HS256');
     }
 }

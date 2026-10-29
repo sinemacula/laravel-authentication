@@ -444,6 +444,7 @@ final class DeviceUsageIntegrationTest extends TestCase
                 'principal_type'       => $identity->getMorphClass(),
                 'principal_id'         => (string) $identity->getKey(), // @phpstan-ignore cast.string
                 'guard'                => 'api',
+                'sign_in_method'       => 'password',
                 'created_ip'           => $client->ip,
                 'created_user_agent'   => $client->userAgent,
                 'refresh_key'          => RefreshTokenHasher::hash($rotation),

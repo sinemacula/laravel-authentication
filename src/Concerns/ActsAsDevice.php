@@ -21,14 +21,15 @@ use Carbon\CarbonInterface;
  * deadline or rotation time never reads late.
  *
  * Both digests are hidden from `toArray()` and `toJson()`, under whatever
- * column names the model uses.
+ * column names the model uses. The guard, sign-in method and client a session
+ * started with come from `RecordsDeviceOrigin`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 trait ActsAsDevice
 {
-    use ReadsDeviceAttributes;
+    use ReadsDeviceAttributes, RecordsDeviceOrigin;
 
     /**
      * Return the device's primary key.

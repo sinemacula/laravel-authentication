@@ -18,9 +18,9 @@ use Tests\Unit\Stubs\StubCredentialGuard;
  * Feature tests for the protected hooks `AbstractGuard` offers to subclasses
  * that implement a new guard type.
  *
- * Drives `hasValidCredentials()`, `bindAuthenticationLifecycle()`,
- * `setIdentity()`, `fireValidatedEvent()`, and `timeboxMicroseconds()` from a
- * subclass so the extension surface stays callable and behaves as documented.
+ * Drives `bindAuthenticationLifecycle()`, `setIdentity()`,
+ * `fireValidatedEvent()`, and `timeboxMicroseconds()` from a subclass so the
+ * extension surface stays callable and behaves as documented.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,47 +30,6 @@ use Tests\Unit\Stubs\StubCredentialGuard;
 #[CoversClass(AbstractGuard::class)]
 final class AbstractGuardExtensionTest extends AbstractGuardTestCase
 {
-    /**
-     * A subclass validating accepted credentials gets `true` and fires
-     * `Validated` for the user.
-     *
-     * @return void
-     */
-    public function testSubclassValidatesAcceptedCredentials(): void
-    {
-        $guard    = $this->makeCredentialGuard();
-        $identity = $this->mockIdentity();
-
-        $this->provider->shouldReceive('validateCredentials')
-            ->once()
-            ->with($identity, ['password' => 'secret'])
-            ->andReturnTrue();
-
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(\Mockery::on(static fn (object $event): bool => $event instanceof Validated
-                && $event->guard === self::GUARD_NAME
-                && $event->user  === $identity));
-
-        self::assertTrue($guard->hasAcceptedCredentials($identity, ['password' => 'secret']));
-    }
-
-    /**
-     * A subclass validating credentials for an unresolved user gets `false`
-     * without consulting the provider or firing any event.
-     *
-     * @return void
-     */
-    public function testSubclassRejectsCredentialsForMissingUser(): void
-    {
-        $guard = $this->makeCredentialGuard();
-
-        $this->provider->shouldNotReceive('validateCredentials');
-        $this->events->shouldNotReceive('dispatch');
-
-        self::assertFalse($guard->hasAcceptedCredentials(null, ['password' => 'secret']));
-    }
-
     /**
      * A subclass binding a resolved context fires `Login`, `Authenticated`,
      * `PrincipalAssigned`, and `DeviceAuthenticated` in order and leaves the

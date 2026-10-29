@@ -7,6 +7,7 @@ namespace Tests\Feature\Guards;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use PHPUnit\Framework\Attributes\CoversTrait;
+use SineMacula\Laravel\Authentication\Events\SignInFailed;
 use SineMacula\Laravel\Authentication\Guards\Concerns\ValidatesGuardCredentials;
 use Tests\Unit\Stubs\StubCredentialGuard;
 
@@ -84,6 +85,9 @@ final class ValidatesGuardCredentialsTest extends AbstractGuardTestCase
         $this->events->shouldReceive('dispatch')
             ->once()
             ->with(\Mockery::type(Failed::class));
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::type(SignInFailed::class));
 
         self::assertFalse($guard->attempt(['email' => 'user@example.test', 'password' => 'secret']));
     }
@@ -108,6 +112,11 @@ final class ValidatesGuardCredentialsTest extends AbstractGuardTestCase
             ->once()
             ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof Failed
                 && $event->credentials === ['email' => 'user@example.test']));
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof SignInFailed
+                && $event->identifier === 'user@example.test'
+                && !str_contains(serialize($event), 'secret')));
 
         self::assertFalse($guard->attempt(['email' => 'user@example.test', 'password' => 'secret']));
     }

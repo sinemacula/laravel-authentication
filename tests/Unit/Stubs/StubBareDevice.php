@@ -133,4 +133,26 @@ final class StubBareDevice extends Model implements Device
     {
         return null;
     }
+
+    /**
+     * Inert guard accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getGuard(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Inert sign-in method accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getSignInMethod(): ?string
+    {
+        return null;
+    }
 }

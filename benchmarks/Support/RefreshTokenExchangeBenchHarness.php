@@ -15,8 +15,12 @@ use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
+use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
@@ -27,6 +31,9 @@ use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use Tests\Fixtures\Sessions\PermissiveAudiencePolicy;
+use Tests\Fixtures\Sessions\UnlimitedAttemptLimiter;
 use Tests\Integration\Fixtures\TenantAware3dIdentity;
 use Tests\Integration\Fixtures\TenantAware3dPrincipal;
 use Tests\Unit\Stubs\StubPrincipal;
@@ -69,11 +76,26 @@ final class RefreshTokenExchangeBenchHarness
     /** @var \Illuminate\Support\Timebox */
     private readonly Timebox $timebox;
 
-    /** @var string Token targeting a nonexistent device. */
-    private string $unknownDeviceToken;
+    /** @var string Token targeting a nonexistent device; empty until seeded, which the set-up check refuses. */
+    private string $unknownDeviceToken = '';
 
-    /** @var string Token with a mismatched rotation ID. */
-    private string $rotationMismatchToken;
+    /** @var list<string> Tokens with a mismatched rotation ID, each for its own device, since the first replay revokes it. */
+    private array $rotationMismatchTokens = [];
+
+    /** @var int Current index into the mismatch pool. */
+    private int $rotationMismatchIndex = 0;
+
+    /** @var string Success token outside the pool, for the set-up check; empty until seeded, which the check refuses. */
+    private string $successCheckToken = '';
+
+    /** @var string Tenant-aware success token outside the pool, for the set-up check. */
+    private string $tenantAwareCheckToken = '';
+
+    /** @var string Secondary tenant success token outside the pool, for the set-up check. */
+    private string $tenantAwareSecondaryCheckToken = '';
+
+    /** @var string Mismatched token outside the pool, for the set-up check. */
+    private string $rotationMismatchCheckToken = '';
 
     /** @var list<string> */
     private array $successTokens = [];
@@ -94,7 +116,11 @@ final class RefreshTokenExchangeBenchHarness
     private int $tenantAwareSecondarySuccessIndex = 0;
 
     /**
-     * Seed the refresh benchmark fixtures.
+     * Seed the refresh benchmark fixtures, and check that each path reaches the
+     * outcome it measures.
+     *
+     * @throws \LogicException
+     * @throws \Random\RandomException
      */
     public function __construct()
     {
@@ -120,6 +146,7 @@ final class RefreshTokenExchangeBenchHarness
         $container = new Container;
         $container->instance('config', $config);
         Facade::setFacadeApplication($container);
+        Container::setInstance($container);
 
         $this->resolver = new DefaultPrincipalResolver;
         $this->events   = new Dispatcher($container);
@@ -137,12 +164,17 @@ final class RefreshTokenExchangeBenchHarness
             new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
         );
+        $container->instance(AudiencePolicy::class, new PermissiveAudiencePolicy($this->tokens->lifetimes()));
+        $container->instance(AttemptLimiter::class, new UnlimitedAttemptLimiter);
+
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
         $this->tenantAwareProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
         $this->timebox             = new Timebox;
 
         $this->createSchema();
         $this->seedFixtures($hasher);
+
+        $this->assertEachPathReachesItsOutcome();
     }
 
     /**
@@ -181,7 +213,10 @@ final class RefreshTokenExchangeBenchHarness
      */
     public function runRotationMismatchFailure(): void
     {
-        $this->makeGuard()->refresh($this->rotationMismatchToken);
+        $token = $this->rotationMismatchTokens[$this->rotationMismatchIndex % count($this->rotationMismatchTokens)];
+        $this->rotationMismatchIndex++;
+
+        $this->makeGuard()->refresh($token);
     }
 
     /**
@@ -295,6 +330,10 @@ final class RefreshTokenExchangeBenchHarness
             (string) $identity->getKey(), // @phpstan-ignore cast.string
             $identity,
         );
+
+        $owner = (string) $identity->getKey(); // @phpstan-ignore cast.string
+
+        [$this->successCheckToken] = $this->issueRefreshTokenPool('bench-refresh-check-', StubPrincipal::class, $owner, $identity, 1);
     }
 
     /**
@@ -304,19 +343,20 @@ final class RefreshTokenExchangeBenchHarness
      * @param  class-string  $ownerClass
      * @param  string  $ownerId
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  int  $size
      * @return list<string>
      */
-    private function issueRefreshTokenPool(string $prefix, string $ownerClass, string $ownerId, Principal $principal): array
+    private function issueRefreshTokenPool(string $prefix, string $ownerClass, string $ownerId, Principal $principal, int $size = self::TOKEN_POOL_SIZE): array
     {
         $pool = [];
 
-        for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+        for ($index = 0; $index < $size; $index++) {
 
             $rotationId = $prefix . $index;
 
             $device = new Device;
             $device->forceFill([
-                ...BenchSchema::liveSession(),
+                ...BenchSchema::signedIn('api'),
                 'authenticatable_type' => $ownerClass,
                 'authenticatable_id'   => $ownerId,
                 'client_name'          => $prefix . $index,
@@ -401,6 +441,11 @@ final class RefreshTokenExchangeBenchHarness
             (string) $identity->getKey(), // @phpstan-ignore cast.string
             $secondaryPrincipal,
         );
+
+        $owner = (string) $identity->getKey(); // @phpstan-ignore cast.string
+
+        [$this->tenantAwareCheckToken]          = $this->issueRefreshTokenPool('bench-refresh-tenant-check-', TenantAware3dIdentity::class, $owner, $tenantAwarePrincipal, 1);
+        [$this->tenantAwareSecondaryCheckToken] = $this->issueRefreshTokenPool('bench-refresh-secondary-check-', TenantAware3dIdentity::class, $owner, $secondaryPrincipal, 1);
     }
 
     /**
@@ -414,24 +459,78 @@ final class RefreshTokenExchangeBenchHarness
         // A well-formed id that names no row, so the bench measures the lookup
         // rather than the shape check that rejects malformed ids before it.
         $missingDevice = new Device;
-        $missingDevice->forceFill([...BenchSchema::liveSession(), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
+        $missingDevice->forceFill([...BenchSchema::signedIn('api'), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
         $this->unknownDeviceToken = $this->tokens->issueRefreshToken($missingDevice, 'bench-missing-device-rotation');
 
-        $mismatchDevice = Device::query()->where('client_name', 'bench-refresh-mismatch')->first();
-
-        if (!$mismatchDevice instanceof Device) {
-
-            $mismatchDevice = new Device;
-            $mismatchDevice->forceFill([
-                ...BenchSchema::liveSession(),
-                'authenticatable_type' => StubPrincipal::class,
-                'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-                'client_name'          => 'bench-refresh-mismatch',
-                'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
-            ])->save();
+        if ($this->rotationMismatchTokens !== []) {
+            return;
         }
 
-        $this->rotationMismatchToken = $this->tokens->issueRefreshToken($mismatchDevice, 'tampered-rotation-id');
+        for ($index = 0; $index < self::TOKEN_POOL_SIZE; $index++) {
+            $this->rotationMismatchTokens[] = $this->issueMismatchedToken($identity, 'bench-refresh-mismatch-' . $index);
+        }
+
+        $this->rotationMismatchCheckToken = $this->issueMismatchedToken($identity, 'bench-refresh-mismatch-check');
+    }
+
+    /**
+     * Issue a refresh token whose rotation id is not its device's, for a device
+     * of its own.
+     *
+     * @param  \Tests\Unit\Stubs\StubPrincipal  $identity
+     * @param  string  $clientName
+     * @return string
+     */
+    private function issueMismatchedToken(StubPrincipal $identity, string $clientName): string
+    {
+        $device = new Device;
+        $device->forceFill([
+            ...BenchSchema::signedIn('api'),
+            'authenticatable_type' => StubPrincipal::class,
+            'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
+            'client_name'          => $clientName,
+            'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
+        ])->save();
+
+        return $this->tokens->issueRefreshToken($device, 'tampered-rotation-id');
+    }
+
+    /**
+     * Run each benchmarked path once and throw unless it reaches the outcome
+     * its name describes: a successful refresh returns a pair (and a
+     * tenant-aware one binds its tenant), an unknown device fails as
+     * `device_unknown`, and a mismatched rotation id as `rotation_reuse`. Paths
+     * that use a token up run on tokens outside the benchmark's pools.
+     *
+     * @return void
+     *
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     */
+    private function assertEachPathReachesItsOutcome(): void
+    {
+        BenchOutcome::assert('refresh success', $this->makeGuard()->refresh($this->successCheckToken) !== null);
+
+        foreach ([$this->tenantAwareCheckToken, $this->tenantAwareSecondaryCheckToken] as $token) {
+
+            $guard = $this->makeGuard($this->tenantAwareProvider);
+
+            BenchOutcome::assert('tenant-aware 3D refresh', $guard->refresh($token) !== null && $guard->tenant() !== null);
+        }
+
+        $reasons = [];
+
+        $this->events->listen(RefreshFailed::class, static function (RefreshFailed $failed) use (&$reasons): void {
+            $reasons[] = $failed->reason;
+        });
+
+        $this->makeGuard()->refresh($this->unknownDeviceToken);
+        $this->makeGuard()->refresh($this->rotationMismatchCheckToken);
+
+        $this->events->forget(RefreshFailed::class);
+
+        BenchOutcome::assert('unknown-device failure', ($reasons[0] ?? null) === RefreshFailureReason::DEVICE_UNKNOWN);
+        BenchOutcome::assert('rotation-mismatch failure', ($reasons[1] ?? null) === RefreshFailureReason::ROTATION_REUSE);
     }
 
     /**
@@ -463,6 +562,14 @@ final class RefreshTokenExchangeBenchHarness
             $this->timebox,
             $this->tokens,
             $exchange,
+            fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
+                $guard,
+                $timebox,
+                $this->tokens,
+                new Container,
+                BenchDatabase::connectionResolver(),
+                static fn (): null => null,
+            ),
         );
     }
 }

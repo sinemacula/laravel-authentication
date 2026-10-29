@@ -23,26 +23,31 @@ use Illuminate\Support\Facades\Schema;
 trait InteractsWithDevices
 {
     /**
-     * The deadlines of a session that starts now, with the package's default
-     * lifetimes (90 days idle, 180 days absolute).
+     * A session of the guard that starts now, signed in with a password, with
+     * the package's default lifetimes (90 days idle, 180 days absolute).
      *
-     * @return array{idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @param  string  $guard
+     * @return array{guard: string, sign_in_method: string, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      */
-    protected static function liveSession(): array
+    protected static function liveSession(string $guard = 'api'): array
     {
-        return self::sessionEndingAt(Carbon::now()->addDays(90), Carbon::now()->addDays(180));
+        return self::sessionEndingAt(Carbon::now()->addDays(90), Carbon::now()->addDays(180), $guard);
     }
 
     /**
-     * The deadlines of a session that ends at the given times.
+     * A session of the guard, signed in with a password, that ends at the given
+     * times.
      *
      * @param  \Carbon\CarbonInterface  $idle
      * @param  \Carbon\CarbonInterface  $absolute
-     * @return array{idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     * @param  string  $guard
+     * @return array{guard: string, sign_in_method: string, idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
      */
-    protected static function sessionEndingAt(CarbonInterface $idle, CarbonInterface $absolute): array
+    protected static function sessionEndingAt(CarbonInterface $idle, CarbonInterface $absolute, string $guard = 'api'): array
     {
         return [
+            'guard'               => $guard,
+            'sign_in_method'      => 'password',
             'idle_expires_at'     => $idle,
             'absolute_expires_at' => $absolute,
         ];

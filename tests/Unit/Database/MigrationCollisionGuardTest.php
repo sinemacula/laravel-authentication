@@ -10,6 +10,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Database\TableAlreadyExistsException;
 
 /**
  * MigrationCollisionGuard unit tests.
@@ -25,8 +26,9 @@ final class MigrationCollisionGuardTest extends TestCase
     use MockeryPHPUnitIntegration;
 
     /**
-     * Asserts the guard throws a RuntimeException when the configured devices
-     * table already exists in the schema.
+     * Asserts the guard throws when the table already exists in the schema,
+     * naming the table, the connection and the configuration key that renames
+     * the table.
      *
      * @return void
      */
@@ -49,17 +51,18 @@ final class MigrationCollisionGuardTest extends TestCase
 
         $guard = new MigrationCollisionGuard($schema);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Cannot install the laravel-authentication devices migration');
-        $this->expectExceptionMessage('devices');
-        $this->expectExceptionMessage('testing');
+        $this->expectException(TableAlreadyExistsException::class);
+        $this->expectExceptionMessage(
+            'Cannot install the laravel-authentication migration for the \'devices\' table: a table with that name already exists on connection \'testing\'.'
+            . ' Set `device.table` in config/authentication.php to a different name and re-run the migration.',
+        );
 
-        $guard->ensureNotExists('devices');
+        $guard->ensureNotExists('devices', 'device.table');
     }
 
     /**
-     * Asserts the guard returns silently when the configured devices table is
-     * not present in the schema.
+     * Asserts the guard returns silently when the table is not present in the
+     * schema.
      *
      * @return void
      */
@@ -76,35 +79,36 @@ final class MigrationCollisionGuardTest extends TestCase
         // ensureNotExists is `void` and the assertion lives in the Mockery
         // `->once()` expectation: if hasTable was not called exactly once,
         // Mockery will fail the test in tearDown.
-        $guard->ensureNotExists('devices');
+        $guard->ensureNotExists('devices', 'device.table');
     }
 
     /**
-     * Asserts the exception message echoes a custom configurable table name
-     * supplied at runtime.
+     * Asserts the exception message echoes the table name and configuration key
+     * supplied at runtime, and names the default connection when the connection
+     * has no name.
      *
      * @return void
      */
-    public function testEnsureNotExistsUsesCustomTableName(): void
+    public function testEnsureNotExistsNamesTheGivenTableAndKey(): void
     {
         $schema = \Mockery::mock(Builder::class);
         $schema->shouldReceive('hasTable')
             ->once()
-            ->with('custom_devices')
+            ->with('attempt_counters')
             ->andReturn(true);
 
         $connection = \Mockery::mock(Connection::class);
         $connection->shouldReceive('getName')
-            ->andReturn('testing');
+            ->andReturnNull();
 
         $schema->shouldReceive('getConnection')
             ->andReturn($connection);
 
         $guard = new MigrationCollisionGuard($schema);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('custom_devices');
+        $this->expectException(TableAlreadyExistsException::class);
+        $this->expectExceptionMessage('the \'attempt_counters\' table: a table with that name already exists on connection \'default\'. Set `rate_limits.table`');
 
-        $guard->ensureNotExists('custom_devices');
+        $guard->ensureNotExists('attempt_counters', 'rate_limits.table');
     }
 }

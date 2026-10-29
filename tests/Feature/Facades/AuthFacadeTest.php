@@ -44,10 +44,10 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
-     * The contextual accessors (`principal`, `device`, `tenant`, `type`) are
-     * real instance methods on the package `AuthManager` - not macros. Verify
-     * they exist on the resolved manager so a rename or removal fails the
-     * suite.
+     * The contextual accessors (`principal`, `device`, `tenant`, `type`) and
+     * `sessions()` are real instance methods on the package `AuthManager` - not
+     * macros. Verify they exist on the resolved manager so a rename or removal
+     * fails the suite.
      *
      * @return void
      */
@@ -64,6 +64,7 @@ final class AuthFacadeTest extends TestCase
         self::assertTrue($reflection->hasMethod('device'));
         self::assertTrue($reflection->hasMethod('tenant'));
         self::assertTrue($reflection->hasMethod('type'));
+        self::assertTrue($reflection->hasMethod('sessions'));
     }
 
     /**

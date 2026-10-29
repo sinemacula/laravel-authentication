@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\Guards;
 
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -12,11 +13,14 @@ use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Refreshed;
+use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
  * Sessionless JWT bearer-token guard.
@@ -26,15 +30,23 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
  * device from the configured provider/resolver/model state before binding them.
  *
  * Exposes `refresh()` for refresh-credential exchange; the round trip is
- * delegated to `RefreshTokenExchange`.
+ * delegated to `RefreshTokenExchange`. `sessions()` returns the guard's session
+ * service, which starts sessions.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class JwtGuard extends AbstractGuard
 {
+    /** @var ?\SineMacula\Laravel\Authentication\Sessions\SessionService The guard's session service, once built. */
+    private ?SessionService $sessions = null;
+
     /**
      * Constructor.
+     *
+     * @formatter:off
+     *
+     * @phpcs:disable Generic.Files.LineLength.TooLong
      *
      * @param  string  $name
      * @param  \SineMacula\Laravel\Authentication\Contracts\IdentityProvider  $provider
@@ -44,6 +56,11 @@ final class JwtGuard extends AbstractGuard
      * @param  \Illuminate\Support\Timebox  $timebox
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $tokens
      * @param  \SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange  $exchange
+     * @param  \Closure(\SineMacula\Laravel\Authentication\Guards\JwtGuard, \Closure(\Closure(\Illuminate\Support\Timebox): mixed): mixed): \SineMacula\Laravel\Authentication\Sessions\SessionService  $sessionFactory
+     *
+     * @phpcs:enable Generic.Files.LineLength.TooLong
+     *
+     * @formatter:on
      */
     public function __construct(
 
@@ -70,8 +87,25 @@ final class JwtGuard extends AbstractGuard
 
         /** Refresh-token exchange for credential rotation. */
         protected RefreshTokenExchange $exchange,
+
+        /** Builds the guard's session service, given the guard and its credential timebox, the first time it is asked for. */
+        private readonly \Closure $sessionFactory,
     ) {
         parent::__construct($name, $provider, $resolver, $events, $request, $timebox);
+    }
+
+    /**
+     * Return the guard's session service, which signs in, creates or continues
+     * the device, and issues the first token pair. Built once per guard and
+     * handed the guard's credential timebox, so its sign-ins take as long as
+     * `attempt()`'s; it reads the guard's request, dispatcher, provider and
+     * resolver each time it runs, so it follows their rebinds.
+     *
+     * @return \SineMacula\Laravel\Authentication\Sessions\SessionService
+     */
+    public function sessions(): SessionService
+    {
+        return $this->sessions ??= ($this->sessionFactory)($this, fn (\Closure $callback): mixed => $this->timebox->call($callback, $this->timeboxMicroseconds()));
     }
 
     /**
@@ -80,6 +114,9 @@ final class JwtGuard extends AbstractGuard
      * Delegates the round trip to `RefreshTokenExchange`, binds the resolved
      * contextual triple, and dispatches `Refreshed`. Returns `null` on failure;
      * the exchange has already dispatched `RefreshFailed` with a reason code.
+     * Once too many refreshes have failed for the token's device or from the
+     * request's IP address, `Failed` is dispatched and a
+     * `ThrottleRequestsException` (429 with `Retry-After`) is thrown instead.
      *
      * The presented token is rotated before the context is bound, so an
      * exception from a listener on the binding events or on `Refreshed`
@@ -90,6 +127,7 @@ final class JwtGuard extends AbstractGuard
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult
      *
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
      * @throws \InvalidArgumentException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
@@ -98,11 +136,13 @@ final class JwtGuard extends AbstractGuard
     {
         $this->fireAttemptingEvent([]);
 
-        $result = $this->exchange->exchange($refreshToken);
+        $result = $this->exchange->exchange($refreshToken, ClientContext::fromRequest($this->request));
 
-        if ($result === null) {
+        if ($result instanceof RefreshFailed) {
 
             $this->fireFailedEvent(null, []);
+
+            self::refuseIfRateLimited($result);
 
             return null;
         }
@@ -179,6 +219,23 @@ final class JwtGuard extends AbstractGuard
         }
 
         return $this->resolveBearerToken($token);
+    }
+
+    /**
+     * Answer a refresh the limits refused with a 429 carrying `Retry-After`,
+     * since `refresh()` cannot say so through its return value and a 401 would
+     * be wrong.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Events\RefreshFailed  $failure
+     * @return void
+     *
+     * @throws \Illuminate\Http\Exceptions\ThrottleRequestsException
+     */
+    private static function refuseIfRateLimited(RefreshFailed $failure): void
+    {
+        if ($failure->retryAfter !== null) {
+            throw new ThrottleRequestsException('Too Many Attempts.', null, ['Retry-After' => $failure->retryAfter]);
+        }
     }
 
     /**

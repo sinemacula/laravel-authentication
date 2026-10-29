@@ -54,6 +54,9 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     /** @var string Path of the shipped devices migration. */
     private const string MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000000_create_devices_table.php';
 
+    /** @var string Path of the shipped rate limits migration, whose table the refresh exchange counts failures in. */
+    private const string RATE_LIMITS_MIGRATION_PATH = __DIR__ . '/../../../database/migrations/2026_04_06_000002_create_rate_limits_table.php';
+
     /** @var \Carbon\Carbon Frozen clock reference. */
     private Carbon $now;
 
@@ -158,10 +161,11 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     }
 
     /**
-     * Create the shipped devices table and the identity table before the
-     * wrapping transaction begins. Teardown callbacks run in reverse order, so
-     * on a persistent database both tables are dropped after the wrapping
-     * transaction is rolled back; an in-memory one goes with its connection.
+     * Create the shipped devices and rate limits tables and the identity table
+     * before the wrapping transaction begins. Teardown callbacks run in reverse
+     * order, so on a persistent database the tables are dropped after the
+     * wrapping transaction is rolled back; an in-memory one goes with its
+     * connection.
      *
      * @return void
      *
@@ -171,9 +175,12 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
     #[\Override]
     protected function defineDatabaseMigrations(): void
     {
-        $migration = include self::MIGRATION_PATH;
+        foreach ([self::MIGRATION_PATH, self::RATE_LIMITS_MIGRATION_PATH] as $path) {
 
-        \call_user_func([$migration, 'up']);
+            $migration = include $path;
+
+            \call_user_func([$migration, 'up']);
+        }
 
         Schema::create('stub_principals', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
@@ -190,6 +197,7 @@ final class ReplayUnderDatabaseTransactionsIntegrationTest extends TestCase
         $this->beforeApplicationDestroyed(static function (): void {
             Schema::dropIfExists('stub_principals');
             Schema::dropIfExists('devices');
+            Schema::dropIfExists('rate_limits');
         });
     }
 

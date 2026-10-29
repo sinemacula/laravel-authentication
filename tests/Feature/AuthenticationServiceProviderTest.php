@@ -19,19 +19,28 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
+use SineMacula\Laravel\Authentication\Events\SignInFailed;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
@@ -162,6 +171,40 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * The `AudiencePolicy` contract resolves to the package policy, one
+     * instance for the application.
+     *
+     * @return void
+     */
+    public function testAudiencePolicyIsBoundToThePackagePolicyAsASingleton(): void
+    {
+        self::assertInstanceOf(GuardAudiencePolicy::class, app(AudiencePolicy::class));
+        self::assertSame(app(AudiencePolicy::class), app(AudiencePolicy::class));
+    }
+
+    /**
+     * The `AttemptLimiter` contract resolves to the database limiter, one
+     * instance for the application.
+     *
+     * @return void
+     */
+    public function testAttemptLimiterIsBoundToTheDatabaseLimiterAsASingleton(): void
+    {
+        self::assertInstanceOf(DatabaseAttemptLimiter::class, app(AttemptLimiter::class));
+        self::assertSame(app(AttemptLimiter::class), app(AttemptLimiter::class));
+    }
+
+    /**
+     * The identifier normaliser registry is one instance for the application.
+     *
+     * @return void
+     */
+    public function testIdentifierNormalisersAreBoundAsASingleton(): void
+    {
+        self::assertSame(app(IdentifierNormalisers::class), app(IdentifierNormalisers::class));
+    }
+
+    /**
      * JWT guards without a guard-local override should continue tracking later
      * rebinds of the app-wide `PrincipalResolver::class` binding, and the
      * refresh exchange must stay aligned with the guard's resolver.
@@ -225,6 +268,26 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * The sign-in method registry is a container singleton, and the default
+     * additional-factor policy, which never asks for a factor, is bound as one
+     * so an application or an MFA package can rebind it.
+     *
+     * @return void
+     */
+    public function testRegistersTheSignInMethodsAndTheDefaultFactorPolicy(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(SignInMethodManager::class));
+        self::assertSame(app(SignInMethodManager::class), app(SignInMethodManager::class));
+
+        self::assertTrue($app->isShared(AdditionalFactorPolicy::class));
+        self::assertInstanceOf(NeverRequireAdditionalFactor::class, app(AdditionalFactorPolicy::class));
+    }
+
+    /**
      * Package guards follow later rebinds of the `events` dispatcher, so an
      * `Event::fake()` (or any dispatcher swap) made after a guard resolves
      * still receives that guard's events.
@@ -238,17 +301,20 @@ final class AuthenticationServiceProviderTest extends TestCase
     {
         config()->set('authentication.timebox.credentials_microseconds', 1);
 
+        $this->migrateRateLimits();
+
         $guard = app('auth')->guard('api');
 
         self::assertInstanceOf(JwtGuard::class, $guard);
 
-        Event::fake([Attempting::class, Failed::class]);
+        Event::fake([Attempting::class, Failed::class, SignInFailed::class]);
 
         self::assertSame(Event::getFacadeRoot(), $this->readObjectProperty($guard, 'events'));
         self::assertFalse($guard->attempt(['password' => 'not-a-real-password']));
 
         Event::assertDispatched(Attempting::class, static fn (Attempting $event): bool => $event->guard === 'api');
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
+        Event::assertDispatched(SignInFailed::class, static fn (SignInFailed $event): bool => $event->guard === 'api');
     }
 
     /**
@@ -264,6 +330,8 @@ final class AuthenticationServiceProviderTest extends TestCase
      */
     public function testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind(): void
     {
+        $this->migrateRateLimits();
+
         $guard = app('auth')->guard('api');
 
         self::assertInstanceOf(JwtGuard::class, $guard);
@@ -281,6 +349,39 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * A JWT guard's session service is built for that guard, on the application
+     * container, and resolves the database transactions manager each time it
+     * defers its events, so a manager bound later is the one consulted and none
+     * is used when the container has none.
+     *
+     * @return void
+     */
+    public function testJwtGuardSessionServiceIsBuiltForTheGuardOnTheContainer(): void
+    {
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $sessions     = $guard->sessions();
+        $transactions = $this->readObjectProperty($this->readObjectProperty($sessions, 'afterCommit'), 'transactions');
+
+        self::assertSame($guard, $this->readObjectProperty($sessions, 'guard'));
+        self::assertSame(app(), $this->readObjectProperty($sessions, 'container'));
+        self::assertInstanceOf(\Closure::class, $transactions);
+        self::assertSame(app('db.transactions'), $transactions());
+
+        $replacement = new DatabaseTransactionsManager;
+
+        app()->instance('db.transactions', $replacement);
+
+        self::assertSame($replacement, $transactions());
+
+        app()->offsetUnset('db.transactions');
+
+        self::assertNull($transactions());
+    }
+
+    /**
      * The guard's refresh exchange resolves the database transactions manager
      * each time it defers a revocation event, so a manager bound later (as the
      * testing transaction traits bind one) is the one consulted, and none is
@@ -295,7 +396,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         self::assertInstanceOf(JwtGuard::class, $guard);
 
         $exchange     = $this->readObjectProperty($guard, 'exchange');
-        $transactions = $this->readObjectProperty($this->readObjectProperty($exchange, 'store'), 'transactions');
+        $transactions = $this->readObjectProperty($this->readObjectProperty($exchange, 'afterCommit'), 'transactions');
 
         self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
         self::assertInstanceOf(\Closure::class, $transactions);
@@ -361,6 +462,29 @@ final class AuthenticationServiceProviderTest extends TestCase
             'authentication-migrations',
             ServiceProvider::publishableGroups(),
         );
+    }
+
+    /**
+     * The migrations tag publishes every shipped migration (devices, pending
+     * sign-ins and rate limits), from the package to the application's
+     * migrations, under their own file names.
+     *
+     * @return void
+     */
+    public function testMigrationPublishingTagPublishesEveryShippedMigration(): void
+    {
+        $source = dirname(__DIR__, 2) . '/database/migrations/';
+        $paths  = [];
+
+        foreach (ServiceProvider::pathsToPublish(AuthenticationServiceProvider::class, 'authentication-migrations') as $from => $to) {
+            $paths[(string) realpath($from)] = $to;
+        }
+
+        self::assertSame([
+            realpath($source . '2026_04_06_000000_create_devices_table.php')          => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
+            realpath($source . '2026_04_06_000001_create_pending_sign_ins_table.php') => database_path('migrations/2026_04_06_000001_create_pending_sign_ins_table.php'),
+            realpath($source . '2026_04_06_000002_create_rate_limits_table.php')      => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
+        ], $paths);
     }
 
     /**
@@ -499,6 +623,7 @@ final class AuthenticationServiceProviderTest extends TestCase
         /** @var \Illuminate\Config\Repository $config */
         $config = $app->make(ConfigRepository::class);
 
+        $config->set('app.key', 'base64:' . base64_encode('service-provider-test-app-key-32'));
         $config->set('authentication.jwt.keys', ['default' => self::JWT_SECRET]);
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', self::JWT_ALGORITHM);
@@ -524,6 +649,23 @@ final class AuthenticationServiceProviderTest extends TestCase
             'driver'   => 'basic',
             'provider' => 'identities',
         ]);
+    }
+
+    /**
+     * Create the shipped rate limits table, in which a guard counts its sign-in
+     * and refresh attempts, and drop it when the application goes.
+     *
+     * @return void
+     */
+    private function migrateRateLimits(): void
+    {
+        $migration = include dirname(__DIR__, 2) . '/database/migrations/2026_04_06_000002_create_rate_limits_table.php';
+
+        $migration->up();
+
+        $this->beforeApplicationDestroyed(static function () use ($migration): void {
+            $migration->down();
+        });
     }
 
     /**

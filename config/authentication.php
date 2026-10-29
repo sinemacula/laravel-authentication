@@ -2,6 +2,7 @@
 
 declare(strict_types = 1);
 
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
 use SineMacula\Laravel\Authentication\Models\Device;
 
 return [
@@ -31,13 +32,42 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Sign-in
+    |---------------------------------------------------------------------------
+    |
+    | The password sign-in method looks identities up by the column named in
+    | `password_identifier`, which is also the identifier type the attempt
+    | limits count and a guard that requires verified identifiers checks. A
+    | guard whose identities are found by another column names its own in
+    | `auth.guards.<name>.sign_in.password_identifier` (the only key a guard's
+    | `sign_in` block may set). Either must be a lower-case column name (a
+    | letter, then letters, digits, or underscores) that does not contain
+    | `password`; anything else fails closed when a password sign-in runs.
+    |
+    | A sign-in the additional-factor policy asks a further factor of waits in
+    | `pending_table` (on the device model's connection) for at most
+    | `pending_ttl_seconds` (30 to 3600; an integer, or a digit string as
+    | `env()` returns one); anything else fails closed when a pending sign-in
+    | is issued. Prune expired pending sign-ins with `model:prune`.
+    |
+    */
+
+    'sign_in' => [
+        'password_identifier' => env('AUTHENTICATION_SIGN_IN_PASSWORD_IDENTIFIER', 'email'),
+        'pending_table'       => env('AUTHENTICATION_SIGN_IN_PENDING_TABLE', 'pending_sign_ins'),
+        'pending_ttl_seconds' => env('AUTHENTICATION_SIGN_IN_PENDING_TTL_SECONDS', 300),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Credential validation timing
     |---------------------------------------------------------------------------
     |
     | Microsecond budget passed to Illuminate\Support\Timebox around the
-    | credential checks in a guard's `attempt()` and `validate()`. Must exceed
-    | the worst-case hasher cost (bcrypt cost 12 ≈ 150–250ms) or timing-safety
-    | breaks down.
+    | credential checks in a guard's `attempt()` and `validate()`, and around
+    | a session service `signIn()` from its sign-in method to its admission.
+    | Must exceed the worst-case hasher cost (bcrypt cost 12 ≈ 150–250ms) or
+    | timing-safety breaks down.
     |
     */
 
@@ -129,5 +159,119 @@ return [
 
         'issuer'   => env('AUTHENTICATION_JWT_ISSUER'),
         'audience' => env('AUTHENTICATION_JWT_AUDIENCE'),
+
+        // Lifetimes per principal type are set per guard only, in
+        // `auth.guards.<name>.jwt.by_principal_type.<type>`, with any of
+        // `access_ttl_minutes`, `refresh_idle_ttl_minutes` and
+        // `refresh_absolute_ttl_minutes`; each falls back to the guard's value.
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Audiences
+    |---------------------------------------------------------------------------
+    |
+    | An audience is a guard. These are the defaults every guard starts from; a
+    | guard overrides any of them in an `audience` block on its
+    | `config/auth.php` entry, where a key that is present wins, `null`
+    | included. `methods` lists the sign-in methods that may start the guard's
+    | sessions (a non-empty list of the lower-case names they are registered
+    | under). `principal_types` lists the principal types that may hold them (a
+    | non-empty list), or is `null` to admit any principal, typed or not; with a
+    | list, an untyped principal is refused. `require_verified_identifier`
+    | refuses a sign-in with an identifier (an email address, say) the identity
+    | has not verified; sign-ins that use no identifier, such as SSO, are not
+    | affected. A malformed value, or an unknown key, fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | policy is first used.
+    |
+    */
+
+    'audience' => [
+        'methods'                     => ['password'],
+        'principal_types'             => null,
+        'require_verified_identifier' => false,
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Identifiers
+    |---------------------------------------------------------------------------
+    |
+    | Normalisers bring an identifier a person types to the one form it is
+    | stored and looked up in, keyed by identifier type (a lower-case name).
+    | Designate an identity attribute with the `NormalisedIdentifier` cast
+    | (`'email' => NormalisedIdentifier::using('email')`) and the attribute is
+    | normalised when it is set, the `model` provider normalises it before it
+    | looks an identity up, and attempts are counted against its normal form.
+    | Each value is a container abstract resolving to an
+    | `IdentifierNormaliser`; the email normaliser trims and lower-cases.
+    |
+    */
+
+    'identifiers' => [
+        'normalisers' => [
+            'email' => EmailNormaliser::class,
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Rate limits
+    |---------------------------------------------------------------------------
+    |
+    | Limits on each flow, per identifier and per IP address, counted in the
+    | `table` on the write PDO of `connection` (`null` for the default), so they
+    | hold across servers without a cache. Each limit allows `max` attempts (at
+    | least 1) in each window of `decay_seconds` (1 to 86400), windows aligned
+    | to the clock; `null` turns it off. Sign-in counts every attempt and gives
+    | a successful one back; a secret a method checks against an account also
+    | counts against that account under `per_identifier`, however the account
+    | was found, in one count the account keeps across guards, which each guard
+    | holds to its own limit, so the guard with the most permissive limit bounds
+    | the account's guesses. An IPv6 address counts by its /64 network, and one
+    | that carries an IPv4 client's address (IPv4-mapped, or the NAT64
+    | well-known prefix `64:ff9b::/96`) as that IPv4 address. Refresh, which
+    | cannot guess a secret, counts only failures, per device and per IP
+    | address. Counts on `connection` are rolled back with any transaction a
+    | caller opened there around a sign-in. A guard overrides any limit in a
+    | `rate_limits` block on its `config/auth.php` entry, where a scope that is
+    | present wins, `null` included, and a flow set to `null` turns both of its
+    | limits off. A malformed limit or an unknown key fails closed with an
+    | `InvalidArgumentException` naming the guard and the key. Counters are
+    | stored under digests keyed from `app.key`, so rotating it starts every
+    | window afresh. Prune ended windows with `model:prune`.
+    |
+    */
+
+    'rate_limits' => [
+        'table'      => env('AUTHENTICATION_RATE_LIMITS_TABLE', 'rate_limits'),
+        'connection' => env('AUTHENTICATION_RATE_LIMITS_CONNECTION'),
+
+        'sign_in' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 300],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 300],
+        ],
+
+        'refresh' => [
+            'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
+            'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Identifier verification
+    |---------------------------------------------------------------------------
+    |
+    | How long a signed verification link stays valid, in minutes (1 to 10080,
+    | a week); `VerificationLinks::create()` may set a lifetime of its own in
+    | the same range. A value of another type or out of range fails closed when
+    | a link is created.
+    |
+    */
+
+    'verification' => [
+        'link_ttl_minutes' => env('AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES', 60),
     ],
 ];

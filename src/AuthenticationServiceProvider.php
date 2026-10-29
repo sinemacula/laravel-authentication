@@ -17,34 +17,47 @@ use Illuminate\Support\Facades\Auth as IlluminateAuth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Timebox;
+use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
+use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Sessions\SessionService;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
- * Package service provider.
- *
- * Registers configuration, the package `AuthManager` singleton, the `model`
- * user provider driver, the `jwt` guard driver, the default principal resolver
- * binding, the package-aware `auth` middleware and `401` guest response, the
- * `DeviceAuthenticated` listener, and the config + migration publishing tags.
+ * Package service provider: registers the package's configuration, auth
+ * manager, guard and provider drivers, sign-in collaborators and policies,
+ * middleware, listener and publishing tags.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 final class AuthenticationServiceProvider extends ServiceProvider
 {
+    /** @var list<string> File names of the shipped migrations, published under the `authentication-migrations` tag. */
+    private const array MIGRATIONS = [
+        '2026_04_06_000000_create_devices_table.php',
+        '2026_04_06_000001_create_pending_sign_ins_table.php',
+        '2026_04_06_000002_create_rate_limits_table.php',
+    ];
+
     /**
      * Register container bindings.
      *
@@ -59,6 +72,11 @@ final class AuthenticationServiceProvider extends ServiceProvider
         );
 
         $this->app->singleton(PrincipalResolver::class, DefaultPrincipalResolver::class);
+        $this->app->singleton(AudiencePolicy::class, GuardAudiencePolicy::class);
+        $this->app->singleton(IdentifierNormalisers::class);
+        $this->app->singleton(AttemptLimiter::class, DatabaseAttemptLimiter::class);
+        $this->app->singleton(SignInMethodManager::class);
+        $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,
@@ -134,6 +152,14 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $app->make(Timebox::class),
             $tokens,
             $exchange,
+            static fn (JwtGuard $guard, \Closure $timebox): SessionService => new SessionService(
+                $guard,
+                $timebox,
+                $tokens,
+                $app,
+                $app->make(ConnectionResolverInterface::class),
+                static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
+            ),
         );
 
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
@@ -233,9 +259,13 @@ final class AuthenticationServiceProvider extends ServiceProvider
             __DIR__ . '/../config/authentication.php' => config_path('authentication.php'),
         ], 'authentication-config');
 
-        $this->publishes([
-            __DIR__ . '/../database/migrations/2026_04_06_000000_create_devices_table.php' => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
-        ], 'authentication-migrations');
+        $migrations = [];
+
+        foreach (self::MIGRATIONS as $migration) {
+            $migrations[__DIR__ . '/../database/migrations/' . $migration] = database_path('migrations/' . $migration);
+        }
+
+        $this->publishes($migrations, 'authentication-migrations');
     }
 
     /**

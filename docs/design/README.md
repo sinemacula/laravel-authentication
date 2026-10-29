@@ -23,6 +23,11 @@ The current note set is:
 - `access-only-mode.md`: the supported bearer-only, no-devices migration path.
 - `guard-bound-tokens.md`: the `grd` claim that ties every token to its issuing guard, and the provider-scoped owner
   reload on refresh.
+- `session-service.md`: how a guard's session service signs in, creates or continues a device, issues the first pair,
+  and reports it.
+- `audience-policy.md`: what each guard decides about its sessions (methods, principal types, verified identifiers,
+  lifetimes per principal type), where every path enforces it, and how the attempt limits and identifier normalisers
+  meet it.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
 the test should be treated as authoritative until the mismatch is resolved.

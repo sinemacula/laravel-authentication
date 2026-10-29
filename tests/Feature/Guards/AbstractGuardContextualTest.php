@@ -99,8 +99,30 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     }
 
     /**
-     * type() returns the tenant's type when the tenant declares the `HasType`
-     * capability.
+     * type() returns the principal's own type when it declares the `HasType`
+     * capability, without reading its tenant.
+     *
+     * @return void
+     */
+    public function testTypeReturnsThePrincipalsOwnTypeOverItsTenants(): void
+    {
+        $guard = $this->makeGuard();
+
+        $principal = \Mockery::mock(Principal::class, HasType::class);
+        $principal->shouldReceive('getType')
+            ->andReturn('client_admin');
+        $principal->shouldNotReceive('getTenant');
+
+        $this->events->shouldReceive('dispatch')->andReturnNull();
+
+        $guard->setPrincipal($principal);
+
+        self::assertSame('client_admin', $guard->type());
+    }
+
+    /**
+     * type() falls back to the tenant's type when the principal declares none
+     * and the tenant declares the `HasType` capability.
      *
      * @return void
      */
@@ -124,8 +146,8 @@ final class AbstractGuardContextualTest extends AbstractGuardTestCase
     }
 
     /**
-     * type() returns null when the tenant does not declare the `HasType`
-     * capability.
+     * type() returns null when neither the principal nor its tenant declares
+     * the `HasType` capability.
      *
      * @return void
      */

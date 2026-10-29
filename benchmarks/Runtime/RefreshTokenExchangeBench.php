@@ -98,6 +98,8 @@ final class RefreshTokenExchangeBench
      * Lazily initialize the shared harness.
      *
      * @return \Benchmarks\Support\RefreshTokenExchangeBenchHarness
+     *
+     * @throws \Random\RandomException
      */
     private function harness(): RefreshTokenExchangeBenchHarness
     {

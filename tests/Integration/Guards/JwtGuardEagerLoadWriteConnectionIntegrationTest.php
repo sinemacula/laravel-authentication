@@ -224,7 +224,7 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     }
 
     /**
-     * Create the devices table on the primary and the replica instead of
+     * Create the package tables on the primary and the replica instead of
      * migrating the default connection.
      *
      * @return void
@@ -232,7 +232,7 @@ final class JwtGuardEagerLoadWriteConnectionIntegrationTest extends TestCase
     #[\Override]
     protected function defineDatabaseMigrations(): void
     {
-        $this->migrateDevicesOnPrimaryAndReplica();
+        $this->migratePackageTablesOnPrimaryAndReplica();
     }
 
     /**

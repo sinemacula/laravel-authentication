@@ -13,7 +13,8 @@ use Psr\Log\LoggerInterface;
  *
  * Resolves `auth.guards.<name>.jwt` config layered over the package-wide
  * `authentication.jwt.*` values so issuance and verification share the same
- * guard-local signing material, claim policy, and lifetimes.
+ * guard-local signing material, claim policy, and lifetimes, plus the guard's
+ * own lifetimes per principal type (`jwt.by_principal_type`).
  *
  * The package values, defaults included, come only from the merged
  * `config/authentication.php`; nothing here falls back to a literal. A value
@@ -29,6 +30,13 @@ final class JwtTokenServiceFactory
 {
     /** @var int Largest accepted clock-skew leeway, in seconds. */
     private const int MAX_LEEWAY_SECONDS = 300;
+
+    /** @var array<string, int> Lifetime keys a principal type may override, with the largest value of each. */
+    private const array PRINCIPAL_TYPE_KEYS = [
+        'access_ttl_minutes'           => TokenLifetimes::MAX_ACCESS_TTL_MINUTES,
+        'refresh_idle_ttl_minutes'     => TokenLifetimes::MAX_REFRESH_TTL_MINUTES,
+        'refresh_absolute_ttl_minutes' => TokenLifetimes::MAX_REFRESH_TTL_MINUTES,
+    ];
 
     /** @var array<string, \SineMacula\Laravel\Authentication\Jwt\JwtTokenService> Memoized services keyed by guard name. */
     private array $resolved = [];
@@ -79,15 +87,17 @@ final class JwtTokenServiceFactory
     {
         $guardJwtConfig = $this->guardJwtConfig($guard);
         $algorithm      = $this->resolveAlgorithm($guard, $guardJwtConfig);
+        $lifetimes      = $this->resolveLifetimes($guard, $guardJwtConfig);
 
         return new JwtTokenService(
             $this->buildKeyring($guardJwtConfig, $algorithm),
             $guard,
-            $this->resolveLifetimes($guard, $guardJwtConfig),
+            $lifetimes,
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'leeway_seconds', 0, self::MAX_LEEWAY_SECONDS),
             $this->resolveJwtNullableString($guard, $guardJwtConfig, 'issuer'),
             $this->resolveJwtNullableString($guard, $guardJwtConfig, 'audience'),
             $this->resolveOptionalLogger(),
+            $this->resolvePrincipalTypeLifetimes($guard, $guardJwtConfig, $lifetimes),
         );
     }
 
@@ -131,6 +141,113 @@ final class JwtTokenServiceFactory
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_absolute_ttl_minutes', TokenLifetimes::MIN_TTL_MINUTES, TokenLifetimes::MAX_REFRESH_TTL_MINUTES),
             $this->resolveJwtInteger($guard, $guardJwtConfig, 'refresh_grace_seconds', 0, TokenLifetimes::MAX_GRACE_SECONDS),
         );
+    }
+
+    /**
+     * Resolve the guard's lifetimes per principal type from its
+     * `jwt.by_principal_type` map: for each type, any of the access, idle and
+     * absolute lifetimes, each falling back to the guard's own. The grace
+     * window stays the guard's, since a refresh judges grace before it knows
+     * the principal.
+     *
+     * The map is per guard only. `null` or absent means none; anything else
+     * that is not a map of non-empty type names to arrays of known keys with
+     * integers in range fails closed.
+     *
+     * @param  string  $guard
+     * @param  array<string, mixed>  $guardJwtConfig
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
+     * @return array<string, \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private function resolvePrincipalTypeLifetimes(string $guard, #[\SensitiveParameter] array $guardJwtConfig, TokenLifetimes $lifetimes): array
+    {
+        $map = $guardJwtConfig['by_principal_type'] ?? [];
+
+        if (!is_array($map)) {
+            throw new InvalidJwtConfigurationException("Auth guard [{$guard}] `jwt.by_principal_type` must be an array keyed by principal type.");
+        }
+
+        $resolved = [];
+
+        foreach ($map as $type => $overrides) {
+
+            if (!is_string($type) || $type === '' || !is_array($overrides)) {
+                throw new InvalidJwtConfigurationException("Auth guard [{$guard}] `jwt.by_principal_type` must map each principal type name to an array of lifetimes.");
+            }
+
+            self::assertPrincipalTypeKeys($guard, $type, $overrides);
+
+            $resolved[$type] = new TokenLifetimes(
+                $this->resolvePrincipalTypeInteger($guard, $type, $overrides, 'access_ttl_minutes', $lifetimes->accessTtlMinutes),
+                $this->resolvePrincipalTypeInteger($guard, $type, $overrides, 'refresh_idle_ttl_minutes', $lifetimes->refreshIdleTtlMinutes),
+                $this->resolvePrincipalTypeInteger($guard, $type, $overrides, 'refresh_absolute_ttl_minutes', $lifetimes->refreshAbsoluteTtlMinutes),
+                $lifetimes->refreshGraceSeconds,
+            );
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Reject a principal type's lifetimes that set a key other than the access,
+     * idle and absolute lifetimes, rather than ignore it.
+     *
+     * @param  string  $guard
+     * @param  string  $type
+     * @param  array<array-key, mixed>  $overrides
+     * @return void
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private static function assertPrincipalTypeKeys(string $guard, string $type, array $overrides): void
+    {
+        $unknown = array_diff(array_keys($overrides), array_keys(self::PRINCIPAL_TYPE_KEYS));
+
+        if ($unknown === []) {
+            return;
+        }
+
+        $message = "Auth guard [{$guard}] `jwt.by_principal_type.{$type}` may set only `"
+            . implode('`, `', array_keys(self::PRINCIPAL_TYPE_KEYS))
+            . '`, not `' . implode('`, `', $unknown) . '`.';
+
+        throw new InvalidJwtConfigurationException($message);
+    }
+
+    /**
+     * Resolve one lifetime of a principal type: its override when present and
+     * not `null`, otherwise the guard's value. An override must be an integer
+     * or canonical digit string within the key's range.
+     *
+     * @param  string  $guard
+     * @param  string  $type
+     * @param  array<array-key, mixed>  $overrides
+     * @param  string  $key
+     * @param  int  $fallback
+     * @return int
+     *
+     * @throws \SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException
+     */
+    private function resolvePrincipalTypeInteger(string $guard, string $type, array $overrides, string $key, int $fallback): int
+    {
+        if (($overrides[$key] ?? null) === null) {
+            return $fallback;
+        }
+
+        $max     = self::PRINCIPAL_TYPE_KEYS[$key];
+        $integer = self::toInteger($overrides[$key]);
+
+        if ($integer === null || $integer < TokenLifetimes::MIN_TTL_MINUTES || $integer > $max) {
+
+            $message = "Auth guard [{$guard}] `jwt.by_principal_type.{$type}.{$key}` must be an integer from "
+                . TokenLifetimes::MIN_TTL_MINUTES . " to {$max}.";
+
+            throw new InvalidJwtConfigurationException($message);
+        }
+
+        return $integer;
     }
 
     /**

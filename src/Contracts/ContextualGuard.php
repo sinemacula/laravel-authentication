@@ -100,9 +100,10 @@ interface ContextualGuard extends Guard
     public function tenant(): ?Tenant;
 
     /**
-     * Return the active tenant's type string, if the tenant declares the
-     * `HasType` capability, resolving the request on first access. Throws as
-     * `tenant()` does.
+     * Return the active principal's type, if any, resolving the request on
+     * first access: the principal's own type when it declares the `HasType`
+     * capability, otherwise its tenant's (see `Audience\PrincipalType`). Throws
+     * as `tenant()` does when the tenant has to be read.
      *
      * @return ?string
      *
