@@ -2063,13 +2063,10 @@ Route::middleware('auth:api')->put('/password', function (Request $request, Atte
     }
 
     $result = $identity->getConnection()->transaction(function () use ($passwords, $identity, $request) {
-        $identity->newQuery()->lockForUpdate()->find($identity->getKey());
+        $locked = $identity->newQuery()->lockForUpdate()->find($identity->getKey());
+        $right  = $locked !== null && Auth::guard('api')->getProvider()->validateCredentials($locked, ['password' => $request->input('current_password')]);
 
-        if (!Auth::guard('api')->validate(['email' => $identity->email, 'password' => $request->input('current_password')])) {
-            return null;
-        }
-
-        return $passwords->set($identity, $request->input('password'), PasswordFlow::CHANGE, Auth::device());
+        return $right ? $passwords->set($locked, $request->input('password'), PasswordFlow::CHANGE, Auth::device()) : null;
     });
 
     if ($result === null) {
@@ -2086,30 +2083,30 @@ Route::middleware('auth:api')->put('/password', function (Request $request, Atte
 
 `set()` is a trusted call, as `login()` is: you decide that the identity may have the password, and you choose the flow
 on the server, never from input, because a registration ends no session. Ask for a recent reauthentication before a
-change, as above, so a stolen session cannot change the password and keep itself signed in. `validate()` checks the
-password inside the guard's credential timebox but counts no attempt, so the route takes a slot of the guard's `sign_in`
-limits from the bound `AttemptLimiter` first, as a sign-in's password does, counted in the database for the identifier
-and the IP address, and gives it back once the password is right. The transaction locks the identity's row before the
-current password is checked and holds it through `set()`, so a reset racing the change comes either before the check,
-which then fails against the reset's password, or after the change, whose new password outdates the reset's link or
-code. Without the lock, a request that checked the old password before a reset could set its own after it. Take and give
-back the slot outside the transaction: inside it, the counters' rows would stay locked until the commit, and on MySQL
-two transactions that each create a counter in the same gap of the index deadlock. A change ends every session of the
-identity, through
-every guard, but the device in `$except` (the request's own device, to keep it signed in; `null` ends them all); a reset
-ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
-(see [Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked`
-and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
+change, as above, so a stolen session cannot change the password and keep itself signed in. Checking the current
+password with the provider's `validateCredentials()` counts no attempt, so the route takes a slot of the guard's
+`sign_in` limits from the bound `AttemptLimiter` first, as a sign-in's password does, counted in the database for the
+identifier and the IP address, and gives it back once the password is right. The transaction locks the identity's row
+before the current password is checked and holds it through `set()`, so a reset racing the change comes either before
+the check, which then fails against the reset's password, or after the change, whose new password outdates the reset's
+link or code. Without the lock, a request that checked the old password before a reset could set its own after it. The
+current password is checked against the row the transaction locked, not against an identity looked up by its address: by
+then another identity may hold the address the session was opened with. Take and give back the slot outside the
+transaction: inside it, the counters' rows would stay locked until the commit, and on MySQL two transactions that each
+create a counter in the same gap of the index deadlock. A change ends every session of the identity, through every
+guard, but the device in `$except` (the request's own device, to keep it signed in; `null` ends them all); a reset ends
+every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins (see
+[Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked` and
+then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
 password reset link and code still waiting for the identity's identifiers, through every guard whose provider returns
 the identity (a provider whose configuration names no model, a custom `Auth::provider()` driver, is assumed to; see
-[Password reset](#password-reset)): a link or code someone else obtained before cannot take the
-account back once its owner has set a new password. A change or a reset also invalidates the sign-in codes waiting for
-those identifiers, which would open a session after the ones it ended, and cancels every identifier change the identity
-has pending (see [Changing identifiers](#changing-identifiers)); a registration ends no session and leaves them.
-The identifiers are those its row holds, read again inside the
-transaction, so a model you loaded with only some columns, or before its identifier changed, outdates them all. A
-guard whose provider's configured model reads another table binds its links and codes to the identities there, so they
-are left alone.
+[Password reset](#password-reset)): a link or code someone else obtained before cannot take the account back once its
+owner has set a new password. A change or a reset also invalidates the sign-in codes waiting for those identifiers,
+which would open a session after the ones it ended, and cancels every identifier change the identity has pending (see
+[Changing identifiers](#changing-identifiers)); a registration ends no session and leaves them. The identifiers are
+those its row holds, read again inside the transaction, so a model you loaded with only some columns, or before its
+identifier changed, outdates them all. A guard whose provider's configured model reads another table binds its links and
+codes to the identities there, so they are left alone.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no

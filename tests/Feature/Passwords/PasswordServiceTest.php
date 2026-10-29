@@ -744,8 +744,9 @@ final class PasswordServiceTest extends TestCase
      * password sets nothing and keeps its sign-in slots, taken before the
      * transaction; a right one sets the new password, ends the identity's other
      * session, keeps the request's device and gives the slots back. The
-     * identity's row is locked inside the transaction before the current
-     * password is read to be checked, and no counter is written inside it.
+     * identity's row is locked as the transaction starts, the current password
+     * is checked against it without looking the identity up by its address, and
+     * no counter is written inside the transaction.
      *
      * @return void
      *
@@ -798,12 +799,50 @@ final class PasswordServiceTest extends TestCase
         self::assertNotSame([], array_filter(array_slice($statements, $commit), static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
         self::assertSame([], array_filter($inside, static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
         self::assertStringContainsString('password_identities', $inside[0]);
-        self::assertMatchesRegularExpression('/^select .+ where .email. = \?/', $inside[1]);
+        self::assertSame([], array_filter($statements, static fn (string $sql): bool => (bool) preg_match('/^select .+ where .email. = \?/', $sql)));
 
         self::freezeClock(CarbonImmutable::parse(self::NOW)->addSecond());
 
         $this->withToken($current)->getJson('/me')->assertOk();
         $this->withToken($other)->getJson('/me')->assertUnauthorized();
+    }
+
+    /**
+     * The documented change checks the current password against the identity it
+     * locked, never through its address: once the address the session was
+     * opened with belongs to another identity, that identity's password does
+     * not change this one's.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheDocumentedChangeIgnoresAnotherIdentityNowHoldingTheAddress(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $access   = $this->signInWithPassword()->tokens->accessToken;
+        $moved    = false;
+
+        Auth::forgetGuards();
+
+        self::definePasswordChangeRoute('web');
+
+        Event::listen(TransactionBeginning::class, static function () use (&$moved): void {
+            if ($moved) {
+                return;
+            }
+
+            $moved = true;
+
+            DB::table('password_identities')->update(['email' => 'ada@moved.example.test']);
+
+            self::seedPasswordIdentity(attributes: ['password' => app(Hasher::class)->make('the other identity passphrase')]);
+        });
+
+        $this->withToken($access)->putJson('/password', ['current_password' => 'the other identity passphrase', 'password' => self::NEW_PASSWORD])->assertStatus(422);
+
+        self::assertTrue($moved);
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
     }
 
     /**

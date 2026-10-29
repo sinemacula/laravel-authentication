@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Route;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
+use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordViolation;
@@ -51,14 +52,12 @@ trait DefinesPasswordChangeRoute
                 return response()->json(['message' => 'Too many attempts.'], 429);
             }
 
-            $result = $identity->getConnection()->transaction(static function () use ($passwords, $identity, $guard, $email, $request): ?PasswordResult {
-                $identity->newQuery()->lockForUpdate()->find($identity->getKey());
+            $result = $identity->getConnection()->transaction(static function () use ($passwords, $identity, $guard, $request): ?PasswordResult {
+                $locked  = $identity->newQuery()->lockForUpdate()->find($identity->getKey());
+                $current = ['password' => $request->string('current_password')->value()];
+                $right   = $locked instanceof Identity && Auth::guard($guard)->getProvider()->validateCredentials($locked, $current);
 
-                if (!Auth::guard($guard)->validate(['email' => $email, 'password' => $request->string('current_password')->value()])) {
-                    return null;
-                }
-
-                return $passwords->set($identity, $request->string('password')->value(), PasswordFlow::CHANGE, Auth::device());
+                return $right ? $passwords->set($locked, $request->string('password')->value(), PasswordFlow::CHANGE, Auth::device()) : null;
             });
 
             if ($result === null) {
