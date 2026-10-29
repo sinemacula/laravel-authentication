@@ -2616,13 +2616,14 @@ reasons its event can carry (each reason's meaning is in [Events](#events)):
 | `password_reset`          | `Auth::passwords()->sendResetLink()`, `sendResetCode()`, `reset()`, `resetWithCode()`                 | A request: a `CodeRequest` as for a code (`sent`, `rate_limited` with `retryAfter`, `method_not_allowed`, `identifier_invalid`), the same for an identifier no one holds. A reset: a `ResetResult` whose `status` is `reset`, `invalid`, `rate_limited` (with `retryAfter`) or `password_rejected` (with the `violations`, reported by no event) (see [Password reset](#password-reset)) | A request: `method_not_allowed`, `invalid_credentials` (the result's `identifier_invalid`), `rate_limited`. A reset: `rate_limited`, `invalid_credentials`, `machine_identity`, `identity_inactive`, `identifier_unverified`; on the event only: `code_expired`, `code_exhausted`, `link_expired`                                                                                                                                                                                                                                                      |
 | `identifier_change`       | `Auth::identifierChanges()->requestByCode()`, `requestByLink()`, `confirmByCode()`, `confirmByLink()` | A request: an `IdentifierChangeRequest` whose `status` is `sent`, `rate_limited` (with `retryAfter`), `reauthentication_required`, `identifier_invalid` or `identifier_unchanged`. A confirmation: an `IdentifierChangeOutcome`, `changed`, `invalid`, `expired`, `exhausted` or `taken` (see [Changing identifiers](#changing-identifiers))                                             | `reauthentication_required`, `rate_limited`, `invalid_credentials` (an invalid or unchanged identifier, a wrong code or link, a change replaced or lost), `code_expired`, `link_expired`, `code_exhausted`, `identifier_taken`, none of them concealed                                                                                                                                                                                                                                                                                                 |
 
-The reasons only the event carries (`FailureReason::isConcealed()`: `account_rate_limited`, `code_expired`,
-`code_exhausted`, `link_expired` and `passkey_counter_regressed`) are answered on a sign-in's result as
-`invalid_credentials`, with no wait, so the answer reveals neither that an account exists nor that a code or link was
-requested for it; the flows whose caller already holds the identity (verification by code) answer them as they are. A
-sign-in method may answer only `invalid_credentials`, `identifier_unverified`, `code_expired`, `code_exhausted`,
-`passkey_challenge_invalid` and `passkey_counter_regressed` (`FailureReason::isSignInMethodReason()`); every other
-reason is the session service's to give.
+The concealed reasons (`FailureReason::isConcealed()`: `account_rate_limited`, `code_expired`, `code_exhausted`,
+`link_expired` and `passkey_counter_regressed`) reach only the event in a sign-in and a password reset: their results
+say `invalid_credentials` and `invalid`, with no wait, so the answer reveals neither that an account exists nor that a
+code or link was requested for it. The flows whose caller already holds the identity, verification by code and an
+identifier change, tell the caller (`code_expired`, an `expired` or `exhausted` outcome). A sign-in method may answer
+only `invalid_credentials`, `identifier_unverified`, `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and
+`passkey_counter_regressed` (`FailureReason::isSignInMethodReason()`); every other reason is the session service's to
+give.
 
 ## Suite integration
 
@@ -3432,61 +3433,66 @@ choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A sw
 dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`.
 
 `AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, API key, client
-credentials exchange, request for a one-time code and verification by code, after Laravel's `Failed` where that fires,
-with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`, `api_key`,
-`client_credentials`, `code_request`, `identifier_verification`), a `FailureReason`, the identifier a sign-in's input
-named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once
-a sign-in method verified it, a refresh reloaded the device's owner or a token's subject was found (a wrong password or
-an unknown identifier carries none), the principal and tenant once resolved, and the device once found, else the `did` a
-token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
-client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
+credentials exchange, request for a one-time code, verification by code, password reset request or submission, and
+identifier change request or confirmation, after Laravel's `Failed` where that fires, with the flow
+(`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`, `api_key`, `client_credentials`,
+`code_request`, `identifier_verification`, `password_reset`, `identifier_change`; see [Failure
+outcomes](#failure-outcomes) for what each answers), a `FailureReason`, the identifier a sign-in's input named (as
+given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once a sign-in
+method verified it, a refresh reloaded the device's owner or a token's subject was found (a wrong password or an unknown
+identifier carries none), the principal and tenant once resolved, and the device once found, else the `did` a token
+named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a client
+credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
 `machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token
 that names no device `issued_before_cutoff`, and for one that names a device `device_unknown`, `device_guard_mismatch`,
 `device_revoked`, `session_expired`, `device_principal_mismatch`. It says why a sign-in failed even where the client is
 not told: a refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
 `invalid_credentials`:
 
-| Reason                       | Meaning                                                                    |
-|------------------------------|----------------------------------------------------------------------------|
-| `invalid_credentials`        | The sign-in method did not accept the input                                |
-| `method_not_allowed`         | The guard does not allow the sign-in method, or no longer the session's    |
-| `rate_limited`               | The identifier, device or IP address used up its attempts for now          |
-| `account_rate_limited`       | The account used up its attempts; event only, not on the result            |
-| `identity_unknown`           | The guard's provider does not return the identity or device owner          |
-| `identity_inactive`          | The identity reported inactive                                             |
-| `principal_unresolved`       | No principal could be resolved for the identity                            |
-| `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's         |
-| `principal_inactive`         | The principal reported inactive                                            |
-| `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                   |
-| `principal_ineligible`       | The guard's audience policy does not admit the identity as principal       |
-| `identifier_unverified`      | The guard requires a verified identifier and it is not                     |
-| `device_mismatch`            | The pinned device is not a live device of the identity and principal       |
-| `additional_factor_required` | A further factor is required, which only `signIn()` can ask                |
-| `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed                 |
-| `principal_choice_abandoned` | A choice of principal was discarded                                        |
-| `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's         |
-| `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                        |
-| `issued_before_cutoff`       | Device-less token issued at or before a "tokens valid after" time          |
-| `device_unknown`             | Device id is not a device key or names no device                           |
-| `device_guard_mismatch`      | Device is another guard's (or none's); not revoked                         |
-| `device_revoked`             | Device row marked revoked                                                  |
-| `session_expired`            | Device's idle or absolute deadline reached, or unset                       |
-| `device_principal_mismatch`  | Device acts as another principal, or switched since the token's issue      |
-| `rotation_reuse`             | Rotated refresh token replayed; device revoked                             |
-| `rotation_conflict`          | Device changed during the refresh; retry                                   |
-| `refresh_key_missing`        | Device holds no refresh credential                                         |
-| `refresh_token_conflict`     | The request carried a refresh token in more than one source                |
-| `cross_site_request`         | A cookie refresh token without an allowed origin and the custom header     |
-| `code_expired`               | The one-time code expired; event only, not on a sign-in's result           |
-| `code_exhausted`             | The code used up its attempts; event only, not on a sign-in's result       |
-| `passkey_challenge_invalid`  | The passkey challenge is unknown, expired, used, or another ceremony's     |
-| `passkey_counter_regressed`  | The passkey's sign counter did not advance; event only, not on result      |
-| `machine_identity`           | A non-human identity tried a sign-in, a session, a refresh or a switch     |
-| `credential_invalid`         | API key or client credential malformed, unknown, wrong, or not a machine's |
-| `credential_revoked`         | The API key or client credential is revoked                                |
-| `credential_expired`         | It expired, a rotated key's overlap included                               |
-| `credential_guard_mismatch`  | It was issued for another guard                                            |
-| `scope_invalid`              | A requested scope is malformed or not granted to the credential            |
+| Reason                       | Meaning                                                                           |
+|------------------------------|-----------------------------------------------------------------------------------|
+| `invalid_credentials`        | The sign-in method did not accept the input                                       |
+| `method_not_allowed`         | The guard does not allow the sign-in method, or no longer the session's           |
+| `rate_limited`               | The identifier, device or IP address used up its attempts for now                 |
+| `account_rate_limited`       | The account used up its attempts; event only, not on the result                   |
+| `identity_unknown`           | The guard's provider does not return the identity or device owner                 |
+| `identity_inactive`          | The identity reported inactive                                                    |
+| `principal_unresolved`       | No principal could be resolved for the identity                                   |
+| `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's                |
+| `principal_inactive`         | The principal reported inactive                                                   |
+| `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                          |
+| `principal_ineligible`       | The guard's audience policy does not admit the identity as principal              |
+| `identifier_unverified`      | The guard requires a verified identifier and it is not                            |
+| `device_mismatch`            | The pinned device is not a live device of the identity and principal              |
+| `additional_factor_required` | A further factor is required, which only `signIn()` can ask                       |
+| `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed                        |
+| `principal_choice_abandoned` | A choice of principal was discarded                                               |
+| `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's                |
+| `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                               |
+| `issued_before_cutoff`       | Device-less token issued at or before a "tokens valid after" time                 |
+| `device_unknown`             | Device id is not a device key or names no device                                  |
+| `device_guard_mismatch`      | Device is another guard's (or none's); not revoked                                |
+| `device_revoked`             | Device row marked revoked                                                         |
+| `session_expired`            | Device's idle or absolute deadline reached, or unset                              |
+| `device_principal_mismatch`  | Device acts as another principal, or switched since the token's issue             |
+| `rotation_reuse`             | Rotated refresh token replayed; device revoked                                    |
+| `rotation_conflict`          | Device changed during the refresh; retry                                          |
+| `refresh_key_missing`        | Device holds no refresh credential                                                |
+| `refresh_token_conflict`     | The request carried a refresh token in more than one source                       |
+| `cross_site_request`         | A cookie refresh token without an allowed origin and the custom header            |
+| `code_expired`               | The one-time code expired; event only, not on a sign-in's result                  |
+| `code_exhausted`             | The code used up its attempts; event only, not on a sign-in's result              |
+| `passkey_challenge_invalid`  | The passkey challenge is unknown, expired, used, or another ceremony's            |
+| `passkey_counter_regressed`  | The passkey's sign counter did not advance; event only, not on result             |
+| `machine_identity`           | A non-human identity tried a sign-in, a session, a refresh or a switch            |
+| `credential_invalid`         | API key or client credential malformed, unknown, wrong, or not a machine's        |
+| `credential_revoked`         | The API key or client credential is revoked                                       |
+| `credential_expired`         | It expired, a rotated key's overlap included                                      |
+| `credential_guard_mismatch`  | It was issued for another guard                                                   |
+| `scope_invalid`              | A requested scope is malformed or not granted to the credential                   |
+| `reauthentication_required`  | An identifier change without a recent authentication, or with a wrong password    |
+| `identifier_taken`           | The new identifier is held by another identity, or the unique index refused it    |
+| `link_expired`               | The reset or change link's token has expired; event only, not on a reset's result |
 
 A sign-in method may answer only `invalid_credentials`, `identifier_unverified` (once its input proved possession of the
 identifier), `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`; every other
