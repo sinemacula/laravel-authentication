@@ -55,6 +55,30 @@ final class SharedConnection
     }
 
     /**
+     * Refuse a guard whose provider's configured model (see `providerModel()`)
+     * does not live on the device model's connection, before any identity is
+     * looked up; a provider whose configuration names no model is left to
+     * `assert()` on the identity it finds.
+     *
+     * @param  string  $guard
+     * @param  string  $flow
+     * @param  \Illuminate\Config\Repository  $config
+     * @return void
+     *
+     * @throws \LogicException
+     */
+    public static function assertForGuard(string $guard, string $flow, Repository $config): void
+    {
+        $model = self::providerModel($guard, $config);
+
+        if ($model === null) {
+            return;
+        }
+
+        self::assert($model, $flow, $config);
+    }
+
+    /**
      * What is wrong with the identity's connection, or `null` when it is the
      * device model's.
      *

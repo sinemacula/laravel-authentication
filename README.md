@@ -2182,7 +2182,10 @@ identifier.
 
 Spending the proof with the password and the revocation needs one transaction, so the identity must live on the device
 model's connection (which the codes' table shares): a guard whose provider's model is on another throws a
-`LogicException` naming both connections before anything is counted, and `authentication:check` warns about it. Of two
+`LogicException` naming both connections from a request for a link or code and from a reset, before anything is counted
+or issued, and `authentication:check` warns about it. A provider whose configuration names no model (a custom
+`Auth::provider()` driver) cannot be checked in advance: its identity is checked once a reset's proof is accepted, so
+only someone holding a valid link or code ever sees the refusal, and the proof stays unspent. Of two
 resets with one token or code exactly one resets; a reset that loses to a newer link or code is `invalid`; and any
 failure after the proof is accepted (or a transaction of yours rolled back around the call) undoes the proof, the
 password, the cutoff and the revocations together.

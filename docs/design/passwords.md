@@ -104,7 +104,9 @@ Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel i
 1. The type: a link's is the guard's password identifier (`PasswordSignIn::identifierType()`); a code's is given and
    must have a registered normaliser (`InvalidArgumentException`). With `NotifyingResetLinkSender` bound, a link for a
    type other than `email` is an `InvalidArgumentException`. The code settings, the code key, the delivery queue and the
-   link lifetime fail closed. Nothing is counted yet.
+   link lifetime fail closed, and the provider's configured model must be on the device model's connection
+   (`SharedConnection::assertForGuard()`, a `LogicException`), since a reset could never spend what the request issues.
+   Nothing is counted yet.
 2. The audience must allow `password` (`method_not_allowed`); the identifier must canonicalise to a non-empty string
    (`identifier_invalid`, reported as `invalid_credentials`).
 3. `AttemptLimiter::acquire()` on `password_reset_request` for the identifier in normal form and the IP address, never
@@ -131,14 +133,16 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
    work, released only by a reset that succeeds.
 3. Inside `JwtGuard::timeboxed()`: a missing or malformed identifier, token, code or password is `invalid`
    (`invalid_credentials`); the policy (`PasswordPolicy::check()`, the breached check included) rejects as
-   `password_rejected`, spending nothing and reporting nothing; `ResetRecipient::find()` looks the identity up (and a
-   found model is checked against the connection rule).
+   `password_rejected`, spending nothing and reporting nothing; `ResetRecipient::find()` looks the identity up.
 4. One transaction on the codes' connection (the identity's, by the rule): the proof is checked whatever the identity
    (`checkToken()`: no attempt counted, conditional consume; `check()`: attempt counted, conditional consume). Refused:
    commit (the attempt stays counted), `invalid` (`invalid_credentials`, `code_expired`, `code_exhausted` or
    `link_expired`). Accepted for no eligible identity: roll back (the proof stays unspent), `invalid` (the recipient's
-   reason). Accepted for an eligible one: `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then
-   commit; the timebox ends early and the reservation is released.
+   reason). Accepted for a found model on another connection than the devices (a provider whose configuration names no
+   model, which step 1 cannot check): roll back and throw the connection rule's `LogicException`, only now, so the
+   refusal never tells someone without a valid proof that the identifier is held. Accepted for an eligible one:
+   `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then commit; the timebox ends early and the
+   reservation is released.
 5. The reset signs no one in and verifies no identifier.
 
 ## Failure / Edge Cases

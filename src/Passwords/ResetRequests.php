@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
+use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -35,16 +36,17 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * every identifier: no identity is looked up.
  *
  * In order: the settings (codes, their key, the delivery queue and, for a link,
- * its lifetime) fail closed; the guard must allow the password method; the
- * identifier must be one its type's normaliser accepts (as given, for a link
- * whose type has none); the identifier and the IP address must have reset
- * requests left (`password_reset_request`, counted on every request and never
- * given back); and no link or code may have been issued for the identifier
- * within the codes' resend cooldown. Then the link's token or the code is
- * issued, for any identifier, and its delivery queued once it is committed; the
- * job alone decides, later, whether anyone receives it (see
- * `SendPasswordReset`). Refusals are reported by `AuthenticationFailed`
- * (`password_reset`).
+ * its lifetime) fail closed, and the provider's configured model must live on
+ * the device model's connection, as a reset needs (see `SharedConnection`); the
+ * guard must allow the password method; the identifier must be one its type's
+ * normaliser accepts (as given, for a link whose type has none); the identifier
+ * and the IP address must have reset requests left (`password_reset_request`,
+ * counted on every request and never given back); and no link or code may have
+ * been issued for the identifier within the codes' resend cooldown. Then the
+ * link's token or the code is issued, for any identifier, and its delivery
+ * queued once it is committed; the job alone decides, later, whether anyone
+ * receives it (see `SendPasswordReset`). Refusals are reported by
+ * `AuthenticationFailed` (`password_reset`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -221,6 +223,8 @@ final readonly class ResetRequests
 
     /**
      * Validate every setting a request reads, the delivery queue included, and
+     * refuse a guard whose provider's model is on another connection than the
+     * devices, whose resets could never run, before anything is counted; then
      * answer the link lifetime.
      *
      * @param  \SineMacula\Laravel\Authentication\Delivery\QueuedDelivery  $delivery
@@ -228,6 +232,7 @@ final readonly class ResetRequests
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      */
     private function validated(QueuedDelivery $delivery): int
     {
@@ -236,6 +241,8 @@ final readonly class ResetRequests
         (new CodeSettings($config))->validate();
         (new CodeKeys($config))->validate();
         $delivery->settings();
+
+        SharedConnection::assertForGuard($this->guard->getName(), ResetSubmissions::FLOW, $config);
 
         return (new PasswordSettings($config))->linkTtlSeconds();
     }

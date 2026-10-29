@@ -37,21 +37,23 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * spent in the same transaction as the new password, the identity's cutoff and
  * the revocation of every one of its sessions, or not at all.
  *
- * In order: the settings fail closed, and the identity must live on the device
- * model's connection (see `SharedConnection`); the identifier as given and the
- * IP address must have submissions left (`password_reset`, taken before any
- * other work, so a flood of guesses never reaches the hasher or the breached
- * check, and given back only by a reset that succeeds). Then, inside the
- * guard's credential timebox: a malformed identifier, token, code or password
- * is `invalid`; a password the policy rejects is `password_rejected`, with
- * nothing spent; the identity is looked up (see `ResetRecipient`); and, in one
- * transaction on the codes' connection, the proof is checked whatever the
- * identity, a code counting its attempt as a sign-in's does. A refused proof
- * commits (the attempt stays counted) and is `invalid`; an accepted proof for
- * no identity, or one that may not reset, rolls back, so the proof stays
- * unspent, and is `invalid`; an accepted proof for an eligible identity sets
- * the password (see `PasswordWriter`, flow `reset`) and commits. Any exception
- * rolls everything back together.
+ * In order: the settings fail closed, and the provider's configured model must
+ * live on the device model's connection (see `SharedConnection`; a provider
+ * that names no model has the identity it finds checked once the proof is
+ * accepted); the identifier as given and the IP address must have submissions
+ * left (`password_reset`, taken before any other work, so a flood of guesses
+ * never reaches the hasher or the breached check, and given back only by a
+ * reset that succeeds). Then, inside the guard's credential timebox: a
+ * malformed identifier, token, code or password is `invalid`; a password the
+ * policy rejects is `password_rejected`, with nothing spent; the identity is
+ * looked up (see `ResetRecipient`); and, in one transaction on the codes'
+ * connection, the proof is checked whatever the identity, a code counting its
+ * attempt as a sign-in's does. A refused proof commits (the attempt stays
+ * counted) and is `invalid`; an accepted proof for no identity, or one that may
+ * not reset, rolls back, so the proof stays unspent, and is `invalid`; an
+ * accepted proof for an eligible identity sets the password (see
+ * `PasswordWriter`, flow `reset`) and commits. Any exception rolls everything
+ * back together.
  *
  * Every refusal but a rejected password is reported by `AuthenticationFailed`
  * (`password_reset`) with its reason; the result says only `invalid`. A reset
@@ -201,12 +203,7 @@ final readonly class ResetSubmissions
             ? CodeBinding::passwordResetLink($guard, $type, $identifier)
             : CodeBinding::passwordReset($guard, $type, $identifier);
         $recipient = ResetRecipient::find($this->guard, $binding, $this->container);
-
-        if ($recipient instanceof Model) {
-            SharedConnection::assert($recipient, self::FLOW, $this->container->make(Repository::class));
-        }
-
-        $outcome = $this->spend($binding, $proof, $recipient, $password, $client);
+        $outcome   = $this->spend($binding, $proof, $recipient, $password, $client);
 
         if ($outcome[0]->isReset()) {
             $timebox->returnEarly();
@@ -219,7 +216,11 @@ final readonly class ResetSubmissions
      * In one transaction on the codes' connection: check the proof, then set
      * the password of an eligible identity, committing a refused proof (its
      * attempt counted) and rolling back an accepted one that no eligible
-     * identity can use.
+     * identity can use. The identity found is held to the connection rule only
+     * once the proof is accepted, so whether the rule refuses it (for a
+     * provider whose configuration names no model, which `validate()` cannot
+     * check) never says, to someone without a valid proof, that the identifier
+     * is held.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  string  $proof
@@ -249,6 +250,10 @@ final readonly class ResetSubmissions
                 $connection->commit();
 
                 return [ResetResult::invalid(), self::refusal($binding, $check)];
+            }
+
+            if ($recipient instanceof Model) {
+                SharedConnection::assert($recipient, self::FLOW, $this->container->make(Repository::class));
             }
 
             if ($recipient instanceof FailureReason) {
@@ -325,13 +330,7 @@ final readonly class ResetSubmissions
         (new CodeKeys($config))->validate();
         (new PasswordPolicy($this->container))->settings();
 
-        $model = SharedConnection::providerModel($this->guard->getName(), $config);
-
-        if ($model === null) {
-            return;
-        }
-
-        SharedConnection::assert($model, self::FLOW, $config);
+        SharedConnection::assertForGuard($this->guard->getName(), self::FLOW, $config);
     }
 
     /**
