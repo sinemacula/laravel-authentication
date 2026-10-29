@@ -36,12 +36,13 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
  * A change ends every session of the identity but the one it was made from,
  * when the caller keeps that device; a reset ends every session; a registration
  * ends none (see `RevokesOnSecurityChanges`). Whatever the flow, every reset
- * link and code still waiting for the identity's identifiers, through every
- * guard, is invalidated in the same transaction (see `ResetProofs`): a new
- * password outdates them all, so none can take the account back once its owner
- * has set one. When the devices live on another connection, their revocation
- * commits inside the identity's transaction, so a failure after it leaves the
- * devices revoked and the password as it was: more is ended, never less.
+ * link and code still waiting for the identity's identifiers is invalidated in
+ * the same transaction, and a change or a reset invalidates their sign-in codes
+ * too (see `OutdatedProofs`): none can take the account back once its owner has
+ * set a new password. When the devices live on another connection, their
+ * revocation commits inside the identity's transaction, so a failure after it
+ * leaves the devices revoked and the password as it was: more is ended, never
+ * less.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -96,7 +97,7 @@ final readonly class PasswordWriter
 
             $this->store($identity, $hash, $flow);
 
-            (new ResetProofs($container))->invalidate($identity);
+            (new OutdatedProofs($container))->invalidate($identity, $flow);
 
             $context = new EventContext($this->guard->getName(), $client, $identity, device: $except);
 

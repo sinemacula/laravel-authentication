@@ -2070,7 +2070,9 @@ ends every session. Both move the identity's "tokens valid after" cutoff when it
 and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
 password reset link and code still waiting for the identity's identifiers, through every guard whose provider returns
 the identity (see [Password reset](#password-reset)): a link or code someone else obtained before cannot take the
-account back once its owner has set a new password. The identifiers are those its row holds, read again inside the
+account back once its owner has set a new password. A change or a reset also invalidates the sign-in codes waiting for
+those identifiers, which would open a session after the ones it ended; a registration ends no session and leaves them.
+The identifiers are those its row holds, read again inside the
 transaction, so a model you loaded with only some columns, or before its identifier changed, outdates them all. A
 guard whose provider reads another table binds its links and codes to the identities there, so they are left alone.
 
@@ -2193,10 +2195,10 @@ token or code is checked whatever the identity, a code counting its attempt as a
 the job would not have sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with
 the new password in the same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see
 [Setting a password](#setting-a-password)): every session of the identity ended, its cutoff moved, its pending sign-ins
-ended, every other reset link and code for its identifiers invalidated, through every guard whose provider returns it,
-and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends. The result is a
-`ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with `retryAfter`, or
-`password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
+ended, every other reset link and code and every sign-in code for its identifiers invalidated, through every guard
+whose provider returns it, and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends.
+The result is a `ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with
+`retryAfter`, or `password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
 `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`, `machine_identity`,
 `identity_inactive` or `identifier_unverified`; the result never does. A reset signs no one in and verifies no
 identifier.

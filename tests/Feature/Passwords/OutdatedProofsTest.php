@@ -10,13 +10,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
+use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Guards\JwtGuards;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
+use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
-use SineMacula\Laravel\Authentication\Passwords\ResetProofs;
 use SineMacula\Laravel\Authentication\Passwords\ResetRecipient;
 use Tests\Concerns\InteractsWithPasswordResets;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -26,20 +27,21 @@ use Tests\TestCase;
 
 /**
  * Feature tests of what a new password outdates: once a reset or a change
- * commits, no other reset link or code for the identity's identifiers works,
- * through any guard, so whoever obtained one before cannot take the account
- * back; a link or code for another identity's identifier keeps working.
+ * commits, no other reset link or code, and no sign-in code, for the identity's
+ * identifiers works, through any guard that can return it, so whoever obtained
+ * one before cannot take the account back; a link or code for another
+ * identity's identifier keeps working.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-#[CoversClass(ResetProofs::class)]
+#[CoversClass(OutdatedProofs::class)]
 #[CoversClass(ResetRecipient::class)]
 #[CoversClass(PasswordWriter::class)]
 #[CoversClass(JwtGuards::class)]
-final class ResetProofsTest extends TestCase
+final class OutdatedProofsTest extends TestCase
 {
     use InteractsWithPasswordResets;
 
@@ -97,6 +99,59 @@ final class ResetProofsTest extends TestCase
         self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::TAKEOVER_PASSWORD])->status);
         self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD])->status);
         self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->resetWithCode('phone', self::takeover('phone', self::PHONE, $code))->status);
+    }
+
+    /**
+     * A reset and a change end the sign-in codes waiting for the identity's
+     * identifiers, through every guard that can return it, since each would
+     * open a session after the ones the new password ended; another identity's
+     * sign-in code keeps working.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetAndAChangeEndTheSignInCodesOfTheIdentity(): void
+    {
+        $identity = self::seedResettable();
+
+        self::seedPasswordIdentity('grace@example.test');
+
+        $email = self::issue(CodeBinding::signIn('admin', 'email', self::EMAIL), false);
+        $phone = self::issue(CodeBinding::signIn('web', 'phone', self::PHONE), false);
+        $grace = self::issue(CodeBinding::signIn('web', 'email', 'grace@example.test'), false);
+
+        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => self::issueToken('web'), 'password' => self::NEW_PASSWORD])->status);
+        self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('admin', 'email', self::EMAIL), $email));
+        self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('web', 'phone', self::PHONE), $phone));
+
+        $email = self::issue(CodeBinding::signIn('web', 'email', self::EMAIL), false);
+
+        self::assertTrue($this->passwords()->set($identity->fresh() ?? $identity, self::TAKEOVER_PASSWORD, PasswordFlow::CHANGE)->set);
+        self::assertSame(CodeCheck::INVALID, self::check(CodeBinding::signIn('web', 'email', self::EMAIL), $email));
+        self::assertSame(CodeCheck::ACCEPTED, self::check(CodeBinding::signIn('web', 'email', 'grace@example.test'), $grace));
+    }
+
+    /**
+     * A registration ends no session, so it leaves the identity's sign-in codes
+     * working, while its reset links, through every guard, are ended as any new
+     * password ends them.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARegistrationKeepsTheSignInCodesOfTheIdentity(): void
+    {
+        $identity = self::seedResettable(['password' => null]);
+        $code     = self::issue(CodeBinding::signIn('web', 'email', self::EMAIL), false);
+        $web      = self::issueToken('web');
+        $admin    = self::issueToken('admin');
+
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION)->set);
+        self::assertSame(ResetStatus::INVALID, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $web, 'password' => self::TAKEOVER_PASSWORD])->status);
+        self::assertSame(ResetStatus::INVALID, $this->passwords('admin')->reset(['email' => self::EMAIL, 'token' => $admin, 'password' => self::TAKEOVER_PASSWORD])->status);
+        self::assertSame(CodeCheck::ACCEPTED, self::check(CodeBinding::signIn('web', 'email', self::EMAIL), $code));
     }
 
     /**
@@ -333,6 +388,20 @@ final class ResetProofsTest extends TestCase
         self::assertIsString($hash);
 
         return $hash;
+    }
+
+    /**
+     * Check the code against the binding now, as a sign-in would.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
+     * @param  string  $code
+     * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck
+     *
+     * @throws \Throwable
+     */
+    private static function check(CodeBinding $binding, string $code): CodeCheck
+    {
+        return app(OneTimeCodes::class)->check($binding, $code, CarbonImmutable::now());
     }
 
     /**

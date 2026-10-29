@@ -12,37 +12,40 @@ use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Guards\JwtGuards;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
+use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 
 /**
- * The password reset links and codes a new password outdates, so a change or a
- * reset of the password can invalidate them in its own transaction: a reset
- * link or code someone else obtained before (a forwarded mail, a mailbox read
- * while it was compromised) then cannot take the account back once its owner
- * has recovered it.
+ * The proofs a new password outdates, so setting it can invalidate them in its
+ * own transaction: a link or code someone else obtained before (a forwarded
+ * mail, a mailbox read while it was compromised) then cannot take the account
+ * back once its owner has recovered it.
  *
- * Outdated are the reset links and codes, through every `jwt` guard whose
- * provider can return the identity (see `JwtGuards::namesFor()`), of each
- * identifier the identity holds, in canonical form (see `ResetRecipient`), of a
- * type a reset can be bound to: a guard's password identifier, for links, and
- * any type with a registered normaliser, for codes. The identifiers are read
- * from the identity's row as it is stored, on the write connection inside the
- * transaction, never from the caller's model, which may have loaded only some
- * columns or be older than the row: a reset finds the identity by its row, so
- * an identifier left out would leave its links working. A type the row cannot
- * report at all (its `HasVerifiableIdentifiers` throws a `LogicException`, as
- * `ProvidesIdentifierVerification` does for a column the table does not have)
- * has nothing to outdate: a reset of it fails the same way before its proof is
- * checked. Misconfiguration (an `InvalidArgumentException`, a normaliser that
- * cannot be built, say) still fails closed.
+ * Whatever the flow, the password reset links and codes are outdated: the
+ * password they would set is set. A change or a reset, which end sessions (see
+ * `RevokesOnSecurityChanges`), also outdates the sign-in codes, which would
+ * open a new one; a registration ends no session, so it leaves them. Each is
+ * outdated through every `jwt` guard whose provider can return the identity
+ * (see `JwtGuards::namesFor()`), for each identifier the identity holds, in
+ * canonical form (see `ResetRecipient`), of a type a proof can be bound to: a
+ * guard's password identifier, and any type with a registered normaliser. The
+ * identifiers are read from the identity's row as it is stored, on the write
+ * connection inside the transaction, never from the caller's model, which may
+ * have loaded only some columns or be older than the row: a reset finds the
+ * identity by its row, so an identifier left out would leave its links working.
+ * A type the row cannot report at all (its `HasVerifiableIdentifiers` throws a
+ * `LogicException`, as `ProvidesIdentifierVerification` does for a column the
+ * table does not have) has nothing to outdate: a reset of it fails the same way
+ * before its proof is checked. Misconfiguration (an `InvalidArgumentException`,
+ * a normaliser that cannot be built, say) still fails closed.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-final readonly class ResetProofs
+final readonly class OutdatedProofs
 {
     /**
      * Constructor.
@@ -56,12 +59,13 @@ final readonly class ResetProofs
     ) {}
 
     /**
-     * Invalidate every reset link and code the identity's new password
+     * Invalidate every proof the identity's new password, set in the flow,
      * outdates, in one statement on the codes' connection, once its stored row
-     * is read; returns how many there were.
+     * is read.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return int
+     * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
+     * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
@@ -69,11 +73,12 @@ final readonly class ResetProofs
      *
      * @imperative
      */
-    public function invalidate(Identity&Model $identity): int
+    public function invalidate(Identity&Model $identity, PasswordFlow $flow): void
     {
         $stored   = $identity->fresh() ?? $identity;
         $guards   = JwtGuards::namesFor($stored, $this->container->make(Repository::class));
         $verifier = $this->container->make(IdentifierVerifier::class);
+        $signIns  = $flow !== PasswordFlow::REGISTRATION;
         $bindings = [];
 
         foreach ($this->types($guards) as $type) {
@@ -87,14 +92,20 @@ final readonly class ResetProofs
             foreach ($guards as $guard) {
                 $bindings[] = CodeBinding::passwordReset($guard, $type, $identifier);
                 $bindings[] = CodeBinding::passwordResetLink($guard, $type, $identifier);
+
+                if (!$signIns) {
+                    continue;
+                }
+
+                $bindings[] = CodeBinding::signIn($guard, $type, $identifier);
             }
         }
 
-        return $this->container->make(OneTimeCodes::class)->invalidate($bindings);
+        $this->container->make(OneTimeCodes::class)->invalidate($bindings);
     }
 
     /**
-     * The identifier types a reset can be bound to: every type with a
+     * The identifier types a proof can be bound to: every type with a
      * registered normaliser, and each guard's password identifier. A type may
      * be named twice, which binds nothing more.
      *
