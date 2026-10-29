@@ -342,6 +342,49 @@ final class PasskeyCredentialsTest extends TestCase
     }
 
     /**
+     * With the relying party column under a collation that counts distinct ids
+     * as equal, a passkey recorded for an id that differs from the relying
+     * party's only in case is not found for a sign-in, offered to exclude from
+     * a registration or to answer a factor ceremony with, listed or removed,
+     * and nothing is reported; recorded for the relying party's own id, it is
+     * removed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAPasskeyOfALookAlikeRelyingPartyIsAbsent(): void
+    {
+        self::foldColumns('passkeys', ['rp_id']);
+
+        $identity = $this->seedIdentity();
+        $passkey  = $this->registerPasskey($identity);
+        $raw      = PasskeyCredentials::record(Passkey::query()->sole())->publicKeyCredentialId;
+
+        DB::table('passkeys')->update(['rp_id' => strtoupper(self::RP_ID)]);
+
+        self::assertColumnFolds('passkeys', 'rp_id', self::RP_ID);
+
+        Event::fake([PasskeyRemoved::class]);
+
+        $passkeys = Auth::passkeys('api');
+
+        self::assertNull(PasskeyCredentials::find($this->rp(), $raw));
+        self::assertSame([], $passkeys->passkeys($identity));
+        self::assertSame([], $passkeys->registrationOptions($identity, self::USER_NAME)->options['excludeCredentials']);
+        self::assertSame([], $passkeys->factorOptions($identity)->options['allowCredentials']);
+        self::assertFalse($passkeys->remove($identity, $passkey->id));
+        self::assertSame(1, DB::table('passkeys')->count());
+
+        Event::assertNotDispatched(PasskeyRemoved::class);
+
+        DB::table('passkeys')->update(['rp_id' => self::RP_ID]);
+
+        self::assertSame($passkey->id, PasskeyCredentials::find($this->rp(), $raw)?->id);
+        self::assertTrue($passkeys->remove($identity, $passkey->id));
+    }
+
+    /**
      * Configure the guards and their relying party.
      *
      * @param  mixed  $app

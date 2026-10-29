@@ -47,7 +47,8 @@ final class PasskeyCredentials
     private function __construct() {}
 
     /**
-     * The passkey of the relying party with the raw credential id, if any.
+     * The passkey of the relying party with the raw credential id, if any, the
+     * relying party matched exactly, whatever the column's collation.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  string  $credentialId
@@ -62,13 +63,14 @@ final class PasskeyCredentials
             ->where('rp_id', $rp->id)
             ->first();
 
-        return $passkey instanceof Passkey ? $passkey : null;
+        return $passkey instanceof Passkey && $passkey->rp_id === $rp->id ? $passkey : null;
     }
 
     /**
      * The owner's passkeys for the relying party, oldest first. Each is checked
-     * against the owner exactly, since the owner columns' collation may count
-     * distinct keys, such as `alice` and `Alice`, as equal.
+     * against the owner and the relying party exactly, since the columns'
+     * collation may count distinct values, such as `alice` and `Alice`, as
+     * equal.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -89,7 +91,7 @@ final class PasskeyCredentials
             ->orderBy('created_at')
             ->orderBy('id')
             ->get()
-            ->filter(static fn (Passkey $passkey): bool => PasskeyOwner::owns($owner, $passkey))
+            ->filter(static fn (Passkey $passkey): bool => $passkey->rp_id === $rp->id && PasskeyOwner::owns($owner, $passkey))
             ->values()
             ->all();
     }
@@ -186,8 +188,9 @@ final class PasskeyCredentials
 
     /**
      * Remove the owner's passkey of the relying party with the id, once it is
-     * read and checked against the owner exactly. Returns whether this call
-     * removed it; an id that is not a UUID removes nothing, without a query.
+     * read and checked against the owner and the relying party exactly. Returns
+     * whether this call removed it; an id that is not a UUID removes nothing,
+     * without a query.
      *
      * @param  \SineMacula\Laravel\Authentication\Passkeys\RelyingParty  $rp
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
@@ -215,6 +218,7 @@ final class PasskeyCredentials
             ->first();
 
         return $passkey instanceof Passkey
+            && $passkey->rp_id === $rp->id
             && PasskeyOwner::owns($owner, $passkey)
             && $passkey->newQueryWithoutScopes()->toBase()->where($passkey->getKeyName(), $id)->delete() === 1;
     }
