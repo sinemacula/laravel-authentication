@@ -175,7 +175,7 @@ final class ClientCredentialsRequest
         $names = [];
 
         foreach (explode('&', $request->getContent()) as $pair) {
-            parse_str(rawurlencode(urldecode(explode('=', $pair, 2)[0])) . '=', $parameter);
+            parse_str(rawurlencode(urldecode(explode('=', $pair)[0])), $parameter);
             array_push($names, ...array_keys($parameter));
         }
 
