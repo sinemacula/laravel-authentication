@@ -54,11 +54,12 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * bound when a guard allows a code sign-in method, the package's or an
  * application's own `CodeSignIn`), `[delivery]` (the delivery queue, with a
  * warning, not a problem, when a `jwt` guard is configured and deliveries run
- * on a `sync` queue connection), `[passkeys]` (the passkey challenge lifetime),
- * `[api_keys]` (the key prefix, the rotation overlaps, the last-use throttle
- * and the pruning retention) and `[identifier_changes]` (the pending change
- * lifetime and the recent-authentication window). It also warns about a `jwt`
- * guard whose password resets would refuse to run (see
+ * on a `sync` queue connection, or a `failover` one that can fall back to
+ * `sync`), `[passkeys]` (the passkey challenge lifetime), `[api_keys]` (the key
+ * prefix, the rotation overlaps, the last-use throttle and the pruning
+ * retention) and `[identifier_changes]` (the pending change lifetime and the
+ * recent-authentication window). It also warns about a `jwt` guard whose
+ * password resets and identifier changes would refuse to run (see
  * `PasswordChecks::warnings()`). The command reads configuration only: it opens
  * no database connection and prints no secret.
  *
@@ -213,11 +214,10 @@ final class CheckConfigurationCommand extends Command
     /**
      * Warn, without failing, when a `jwt` guard is configured and the package's
      * deliveries (one-time codes, password reset links and codes, identifier
-     * change codes and notices, any of which a `jwt` guard may send) run on a
-     * `sync` queue connection, or on a `failover` one that can fall back to
-     * `sync`: delivery then runs in the web process after a response, where a
-     * worker is the production setting. Malformed queue settings are left to
-     * the `[delivery]` check.
+     * change codes and notices) run on a `sync` queue connection, or on a
+     * `failover` one that can fall back to `sync`: delivery then runs in the
+     * web process after a response, where a worker is the production setting.
+     * Malformed queue settings are left to the `[delivery]` check.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void

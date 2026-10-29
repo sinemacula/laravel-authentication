@@ -134,12 +134,10 @@ final readonly class PasswordService
      * same answer, statements and time whether or not anyone holds it: the
      * link's token is issued for any identifier, and the queued delivery alone
      * decides, later, whether its holder may reset (see `ResetRequests` and
-     * `SendPasswordReset`). It lives
+     * `SendPasswordReset`). The token works for
      * `authentication.passwords.reset.link_ttl_seconds` and goes through the
-     * bound `PasswordResetLinkSender`. The answer is a `Codes\CodeRequest`, the
-     * type a code request answers with, and its `CodeRequestStatus`: a link's
-     * token is issued and limited by the same engine as a code, with the same
-     * four outcomes.
+     * bound `PasswordResetLinkSender`. It is issued and limited by the code
+     * engine, so the answer is a code request's.
      *
      * @param  array<array-key, mixed>  $input
      * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client

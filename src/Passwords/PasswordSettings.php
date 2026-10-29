@@ -211,8 +211,7 @@ final readonly class PasswordSettings
     }
 
     /**
-     * Read a length: an integer, or the canonical digit string of one, from its
-     * least to its greatest value.
+     * Read an integer setting within its range (see `IntegerSetting`).
      *
      * @param  string  $key
      * @param  int  $default
