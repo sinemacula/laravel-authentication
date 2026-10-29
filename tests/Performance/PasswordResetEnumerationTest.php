@@ -36,7 +36,9 @@ use Tests\Performance\Fixtures\SlowPasswordResetLinkSender;
  * it, against a slow identity store and a slow mail gateway; a failed reset
  * answers `invalid` and waits out the real credential timebox whatever failed,
  * running for a wrong token the statements it runs for an address no one holds,
- * and the lock of the holder's row besides; and a successful one returns early.
+ * and the lock of the holder's row besides, and taking as long by link and by
+ * code whether or not anyone holds the address; and a successful one returns
+ * early.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -261,6 +263,47 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     }
 
     /**
+     * The proofs a reset is submitted with.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideProofs(): iterable
+    {
+        yield from [
+            'a link' => ['link'],
+            'a code' => ['code'],
+        ];
+    }
+
+    /**
+     * A failed reset for an address someone holds, its slow lookup and its row
+     * lock included, takes as long as one for an address no one holds, by link
+     * and by code: the fastest of each set of tries is within a quarter of the
+     * timebox of the other's, so any work a holder adds beyond the timebox, or
+     * outside it, shows.
+     *
+     * @param  string  $proof
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    #[DataProvider('provideProofs')]
+    public function testAFailedResetForAHeldAddressTakesAsLongAsOneForAnUnknownAddress(string $proof): void
+    {
+        config()->set('authentication.codes.resend_cooldown_seconds', 0);
+
+        self::seedPasswordIdentity(self::EMAIL);
+
+        app(ConfigRepository::class)->set('authentication.timebox.credentials_microseconds', self::TIMEBOX_MICROSECONDS);
+
+        $known   = $this->fastestFailedReset($proof, self::EMAIL, new ClientContext('198.51.100.1', 'Browser/1.0'));
+        $unknown = $this->fastestFailedReset($proof, self::UNKNOWN_EMAIL, new ClientContext('198.51.100.2', 'Browser/1.0'));
+
+        self::assertGreaterThanOrEqual(self::TIMEBOX_MICROSECONDS * 1000, min($known, $unknown));
+        self::assertLessThan(self::TIMEBOX_MICROSECONDS * 250, abs($known - $unknown));
+    }
+
+    /**
      * A successful reset returns as soon as it is done, the slow lookup
      * included, instead of waiting out the timebox.
      *
@@ -408,6 +451,75 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
         }
 
         return $fastest;
+    }
+
+    /**
+     * The fastest of the timed resets for the address with a wrong proof of the
+     * kind given, a live one issued before each, in nanoseconds.
+     *
+     * @param  string  $proof
+     * @param  string  $email
+     * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
+     * @return int
+     *
+     * @throws \Throwable
+     */
+    private function fastestFailedReset(string $proof, string $email, ClientContext $client): int
+    {
+        $fastest = PHP_INT_MAX;
+
+        for ($sample = 0; $sample < self::TIMING_SAMPLES; $sample++) {
+
+            $wrong = $proof === 'link' ? self::wrongToken($email) : self::wrongCode($email);
+            $input = ['email' => $email, $proof === 'link' ? 'token' : 'code' => $wrong, 'password' => self::NEW_PASSWORD];
+
+            $passwords = $this->passwords();
+            $started   = hrtime(true);
+            $result    = $proof === 'link' ? $passwords->reset($input, $client) : $passwords->resetWithCode('email', $input, $client);
+            $elapsed   = hrtime(true) - $started;
+
+            self::assertEquals(ResetResult::invalid(), $result);
+
+            $fastest = min($fastest, $elapsed);
+        }
+
+        return $fastest;
+    }
+
+    /**
+     * Issue a live reset link token for the address, and return a well-formed
+     * token that is not it.
+     *
+     * @param  string  $email
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private static function wrongToken(string $email): string
+    {
+        $token = self::issueToken($email);
+
+        return $token === str_repeat('a', 43) ? str_repeat('b', 43) : str_repeat('a', 43);
+    }
+
+    /**
+     * Issue a live reset code for the address on the slow guard, and return a
+     * well-formed code that is not it.
+     *
+     * @param  string  $email
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private static function wrongCode(string $email): string
+    {
+        $issued = app(OneTimeCodes::class)->issue(CodeBinding::passwordReset('slow', 'email', $email), CarbonImmutable::now());
+
+        self::assertInstanceOf(IssuedCode::class, $issued);
+
+        $zeros = str_repeat('0', strlen($issued->code));
+
+        return $issued->code === $zeros ? str_repeat('1', strlen($issued->code)) : $zeros;
     }
 
     /**
