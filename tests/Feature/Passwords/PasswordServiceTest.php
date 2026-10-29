@@ -8,10 +8,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Foundation\Application;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Validator;
@@ -34,6 +37,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordResult;
 use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
+use Tests\Concerns\DefinesPasswordChangeRoute;
 use Tests\Concerns\InspectsTraces;
 use Tests\Concerns\InteractsWithPasswords;
 use Tests\Fixtures\Passwords\FailingBreachedPasswordChecker;
@@ -61,7 +65,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
 #[CoversClass(AuthManager::class)]
 final class PasswordServiceTest extends TestCase
 {
-    use InspectsTraces, InteractsWithPasswords;
+    use DefinesPasswordChangeRoute, InspectsTraces, InteractsWithPasswords;
 
     /** @var string A new password the default policy accepts. */
     private const string NEW_PASSWORD = 'a brand new passphrase';
@@ -696,6 +700,73 @@ final class PasswordServiceTest extends TestCase
 
         $this->withToken($current)->postJson('/password', ['password' => 'short'])->assertExactJson(['set' => false, 'violations' => ['too_short'], 'revoked' => 0]);
         $this->withToken($current)->postJson('/password', ['password' => self::NEW_PASSWORD])->assertExactJson(['set' => true, 'violations' => [], 'revoked' => 1]);
+
+        self::freezeClock(CarbonImmutable::parse(self::NOW)->addSecond());
+
+        $this->withToken($current)->getJson('/me')->assertOk();
+        $this->withToken($other)->getJson('/me')->assertUnauthorized();
+    }
+
+    /**
+     * The password change route README.md documents, over HTTP: a wrong current
+     * password sets nothing and keeps its sign-in slots, taken before the
+     * transaction; a right one sets the new password, ends the identity's other
+     * session, keeps the request's device and gives the slots back. The
+     * identity's row is locked inside the transaction before the current
+     * password is read to be checked, and no counter is written inside it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheDocumentedChangeChecksTheCurrentPasswordUnderTheIdentitysLock(): void
+    {
+        self::seedPasswordIdentity();
+
+        $current = $this->signInWithPassword()->tokens->accessToken;
+        $other   = $this->signInWithPassword()->tokens->accessToken;
+
+        Auth::forgetGuards();
+        DB::table('rate_limits')->delete();
+
+        self::definePasswordChangeRoute('web');
+
+        Route::middleware('auth:web')->get('/me', static fn (): array => ['id' => Auth::id()]);
+
+        $wrong = $this->withToken($current)->putJson('/password', ['current_password' => 'not the password', 'password' => self::NEW_PASSWORD]);
+
+        $wrong->assertStatus(422)->assertExactJson(['message' => 'The current password is wrong.']);
+
+        self::assertSame([1, 1], array_map(intval(...), DB::table('rate_limits')->orderBy('key')->pluck('hits')->all()));
+        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        Event::listen(TransactionBeginning::class, static function () use (&$statements): void {
+            $statements[] = 'begin';
+        });
+
+        Event::listen(TransactionCommitted::class, static function () use (&$statements): void {
+            $statements[] = 'commit';
+        });
+
+        $this->withToken($current)->putJson('/password', ['current_password' => self::PASSWORD, 'password' => self::NEW_PASSWORD])->assertNoContent();
+
+        $begin  = (int) array_search('begin', $statements, true);
+        $commit = (int) array_search('commit', $statements, true);
+        $inside = array_slice($statements, $begin + 1, $commit - $begin - 1);
+
+        self::assertSame([1, 1], array_map(intval(...), DB::table('rate_limits')->orderBy('key')->pluck('hits')->all()));
+        self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) PasswordIdentity::query()->sole()->password));
+        self::assertNotSame([], array_filter(array_slice($statements, 0, $begin), static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
+        self::assertNotSame([], array_filter(array_slice($statements, $commit), static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
+        self::assertSame([], array_filter($inside, static fn (string $sql): bool => str_contains($sql, 'rate_limits')));
+        self::assertStringContainsString('password_identities', $inside[0]);
+        self::assertMatchesRegularExpression('/^select .+ where .email. = \?/', $inside[1]);
 
         self::freezeClock(CarbonImmutable::parse(self::NOW)->addSecond());
 

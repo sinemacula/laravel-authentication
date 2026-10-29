@@ -27,6 +27,7 @@ use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\RecentAuthentication;
 use Tests\Concerns\ChangesIdentifiers;
+use Tests\Concerns\DefinesPasswordChangeRoute;
 use Tests\Integration\Fixtures\ChangeableIdentity;
 use Tests\TestCase;
 
@@ -59,7 +60,7 @@ use Tests\TestCase;
 #[CoversClass(DeviceLookup::class)]
 final class ConcurrentProofSpendingTest extends TestCase
 {
-    use ChangesIdentifiers;
+    use ChangesIdentifiers, DefinesPasswordChangeRoute;
 
     /** @var int How long the first operation is held after its statement once the second has started, in microseconds. */
     private const int HOLD_MICROSECONDS = 1000000;
@@ -510,6 +511,62 @@ final class ConcurrentProofSpendingTest extends TestCase
     }
 
     /**
+     * The password change README.md documents, made over HTTP with the old
+     * password while a reset is held after it wrote the owner's new one, waits
+     * for the reset on the identity's row before it checks the current
+     * password, which is then wrong: the reset's password stays.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheDocumentedPasswordChangeWaitsForAResetAndFindsTheOldPasswordWrong(): void
+    {
+        $identity = self::seedChangeable();
+        $access   = $this->passwordChangeAccess();
+        $token    = self::resetToken();
+
+        [$first, $second] = $this->race(
+            'update',
+            'changeable_identities',
+            static fn (): string => Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'the reset passphrase'])->status->value,
+            fn (): string => $this->changePassword($access),
+        );
+
+        self::assertSame(['reset', '422'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertTrue(Auth::guard('web')->getProvider()->validateCredentials(self::reloaded($identity), ['password' => 'the reset passphrase']));
+    }
+
+    /**
+     * A reset racing the documented password change, held once it locked the
+     * identity's row, waits until the change has set its password, then finds
+     * its token outdated by it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetWaitsForTheDocumentedPasswordChange(): void
+    {
+        $identity = self::seedChangeable();
+        $access   = $this->passwordChangeAccess();
+        $token    = self::resetToken();
+
+        [$first, $second] = $this->race(
+            'select',
+            'changeable_identities',
+            fn (): string => $this->changePassword($access),
+            static fn (): string => Auth::passwords('web')->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'the reset passphrase'])->status->value,
+            'for update',
+        );
+
+        self::assertSame(['204', 'invalid'], [$first, $second['result']]);
+        self::assertGreaterThanOrEqual(self::LEAST_WAIT_SECONDS, $second['waited']);
+        self::assertTrue(Auth::guard('web')->getProvider()->validateCredentials(self::reloaded($identity), ['password' => self::NEW_PASSWORD]));
+    }
+
+    /**
      * Register the guards the tests change identifiers and passwords through.
      *
      * @param  mixed  $app
@@ -541,6 +598,39 @@ final class ConcurrentProofSpendingTest extends TestCase
         self::assertIsString($link);
 
         return $link;
+    }
+
+    /**
+     * Sign in through the `web` guard with the password, define the password
+     * change route README.md documents, and return the access token.
+     *
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private function passwordChangeAccess(): string
+    {
+        $session = Auth::sessions('web')->signIn('password', ['email' => self::EMAIL, 'password' => self::PASSWORD])->session;
+
+        self::assertNotNull($session);
+
+        Auth::forgetGuards();
+
+        self::definePasswordChangeRoute('web');
+
+        return $session->tokens->accessToken;
+    }
+
+    /**
+     * Change the password through the documented route, with the access token
+     * and the current password, and return the response's status.
+     *
+     * @param  string  $access
+     * @return string
+     */
+    private function changePassword(string $access): string
+    {
+        return (string) $this->withToken($access)->putJson('/password', ['current_password' => self::PASSWORD, 'password' => self::NEW_PASSWORD])->baseResponse->getStatusCode();
     }
 
     /**

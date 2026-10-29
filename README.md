@@ -2062,13 +2062,21 @@ Route::middleware('auth:api')->put('/password', function (Request $request, Atte
         return response()->json(['message' => 'Too many attempts.'], 429)->header('Retry-After', (string) $slot->retryAfter);
     }
 
-    if (!Auth::guard('api')->validate(['email' => $identity->email, 'password' => $request->input('current_password')])) {
+    $result = $identity->getConnection()->transaction(function () use ($passwords, $identity, $request) {
+        $identity->newQuery()->lockForUpdate()->find($identity->getKey());
+
+        if (!Auth::guard('api')->validate(['email' => $identity->email, 'password' => $request->input('current_password')])) {
+            return null;
+        }
+
+        return $passwords->set($identity, $request->input('password'), PasswordFlow::CHANGE, Auth::device());
+    });
+
+    if ($result === null) {
         return response()->json(['message' => 'The current password is wrong.'], 422);
     }
 
     $limiter->release($slot);
-
-    $result = $passwords->set($identity, $request->input('password'), PasswordFlow::CHANGE, Auth::device());
 
     return $result->isSet()
         ? response()->noContent()
@@ -2081,7 +2089,13 @@ on the server, never from input, because a registration ends no session. Ask for
 change, as above, so a stolen session cannot change the password and keep itself signed in. `validate()` checks the
 password inside the guard's credential timebox but counts no attempt, so the route takes a slot of the guard's `sign_in`
 limits from the bound `AttemptLimiter` first, as a sign-in's password does, counted in the database for the identifier
-and the IP address, and gives it back once the password is right. A change ends every session of the identity, through
+and the IP address, and gives it back once the password is right. The transaction locks the identity's row before the
+current password is checked and holds it through `set()`, so a reset racing the change comes either before the check,
+which then fails against the reset's password, or after the change, whose new password outdates the reset's link or
+code. Without the lock, a request that checked the old password before a reset could set its own after it. Take and give
+back the slot outside the transaction: inside it, the counters' rows would stay locked until the commit, and on MySQL
+two transactions that each create a counter in the same gap of the index deadlock. A change ends every session of the
+identity, through
 every guard, but the device in `$except` (the request's own device, to keep it signed in; `null` ends them all); a reset
 ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
 (see [Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked`
