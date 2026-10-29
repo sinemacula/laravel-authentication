@@ -81,7 +81,7 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 final readonly class IdentifierChangeService
 {
     /** @var string What the flow is called in a connection refusal. */
-    public const string FLOW = 'An identifier change';
+    private const string FLOW = 'An identifier change';
 
     /**
      * Constructor.
