@@ -185,7 +185,9 @@ final class ClientCredentialsRequest
      * as `_`, and cut at a `[` that a `]` follows, or else with the `[` and
      * every `.`, space and `[` after it read as `_`. It is worked out here
      * rather than with `parse_str()`, which also splits on whatever else
-     * `arg_separator.input` holds, while a form body is split on `&` alone.
+     * `arg_separator.input` holds, while a form body is split on `&` alone. A
+     * list nested deeper than `max_input_nesting_level`, which PHP drops, still
+     * counts, so such a request is refused rather than read.
      *
      * @param  string  $pair
      * @return string

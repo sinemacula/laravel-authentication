@@ -266,8 +266,9 @@ final class ClientCredentialsRequestTest extends TestCase
     /**
      * Every name a pair can be given from these parts, up to four of them, is
      * compared as PHP's own parser reads it: the pair is refused as a repeat
-     * exactly when PHP reads its name as one of the parameters the body already
-     * carries.
+     * exactly when PHP reads its name as one of the parameters the body then
+     * carries. The pair comes first, so a list it makes is overwritten and only
+     * the repeat can refuse it.
      *
      * @return void
      */
@@ -279,7 +280,7 @@ final class ClientCredentialsRequestTest extends TestCase
 
             $repeats = in_array(array_key_first($read), ['grant_type', 'scope', 'client_id', 'client_secret'], true);
 
-            return $repeats !== (ClientCredentialsRequest::read(self::request("{$body}&{$name}=x")) === 'invalid_request');
+            return $repeats !== (ClientCredentialsRequest::read(self::request("{$name}=x&{$body}")) === 'invalid_request');
         });
 
         self::assertSame([], array_values($misread));
