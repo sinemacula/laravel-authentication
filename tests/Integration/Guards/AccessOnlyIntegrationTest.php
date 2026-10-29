@@ -81,8 +81,6 @@ final class AccessOnlyIntegrationTest extends TestCase
 
         $jwtService = PackageAuth::jwt(self::GUARD);
 
-        assert($jwtService !== null);
-
         $token  = $jwtService->issueAccessToken($user, $user, null);
         $claims = $jwtService->parse($token, TokenType::ACCESS);
 

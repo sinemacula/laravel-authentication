@@ -11,10 +11,11 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * Package `Auth` facade.
  *
  * Subclasses Laravel's framework `Auth` facade and adds `@method` annotations
- * for the contextual accessors so IDEs get full autocompletion. Both this
- * facade and the framework facade resolve through the same `auth` container
- * key, which the package service provider has already replaced with the
- * `AuthManager` subclass.
+ * for every method the package `AuthManager` declares (the contextual accessors
+ * and the guards' services), with the types the methods return, so IDEs and
+ * static analysis see them. Both this facade and the framework facade resolve
+ * through the same `auth` container key, which the package service provider has
+ * already replaced with the `AuthManager` subclass.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -27,7 +28,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Contracts\Tenant|null tenant()
  * @method static string|null type()
  * @method static list<string>|null scopes()
- * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService|null jwt(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService jwt(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Sessions\SessionService sessions(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport refreshTransport(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Codes\CodeService codes(?string $guard = null)
@@ -37,6 +38,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService apiKeys(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange clientCredentials(?string $guard = null)
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
+ * @method static void forgetGuardState()
  */
 final class Auth extends IlluminateAuth
 {

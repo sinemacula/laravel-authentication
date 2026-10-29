@@ -154,8 +154,6 @@ final class DeviceModelOverrideTest extends TestCase
 
         $jwtService = PackageAuth::jwt('custom-jwt');
 
-        assert($jwtService !== null);
-
         $refreshToken = $jwtService->issueRefreshToken($device, $plainRotationId);
 
         $guard = $this->makeJwtGuard();
