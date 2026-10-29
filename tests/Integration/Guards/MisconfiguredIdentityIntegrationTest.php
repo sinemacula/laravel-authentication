@@ -19,6 +19,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\UnresolvableIdentity;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
@@ -37,6 +38,8 @@ use Tests\Unit\Stubs\PlainPrincipalFixture;
 #[CoversClass(RefreshTokenExchange::class)]
 final class MisconfiguredIdentityIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -122,9 +125,9 @@ final class MisconfiguredIdentityIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => UnresolvableIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

@@ -22,6 +22,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -46,6 +47,8 @@ use Tests\Unit\Stubs\StubFixedPrincipalResolver;
 #[CoversClass(RefreshTokenExchange::class)]
 final class TenantActivityIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -186,9 +189,9 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
@@ -498,9 +501,9 @@ final class TenantActivityIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 
@@ -612,9 +615,9 @@ final class TenantActivityIntegrationTest extends TestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

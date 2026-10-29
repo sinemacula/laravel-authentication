@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 use Tests\Unit\Stubs\StubMappedPrincipalResolver;
@@ -39,6 +40,8 @@ use Tests\Unit\Stubs\StubTenant;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Guard name used by all refresh continuity tests. */
     private const string GUARD = 'api';
 
@@ -112,9 +115,9 @@ final class JwtGuardRefreshPrincipalContinuityIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 

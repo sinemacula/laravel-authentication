@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -28,6 +29,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(DeviceOwnership::class)]
 final class DeviceOwnershipTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /**
      * The owner key is the device row's owner key column as a string, or `null`
      * when the row records none.
@@ -118,6 +121,7 @@ final class DeviceOwnershipTest extends TestCase
     {
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => $type,
             'authenticatable_id'   => $key,
         ]);

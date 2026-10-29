@@ -31,7 +31,8 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   a request authenticates it even on a route without `auth` middleware, as Laravel's own guards do. `setPrincipal()` and
   `setDevice()` resolve the request first too, so a principal or device set before the first access replaces the one the
   request's token binds instead of being replaced by it. They are trusted binds, like `login()`: they check neither
-  ownership nor activity, so a caller verifies what it passes them first.
+  ownership nor activity, nor a device's revocation or session deadlines, so a caller verifies what it passes them
+  first.
 
 ## Success Path
 
@@ -57,10 +58,10 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A principal or device pinned on `attempt()` is verified, not trusted: the principal goes through the resolver's hinted
   path and must come back as the same class with the same identifier (the bearer `pid` exact-match check) and be owned
   by the authenticated identity (its `getIdentity()` is that identity), and the device must be found among the
-  identity's own `HasDevices` devices, of the same class and not revoked. The owner is read from the principal's stored
-  key, ignoring an identity relation the resolver set and even when lazy loading is prevented, and an owner that cannot
-  be read fails the check. The resolved instances are bound; a failed check fails the attempt. `login()`,
-  `setPrincipal()`, and `setDevice()` stay trusted binds.
+  identity's own `HasDevices` devices, of the same class, not revoked, and with a session that has not ended. The owner
+  is read from the principal's stored key, ignoring an identity relation the resolver set and even when lazy loading is
+  prevented, and an owner that cannot be read fails the check. The resolved instances are bound; a failed check fails
+  the attempt. `login()`, `setPrincipal()`, and `setDevice()` stay trusted binds.
 - A successful credential check can still end in `Failed` if principal resolution later returns `null` or resolves a
   principal that is inactive or acts within an inactive tenant. That is why `Validated` is not the same thing as
   "fully bound".
@@ -77,9 +78,22 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   set but whose type is empty cannot be loaded either. A tenant that does not opt in is never checked, and a relation to
   a model that is not a `Tenant` reports no tenant.
 - Failed refresh emits Laravel's standard `Attempting` and `Failed` events plus the package `RefreshFailed` event with a
-  machine-readable reason.
-- `DeviceAuthenticated` is coupled to the shipped `UpdateDeviceTimestamp` listener, but only persisted `EloquentDevice`
-  instances participate in that write path.
+  machine-readable reason. A refresh that revokes the device because its token was replayed (`rotation_reuse`) also
+  emits `DeviceRevoked`. It is dispatched only by the call that revoked the device, never for one already revoked, and
+  only once the revocation is committed on the device's own connection, so a rolled-back revocation is never reported.
+  When that connection has no open transaction the revocation is committed at once, and the order is `DeviceRevoked`,
+  `RefreshFailed`, `Failed`, even if a transaction is open on another connection, whose rollback does not withdraw it.
+  Inside a transaction on the device's connection, `RefreshFailed` and `Failed` come first and `DeviceRevoked` follows
+  when that transaction commits. The transaction Laravel's testing traits wrap around each test is not counted, as it
+  never commits. `DeviceRevoked` reports only the revocations the package makes, which today is replay detection: a
+  device an application revokes by writing `revoked_at` itself fires no event.
+- A grace retry (the previous rotation id, inside the grace window) is a successful refresh: it emits the same events
+  as one that rotates, `Refreshed` included.
+- `DeviceAuthenticated` is coupled to the shipped `RecordDeviceUsage` listener, which records the time, IP address, and
+  user agent of the use, at most once per `authentication.device.last_used_throttle_seconds`. Only persisted
+  `EloquentDevice` instances participate in that write path. The listener is resolved from the container on every
+  dispatch with the current request, so a long-running worker records the request it is serving, and the client values
+  are cleaned by `ClientContext` before they are stored.
 
 ## Implementation Anchors
 
@@ -98,7 +112,9 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `src/Guards/JwtGuard.php` and `src/Jwt/RefreshTokenExchange.php`: `setDispatcher()` and `setPrincipalResolver()`, which
   keep the exchange on the guard's dispatcher and resolver.
 - `src/Http/Middleware/Authenticate.php`, `src/Http/UnauthenticatedResponse.php`: the package guards' `401`.
-- `src/Listeners/UpdateDeviceTimestamp.php`: persisted side effect for rebound devices.
+- `src/Listeners/RecordDeviceUsage.php` and `src/Http/ClientContext.php`: the last-use write for bound devices.
+- `src/Jwt/RefreshTokenExchange.php`: `revokeDevice()` and the `DeviceRevoked` dispatch, deferred to the device
+  connection's commit by `RefreshRotationStore::afterCommit()`; `src/Events/DeviceRevoked.php`.
 
 ## Authoritative Tests
 
@@ -160,13 +176,24 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   `testPinnedPrincipalWithoutAnOwnerRelationFailsTheAttemptUnderStrictMode`
 - `tests/Feature/AuthenticationServiceProviderTest.php`
   `testJwtGuardRefreshExchangeTracksLaterEventDispatcherRebind`
+- `tests/Integration/Guards/RefreshReplayIntegrationTest.php`
+  `testReplayRevokesTheDeviceAndEndsItsAccessTokens`, `testRevocationIsReportedOnlyAfterCommit`
+- `tests/Integration/Guards/SeparateDeviceConnectionIntegrationTest.php`
+  `testReplayIsReportedAtOnceWhateverAnotherConnectionsTransactionDoes`,
+  `testReplayInsideTheDeviceConnectionsTransactionIsReportedOnItsCommit`,
+  `testReplayRolledBackWithANestedTransactionIsNeverReported`
+- `tests/Integration/Guards/ReplayUnderDatabaseTransactionsIntegrationTest.php`
+  `testReplayOutsideTheApplicationsTransactionsIsReportedAtOnce`
+- `tests/Integration/Guards/DeviceUsageIntegrationTest.php`
+  `testEachRequestRecordsItsOwnClientOutsideTheThrottleWindow`, `testRefreshRecordsTheClientItCameFrom`,
+  `testCraftedUserAgentIsStoredCleaned`
 
 ## Change Triggers
 
 Update this note when any of the following change:
 
 - the order or presence of `Attempting`, `Validated`, `Login`, `Authenticated`, `Failed`, `Logout`, `PrincipalAssigned`,
-  `DeviceAuthenticated`, `Refreshed`, or `RefreshFailed`
+  `DeviceAuthenticated`, `Refreshed`, `RefreshFailed`, or `DeviceRevoked`
 - which credential keys are redacted from `Attempting` and `Failed`
 - the response a guest gets on a route protected by package guards
 - the decision to route bearer auth or refresh through `login()`

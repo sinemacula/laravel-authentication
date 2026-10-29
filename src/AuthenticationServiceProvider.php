@@ -28,7 +28,7 @@ use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\UnauthenticatedResponse;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
+use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 
@@ -119,6 +119,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
             $tokens,
             $provider,
             $app->make(ConnectionResolverInterface::class),
+            static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
             $events,
             $resolver,
             $name,
@@ -196,7 +197,7 @@ final class AuthenticationServiceProvider extends ServiceProvider
      */
     protected function registerListeners(): void
     {
-        Event::listen(DeviceAuthenticated::class, UpdateDeviceTimestamp::class);
+        Event::listen(DeviceAuthenticated::class, RecordDeviceUsage::class);
     }
 
     /**

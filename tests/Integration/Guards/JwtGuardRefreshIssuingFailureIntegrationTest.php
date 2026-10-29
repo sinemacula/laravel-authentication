@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\SingleIdentifierReadPrincipal;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubMutablePrincipalResolver;
@@ -36,6 +37,8 @@ use Tests\Unit\Stubs\StubPrincipal;
 #[CoversClass(JwtGuard::class)]
 final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Plaintext rotation id stored on the seeded device. */
     private const string ROTATION_ID = 'stored-rotation-id';
 
@@ -171,9 +174,9 @@ final class JwtGuardRefreshIssuingFailureIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubPrincipal::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

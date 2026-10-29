@@ -10,11 +10,12 @@ principal auth without device tracking or refresh rotation.
 - The package can boot and authenticate bearer requests without a `devices` table.
 - Access tokens for this mode must be issued with `device = null`, which means the JWT carries `did = null`. `did` is
   the one access-token claim that may be absent or null; `sub`, `pid`, `exp`, `iat`, `jti`, `typ`, and `grd` are
-  required as on every access token.
+  required as on every access token. With no session to bound it, such a token lives exactly the guard's
+  `access_ttl_minutes`.
 - The identity model does not need to implement `HasDevices`.
 - Bearer auth still rehydrates the identity through the configured provider and resolves the principal through the
   configured resolver.
-- `Auth::device()` remains `null`, `DeviceAuthenticated` is not emitted, and last-seen persistence does not run.
+- `Auth::device()` remains `null`, `DeviceAuthenticated` is not emitted, and last-use persistence does not run.
 
 ## Success Path
 
@@ -45,8 +46,6 @@ principal auth without device tracking or refresh rotation.
 
 ## Authoritative Tests
 
-- `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
-  `testPackageBootsWithoutDevicesTable`
 - `tests/Integration/Guards/AccessOnlyIntegrationTest.php`
   `testAccessTokenFlowSucceedsWithoutDevice`
 - `tests/Integration/Guards/AccessOnlyIntegrationTest.php`

@@ -11,16 +11,13 @@ use SineMacula\Laravel\Authentication\Contracts\Device;
 /**
  * Eloquent `Device` fixture that intentionally does NOT satisfy the explicit
  * `EloquentDevice` persistence boundary. Used by configuration validation tests
- * to prove refresh and last-seen flows fail fast for unsupported Eloquent
- * device implementations.
+ * to prove refresh and last-use flows fail fast for unsupported Eloquent device
+ * implementations.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @property string $id
- * @property ?string $refresh_key
- * @property ?\Carbon\CarbonInterface $revoked_at
- * @property ?\Carbon\CarbonInterface $last_logged_in_at
  *
  * @internal
  */
@@ -50,77 +47,90 @@ final class StubBareDevice extends Model implements Device
     }
 
     /**
-     * Last-logged-in accessor reading the bare column directly.
+     * Inert last-use accessor.
      *
      * @return ?\Carbon\CarbonInterface
      */
     #[\Override]
-    public function getLastLoggedIn(): ?CarbonInterface
-    {
-        $value = $this->getAttribute('last_logged_in_at');
-
-        return $value instanceof CarbonInterface ? $value : null;
-    }
-
-    /**
-     * Inert MFA verification accessor.
-     *
-     * @return ?\Carbon\CarbonInterface
-     */
-    #[\Override]
-    public function getLastMfaVerification(): ?CarbonInterface
+    public function getLastUsedAt(): ?CarbonInterface
     {
         return null;
     }
 
     /**
-     * Inert OS accessor.
-     *
-     * @return string
-     */
-    #[\Override]
-    public function getOperatingSystem(): string
-    {
-        return '';
-    }
-
-    /**
-     * Refresh-key accessor reading the bare column directly.
+     * Inert current refresh digest accessor.
      *
      * @return ?string
      */
     #[\Override]
     public function getRefreshKey(): ?string
     {
-        $value = $this->getAttribute('refresh_key');
-
-        return is_string($value) ? $value : null;
+        return null;
     }
 
     /**
-     * Revoked-at accessor reading the bare column directly.
+     * Inert previous refresh digest accessor.
+     *
+     * @return ?string
+     */
+    #[\Override]
+    public function getPreviousRefreshKey(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Inert rotation time accessor.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getRefreshRotatedAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Inert idle deadline accessor.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getIdleExpiresAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Inert absolute deadline accessor.
+     *
+     * @return ?\Carbon\CarbonInterface
+     */
+    #[\Override]
+    public function getAbsoluteExpiresAt(): ?CarbonInterface
+    {
+        return null;
+    }
+
+    /**
+     * Inert revocation time accessor.
      *
      * @return ?\Carbon\CarbonInterface
      */
     #[\Override]
     public function getRevokedAt(): ?CarbonInterface
     {
-        $value = $this->getAttribute('revoked_at');
-
-        return $value instanceof CarbonInterface ? $value : null;
+        return null;
     }
 
     /**
-     * The attributes that should be cast.
+     * Inert revocation reason accessor.
      *
-     * @return array<string, string>
+     * @return ?string
      */
     #[\Override]
-    protected function casts(): array
+    public function getRevokedReason(): ?string
     {
-        return [
-            'last_logged_in_at' => 'datetime',
-            'revoked_at'        => 'datetime',
-        ];
+        return null;
     }
 }

@@ -7,16 +7,22 @@ namespace Tests\Feature\Guards;
 use Carbon\Carbon;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\Enums\RefreshFailureReason;
+use SineMacula\Laravel\Authentication\Events\Refreshed;
 use SineMacula\Laravel\Authentication\Events\RefreshFailed;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
+use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
 
@@ -24,9 +30,9 @@ use Tests\Unit\Stubs\StubIdentity;
  * Feature tests for the token-level and device-level validation paths within
  * JwtGuard's refresh-token exchange, including rotation integrity checks.
  *
- * Covers token parsing failures, device lookup, rotation-key verification,
- * device revocation, and rotation-reuse detection. Identity and principal
- * resolution tests live in JwtGuardRefreshResolutionTest.
+ * Covers token parsing failures, device lookup, replay detection and the grace
+ * window, and device revocation. Identity and principal resolution tests live
+ * in JwtGuardRefreshResolutionTest.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -38,6 +44,8 @@ use Tests\Unit\Stubs\StubIdentity;
 #[CoversClass(IdentifierCoercion::class)]
 final class JwtGuardRefreshTest extends JwtGuardTestCase
 {
+    use InteractsWithDevices;
+
     /**
      * When the refresh token cannot be parsed, `refresh()` returns null and
      * fires `RefreshFailed` with reason `token_invalid`.
@@ -119,19 +127,20 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * When the device's stored refresh-key digest does not match the hash of
-     * the token's `jti` claim, `refresh()` returns null and fires
-     * `RefreshFailed` with reason `rotation_mismatch`.
+     * A refresh token for a live device whose rotation id the device never held
+     * as current or previous is a replay: `refresh()` returns null, revokes the
+     * device, and dispatches `DeviceRevoked`, `RefreshFailed` with reason
+     * `rotation_reuse`, and Laravel's `Failed`.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testRefreshReturnsNullWhenRefreshKeyDoesNotMatch(): void
+    public function testRefreshRevokesTheDeviceForARotationIdItDoesNotHold(): void
     {
         $device = new StubDevice;
-        $device->forceFill(['refresh_key' => RefreshTokenHasher::hash('stored-rotation-id')])->save();
+        $device->forceFill([...self::liveSession(), 'refresh_key' => RefreshTokenHasher::hash('stored-rotation-id')])->save();
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -140,16 +149,21 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'jti' => 'tampered-rotation-id',
         ]);
 
-        $this->expectRefreshFailureEvents();
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
-                    && $event->deviceId === $device->id),
-            );
+        $dispatched = $this->recordDispatchedEvents();
 
         self::assertNull($guard->refresh($token));
+
+        $events = $dispatched->getArrayCopy();
+
+        self::assertSame([Attempting::class, DeviceRevoked::class, RefreshFailed::class, Failed::class], array_map(static fn (object $event): string => $event::class, $events));
+        self::assertInstanceOf(RefreshFailed::class, $events[2]);
+        self::assertSame(RefreshFailureReason::ROTATION_REUSE, $events[2]->reason);
+
+        $fresh = StubDevice::query()->findOrFail($device->id);
+
+        self::assertNotNull($fresh->revoked_at);
+        self::assertSame('rotation_reuse', $fresh->revoked_reason);
+        self::assertNull($fresh->refresh_key);
     }
 
     /**
@@ -229,6 +243,7 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'refresh_key' => RefreshTokenHasher::hash($plainRotationId),
             'revoked_at'  => Carbon::now(),
         ])->save();
@@ -256,47 +271,44 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
     }
 
     /**
-     * Reuse-detection regression test.
-     *
-     * When the refresh token verifies against the device's in-memory digest but
-     * the atomic CAS affects zero rows - meaning the database row's digest has
-     * been changed since the read, typically by a concurrent refresh or a
-     * stolen-token replay - the exchange service revokes the entire device and
-     * dispatches `RefreshFailed` with reason `rotation_reuse`. We simulate the
-     * race by mutating the sqlite row directly between the setRelation() setup
-     * and the refresh() call.
+     * A digest replaced between the exchange's read and its swap by something
+     * other than a rotation (no previous digest records the presented id) is
+     * judged again from the row as it now is: the presented id is neither
+     * current nor previous, so it is a replay and the device is revoked.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testRefreshRevokesDeviceOnRotationReuseWhenCasAffectsZeroRows(): void
+    public function testRefreshRevokesTheDeviceWhenItsDigestIsReplacedBeforeTheSwap(): void
     {
         $plainRotationId = 'stored-rotation-id';
-        $staleDigest     = RefreshTokenHasher::hash($plainRotationId);
 
         $identity = new StubIdentity;
         $identity->forceFill(['id' => 13]);
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '13',
-            'refresh_key'          => $staleDigest,
+            'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
         $this->expectOwnerReload($device, $identity);
 
-        $this->swapDeviceModelToInMemoryInstance($device);
+        $ran = false;
 
-        // Simulate a concurrent rotation: mutate the sqlite row's refresh_key
-        // directly so the in-memory digest (which `loadDeviceForRefresh` still
-        // verifies against) is stale from the CAS's point of view. The CAS will
-        // then affect zero rows and the exchange must detect the reuse.
-        StubDevice::query()
-            ->whereKey($device->id)
-            ->update(['refresh_key' => RefreshTokenHasher::hash('concurrent-rotation')]);
+        DB::connection()->beforeExecuting(static function (string $query) use (&$ran, $device): void {
+            if ($ran || !str_contains($query, 'refresh_rotated_at')) {
+                return;
+            }
+
+            $ran = true;
+
+            DB::table('stub_devices')->where('id', $device->id)->update(['refresh_key' => RefreshTokenHasher::hash('replaced-elsewhere')]);
+        });
 
         $guard = $this->makeGuard($this->makeRequest(null));
 
@@ -315,34 +327,29 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'jti' => $plainRotationId,
         ]);
 
-        $this->expectRefreshFailureEvents();
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::ROTATION_REUSE
-                    && $event->deviceId === $device->id),
-            );
+        $dispatched = $this->recordDispatchedEvents();
 
         self::assertNull($guard->refresh($token));
+        self::assertContains(DeviceRevoked::class, array_map(static fn (object $event): string => $event::class, $dispatched->getArrayCopy()));
 
         $fresh = StubDevice::query()->findOrFail($device->id);
-        self::assertNotNull($fresh->revoked_at);
+
+        self::assertSame('rotation_reuse', $fresh->revoked_reason);
         self::assertNull($fresh->refresh_key);
     }
 
     /**
-     * Once a refresh succeeds and rotates the device digest, replaying the
-     * exact old token should fail as `rotation_mismatch` without revoking the
-     * current device family. `rotation_reuse` is reserved for the CAS-lost
-     * branch where the token verified before losing a concurrent race.
+     * The refresh token a successful refresh replaced still gets the session's
+     * current credential inside the grace window, through the guard, with the
+     * same events as any refresh; once the window has passed it is a replay and
+     * revokes the device.
      *
      * @return void
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \Random\RandomException
      */
-    public function testRefreshRejectsOldRefreshTokenAfterSuccessfulRotationWithoutRevokingDevice(): void
+    public function testReplacedRefreshTokenIsHonouredInsideTheGraceWindowOnly(): void
     {
         $plainRotationId = 'stored-rotation-id';
 
@@ -351,28 +358,24 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
 
         $device = new StubDevice;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => StubIdentity::class,
             'authenticatable_id'   => '18',
             'refresh_key'          => RefreshTokenHasher::hash($plainRotationId),
         ])->save();
 
-        $this->expectOwnerReload($device, $identity);
-
-        $this->swapDeviceModelToInMemoryInstance($device);
-
-        $firstGuard = $this->makeGuard($this->makeRequest(null));
+        $this->provider->shouldReceive('retrieveById')
+            ->twice()
+            ->with('18')
+            ->andReturn($identity);
 
         $principal = \Mockery::mock(Principal::class, CanBeActive::class);
         $principal->shouldReceive('getTenant')->andReturnNull();
-        $principal->shouldReceive('getPrincipalIdentifier')
-            ->times(3)
-            ->andReturn('p-18');
-        $principal->shouldReceive('isActive')
-            ->once()
-            ->andReturnTrue();
+        $principal->shouldReceive('getPrincipalIdentifier')->andReturn('p-18');
+        $principal->shouldReceive('isActive')->andReturnTrue();
 
         $this->resolver->shouldReceive('resolve')
-            ->once()
+            ->twice()
             ->with($identity, 'p-18')
             ->andReturn($principal);
 
@@ -382,32 +385,27 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             'jti' => $plainRotationId,
         ]);
 
-        $this->events->shouldReceive('dispatch')
-            ->times(7)
-            ->andReturnNull();
+        $dispatched = $this->recordDispatchedEvents();
 
-        self::assertInstanceOf(RefreshResult::class, $firstGuard->refresh($oldToken));
+        $rotated = $this->makeGuard($this->makeRequest(null))->refresh($oldToken);
 
-        $secondGuard = $this->makeGuard($this->makeRequest(null));
+        self::assertInstanceOf(RefreshResult::class, $rotated);
 
-        $this->expectRefreshFailureEvents();
-        $this->events->shouldReceive('dispatch')
-            ->once()
-            ->with(
-                \Mockery::on(static fn (mixed $event): bool => $event instanceof RefreshFailed
-                    && $event->reason   === RefreshFailureReason::ROTATION_MISMATCH
-                    && $event->deviceId === $device->id),
-            );
+        Carbon::setTestNow($this->now->copy()->addSeconds(29));
 
-        self::assertNull($secondGuard->refresh($oldToken));
+        $retried = $this->makeGuard($this->makeRequest(null))->refresh($oldToken);
 
-        $fresh = StubDevice::query()->findOrFail($device->id);
-
-        self::assertNull($fresh->revoked_at);
-        self::assertNotNull(
-            $fresh->refresh_key,
-            'The rotated digest should remain in place for the current device family.',
+        self::assertInstanceOf(RefreshResult::class, $retried);
+        self::assertSame(
+            $this->tokens->parse($rotated->refreshToken, TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
+            $this->tokens->parse($retried->refreshToken, TokenType::REFRESH)[Claims::JWT_ID->value] ?? null,
         );
+        self::assertCount(2, array_filter($dispatched->getArrayCopy(), static fn (object $event): bool => $event instanceof Refreshed));
+
+        Carbon::setTestNow($this->now->copy()->addSeconds(30));
+
+        self::assertNull($this->makeGuard($this->makeRequest(null))->refresh($oldToken));
+        self::assertSame('rotation_reuse', StubDevice::query()->findOrFail($device->id)->revoked_reason);
     }
 
     /**
@@ -457,5 +455,23 @@ final class JwtGuardRefreshTest extends JwtGuardTestCase
             ->with(\Mockery::type(Attempting::class));
         $this->events->shouldReceive('dispatch')
             ->with(\Mockery::type(Failed::class));
+    }
+
+    /**
+     * Record every event the guard and its exchange dispatch.
+     *
+     * @return \ArrayObject<int, object>
+     */
+    private function recordDispatchedEvents(): \ArrayObject
+    {
+        /** @var \ArrayObject<int, object> $dispatched */
+        $dispatched = new \ArrayObject;
+
+        $this->events->shouldReceive('dispatch')
+            ->andReturnUsing(static function (object $event) use ($dispatched): void {
+                $dispatched->append($event);
+            });
+
+        return $dispatched;
     }
 }

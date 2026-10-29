@@ -83,9 +83,6 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
 
         self::assertSame($scopedPrincipal, $guard->principal());
 
-        // Verify the scoped resolver was actually resolved (not the global) by
-        // replacing it via setPrincipalResolver and confirming the guard
-        // previously held the scoped instance.
         $replacementPrincipal = $this->mockPrincipal('replacement');
         $replacementResolver  = \Mockery::mock(PrincipalResolver::class);
         $replacementResolver->shouldReceive('resolve')
@@ -283,7 +280,7 @@ final class AuthenticationServiceProviderGuardValidationTest extends TestCase
         $config->set('authentication.jwt.active_kid', 'default');
         $config->set('authentication.jwt.algorithm', 'HS256');
         $config->set('authentication.jwt.access_ttl_minutes', 15);
-        $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);
+        $config->set('authentication.jwt.refresh_idle_ttl_minutes', 60 * 24 * 30);
 
         $config->set('auth.providers.identities', [
             'driver' => 'model',

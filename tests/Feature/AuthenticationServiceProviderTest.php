@@ -11,6 +11,7 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Middleware\Authenticate as IlluminateAuthenticate;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth as IlluminateAuth;
@@ -28,7 +29,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
+use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
 use Symfony\Component\HttpFoundation\Response;
@@ -109,7 +110,7 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The `DeviceAuthenticated` event listener is registered with the
-     * dispatcher and resolves to the package `UpdateDeviceTimestamp` invokable
+     * dispatcher and resolves to the package `RecordDeviceUsage` invokable
      * listener class.
      *
      * @return void
@@ -121,9 +122,9 @@ final class AuthenticationServiceProviderTest extends TestCase
         $listeners = Event::getRawListeners()[DeviceAuthenticated::class] ?? [];
 
         self::assertContains(
-            UpdateDeviceTimestamp::class,
+            RecordDeviceUsage::class,
             $listeners,
-            'UpdateDeviceTimestamp must be registered as a listener for DeviceAuthenticated.',
+            'RecordDeviceUsage must be registered as a listener for DeviceAuthenticated.',
         );
     }
 
@@ -277,6 +278,38 @@ final class AuthenticationServiceProviderTest extends TestCase
             static fn (RefreshFailed $event): bool => $event->guard === 'api' && $event->reason === RefreshFailureReason::TOKEN_INVALID,
         );
         Event::assertDispatched(Failed::class, static fn (Failed $event): bool => $event->guard === 'api');
+    }
+
+    /**
+     * The guard's refresh exchange resolves the database transactions manager
+     * each time it defers a revocation event, so a manager bound later (as the
+     * testing transaction traits bind one) is the one consulted, and none is
+     * used when the container has none.
+     *
+     * @return void
+     */
+    public function testJwtGuardRefreshExchangeResolvesTheCurrentTransactionsManager(): void
+    {
+        $guard = app('auth')->guard('api');
+
+        self::assertInstanceOf(JwtGuard::class, $guard);
+
+        $exchange     = $this->readObjectProperty($guard, 'exchange');
+        $transactions = $this->readObjectProperty($this->readObjectProperty($exchange, 'store'), 'transactions');
+
+        self::assertInstanceOf(RefreshTokenExchange::class, $exchange);
+        self::assertInstanceOf(\Closure::class, $transactions);
+        self::assertSame(app('db.transactions'), $transactions());
+
+        $replacement = new DatabaseTransactionsManager;
+
+        app()->instance('db.transactions', $replacement);
+
+        self::assertSame($replacement, $transactions());
+
+        unset(app()['db.transactions']);
+
+        self::assertNull($transactions());
     }
 
     /**

@@ -97,20 +97,17 @@ extra_packages = [
     "symfony/string@^7.4",
 ]
 
+# phpstan runs from a dedicated sandbox file that lists the analysis stack and
+# every dependency the analysed code references, so a package the code starts
+# to use is added there as well as to composer.json. With no package_filters,
+# qlty installs the whole file into the tool sandbox and phpstan resolves the
+# framework from there, with no project install or prepare step. The sandbox
+# install ignores platform requirements, so Symfony is held below 8.0: Symfony 8
+# needs PHP 8.4 and carries syntax the PHP 8.3 runner cannot parse.
 [[plugin]]
 name = "phpstan"
 version = "2.1.46"
 package_file = ".qlty/configs/composer.json"
-package_filters = ["phpstan", "larastan", "sinemacula"]
-
-# phpstan resolves framework symbols by autoloading the package's own
-# dependencies, which a bare checkout does not have, so install them first.
-# COMPOSER_VENDOR_DIR is pinned to the repository's vendor directory because
-# the plugin environment points it at the shared phpstan tool sandbox, where an
-# install would replace the pinned analysis stack. Only extension requirements
-# are ignored so the PHP version constraint still applies.
-[plugins.definitions.phpstan.drivers.lint]
-prepare_script = "COMPOSER_VENDOR_DIR=vendor ~/.qlty/cache/tools/composer/generic-42cc848a9f5e/composer.phar install --no-scripts --ignore-platform-req='ext-*'"
 
 [[plugin]]
 name = "radarlint-php"

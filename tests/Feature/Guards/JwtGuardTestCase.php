@@ -10,7 +10,6 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -25,6 +24,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubInjectableDevice;
 
@@ -43,7 +44,7 @@ use Tests\Unit\Stubs\StubInjectableDevice;
  */
 abstract class JwtGuardTestCase extends TestCase
 {
-    use MockeryPHPUnitIntegration;
+    use InteractsWithDevices, MockeryPHPUnitIntegration;
 
     /** @var string The guard name forwarded to JwtGuard's constructor. */
     protected const string GUARD_NAME = 'jwt-test';
@@ -105,8 +106,8 @@ abstract class JwtGuardTestCase extends TestCase
         $this->tokens   = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
             self::GUARD_NAME,
-            self::ACCESS_TTL,
-            self::REFRESH_TTL,
+            new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, 30),
+            30,
         );
 
         // Default: Timebox::call() invokes the callback directly so credential
@@ -115,17 +116,7 @@ abstract class JwtGuardTestCase extends TestCase
             ->byDefault()
             ->andReturnUsing(static fn (callable $callback): mixed => $callback(new Timebox));
 
-        Schema::create('stub_devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type')->nullable();
-            $blueprint->string('authenticatable_id')->nullable();
-            $blueprint->string('os')->default('');
-            $blueprint->string('refresh_key', 64)->nullable();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
-        });
+        self::createDeviceTable('stub_devices');
     }
 
     /**
@@ -193,6 +184,7 @@ abstract class JwtGuardTestCase extends TestCase
             $this->tokens,
             $this->provider,
             $app->make(ConnectionResolverInterface::class),
+            static fn (): mixed => $app->make('db.transactions'),
             $this->events,
             $this->resolver,
             self::GUARD_NAME,

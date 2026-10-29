@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 
 /**
@@ -39,6 +40,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 #[CoversClass(RefreshTokenExchange::class)]
 final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Guard under test. */
     private const string GUARD = 'api';
 
@@ -95,15 +98,19 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     public static function provideTokensRejectedAfterALookup(): iterable
     {
         yield from [
-            'unknown subject'   => ['unknown', 1],
-            'inactive identity' => ['inactive', 1],
-            'revoked device'    => ['revoked', 2],
+            'unknown subject'        => ['unknown', 1],
+            'inactive identity'      => ['inactive', 1],
+            'revoked device'         => ['revoked', 2],
+            'idle deadline reached'  => ['idle', 2],
+            'absolute deadline past' => ['absolute', 2],
         ];
     }
 
     /**
      * A bearer token that fails after a lookup is resolved once per request:
-     * asking the guard again through every accessor costs no further query.
+     * asking the guard again through every accessor costs no further query. A
+     * revoked or ended device is rejected from the row the device lookup
+     * already loaded.
      *
      * @param  string  $rejection
      * @param  int  $reads
@@ -122,6 +129,8 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
         match ($rejection) {
             'unknown'  => $identity->delete(),
             'inactive' => $identity->forceFill(['is_active' => false])->save(),
+            'idle'     => $device->forceFill(['idle_expires_at' => $this->now])->save(),
+            'absolute' => $device->forceFill(['absolute_expires_at' => $this->now->copy()->subSecond()])->save(),
             default    => $device->forceFill(['revoked_at' => $this->now])->save(),
         };
 
@@ -246,7 +255,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
         $device   = $this->seedDevice($identity);
         $token    = $this->tokens()->issueAccessToken($identity, $identity, $device);
 
-        $device->forceFill(['last_logged_in_at' => $this->now])->save();
+        $device->forceFill(['last_used_at' => $this->now])->save();
 
         $started = hrtime(true);
 
@@ -289,7 +298,7 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
             'model'  => IntegrationIdentity::class,
         ]);
 
-        $config->set('authentication.device.last_seen_throttle_seconds', 60);
+        $config->set('authentication.device.last_used_throttle_seconds', 60);
     }
 
     /**
@@ -318,9 +327,9 @@ final class JwtGuardRejectionBudgetTest extends PerformanceContractTestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
             'refresh_key'          => RefreshTokenHasher::hash(self::ROTATION_ID),
         ])->save();
 

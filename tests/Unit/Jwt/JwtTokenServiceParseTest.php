@@ -11,6 +11,7 @@ use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 
 /**
  * Parse-side unit tests for `JwtTokenService` - `parse()` and the issuer /
@@ -47,7 +48,12 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $principal = $this->mockPrincipal('principal-3');
 
         $issuer   = $this->makeService();
-        $verifier = new JwtTokenService($this->makeKeyring('a-completely-different-secret-key-with-32!'), self::GUARD, self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES);
+        $verifier = new JwtTokenService(
+            $this->makeKeyring('a-completely-different-secret-key-with-32!'),
+            self::GUARD,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
+            30,
+        );
 
         $token = $issuer->issueAccessToken($identity, $principal, null);
 
@@ -125,8 +131,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $service = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             'https://issuer.example.test',
             'https://audience.example.test',
@@ -156,8 +161,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $issuer = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             self::ISSUER_A,
         );
@@ -165,8 +169,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $verifier = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             self::ISSUER_B,
         );
@@ -192,8 +195,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $issuer = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             null,
             'https://audience-a.example.test',
@@ -202,8 +204,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $verifier = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             null,
             'https://audience-b.example.test',
@@ -230,8 +231,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $service = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            1,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(1, self::REFRESH_TTL_MINUTES, 60 * 24 * 180, 30),
             30,
         );
 
@@ -268,8 +268,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
             $service = new JwtTokenService(
                 $this->makeKeyring(),
                 self::GUARD,
-                self::ACCESS_TTL_MINUTES,
-                self::REFRESH_TTL_MINUTES,
+                new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
                 15,
             );
 
@@ -300,8 +299,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $service = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             null,
             null,
@@ -327,8 +325,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $issuer = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             self::ISSUER_A,
         );
@@ -345,8 +342,7 @@ final class JwtTokenServiceParseTest extends JwtTokenServiceTestCase
         $verifier = new JwtTokenService(
             $this->makeKeyring(),
             self::GUARD,
-            self::ACCESS_TTL_MINUTES,
-            self::REFRESH_TTL_MINUTES,
+            new TokenLifetimes(self::ACCESS_TTL_MINUTES, self::REFRESH_TTL_MINUTES, self::ABSOLUTE_TTL_MINUTES, 30),
             30,
             self::ISSUER_B,
             null,

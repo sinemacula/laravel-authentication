@@ -19,7 +19,8 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
-use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -137,12 +138,17 @@ final class JwtGuardBenchHarness
         $this->events->setTransactionManagerResolver(static fn (): null => null);
         $this->events->listen(
             DeviceAuthenticated::class,
-            new UpdateDeviceTimestamp,
+            new RecordDeviceUsage(BenchRequest::client()),
         );
 
         $hasher = new BcryptHasher;
 
-        $this->tokens  = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 'api', 15, 60 * 24 * 30);
+        $this->tokens = new JwtTokenService(
+            JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'),
+            'api',
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
+            30,
+        );
         $this->timebox = new Timebox;
 
         $this->accessOnlyProvider        = new ModelProvider($hasher, PerformanceAccessOnlyIdentity::class);
@@ -194,7 +200,7 @@ final class JwtGuardBenchHarness
 
     /**
      * Benchmark the device-bearing bearer path when the listener must persist
-     * `last_logged_in_at`.
+     * `last_used_at`.
      *
      * @return void
      */
@@ -382,7 +388,7 @@ final class JwtGuardBenchHarness
             $identity->save();
         }
 
-        $freshDevice = Device::query()->where('os', 'bench-device-fresh')->first();
+        $freshDevice = Device::query()->where('client_name', 'bench-device-fresh')->first();
 
         /** @var string $identityId */
         $identityId = $identity->getKey();
@@ -390,10 +396,11 @@ final class JwtGuardBenchHarness
         if (!$freshDevice instanceof Device) {
             $freshDevice = new Device;
             $freshDevice->forceFill([
+                ...BenchSchema::liveSession(),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
-                'os'                   => 'bench-device-fresh',
-                'last_logged_in_at'    => Carbon::now(),
+                'client_name'          => 'bench-device-fresh',
+                'last_used_at'         => Carbon::now(),
             ])->save();
         }
 
@@ -407,10 +414,11 @@ final class JwtGuardBenchHarness
 
             $device = new Device;
             $device->forceFill([
+                ...BenchSchema::liveSession(),
                 'authenticatable_type' => IntegrationIdentity::class,
                 'authenticatable_id'   => $identityId,
-                'os'                   => 'bench-device-write-' . $index,
-                'last_logged_in_at'    => null,
+                'client_name'          => 'bench-device-write-' . $index,
+                'last_used_at'         => null,
             ])->save();
 
             $this->deviceWriteTokens[] = $this->tokens->issueAccessToken($identity, $identity, $device);
@@ -506,6 +514,7 @@ final class JwtGuardBenchHarness
             $this->tokens,
             $provider,
             BenchDatabase::connectionResolver(),
+            static fn (): null => null,
             $this->events,
             $this->resolver,
             $name,

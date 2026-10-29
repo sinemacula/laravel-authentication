@@ -22,7 +22,8 @@ use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
-use SineMacula\Laravel\Authentication\Listeners\UpdateDeviceTimestamp;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
+use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -108,7 +109,7 @@ final class RefreshTokenExchangeBenchHarness
                 'device' => [
                     'model'                      => Device::class,
                     'table'                      => 'devices',
-                    'last_seen_throttle_seconds' => 60,
+                    'last_used_throttle_seconds' => 60,
                 ],
                 'timebox' => [
                     'credentials_microseconds' => 400000,
@@ -125,12 +126,17 @@ final class RefreshTokenExchangeBenchHarness
         $this->events->setTransactionManagerResolver(static fn (): null => null);
         $this->events->listen(
             DeviceAuthenticated::class,
-            new UpdateDeviceTimestamp,
+            new RecordDeviceUsage(BenchRequest::client()),
         );
 
         $hasher = new BcryptHasher;
 
-        $this->tokens              = new JwtTokenService(JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'), 'api', 15, 60 * 24 * 30);
+        $this->tokens = new JwtTokenService(
+            JwtKeyring::fromKeyMap(['bench' => self::SECRET], 'bench', 'HS256'),
+            'api',
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
+            30,
+        );
         $this->provider            = new ModelProvider($hasher, StubPrincipal::class);
         $this->tenantAwareProvider = new ModelProvider($hasher, TenantAware3dIdentity::class);
         $this->timebox             = new Timebox;
@@ -310,11 +316,12 @@ final class RefreshTokenExchangeBenchHarness
 
             $device = new Device;
             $device->forceFill([
+                ...BenchSchema::liveSession(),
                 'authenticatable_type' => $ownerClass,
                 'authenticatable_id'   => $ownerId,
-                'os'                   => $prefix . $index,
+                'client_name'          => $prefix . $index,
                 'refresh_key'          => RefreshTokenHasher::hash($rotationId),
-                'last_logged_in_at'    => Carbon::now(),
+                'last_used_at'         => Carbon::now(),
             ])->save();
 
             $pool[] = $this->tokens->issueRefreshToken($device, $rotationId, $principal);
@@ -407,18 +414,19 @@ final class RefreshTokenExchangeBenchHarness
         // A well-formed id that names no row, so the bench measures the lookup
         // rather than the shape check that rejects malformed ids before it.
         $missingDevice = new Device;
-        $missingDevice->forceFill(['id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
+        $missingDevice->forceFill([...BenchSchema::liveSession(), 'id' => '0190f1d2-7c4e-7a3b-9f10-000000000000']);
         $this->unknownDeviceToken = $this->tokens->issueRefreshToken($missingDevice, 'bench-missing-device-rotation');
 
-        $mismatchDevice = Device::query()->where('os', 'bench-refresh-mismatch')->first();
+        $mismatchDevice = Device::query()->where('client_name', 'bench-refresh-mismatch')->first();
 
         if (!$mismatchDevice instanceof Device) {
 
             $mismatchDevice = new Device;
             $mismatchDevice->forceFill([
+                ...BenchSchema::liveSession(),
                 'authenticatable_type' => StubPrincipal::class,
                 'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-                'os'                   => 'bench-refresh-mismatch',
+                'client_name'          => 'bench-refresh-mismatch',
                 'refresh_key'          => RefreshTokenHasher::hash('stored-rotation-id'),
             ])->save();
         }
@@ -440,6 +448,7 @@ final class RefreshTokenExchangeBenchHarness
             $this->tokens,
             $provider,
             BenchDatabase::connectionResolver(),
+            static fn (): null => null,
             $this->events,
             $this->resolver,
             'api',

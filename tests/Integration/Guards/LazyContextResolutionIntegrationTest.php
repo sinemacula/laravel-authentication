@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\AuthManager;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\ActivatableTenantMember;
 use Tests\Integration\Fixtures\ActivatableTenantMembership;
@@ -37,6 +38,8 @@ use Tests\TestCase;
 #[CoversClass(JwtGuard::class)]
 final class LazyContextResolutionIntegrationTest extends TestCase
 {
+    use InteractsWithDevices;
+
     /**
      * Create the tenant, member, and membership tables.
      *
@@ -305,9 +308,9 @@ final class LazyContextResolutionIntegrationTest extends TestCase
 
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => ActivatableTenantMember::class,
             'authenticatable_id'   => (string) $member->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
         ])->save();
 
         return [$member, $membership, $tenant, $device];

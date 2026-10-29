@@ -28,7 +28,7 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 {
     /**
      * Asserts an issued access token decodes back to the supplied identity,
-     * principal, and device claims with an `exp` claim `access_ttl_minutes` in
+     * principal, and device claims with an `exp` claim the access lifetime in
      * the future and `typ = access`.
      *
      * @return void
@@ -132,8 +132,8 @@ final class JwtTokenServiceIssueTest extends JwtTokenServiceTestCase
 
     /**
      * Asserts the refresh-token claims contain the device identifier, the
-     * supplied rotation id (`jti`), and an `exp` claim `refresh_ttl_minutes` in
-     * the future. Legacy refresh tokens still omit `pid`.
+     * supplied rotation id (`jti`), and an `exp` claim at the device's idle
+     * deadline. A refresh token issued without a principal omits `pid`.
      *
      * @return void
      */

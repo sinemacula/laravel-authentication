@@ -166,9 +166,10 @@ trait BindsContextualState
      * access.
      *
      * A trusted bind, like `login()`: the device is bound as given, with no
-     * check that it belongs to the identity or is not revoked. A device taken
-     * from request input must be proven to be one of the identity's live
-     * devices first, as `attempt()` does for the device pinned on it.
+     * check that it belongs to the identity, is not revoked, or has a session
+     * that has not ended. A device taken from request input must be proven to
+     * be one of the identity's live devices first, as `attempt()` does for the
+     * device pinned on it.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return static

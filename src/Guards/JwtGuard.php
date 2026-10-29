@@ -83,8 +83,9 @@ final class JwtGuard extends AbstractGuard
      *
      * The presented token is rotated before the context is bound, so an
      * exception from a listener on the binding events or on `Refreshed`
-     * propagates after the rotation: the new pair is lost and the presented
-     * token no longer refreshes.
+     * propagates after the rotation and the new pair is lost. A retry with the
+     * presented token inside the grace window gets the current credential;
+     * after the window it is treated as a replay and revokes the device.
      *
      * @param  string  $refreshToken
      * @return ?\SineMacula\Laravel\Authentication\Jwt\RefreshResult

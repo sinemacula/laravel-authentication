@@ -50,7 +50,9 @@ final class ShippedJwtKeyConfigTest extends TestCase
         self::ACTIVE_KID_ENV,
         'AUTHENTICATION_JWT_ALGORITHM',
         'AUTHENTICATION_JWT_ACCESS_TTL_MINUTES',
-        'AUTHENTICATION_JWT_REFRESH_TTL_MINUTES',
+        'AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES',
+        'AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES',
+        'AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS',
         'AUTHENTICATION_JWT_LEEWAY_SECONDS',
         'AUTHENTICATION_JWT_ISSUER',
         'AUTHENTICATION_JWT_AUDIENCE',
@@ -180,6 +182,96 @@ final class ShippedJwtKeyConfigTest extends TestCase
         );
 
         PackageAuth::jwt(self::GUARD);
+    }
+
+    /**
+     * Out of the box a guard issues 5-minute access tokens, keeps a session for
+     * 90 days without a refresh and 180 days at most, gives a replaced refresh
+     * token 30 seconds of grace, and allows 30 seconds of clock skew. The
+     * shipped config is the only place those defaults live.
+     *
+     * @return void
+     */
+    public function testShippedLifetimesAreTheDocumentedDefaults(): void
+    {
+        putenv(self::KEY_ENV . '=' . self::KEY);
+
+        $jwt = $this->shippedJwtConfig();
+
+        self::assertSame(5, $jwt['access_ttl_minutes'] ?? null);
+        self::assertSame(60 * 24 * 90, $jwt['refresh_idle_ttl_minutes'] ?? null);
+        self::assertSame(60 * 24 * 180, $jwt['refresh_absolute_ttl_minutes'] ?? null);
+        self::assertSame(30, $jwt['leeway_seconds'] ?? null);
+
+        config()->set('authentication.jwt', $jwt);
+
+        $lifetimes = $this->shippedService()->lifetimes();
+
+        self::assertSame(5, $lifetimes->accessTtlMinutes);
+        self::assertSame(60 * 24 * 90, $lifetimes->refreshIdleTtlMinutes);
+        self::assertSame(60 * 24 * 180, $lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertSame(30, $lifetimes->refreshGraceSeconds);
+    }
+
+    /**
+     * The lifetimes read from the environment arrive as digit strings, which a
+     * guard on the shipped config accepts as integers.
+     *
+     * @return void
+     */
+    public function testShippedLifetimesReadDigitStringsFromEnv(): void
+    {
+        putenv(self::KEY_ENV . '=' . self::KEY);
+        putenv('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES=10');
+        putenv('AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES=20160');
+        putenv('AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES=43200');
+        putenv('AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS=45');
+
+        $jwt = $this->shippedJwtConfig();
+
+        self::assertSame('10', $jwt['access_ttl_minutes'] ?? null);
+
+        config()->set('authentication.jwt', $jwt);
+
+        $lifetimes = $this->shippedService()->lifetimes();
+
+        self::assertSame(10, $lifetimes->accessTtlMinutes);
+        self::assertSame(20160, $lifetimes->refreshIdleTtlMinutes);
+        self::assertSame(43200, $lifetimes->refreshAbsoluteTtlMinutes);
+        self::assertSame(45, $lifetimes->refreshGraceSeconds);
+    }
+
+    /**
+     * A lifetime in the environment that is not a whole number fails closed
+     * when the guard is resolved, rather than being cast to some integer.
+     *
+     * @return void
+     */
+    public function testShippedLifetimeRejectsAMalformedEnvValue(): void
+    {
+        putenv(self::KEY_ENV . '=' . self::KEY);
+        putenv('AUTHENTICATION_JWT_ACCESS_TTL_MINUTES=5m');
+
+        config()->set('authentication.jwt', $this->shippedJwtConfig());
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage('JWT `access_ttl_minutes` for guard [shipped] must be an integer from 1 to 1440');
+
+        PackageAuth::jwt(self::GUARD);
+    }
+
+    /**
+     * Resolve the guard's token service on the shipped config.
+     *
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     */
+    private function shippedService(): JwtTokenService
+    {
+        $service = PackageAuth::jwt(self::GUARD);
+
+        self::assertInstanceOf(JwtTokenService::class, $service);
+
+        return $service;
     }
 
     /**

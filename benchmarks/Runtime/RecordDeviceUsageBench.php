@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Runtime;
 
-use Benchmarks\Support\UpdateDeviceTimestampBenchHarness;
+use Benchmarks\Support\RecordDeviceUsageBenchHarness;
 use PhpBench\Attributes\Iterations;
 use PhpBench\Attributes\Revs;
 use PhpBench\Attributes\Warmup;
@@ -12,17 +12,17 @@ use PhpBench\Attributes\Warmup;
 /**
  * PHPBench suite for device timestamp persistence.
  *
- * Exercises the `UpdateDeviceTimestamp` listener across the throttle-skip path
+ * Exercises the `RecordDeviceUsage` listener across the throttle-skip path
  * (fresh timestamp) and the stale-write path.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 #[Warmup(1)]
-final class UpdateDeviceTimestampBench
+final class RecordDeviceUsageBench
 {
-    /** @var ?\Benchmarks\Support\UpdateDeviceTimestampBenchHarness @managed-static Reused across phpbench iterations. */
-    private static ?UpdateDeviceTimestampBenchHarness $harness = null;
+    /** @var ?\Benchmarks\Support\RecordDeviceUsageBenchHarness @managed-static Reused across phpbench iterations. */
+    private static ?RecordDeviceUsageBenchHarness $harness = null;
 
     /**
      * Benchmark the throttle-skip path where the device timestamp is already
@@ -53,10 +53,10 @@ final class UpdateDeviceTimestampBench
     /**
      * Lazily initialize the shared harness.
      *
-     * @return \Benchmarks\Support\UpdateDeviceTimestampBenchHarness
+     * @return \Benchmarks\Support\RecordDeviceUsageBenchHarness
      */
-    private function harness(): UpdateDeviceTimestampBenchHarness
+    private function harness(): RecordDeviceUsageBenchHarness
     {
-        return self::$harness ??= new UpdateDeviceTimestampBenchHarness;
+        return self::$harness ??= new RecordDeviceUsageBenchHarness;
     }
 }

@@ -46,13 +46,17 @@ device record live in the `devices` table so replay and stale credentials can be
   `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), and fail-closed
   behaviour on empty or short keys, unsupported algorithms, type confusion, tokens from another guard, missing claims,
   and `pid` / `did` mismatches.
-- **Refresh-token rotation** with constant-time digest verification, atomic per-device rotation, and
-  machine-readable `RefreshFailed` events for SIEM attribution.
+- **Refresh-token rotation with replay detection**: constant-time digest verification, atomic per-device rotation, a
+  short grace window for lost responses and parallel refreshes, revocation of the device when a rotated refresh token
+  is replayed, and machine-readable `RefreshFailed` and `DeviceRevoked` events for SIEM attribution.
 - **Kid-based key rotation** - signing keys are always a `kid → secret` map; every token carries the kid that signed
   it, so keys rotate without signing anyone out.
-- **Device tracking** with debounced `last_logged_in_at` writes.
+- **Device records**, one per signed-in session: owner, optional principal and client metadata, the last use (time,
+  IP address, user agent, debounced), the session's idle and absolute deadlines, and revocation with a reason. Refresh
+  digests are hidden from serialisation.
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed`
-  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed`.
+  alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `Refreshed` / `RefreshFailed` /
+  `DeviceRevoked`.
 - **Pluggable everywhere**: identity model, device model, principal resolver, table names.
 
 ## Design Notes
@@ -180,9 +184,42 @@ through its own user provider, so the provider's scoping applies and an owner it
 row stores the owner's primary key and the provider looks identities up by their auth identifier, so refresh requires an
 identity model whose auth identifier is its primary key: one that overrides `getAuthIdentifierName()` fails to refresh
 with `authenticatable_missing`. Every field in the package `jwt` block is overridable (`keys`, `active_kid`,
-`algorithm`, `access_ttl_minutes`, `refresh_ttl_minutes`, `leeway_seconds`, `issuer`, `audience`). `keys` and
-`active_kid` fall back independently: a guard that overrides `keys` should also set `active_kid` to a kid in its own
-map.
+`algorithm`, `access_ttl_minutes`, `refresh_idle_ttl_minutes`, `refresh_absolute_ttl_minutes`, `refresh_grace_seconds`,
+`leeway_seconds`, `issuer`, `audience`). `keys` and `active_kid` fall back independently: a guard that overrides `keys`
+should also set `active_kid` to a kid in its own map. A guard's `jwt` entry must be an array (or `null` for no
+overrides). `algorithm` must be a string, and `issuer` and `audience` a string or `null`: a guard that sets either to
+`null` or `''` turns that claim check off even when the package value sets one. A value of any other type, in the
+guard's block or the package block, fails closed with an `InvalidJwtConfigurationException` naming the key and the
+guard, rather than being ignored.
+
+### Token and session lifetimes
+
+Each guard issues access tokens and keeps sessions for these lifetimes, set in the package `jwt` block and overridable
+in a guard's `jwt` block. The defaults are 5 minutes for access tokens, and 90 days idle and 180 days absolute for
+sessions:
+
+| Key                            | Default | Range        | Env                                               |
+|--------------------------------|---------|--------------|---------------------------------------------------|
+| `access_ttl_minutes`           | 5       | 1 to 1440    | `AUTHENTICATION_JWT_ACCESS_TTL_MINUTES`           |
+| `refresh_idle_ttl_minutes`     | 129600  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_IDLE_TTL_MINUTES`     |
+| `refresh_absolute_ttl_minutes` | 259200  | 1 to 5256000 | `AUTHENTICATION_JWT_REFRESH_ABSOLUTE_TTL_MINUTES` |
+| `refresh_grace_seconds`        | 30      | 0 to 300     | `AUTHENTICATION_JWT_REFRESH_GRACE_SECONDS`        |
+| `leeway_seconds`               | 30      | 0 to 300     | `AUTHENTICATION_JWT_LEEWAY_SECONDS`               |
+
+A session is a device. It ends at its idle deadline unless a refresh moves that deadline forward, and at its absolute
+deadline however often it is refreshed: each refresh sets the idle deadline to the idle lifetime from now, never past
+the absolute deadline, and never moves the absolute deadline. Tokens mirror the device: a refresh token expires at the
+device's idle deadline, and an access token after the access lifetime but never after the device's idle or absolute
+deadline. With an idle lifetime shorter than the access lifetime, access tokens therefore expire at the idle deadline,
+together with the refresh token, so clients must refresh before their access token expires. A device past either
+deadline, or without one, is over everywhere: its access tokens are rejected (with no leeway), it cannot be pinned on
+sign-in, it cannot be refreshed (`session_expired`), and no token can be issued for it. Ending a session this way does
+not revoke the device.
+
+A guard override that is present and not `null` wins; otherwise the package value applies. Each value must be an integer
+or a string of digits (as `env()` returns it) within its range. A value that is missing, malformed, or out of range
+fails closed with an `InvalidJwtConfigurationException` naming the key and the guard when the guard or `Auth::jwt()`
+service is resolved; the defaults live only in the published config.
 
 ### Per-guard principal resolvers
 
@@ -203,26 +240,78 @@ Precedence: guard-local `principal_resolver` → app-wide `PrincipalResolver::cl
 
 ### Device
 
-The published `authentication.php` config controls the device model, table, and last-seen debounce:
+The published `authentication.php` config controls the device model, table, and how often a device's last use is
+written:
 
 ```php
 'device' => [
     'model'                      => SineMacula\Laravel\Authentication\Models\Device::class,
     'table'                      => 'devices',
-    'last_seen_throttle_seconds' => 60,
+    'last_used_throttle_seconds' => 60,
 ],
 ```
 
-The shipped `Device` model uses UUID v7 primary keys and a polymorphic `authenticatable` relation. Subclass it
-or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. Column names come from
-that contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates
-the default names, so a model that renames a column needs its own migration.
+A device is one signed-in session. The shipped migration creates these columns:
+
+| Column                                                 | Holds                                                  |
+|--------------------------------------------------------|--------------------------------------------------------|
+| `id`                                                   | UUID v7 primary key, carried in every token as `did`   |
+| `authenticatable_type`, `authenticatable_id`           | The owning identity (required)                         |
+| `principal_type`, `principal_id`                       | The principal the session acts as (any key type)       |
+| `guard`, `sign_in_method`                              | The guard and sign-in method that created it           |
+| `client_name`, `platform`                              | What the client calls itself (`Work laptop`, `macOS`)  |
+| `created_ip`, `created_user_agent`                     | The client at sign-in                                  |
+| `last_used_at`, `last_used_ip`, `last_used_user_agent` | The client at the last use                             |
+| `refresh_key`, `previous_refresh_key`                  | Digests of the current and previous rotation ids       |
+| `refresh_rotated_at`                                   | When the current rotation id replaced the previous one |
+| `idle_expires_at`, `absolute_expires_at`               | End without a refresh, and end regardless (required)   |
+| `revoked_at`, `revoked_reason`                         | When and why the session was revoked                   |
+
+Every timestamp is a `datetime` stored to the whole second, so a deadline years ahead fits on every engine (MySQL's
+`timestamp` type ends in January 2038), and the table is indexed on the owner, the principal, the guard, both
+deadlines, and the revocation time. Every authentication that binds a persisted device (a bearer request or a refresh)
+records its last use: the time, the request's IP address (only when it is a valid IPv4 or IPv6 address), and its user
+agent (without NUL bytes, as valid UTF-8, at most 512 characters), at most once per `last_used_throttle_seconds` (0
+records every use).
+
+Like Laravel's own `datetime` columns, these times are stored as wall-clock times in the application timezone, without
+an offset, so keep `app.timezone` at Laravel's default of `UTC` or another zone without daylight saving. In a zone with
+daylight saving, both passes through the hour that repeats when the clocks go back store the same value, and
+`ActsAsDevice` reads it as the first pass, whichever pass PHP itself would pick. A time stored in the second pass
+therefore reads back early by the length of the shift (an hour in most zones): a deadline stored there ends the session
+that much early (and when the idle lifetime is no longer than the shift, the refresh that sets it fails with an
+`InvalidArgumentException` and changes nothing), and a rotation stored there leaves the previous refresh token no grace
+window, so a retry of it counts as a replay and revokes the device. A last use recorded there reads early too, so for
+the rest of that pass a `last_used_throttle_seconds` shorter than the shift records every use. The ambiguity can end a
+session early, fail a refresh, or record extra uses; it never extends a session or a grace window.
+
+The shipped `Device` model uses UUID v7 primary keys, a polymorphic `authenticatable` relation, and a polymorphic
+`principal()` relation over the principal columns. Only `client_name` and `platform` are mass assignable; set the owner,
+the request-derived columns, and the session state with `forceFill()`. Both refresh digests are hidden from `toArray()`
+and `toJson()` by `ActsAsDevice`, under whatever column names the model uses. The package does not yet act on the
+stored `guard`, principal, or sign-in method: a session is bound to its guard by the `grd` claim of its tokens, and
+refresh does not record the principal it resolves on the device.
+
+Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
+device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
+by primary key, whatever the key column is called. Other column names come from the contract's accessors
+(`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates the default names, so a model
+that renames a column needs its own migration.
 
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
-than when its access tokens expire. `ActsAsDevice` reads any stored value as a revocation, with or without a `datetime`
-cast on the column, and throws a `LogicException` when the device was loaded without that column (a `devices()` relation
-or a global scope that selects other columns), so a partial select is reported instead of being read as not revoked.
+than when its access tokens expire. Revocation marks the row, with the time and a reason in `revoked_reason`, and clears
+both refresh digests; it never deletes the row. Today the package revokes a device only when the refresh exchange
+detects a replay; revoking is idempotent, so a device that is already revoked keeps its first revocation, and
+`DeviceRevoked` reports each revocation the package makes. The package has no revocation call for applications yet: to
+revoke a device yourself, set its `revoked_at` (and `revoked_reason`), which takes effect at once but fires no event. A
+device whose session has ended, past its idle or absolute deadline, is rejected the same way on the bearer path and as a
+sign-in pin, and fails refresh with `session_expired` (see [Token and session lifetimes](#token-and-session-lifetimes)).
+`ActsAsDevice` reads any stored timestamp as a value, with or without a `datetime` cast on the column, and throws a
+`LogicException` when the device was loaded without one of its refresh or revocation state columns (both digests, the
+rotation time, both deadlines, and the revocation time), for example through a `devices()` relation or a global scope
+that selects other columns, so a partial select is reported instead of being read as a device that is not revoked or has
+no deadline.
 
 Before a token's `did` is looked up, it is checked against the device model's primary key: a UUID for `HasUuids`, a
 ULID for `HasUlids`, an integer for an integer key, and a non-empty string otherwise. A `did` that cannot be a key is
@@ -244,9 +333,9 @@ Must exceed the worst-case hasher cost.
 ### Read replicas
 
 Every read that decides authentication - the identity, the principal and the tenant it acts within, and the device with
-its refresh digest and revocation state - goes to the write connection, even when the database connection has `read`
-and `write` hosts. A replica can lag behind a revocation, a deactivation, or a refresh rotation, and a lookup it served
-could admit a credential the primary has already rejected.
+its refresh digests, rotation time, session deadlines and revocation state - goes to the write connection, even when the
+database connection has `read` and `write` hosts. A replica can lag behind a revocation, a deactivation, a refresh
+rotation, or an ended session, and a lookup it served could admit a credential the primary has already rejected.
 
 The package pins the lookups it makes, including the relations the identity, principal and device models eager-load
 (`$with`), on whichever connection those relations live (a tenant in a separate landlord database, say). Code you plug
@@ -256,10 +345,10 @@ in carries the same obligation:
   must read from the write connection, including the relations its results eager-load;
 - `resolveDefaultPrincipal()`, `resolveHintedPrincipal()`, `devices()` and, when `ModelProvider` checks a password,
   `getAuthPassword()` already run inside `WriteConnection::during()` for the identity, `getTenant()` for the principal,
-  `isActive()` for the model it belongs to, and a device's `getRevokedAt()` and `getRefreshKey()` for the device: every
-  model read made there, on any connection, goes to that connection's writer, and so does a query-builder read on the
-  model's own connection. A query-builder or `DB` read on another connection, or made by a principal or identity that
-  is not an Eloquent model, must pin itself.
+  `isActive()` for the model it belongs to, and a device's refresh state, session deadlines and revocation for the
+  device: every model read made there, on any connection, goes to that connection's writer, and so does a query-builder
+  read on the model's own connection. A query-builder or `DB` read on another connection, or made by a principal or
+  identity that is not an Eloquent model, must pin itself.
 
 `WriteConnection` does both. `query()` routes a single query; Eloquent fetches eager-loaded relations with separate
 queries that it does not reach, so run a lookup whose results load relations inside `during()`, which pins every
@@ -497,11 +586,12 @@ $guard->attempt(['email' => $email, 'password' => $password], $membership, $devi
 The pins are verified rather than trusted, because they often come from request input: the principal must be one the
 resolver returns for that identifier on the authenticated identity (same class, same identifier) and must belong to that
 identity (its `getIdentity()` is the authenticated identity), and the device must be one of the identity's own devices
-(through `HasDevices`, looked up the way a bearer `did` is) and not revoked. A pin that fails either check fails the
-attempt. `login()` is the trusted entry point: it binds exactly what it is given, so only pass it a principal and device
-you have already proven belong to the identity. `setPrincipal()` and `setDevice()` are trusted binds in the same way:
-they do not check ownership, activity or revocation, so a principal or device taken from request input (a header that
-switches the acting membership, say) must be verified first, as `attempt()` verifies its pins.
+(through `HasDevices`, looked up the way a bearer `did` is), not revoked, and with a session that has not ended. A pin
+that fails either check fails the attempt. `login()` is the trusted entry point: it binds exactly what it is given, so
+only pass it a principal and device you have already proven belong to the identity. `setPrincipal()` and `setDevice()`
+are trusted binds in the same way: they do not check ownership, activity, revocation or session deadlines, so a
+principal or device taken from request input (a header that switches the acting membership, say) must be verified
+first, as `attempt()` verifies its pins.
 
 Pinning a principal therefore needs a principal that can report its owner. With `ActsAsPrincipal`, declare the
 `identity` relation, as `AppMembership` does above (or override `getIdentityRelationName()`). The owner is read again
@@ -509,13 +599,55 @@ from the principal's own stored key, even when Eloquent's strict mode prevents l
 relation the resolver already set, and a principal whose owner cannot be read (no relation, or an owner that has been
 deleted) fails the attempt.
 
-Issue tokens through the guard-scoped JWT service, then use the guard for refresh:
+Issue tokens through the guard-scoped JWT service, then use the guard for refresh. A device must carry both deadlines
+before anything is issued for it; stamp them from the guard's lifetimes when the device is created:
 
 ```php
-$tokens = Auth::jwt('api');
-$guard  = auth()->guard('api');
+use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
+use SineMacula\Laravel\Authentication\Models\Device;
 
-$accessToken = $tokens->issueAccessToken($identity, $principal, $device);
+$tokens    = Auth::jwt('api');
+$lifetimes = $tokens->lifetimes();
+$absolute  = $lifetimes->absoluteDeadline(now());
+$rotation  = RefreshTokenHasher::generate();
+$client    = ClientContext::fromRequest($request);
+$described = $request->validate([
+    'client_name' => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
+    'platform'    => ['nullable', 'string', 'max:255', 'regex:/^[^\x00]*$/u'],
+]);
+
+$device = new Device($described);
+$device->forceFill([
+    'authenticatable_type' => $identity->getMorphClass(),
+    'authenticatable_id'   => (string) $identity->getKey(),
+    'principal_type'       => $principal->getMorphClass(),
+    'principal_id'         => (string) $principal->getKey(),
+    'guard'                => 'api',
+    'created_ip'           => $client->ip,
+    'created_user_agent'   => $client->userAgent,
+    'refresh_key'          => RefreshTokenHasher::hash($rotation),
+    'idle_expires_at'      => $lifetimes->idleDeadline(now(), $absolute),
+    'absolute_expires_at'  => $absolute,
+])->save();
+
+$refreshToken = $tokens->issueRefreshToken($device, $rotation, $principal);
+$accessToken  = $tokens->issueAccessToken($identity, $principal, $device);
+```
+
+Until the package creates devices itself, the code that creates one is the only writer of its creation metadata: the
+guard, the principal it acts as, and the client it was created from. Record the client with
+`ClientContext::fromRequest()`, which cleans the IP address and user agent the way the package cleans them for last use:
+a raw user agent with invalid UTF-8 or more than 512 characters fails the insert on PostgreSQL and on MySQL in strict
+mode, and one with a NUL byte is cut short at it on PostgreSQL, which cannot store NUL in text. The client name and
+platform come from the client too, so validate them as above: invalid UTF-8 or more than 255 characters fails the insert
+in the same way, and a NUL byte cuts the value short on PostgreSQL. The `regex` rule rejects NUL bytes, and its `u` flag
+rejects invalid UTF-8.
+
+Then exchange the refresh token through the guard:
+
+```php
+$guard = auth()->guard('api');
 
 $rotated = $guard->refresh($refreshToken);
 
@@ -532,8 +664,47 @@ return [
 
 A failure before the stored rotation commits, such as an error while signing the new pair, leaves the presented refresh
 token valid for a retry. After the commit, `refresh()` binds the new context and dispatches `Refreshed`; an exception
-from a listener on those events loses the new pair, and the presented token then fails with `rotation_mismatch`, so
-keep those listeners from throwing or queue them.
+from a listener on those events loses the new pair, but a retry with the presented token inside the grace window still
+gets the current credential (see [Refresh token replay](#refresh-token-replay)). Keep those listeners from throwing or
+queue them, so a retry is never needed.
+
+### Refresh token replay
+
+Refresh tokens stay signed JWTs, and each one carries the device's rotation id, which the device stores only as a
+SHA-256 digest. Every successful refresh rotates the device to the next rotation id and remembers the one it replaced,
+with the time of the rotation. A validly signed refresh token for a live device then carries one of three ids:
+
+- the current one: the refresh rotates it and returns a new pair;
+- the one the current one replaced, presented within `refresh_grace_seconds` (30 by default) of that rotation: the
+  refresh returns a new pair carrying the device's current rotation id, and writes no rotation state, so a client that
+  lost the response, or a second tab that refreshed at the same moment, keeps its session, and retries never extend the
+  window;
+- any other id: the token was rotated before, so it has been replayed, perhaps stolen. The device is revoked at once
+  (`revoked_at` and `revoked_reason = rotation_reuse`, both digests cleared), `DeviceRevoked` and `RefreshFailed`
+  (`rotation_reuse`) are dispatched, and every token of the device stops working, access tokens included.
+
+Only the immediately previous id is honoured: after two quick refreshes, a delayed retry of the first token is a
+replay. With `refresh_grace_seconds` set to 0 the previous id is a replay too. A device that holds no refresh
+credential cannot tell a replay from anything else, so its tokens fail with `refresh_key_missing` and the device is
+left alone. When a parallel refresh changes the device between this refresh's read and its write, the row is judged
+again as it now is: usually that makes this refresh a grace retry; a deadline that moved in between fails it with
+`rotation_conflict`, without revoking anything, and the client can simply retry.
+
+A refresh token for a rotation id the device never held is a replay too, and that includes a token from an earlier
+refresh credential of the same device. Do not sign a client in again by giving an existing device a new
+`refresh_key`: any refresh token left from its earlier session stays validly signed until its own `exp` and, when it
+is presented, revokes the new session. Create a new device for each sign-in, as the example under
+[Usage](#usage) does.
+
+Every refresh judges the device at one moment, taken when it starts, so application servers should keep synchronised
+clocks. The package opens no transaction. If you call `refresh()` inside your own transaction, do not roll it back after
+a failed refresh: a rollback also undoes a replay revocation. `DeviceRevoked` is dispatched once the revocation is
+committed on the device's own connection: at once outside a transaction, so before `RefreshFailed` and `Failed`, and
+after the commit inside one, so after them; a rolled-back revocation is never reported, and a transaction on another
+connection neither delays nor withdraws it. The transaction that Laravel's `DatabaseTransactions` and `RefreshDatabase`
+testing traits wrap around each test does not count either, so a test sees `DeviceRevoked` when the application would.
+Under PostgreSQL's REPEATABLE READ, a parallel refresh that commits first makes this one fail with a serialization
+error, which surfaces as a server error for you to retry.
 
 ## Key Rotation
 
@@ -562,8 +733,8 @@ AUTHENTICATION_JWT_ACTIVE_KID="2026-05"
 ```
 
 Tokens signed under `default` keep verifying while it stays in the map. Remove it once every token signed under it
-has expired (the longer of the access and refresh token lifetimes). Removing a kid immediately rejects every token
-signed under it, which is also how to revoke a compromised key.
+has expired: a refresh token never outlives its session, so at most the absolute session lifetime after the switch.
+Removing a kid immediately rejects every token signed under it, which is also how to revoke a compromised key.
 
 ## Events
 
@@ -578,6 +749,7 @@ signed under it, which is also how to revoke a compromised key.
 | `SineMacula\...\Events\DeviceAuthenticated` | Device hydrated and bound; listeners may persist metadata |
 | `SineMacula\...\Events\Refreshed`           | Refresh exchange completed                                |
 | `SineMacula\...\Events\RefreshFailed`       | Refresh exchange failed (carries machine-readable reason) |
+| `SineMacula\...\Events\DeviceRevoked`       | The package revoked a device (a replay); carries reason   |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -596,9 +768,11 @@ the published config:
 |---------------------------|------------------------------------------------------|
 | `token_invalid`           | Decode, expiry, missing claim, typ, guard, iss, aud  |
 | `device_unknown`          | Device id is not a device key or names no device     |
-| `rotation_mismatch`       | Digest did not match the stored refresh key          |
-| `rotation_reuse`          | Replay or concurrent rotation; device revoked        |
+| `rotation_reuse`          | Rotated token replayed; device revoked               |
+| `rotation_conflict`       | Device changed during the refresh; retry             |
+| `refresh_key_missing`     | Device holds no refresh credential                   |
 | `device_revoked`          | Device row marked revoked                            |
+| `session_expired`         | Device's idle or absolute deadline reached, or unset |
 | `authenticatable_missing` | Guard's provider did not return the device owner     |
 | `identity_inactive`       | Resolved identity reported inactive                  |
 | `principal_unresolved`    | Principal resolver returned null                     |

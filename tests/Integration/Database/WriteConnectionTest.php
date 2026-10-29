@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Database\PinningConnectionResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithLaggingReplica;
 use Tests\Integration\Fixtures\LandlordTenant;
 use Tests\TestCase;
@@ -36,7 +37,7 @@ use Tests\TestCase;
 #[CoversClass(PinningConnectionResolver::class)]
 final class WriteConnectionTest extends TestCase
 {
-    use InteractsWithLaggingReplica;
+    use InteractsWithDevices, InteractsWithLaggingReplica;
 
     /**
      * Remove the temporary primary and replica files.
@@ -304,9 +305,9 @@ final class WriteConnectionTest extends TestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => 'identity',
             'authenticatable_id'   => '1',
-            'os'                   => 'ios',
         ])->save();
 
         return $device;

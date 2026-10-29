@@ -4,13 +4,15 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Jwt;
 
-use Carbon\Carbon;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Firebase\JWT\JWT;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 
@@ -28,6 +30,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
  *   from another guard is rejected even when the guards share a key
  * - configurable clock skew via `leewaySeconds` on every verification
  * - optional strict `iss` / `aud` verification
+ * - token lifetimes from the guard's `TokenLifetimes`; a token for a device
+ *   mirrors the device's session and is never issued for one that has ended
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -42,8 +46,7 @@ final class JwtTokenService
      *
      * @param  \SineMacula\Laravel\Authentication\Jwt\JwtKeyring  $keyring
      * @param  string  $guard
-     * @param  int  $accessTtlMinutes
-     * @param  int  $refreshTtlMinutes
+     * @param  \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes  $lifetimes
      * @param  int  $leewaySeconds
      * @param  ?string  $issuer
      * @param  ?string  $audience
@@ -59,14 +62,11 @@ final class JwtTokenService
         /** Guard the service issues for; written to and required in `grd`. */
         private string $guard,
 
-        /** Access-token lifetime in minutes, written into the `exp` claim. */
-        private int $accessTtlMinutes,
-
-        /** Refresh-token lifetime in minutes, written into the `exp` claim. */
-        private int $refreshTtlMinutes,
+        /** Token and session lifetimes the issued `exp` claims follow. */
+        private TokenLifetimes $lifetimes,
 
         /** Clock-skew tolerance applied to every `exp`/`iat` check. */
-        private int $leewaySeconds = 30,
+        private int $leewaySeconds,
 
         /** Optional `iss` claim; rejects tokens with a different issuer. */
         private ?string $issuer = null,
@@ -86,26 +86,49 @@ final class JwtTokenService
     }
 
     /**
+     * The token and session lifetimes this service issues with, which code that
+     * creates a device uses to stamp the device's deadlines.
+     *
+     * @return \SineMacula\Laravel\Authentication\Jwt\TokenLifetimes
+     */
+    public function lifetimes(): TokenLifetimes
+    {
+        return $this->lifetimes;
+    }
+
+    /**
      * Encode an access-token payload for the given context.
+     *
+     * The token expires after the access lifetime, and never after the end of
+     * the device's session when a device is given: the earlier of its idle and
+     * absolute deadlines, from which the bearer path rejects the token anyway.
+     * An idle lifetime shorter than the access lifetime therefore shortens the
+     * token to match. `$issuedAt` (default now, cut to the whole second) sets
+     * `iat` and the start of the lifetime, so a caller that has just judged the
+     * device at a given time issues at that same time.
      *
      * Refuses to issue a token that `parse()` would reject or that would lose
      * part of its context: the identity and principal, and the device when one
      * is given, must each have an identifier that can be written into its claim
-     * (a saved model's scalar key).
+     * (a saved model's scalar key). Refuses, too, a device whose session has
+     * ended or that has no deadlines.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?\Carbon\CarbonInterface  $issuedAt
      * @return string
      *
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \Random\RandomException
      */
-    public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device): string
+    public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt = null): string
     {
-        $now = Carbon::now()->getTimestamp();
+        $issuedAt   = $this->issueTime($issuedAt);
+        $sessionEnd = $device === null ? null : $this->sessionEnd($device, $issuedAt);
 
-        $payload = $this->baseClaims($now, $now + ($this->accessTtlMinutes * 60), TokenType::ACCESS);
+        $payload = $this->baseClaims($issuedAt, $this->lifetimes->accessExpiry($issuedAt, $sessionEnd)->getTimestamp(), TokenType::ACCESS);
 
         $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
         $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
@@ -118,24 +141,32 @@ final class JwtTokenService
     /**
      * Encode a refresh-token payload bound to a specific device.
      *
+     * The token expires at the device's idle deadline, and never after its
+     * absolute deadline: the device row is the source of truth for how long the
+     * session lasts, and the token mirrors it. `$issuedAt` (default now, cut to
+     * the whole second) sets `iat`.
+     *
      * The caller MUST hash the supplied plaintext `$rotationId` before
      * persisting it on the device row. Refuses to issue a token that `parse()`
      * would reject or that would lose its principal: the device, and the
      * principal when one is given, must each have an identifier that can be
-     * written into its claim, and the rotation id must not be empty.
+     * written into its claim, and the rotation id must not be empty. Refuses,
+     * too, a device whose session has ended or that has no deadlines.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\Carbon\CarbonInterface  $issuedAt
      * @return string
      *
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      */
-    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null): string
+    public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null, ?CarbonInterface $issuedAt = null): string
     {
-        $now = Carbon::now()->getTimestamp();
+        $issuedAt = $this->issueTime($issuedAt);
 
-        $payload = $this->baseClaims($now, $now + ($this->refreshTtlMinutes * 60), TokenType::REFRESH);
+        $payload = $this->baseClaims($issuedAt, $this->sessionEnd($device, $issuedAt)->getTimestamp(), TokenType::REFRESH);
 
         $payload[Claims::DEVICE_ID->value] = $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
         $payload[Claims::JWT_ID->value]    = $this->requireClaimValue(Claims::JWT_ID, $rotationId);
@@ -175,17 +206,52 @@ final class JwtTokenService
     }
 
     /**
+     * The whole second a token is issued at: the given time, or now.
+     *
+     * @param  ?\Carbon\CarbonInterface  $issuedAt
+     * @return \Carbon\CarbonImmutable
+     */
+    private function issueTime(?CarbonInterface $issuedAt): CarbonImmutable
+    {
+        return ($issuedAt === null ? CarbonImmutable::now() : CarbonImmutable::instance($issuedAt))->startOfSecond();
+    }
+
+    /**
+     * Return when the device's session ends, the earlier of its idle and
+     * absolute deadlines, refusing to issue for a device whose session has
+     * ended at the issue time or that has no deadlines: a token for it could
+     * never be used, and must not be able to extend a session that is over.
+     *
+     * The deadlines are read inside `WriteConnection::during()` for the device,
+     * so a device that derives one from another table caps its tokens at the
+     * writer's deadline, not a lagging replica's.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  \Carbon\CarbonInterface  $issuedAt
+     * @return \Carbon\CarbonImmutable
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function sessionEnd(Device $device, CarbonInterface $issuedAt): CarbonImmutable
+    {
+        [$idle, $absolute] = WriteConnection::during($device, static fn (): ?array => TokenLifetimes::liveDeadlines($device, $issuedAt))
+            ?? throw new \InvalidArgumentException('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
+
+        return CarbonImmutable::createFromTimestamp(min($idle->getTimestamp(), $absolute->getTimestamp()));
+    }
+
+    /**
      * Build the base claim set (iat, exp, typ, grd, iss, aud).
      *
-     * @param  int  $issuedAt
+     * @param  \Carbon\CarbonInterface  $issuedAt
      * @param  int  $expiresAt
      * @param  \SineMacula\Laravel\Authentication\Jwt\Enums\TokenType  $type
      * @return array<string, mixed>
      */
-    private function baseClaims(int $issuedAt, int $expiresAt, TokenType $type): array
+    private function baseClaims(CarbonInterface $issuedAt, int $expiresAt, TokenType $type): array
     {
         $claims = [
-            Claims::ISSUED_AT->value  => $issuedAt,
+            Claims::ISSUED_AT->value  => $issuedAt->getTimestamp(),
             Claims::EXPIRES_AT->value => $expiresAt,
             Claims::TYPE->value       => $type->value,
             Claims::GUARD->value      => $this->guard,

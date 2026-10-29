@@ -67,7 +67,7 @@ abstract class TestCase extends OrchestraTestCase
         $config->set('authentication.jwt.issuer', null);
         $config->set('authentication.jwt.audience', null);
         $config->set('authentication.jwt.access_ttl_minutes', 15);
-        $config->set('authentication.jwt.refresh_ttl_minutes', 60 * 24 * 30);
+        $config->set('authentication.jwt.refresh_idle_ttl_minutes', 60 * 24 * 30);
     }
 
     /**

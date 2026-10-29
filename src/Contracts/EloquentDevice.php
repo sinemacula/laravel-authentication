@@ -11,7 +11,8 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  *
  * Extends the generic `Device` read surface with the relation and the
  * column-name accessors behind each persisted device attribute, which the
- * package's refresh rotation and last-seen persistence paths rely on.
+ * package's refresh rotation, revocation, and last-use persistence paths rely
+ * on.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,44 +31,73 @@ interface EloquentDevice extends Device
     public function authenticatable(): MorphTo;
 
     /**
-     * Column name holding the device identifier.
+     * Column name holding when the device was last used.
      *
      * @return string
      */
-    public function getDeviceIdentifierName(): string;
+    public function getLastUsedAtName(): string;
 
     /**
-     * Column name holding the persisted last-logged-in timestamp.
+     * Column name holding the IP address the device was last used from.
      *
      * @return string
      */
-    public function getLastLoggedInName(): string;
+    public function getLastUsedIpName(): string;
 
     /**
-     * Column name holding the persisted last MFA verification timestamp.
+     * Column name holding the user agent the device was last used with.
      *
      * @return string
      */
-    public function getLastMfaVerificationName(): string;
+    public function getLastUsedUserAgentName(): string;
 
     /**
-     * Column name holding the persisted operating system string.
-     *
-     * @return string
-     */
-    public function getOperatingSystemName(): string;
-
-    /**
-     * Column name holding the persisted hashed refresh-key digest.
+     * Column name holding the digest of the current refresh rotation id.
      *
      * @return string
      */
     public function getRefreshKeyName(): string;
 
     /**
-     * Column name holding the persisted revocation timestamp.
+     * Column name holding the digest of the previous refresh rotation id.
+     *
+     * @return string
+     */
+    public function getPreviousRefreshKeyName(): string;
+
+    /**
+     * Column name holding when the current refresh rotation id replaced the
+     * previous one.
+     *
+     * @return string
+     */
+    public function getRefreshRotatedAtName(): string;
+
+    /**
+     * Column name holding the idle deadline.
+     *
+     * @return string
+     */
+    public function getIdleExpiresAtName(): string;
+
+    /**
+     * Column name holding the absolute deadline.
+     *
+     * @return string
+     */
+    public function getAbsoluteExpiresAtName(): string;
+
+    /**
+     * Column name holding the revocation timestamp.
      *
      * @return string
      */
     public function getRevokedAtName(): string;
+
+    /**
+     * Column name holding the revocation reason.
+     *
+     * @return string
+     */
+    public function getRevokedReasonName(): string;
 }

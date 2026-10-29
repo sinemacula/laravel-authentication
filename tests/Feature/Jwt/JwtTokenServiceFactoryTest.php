@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
@@ -21,6 +22,7 @@ use SineMacula\Laravel\Authentication\Jwt\InvalidJwtConfigurationException;
 use SineMacula\Laravel\Authentication\Jwt\JwtKeyring;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use Tests\Concerns\InteractsWithJwtTokens;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
@@ -74,6 +76,9 @@ final class JwtTokenServiceFactoryTest extends TestCase
 
     /** @var string Purely numeric kid for the previous-generation key. */
     private const string NUMERIC_KID_OLD = '2025';
+
+    /** @var string Guard whose lifetimes and leeway the resolution tests read. */
+    private const string LIFETIME_GUARD = 'package_default';
 
     /** @var string Secret material long enough for HS384 (48 bytes). */
     private const string HS384_SECRET = 'hs384-secret-material-with-at-least-48-bytes!!!!';
@@ -769,6 +774,392 @@ final class JwtTokenServiceFactoryTest extends TestCase
     }
 
     /**
+     * Rows of `[key, a valid value other than the default]` for every integer
+     * key.
+     *
+     * @return iterable<string, array{0: string, 1: int}>
+     */
+    public static function provideIntegerKeys(): iterable
+    {
+        yield from [
+            'access lifetime'   => ['access_ttl_minutes', 12],
+            'idle lifetime'     => ['refresh_idle_ttl_minutes', 1234],
+            'absolute lifetime' => ['refresh_absolute_ttl_minutes', 5678],
+            'grace window'      => ['refresh_grace_seconds', 45],
+            'leeway'            => ['leeway_seconds', 7],
+        ];
+    }
+
+    /**
+     * A guard override that is present and not `null` wins over the package
+     * value.
+     *
+     * @param  string  $key
+     * @param  int  $value
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideIntegerKeys')]
+    public function testGuardOverrideWins(string $key, int $value): void
+    {
+        $this->setGuardOverrides([$key => $value]);
+
+        self::assertSame($value, $this->resolved($key));
+    }
+
+    /**
+     * Without an override, or with a `null` one, the package value applies.
+     *
+     * @param  string  $key
+     * @param  int  $value
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideIntegerKeys')]
+    public function testPackageValueAppliesWithoutAnOverride(string $key, int $value): void
+    {
+        config()->set("authentication.jwt.{$key}", $value);
+
+        self::assertSame($value, $this->resolved($key));
+
+        $this->setGuardOverrides([$key => null]);
+
+        self::assertSame($value, $this->resolved($key));
+    }
+
+    /**
+     * A string of digits, which is what `env()` returns, is read as its integer
+     * at either level.
+     *
+     * @param  string  $key
+     * @param  int  $value
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideIntegerKeys')]
+    public function testCanonicalDigitStringIsAccepted(string $key, int $value): void
+    {
+        config()->set("authentication.jwt.{$key}", (string) $value);
+
+        self::assertSame($value, $this->resolved($key));
+
+        $this->setGuardOverrides([$key => (string) ($value + 1)]);
+
+        self::assertSame($value + 1, $this->resolved($key));
+    }
+
+    /**
+     * Values that are neither an integer nor a canonical digit string.
+     *
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function provideMalformedValues(): iterable
+    {
+        yield from [
+            'true'                => [true],
+            'float'               => [1.0],
+            'decimal string'      => ['1.0'],
+            'padded with a space' => [' 5'],
+            'signed'              => ['-1'],
+            'leading zero'        => ['05'],
+            'letters'             => ['five'],
+            'empty string'        => [''],
+            'overflowing digits'  => ['99999999999999999999'],
+            'array'               => [[5]],
+        ];
+    }
+
+    /**
+     * A guard override that is not an integer fails closed rather than being
+     * ignored, naming the key and the guard.
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideMalformedValues')]
+    public function testMalformedGuardOverrideFailsClosed(mixed $value): void
+    {
+        $this->setGuardOverrides(['access_ttl_minutes' => $value]);
+
+        $this->expectInvalidKey('access_ttl_minutes', 1, 1440);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A package value that is not an integer, `null` included, fails closed.
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideMalformedValues')]
+    public function testMalformedPackageValueFailsClosed(mixed $value): void
+    {
+        config()->set('authentication.jwt.refresh_idle_ttl_minutes', $value);
+
+        $this->expectInvalidKey('refresh_idle_ttl_minutes', 1, 5256000);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * Rows of `[key, value, minimum, maximum, accepted]` at and beyond each
+     * range bound.
+     *
+     * @return iterable<string, array{0: string, 1: int, 2: int, 3: int, 4: bool}>
+     */
+    public static function provideRangeBounds(): iterable
+    {
+        $ranges = [
+            ['access_ttl_minutes', 1, 1440],
+            ['refresh_idle_ttl_minutes', 1, 5256000],
+            ['refresh_absolute_ttl_minutes', 1, 5256000],
+            ['refresh_grace_seconds', 0, 300],
+            ['leeway_seconds', 0, 300],
+        ];
+
+        foreach ($ranges as [$key, $min, $max]) {
+            yield "{$key} below the minimum" => [$key, $min - 1, $min, $max, false];
+            yield "{$key} at the minimum" => [$key, $min, $min, $max, true];
+            yield "{$key} at the maximum" => [$key, $max, $min, $max, true];
+            yield "{$key} above the maximum" => [$key, $max + 1, $min, $max, false];
+        }
+    }
+
+    /**
+     * Each key accepts exactly its range: no lifetime of zero, at most a day
+     * for access tokens and ten years for sessions, and at most five minutes of
+     * leeway.
+     *
+     * @param  string  $key
+     * @param  int  $value
+     * @param  int  $min
+     * @param  int  $max
+     * @param  bool  $accepted
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    #[DataProvider('provideRangeBounds')]
+    public function testEachKeyAcceptsExactlyItsRange(string $key, int $value, int $min, int $max, bool $accepted): void
+    {
+        $this->setGuardOverrides([$key => $value]);
+
+        if (!$accepted) {
+            $this->expectInvalidKey($key, $min, $max);
+        }
+
+        self::assertSame($value, $this->resolved($key));
+    }
+
+    /**
+     * Rows of `[key]` for every integer key.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function provideIntegerKeyNames(): iterable
+    {
+        foreach (self::provideIntegerKeys() as $name => [$key]) {
+            yield $name => [$key];
+        }
+    }
+
+    /**
+     * A key missing at both levels fails closed: the factory carries no literal
+     * default of its own.
+     *
+     * @param  string  $key
+     * @return void
+     */
+    #[DataProvider('provideIntegerKeyNames')]
+    public function testKeyMissingAtBothLevelsFailsClosed(string $key): void
+    {
+        $this->removePackageValue($key);
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage("JWT `{$key}` for guard [" . self::LIFETIME_GUARD . ']');
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * An algorithm missing at both levels fails closed instead of defaulting to
+     * HS256.
+     *
+     * @return void
+     */
+    public function testAlgorithmMissingAtBothLevelsFailsClosed(): void
+    {
+        $this->removePackageValue('algorithm');
+
+        $this->expectInvalidAlgorithm();
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * Rows of `[where, value]` for an algorithm that is set, in the guard's
+     * overrides or the package config, but is not a string.
+     *
+     * @return iterable<string, array{0: string, 1: mixed}>
+     */
+    public static function provideNonStringAlgorithms(): iterable
+    {
+        foreach (['guard override', 'package value'] as $where) {
+            yield "{$where} as an integer" => [$where, 384];
+            yield "{$where} as an array" => [$where, ['HS512']];
+            yield "{$where} as a boolean" => [$where, true];
+        }
+    }
+
+    /**
+     * An algorithm override that is not a string fails closed instead of
+     * falling back to the package algorithm, as does a package algorithm that
+     * is not a string.
+     *
+     * @param  string  $where
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideNonStringAlgorithms')]
+    public function testNonStringAlgorithmFailsClosed(string $where, mixed $value): void
+    {
+        if ($where === 'guard override') {
+            $this->setGuardOverrides(['algorithm' => $value]);
+        } else {
+            config()->set('authentication.jwt.algorithm', $value);
+        }
+
+        $this->expectInvalidAlgorithm();
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A `null` algorithm override means "use the package algorithm".
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testNullAlgorithmOverrideUsesThePackageAlgorithm(): void
+    {
+        config()->set('authentication.jwt.algorithm', 'HS384');
+        config()->set('authentication.jwt.keys', [self::PACKAGE_KID => self::HS384_SECRET]);
+
+        $this->setGuardOverrides(['algorithm' => null]);
+
+        self::assertSame('HS384', $this->jwtHeader($this->issueAccessToken($this->lifetimeService()))['alg']);
+    }
+
+    /**
+     * Rows of `[key, value]` for an issuer or audience that is set but neither
+     * a string nor `null`.
+     *
+     * @return iterable<string, array{0: string, 1: mixed}>
+     */
+    public static function provideNonStringClaimPolicies(): iterable
+    {
+        foreach (['issuer', 'audience'] as $key) {
+            yield "{$key} as an array" => [$key, ['staff-api']];
+            yield "{$key} as an integer" => [$key, 42];
+            yield "{$key} as a boolean" => [$key, false];
+        }
+    }
+
+    /**
+     * An issuer or audience override that is neither a string nor `null` fails
+     * closed: read as `null` it would turn the claim check off for the guard.
+     *
+     * @param  string  $key
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideNonStringClaimPolicies')]
+    public function testNonStringClaimPolicyOverrideFailsClosed(string $key, mixed $value): void
+    {
+        $this->setGuardOverrides([$key => $value]);
+
+        $this->expectInvalidClaimPolicy($key);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A package issuer or audience that is neither a string nor `null` fails
+     * closed for every guard that does not override it.
+     *
+     * @param  string  $key
+     * @param  mixed  $value
+     * @return void
+     */
+    #[DataProvider('provideNonStringClaimPolicies')]
+    public function testNonStringClaimPolicyPackageValueFailsClosed(string $key, mixed $value): void
+    {
+        config()->set("authentication.jwt.{$key}", $value);
+
+        $this->expectInvalidClaimPolicy($key);
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A `null` or empty audience override turns the audience check off for the
+     * guard even when the package sets one, and a string override replaces it.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAudienceOverrideReplacesOrTurnsOffThePackageAudience(): void
+    {
+        foreach ([null, ''] as $off) {
+
+            $this->setGuardOverrides(['audience' => $off]);
+
+            self::assertArrayNotHasKey(Claims::AUDIENCE->value, $this->issuedClaims($this->lifetimeService()));
+        }
+
+        $this->setGuardOverrides(['audience' => 'override-audience', 'issuer' => 'override-issuer']);
+
+        $claims = $this->issuedClaims($this->lifetimeService());
+
+        self::assertSame('override-audience', $claims[Claims::AUDIENCE->value]);
+        self::assertSame('override-issuer', $claims[Claims::ISSUER->value]);
+    }
+
+    /**
+     * A guard whose `jwt` entry is not an array fails closed rather than
+     * silently losing its overrides.
+     *
+     * @return void
+     */
+    public function testNonArrayGuardJwtBlockFailsClosed(): void
+    {
+        config()->set('auth.guards.' . self::LIFETIME_GUARD . '.jwt', 'access_ttl_minutes=1');
+
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage('Auth guard [package_default] `jwt` overrides must be an array.');
+
+        $this->lifetimeService();
+    }
+
+    /**
+     * A guard whose `jwt` entry is `null` has no overrides.
+     *
+     * @return void
+     */
+    public function testNullGuardJwtBlockMeansNoOverrides(): void
+    {
+        config()->set('auth.guards.' . self::LIFETIME_GUARD . '.jwt', null);
+
+        self::assertSame(45, $this->lifetimeService()->lifetimes()->accessTtlMinutes);
+    }
+
+    /**
      * Register the package service provider against the Testbench application.
      *
      * @param  mixed  $app
@@ -868,11 +1259,177 @@ final class JwtTokenServiceFactoryTest extends TestCase
         return new JwtTokenService(
             JwtKeyring::fromKeyMap($keys, (string) array_key_first($keys), 'HS256'),
             $guard,
-            15,
-            60 * 24 * 30,
+            new TokenLifetimes(15, 60 * 24 * 30, 60 * 24 * 180, 30),
             30,
             null,
             $audience,
+        );
+    }
+
+    /**
+     * Resolve a fresh service for the guard.
+     *
+     * @return \SineMacula\Laravel\Authentication\Jwt\JwtTokenService
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    private function lifetimeService(): JwtTokenService
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        return (new JwtTokenServiceFactory($app, $app->make(ConfigRepository::class)))->forGuard(self::LIFETIME_GUARD);
+    }
+
+    /**
+     * The value the resolved service uses for the given key.
+     *
+     * @param  string  $key
+     * @return int
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Random\RandomException
+     */
+    private function resolved(string $key): int
+    {
+        $service   = $this->lifetimeService();
+        $lifetimes = $service->lifetimes();
+
+        return match ($key) {
+            'access_ttl_minutes'           => $lifetimes->accessTtlMinutes,
+            'refresh_idle_ttl_minutes'     => $lifetimes->refreshIdleTtlMinutes,
+            'refresh_absolute_ttl_minutes' => $lifetimes->refreshAbsoluteTtlMinutes,
+            'refresh_grace_seconds'        => $lifetimes->refreshGraceSeconds,
+            default                        => $this->observedLeeway($service),
+        };
+    }
+
+    /**
+     * The clock-skew leeway a service applies, observed as the largest number
+     * of seconds past its expiry at which an access token still parses.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
+     * @return int
+     *
+     * @throws \Random\RandomException
+     */
+    private function observedLeeway(JwtTokenService $service): int
+    {
+        $token  = $this->issueAccessToken($service);
+        $claims = $service->parse($token, TokenType::ACCESS);
+
+        assert(is_array($claims) && is_int($claims['exp']));
+
+        $leeway = -1;
+
+        while ($leeway < 400) {
+
+            JWT::$timestamp = $claims['exp'] + $leeway + 1;
+
+            if ($service->parse($token, TokenType::ACCESS) === null) {
+                break;
+            }
+
+            $leeway++;
+        }
+
+        JWT::$timestamp = Carbon::now()->getTimestamp();
+
+        return $leeway + 1;
+    }
+
+    /**
+     * Set the guard's `jwt` overrides.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return void
+     */
+    private function setGuardOverrides(array $overrides): void
+    {
+        config()->set('auth.guards.' . self::LIFETIME_GUARD . '.jwt', $overrides);
+    }
+
+    /**
+     * Remove a key from the package `jwt` config entirely.
+     *
+     * @param  string  $key
+     * @return void
+     */
+    private function removePackageValue(string $key): void
+    {
+        $jwt = config('authentication.jwt');
+
+        assert(is_array($jwt));
+
+        unset($jwt[$key]);
+
+        config()->set('authentication.jwt', $jwt);
+    }
+
+    /**
+     * Issue an access token with the service and return the claims the same
+     * service verifies in it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Jwt\JwtTokenService  $service
+     * @return array<string, mixed>
+     *
+     * @throws \Random\RandomException
+     */
+    private function issuedClaims(JwtTokenService $service): array
+    {
+        $claims = $service->parse($this->issueAccessToken($service), TokenType::ACCESS);
+
+        self::assertIsArray($claims);
+
+        return $claims;
+    }
+
+    /**
+     * Expect the factory to reject an algorithm that is missing or not a
+     * string.
+     *
+     * @return void
+     */
+    private function expectInvalidAlgorithm(): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            'JWT `algorithm` for guard [package_default] is missing or not a string:'
+            . ' set `authentication.jwt.algorithm` or the guard\'s `jwt.algorithm` override.',
+        );
+    }
+
+    /**
+     * Expect the factory to reject an issuer or audience that is neither a
+     * string nor `null`.
+     *
+     * @param  string  $key
+     * @return void
+     */
+    private function expectInvalidClaimPolicy(string $key): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            "JWT `{$key}` for guard [package_default] must be a string or null:"
+            . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.",
+        );
+    }
+
+    /**
+     * Expect the factory to reject a key with its range in the message.
+     *
+     * @param  string  $key
+     * @param  int  $min
+     * @param  int  $max
+     * @return void
+     */
+    private function expectInvalidKey(string $key, int $min, int $max): void
+    {
+        $this->expectException(InvalidJwtConfigurationException::class);
+        $this->expectExceptionMessage(
+            "JWT `{$key}` for guard [package_default] must be an integer from {$min} to {$max}:"
+            . " set `authentication.jwt.{$key}` or the guard's `jwt.{$key}` override.",
         );
     }
 }

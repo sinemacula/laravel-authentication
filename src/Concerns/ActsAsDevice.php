@@ -10,117 +10,92 @@ use Carbon\CarbonInterface;
  * Default Eloquent-backed `Device` accessors using conventional attribute
  * names. Override the `*Name()` methods to remap columns.
  *
+ * The refresh and revocation state (both digests, the rotation time, both
+ * deadlines, and the revocation time) must be loaded: a device selected without
+ * one of those columns throws a `LogicException` rather than reading the
+ * missing value as `null`, so a partial select surfaces as a misconfiguration
+ * instead of admitting an ended or revoked device, or reading a current refresh
+ * token as a replay. Timestamps stored without a `datetime` cast (the raw value
+ * the database returns) are converted rather than ignored. Any timestamp in the
+ * hour that repeats when the clocks go back is read as its first pass, so a
+ * deadline or rotation time never reads late.
+ *
+ * Both digests are hidden from `toArray()` and `toJson()`, under whatever
+ * column names the model uses.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
 trait ActsAsDevice
 {
+    use ReadsDeviceAttributes;
+
     /**
-     * Return the device's stable identifier from the configured attribute.
+     * Return the device's primary key.
      *
      * @return mixed
      */
     public function getDeviceIdentifier(): mixed
     {
-        return $this->getAttribute($this->getDeviceIdentifierName());
+        return $this->getKey();
     }
 
     /**
-     * Column name holding the device identifier. Public so listeners and the
-     * refresh exchange can resolve the column without reflection.
-     *
-     * @return string
-     */
-    public function getDeviceIdentifierName(): string
-    {
-        return 'id';
-    }
-
-    /**
-     * Return the last login timestamp, or null when absent.
+     * Return when the device was last used, or `null` when it never was or the
+     * column is not loaded.
      *
      * @return ?\Carbon\CarbonInterface
      */
-    public function getLastLoggedIn(): ?CarbonInterface
+    public function getLastUsedAt(): ?CarbonInterface
     {
-        $value = $this->getAttribute($this->getLastLoggedInName());
-
-        return $value instanceof CarbonInterface ? $value : null;
+        return $this->toDeviceTimestamp($this->optionalDeviceAttribute($this->getLastUsedAtName()));
     }
 
     /**
-     * Column name holding the last-login timestamp. Public so the
-     * `UpdateDeviceTimestamp` listener honours the override.
+     * Column name holding when the device was last used.
      *
      * @return string
      */
-    public function getLastLoggedInName(): string
+    public function getLastUsedAtName(): string
     {
-        return 'last_logged_in_at';
+        return 'last_used_at';
     }
 
     /**
-     * Return the last MFA verification timestamp, or null when absent.
-     *
-     * @return ?\Carbon\CarbonInterface
-     */
-    public function getLastMfaVerification(): ?CarbonInterface
-    {
-        $value = $this->getAttribute($this->getLastMfaVerificationName());
-
-        return $value instanceof CarbonInterface ? $value : null;
-    }
-
-    /**
-     * Column name holding the last MFA verification timestamp.
+     * Column name holding the IP address the device was last used from.
      *
      * @return string
      */
-    public function getLastMfaVerificationName(): string
+    public function getLastUsedIpName(): string
     {
-        return 'last_mfa_verified_at';
+        return 'last_used_ip';
     }
 
     /**
-     * Return the operating system attribute cast to string.
+     * Column name holding the user agent the device was last used with.
      *
      * @return string
      */
-    public function getOperatingSystem(): string
+    public function getLastUsedUserAgentName(): string
     {
-        return (string) $this->getAttribute($this->getOperatingSystemName());
+        return 'last_used_user_agent';
     }
 
     /**
-     * Column name holding the operating system string.
-     *
-     * @return string
-     */
-    public function getOperatingSystemName(): string
-    {
-        return 'os';
-    }
-
-    /**
-     * Return the hashed refresh key attribute, or null when no refresh
-     * credential has been issued.
+     * Return the digest of the current refresh rotation id, or `null` when the
+     * device holds no refresh credential.
      *
      * @return ?string
+     *
+     * @throws \LogicException
      */
     public function getRefreshKey(): ?string
     {
-        $value = $this->getAttribute($this->getRefreshKeyName());
-
-        if ($value === null) {
-            return null;
-        }
-
-        return (string) $value;
+        return $this->toDeviceString($this->loadedDeviceAttribute($this->getRefreshKeyName(), 'getRefreshKeyName'));
     }
 
     /**
-     * Column name holding the hashed refresh key. Public so the refresh-token
-     * exchange can compose its atomic CAS update.
+     * Column name holding the digest of the current refresh rotation id.
      *
      * @return string
      */
@@ -130,16 +105,98 @@ trait ActsAsDevice
     }
 
     /**
-     * Return the revocation timestamp, or null when the device is not revoked.
+     * Return the digest of the previous refresh rotation id, or `null`.
      *
-     * Any stored value is a revocation: a column the model does not cast to a
-     * date (the raw string the database returns) is converted rather than read
-     * as "not revoked", so a model without a `datetime` cast fails closed.
+     * @return ?string
      *
-     * The attribute must be loaded: a device selected without the column throws
-     * rather than reading the missing value as "not revoked", so a partial
-     * select surfaces as a misconfiguration instead of admitting a revoked
-     * device.
+     * @throws \LogicException
+     */
+    public function getPreviousRefreshKey(): ?string
+    {
+        return $this->toDeviceString($this->loadedDeviceAttribute($this->getPreviousRefreshKeyName(), 'getPreviousRefreshKeyName'));
+    }
+
+    /**
+     * Column name holding the digest of the previous refresh rotation id.
+     *
+     * @return string
+     */
+    public function getPreviousRefreshKeyName(): string
+    {
+        return 'previous_refresh_key';
+    }
+
+    /**
+     * Return when the current refresh rotation id replaced the previous one, or
+     * `null`.
+     *
+     * @return ?\Carbon\CarbonInterface
+     *
+     * @throws \LogicException
+     */
+    public function getRefreshRotatedAt(): ?CarbonInterface
+    {
+        return $this->toDeviceTimestamp($this->loadedDeviceAttribute($this->getRefreshRotatedAtName(), 'getRefreshRotatedAtName'));
+    }
+
+    /**
+     * Column name holding when the current refresh rotation id replaced the
+     * previous one.
+     *
+     * @return string
+     */
+    public function getRefreshRotatedAtName(): string
+    {
+        return 'refresh_rotated_at';
+    }
+
+    /**
+     * Return the idle deadline, or `null`.
+     *
+     * @return ?\Carbon\CarbonInterface
+     *
+     * @throws \LogicException
+     */
+    public function getIdleExpiresAt(): ?CarbonInterface
+    {
+        return $this->toDeviceTimestamp($this->loadedDeviceAttribute($this->getIdleExpiresAtName(), 'getIdleExpiresAtName'));
+    }
+
+    /**
+     * Column name holding the idle deadline.
+     *
+     * @return string
+     */
+    public function getIdleExpiresAtName(): string
+    {
+        return 'idle_expires_at';
+    }
+
+    /**
+     * Return the absolute deadline, or `null`.
+     *
+     * @return ?\Carbon\CarbonInterface
+     *
+     * @throws \LogicException
+     */
+    public function getAbsoluteExpiresAt(): ?CarbonInterface
+    {
+        return $this->toDeviceTimestamp($this->loadedDeviceAttribute($this->getAbsoluteExpiresAtName(), 'getAbsoluteExpiresAtName'));
+    }
+
+    /**
+     * Column name holding the absolute deadline.
+     *
+     * @return string
+     */
+    public function getAbsoluteExpiresAtName(): string
+    {
+        return 'absolute_expires_at';
+    }
+
+    /**
+     * Return the revocation timestamp, or `null` when the device is not
+     * revoked.
      *
      * @return ?\Carbon\CarbonInterface
      *
@@ -147,32 +204,47 @@ trait ActsAsDevice
      */
     public function getRevokedAt(): ?CarbonInterface
     {
-        $name = $this->getRevokedAtName();
-
-        if (!array_key_exists($name, $this->getAttributes())) {
-            $message = sprintf(
-                'Cannot determine whether %s is revoked: its `%s` attribute is not loaded.'
-                . ' Select the column or override getRevokedAtName().',
-                static::class,
-                $name,
-            );
-
-            throw new \LogicException($message);
-        }
-
-        $value = $this->getAttribute($name);
-
-        return $value === null || $value instanceof CarbonInterface ? $value : $this->asDateTime($value);
+        return $this->toDeviceTimestamp($this->loadedDeviceAttribute($this->getRevokedAtName(), 'getRevokedAtName'));
     }
 
     /**
-     * Column name holding the revocation timestamp. Public so the refresh-token
-     * exchange can clear / set the column.
+     * Column name holding the revocation timestamp.
      *
      * @return string
      */
     public function getRevokedAtName(): string
     {
         return 'revoked_at';
+    }
+
+    /**
+     * Return why the device was revoked, or `null` when it is not revoked or
+     * the column is not loaded.
+     *
+     * @return ?string
+     */
+    public function getRevokedReason(): ?string
+    {
+        return $this->toDeviceString($this->optionalDeviceAttribute($this->getRevokedReasonName()));
+    }
+
+    /**
+     * Column name holding the revocation reason.
+     *
+     * @return string
+     */
+    public function getRevokedReasonName(): string
+    {
+        return 'revoked_reason';
+    }
+
+    /**
+     * Hide the refresh digests from serialisation.
+     *
+     * @return void
+     */
+    protected function initializeActsAsDevice(): void
+    {
+        $this->mergeHidden([$this->getRefreshKeyName(), $this->getPreviousRefreshKeyName()]);
     }
 }

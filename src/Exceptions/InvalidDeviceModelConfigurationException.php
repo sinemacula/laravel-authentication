@@ -9,7 +9,7 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 
 /**
  * Thrown when the configured device model does not satisfy the explicit
- * Eloquent-backed persistence boundary required by refresh and last-seen flows.
+ * Eloquent-backed persistence boundary required by refresh and last-use flows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

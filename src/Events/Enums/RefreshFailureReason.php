@@ -22,14 +22,23 @@ enum RefreshFailureReason: string
     // Device id is not a key of the device model or names no device
     case DEVICE_UNKNOWN = 'device_unknown';
 
-    // Rotation id did not match the stored digest
-    case ROTATION_MISMATCH = 'rotation_mismatch';
-
-    // CAS lost: replay or concurrent rotation; device revoked
+    // A rotated refresh token was presented: neither the current rotation id
+    // nor the previous one inside the grace window; device revoked
     case ROTATION_REUSE = 'rotation_reuse';
+
+    // The device's security state changed while the token was being rotated and
+    // the token is still the current one; the client may retry
+    case ROTATION_CONFLICT = 'rotation_conflict';
+
+    // Device holds no refresh credential, so a replay cannot be told apart;
+    // not revoked
+    case REFRESH_KEY_MISSING = 'refresh_key_missing';
 
     // Device row marked revoked
     case DEVICE_REVOKED = 'device_revoked';
+
+    // Device's idle or absolute deadline reached, or missing
+    case SESSION_EXPIRED = 'session_expired';
 
     // Guard's identity provider did not return the device owner
     case AUTHENTICATABLE_MISSING = 'authenticatable_missing';

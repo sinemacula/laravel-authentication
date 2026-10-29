@@ -71,37 +71,26 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Data provider listing the methods `Device` must declare.
+     * `Device` declares exactly the read surface the guards, the refresh
+     * exchange, and the package events depend on: the identifier, last use,
+     * both refresh digests and the rotation time, both deadlines, and the
+     * revocation.
      *
-     * @return \Generator<string, array{0: string}>
-     */
-    public static function provideDeviceContractMethods(): iterable
-    {
-        yield from [
-            'getDeviceIdentifier'    => ['getDeviceIdentifier'],
-            'getLastLoggedIn'        => ['getLastLoggedIn'],
-            'getLastMfaVerification' => ['getLastMfaVerification'],
-            'getOperatingSystem'     => ['getOperatingSystem'],
-            'getRefreshKey'          => ['getRefreshKey'],
-            'getRevokedAt'           => ['getRevokedAt'],
-        ];
-    }
-
-    /**
-     * `Device` declares every method the refresh-token exchange and
-     * `ActsAsDevice` trait depend on. A reflection check kills a mutation that
-     * removes or renames a contract method silently.
-     *
-     * @param  string  $method
      * @return void
      */
-    #[DataProvider('provideDeviceContractMethods')]
-    public function testDeviceContractDeclaresMethod(string $method): void
+    public function testDeviceContractDeclaresExactlyItsReadSurface(): void
     {
-        self::assertTrue(
-            (new \ReflectionClass(Device::class))->hasMethod($method),
-            "Device contract must declare {$method}().",
-        );
+        self::assertSame([
+            'getAbsoluteExpiresAt',
+            'getDeviceIdentifier',
+            'getIdleExpiresAt',
+            'getLastUsedAt',
+            'getPreviousRefreshKey',
+            'getRefreshKey',
+            'getRefreshRotatedAt',
+            'getRevokedAt',
+            'getRevokedReason',
+        ], self::declaredMethods(Device::class));
     }
 
     /**
@@ -119,37 +108,27 @@ final class ContractDeclarationTest extends TestCase
     }
 
     /**
-     * Data provider listing the methods `EloquentDevice` must declare.
+     * `EloquentDevice` adds exactly the owner relation and the column names the
+     * refresh, revocation, and last-use writes need. The identifier has no
+     * column name: it is always the primary key.
      *
-     * @return \Generator<string, array{0: string}>
-     */
-    public static function provideEloquentDeviceContractMethods(): iterable
-    {
-        yield from [
-            'authenticatable'            => ['authenticatable'],
-            'getDeviceIdentifierName'    => ['getDeviceIdentifierName'],
-            'getLastLoggedInName'        => ['getLastLoggedInName'],
-            'getLastMfaVerificationName' => ['getLastMfaVerificationName'],
-            'getOperatingSystemName'     => ['getOperatingSystemName'],
-            'getRefreshKeyName'          => ['getRefreshKeyName'],
-            'getRevokedAtName'           => ['getRevokedAtName'],
-        ];
-    }
-
-    /**
-     * `EloquentDevice` declares every explicit Eloquent persistence hook the
-     * refresh and last-seen paths depend on.
-     *
-     * @param  string  $method
      * @return void
      */
-    #[DataProvider('provideEloquentDeviceContractMethods')]
-    public function testEloquentDeviceContractDeclaresMethod(string $method): void
+    public function testEloquentDeviceContractDeclaresExactlyItsPersistenceHooks(): void
     {
-        self::assertTrue(
-            (new \ReflectionClass(EloquentDevice::class))->hasMethod($method),
-            "EloquentDevice contract must declare {$method}().",
-        );
+        self::assertSame([
+            'authenticatable',
+            'getAbsoluteExpiresAtName',
+            'getIdleExpiresAtName',
+            'getLastUsedAtName',
+            'getLastUsedIpName',
+            'getLastUsedUserAgentName',
+            'getPreviousRefreshKeyName',
+            'getRefreshKeyName',
+            'getRefreshRotatedAtName',
+            'getRevokedAtName',
+            'getRevokedReasonName',
+        ], self::declaredMethods(EloquentDevice::class));
     }
 
     /**
@@ -164,14 +143,7 @@ final class ContractDeclarationTest extends TestCase
         self::assertInstanceOf(\ReflectionNamedType::class, $authenticatableReturn);
         self::assertSame(MorphTo::class, $authenticatableReturn->getName());
 
-        $columnNameAccessors = [
-            'getDeviceIdentifierName',
-            'getLastLoggedInName',
-            'getLastMfaVerificationName',
-            'getOperatingSystemName',
-            'getRefreshKeyName',
-            'getRevokedAtName',
-        ];
+        $columnNameAccessors = array_diff(self::declaredMethods(EloquentDevice::class), ['authenticatable']);
 
         foreach ($columnNameAccessors as $method) {
             $returnType = (new \ReflectionMethod(EloquentDevice::class, $method))->getReturnType();
@@ -355,5 +327,29 @@ final class ContractDeclarationTest extends TestCase
             (new \ReflectionClass(JwtGuard::class))->hasMethod($method),
             "JwtGuard must declare {$method}().",
         );
+    }
+
+    /**
+     * The sorted names of the methods an interface declares itself, without the
+     * ones it inherits.
+     *
+     * @param  class-string  $interface
+     * @return list<string>
+     */
+    private static function declaredMethods(string $interface): array
+    {
+        $reflection = new \ReflectionClass($interface);
+
+        $names = array_map(
+            static fn (\ReflectionMethod $method): string => $method->getName(),
+            array_filter(
+                $reflection->getMethods(),
+                static fn (\ReflectionMethod $method): bool => $method->getDeclaringClass()->getName() === $interface,
+            ),
+        );
+
+        sort($names);
+
+        return $names;
     }
 }

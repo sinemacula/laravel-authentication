@@ -20,11 +20,16 @@ use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
  * @copyright   2026 Sine Macula Limited
  *
  * @property string $id
- * @property string $os
  * @property ?string $refresh_key
+ * @property ?string $previous_refresh_key
+ * @property \Carbon\CarbonInterface|null $refresh_rotated_at
+ * @property \Carbon\CarbonInterface|null $idle_expires_at
+ * @property \Carbon\CarbonInterface|null $absolute_expires_at
  * @property \Carbon\CarbonInterface|null $revoked_at
- * @property \Carbon\CarbonInterface|null $last_logged_in_at
- * @property \Carbon\CarbonInterface|null $last_mfa_verified_at
+ * @property ?string $revoked_reason
+ * @property \Carbon\CarbonInterface|null $last_used_at
+ * @property ?string $last_used_ip
+ * @property ?string $last_used_user_agent
  *
  * @internal
  *
@@ -64,9 +69,11 @@ class StubDevice extends Model implements EloquentDevice
     protected function casts(): array
     {
         return [
-            'revoked_at'           => 'datetime',
-            'last_logged_in_at'    => 'datetime',
-            'last_mfa_verified_at' => 'datetime',
+            'refresh_rotated_at'  => 'datetime',
+            'idle_expires_at'     => 'datetime',
+            'absolute_expires_at' => 'datetime',
+            'revoked_at'          => 'datetime',
+            'last_used_at'        => 'datetime',
         ];
     }
 }

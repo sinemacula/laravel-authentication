@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Guards;
 
+use Carbon\Carbon;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Timebox;
@@ -42,8 +43,6 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
      */
     public function testHasValidCredentialsRunsInsideTimebox(): void
     {
-        // Replace the default Timebox mock with one that asserts the 400,000
-        // microsecond budget and still invokes the callback
         $this->timebox = \Mockery::mock(Timebox::class);
         $this->timebox->shouldReceive('call')
             ->once()
@@ -356,6 +355,8 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         $device = \Mockery::mock(Device::class);
         $device->shouldReceive('getDeviceIdentifier')->andReturn($deviceId);
         $device->shouldReceive('getRevokedAt')->andReturnNull();
+        $device->shouldReceive('getIdleExpiresAt')->andReturn(Carbon::now()->addDays(90));
+        $device->shouldReceive('getAbsoluteExpiresAt')->andReturn(Carbon::now()->addDays(180));
 
         $devices = \Mockery::mock(Builder::class);
         $devices->shouldReceive('useWritePdo')->once()->andReturnSelf();

@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Models\Device;
+use Tests\Concerns\InteractsWithDevices;
 use Tests\Integration\Fixtures\Coexist3dIdentity;
 use Tests\Integration\Fixtures\Coexist3dPrincipal;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -32,6 +33,8 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 #[CoversClass(AbstractGuard::class)]
 final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
 {
+    use InteractsWithDevices;
+
     /** @var string Shared plaintext password for the seeded fixtures. */
     private const string PASSWORD = 'correct horse battery staple';
 
@@ -416,9 +419,9 @@ final class JwtGuardAttemptBudgetTest extends PerformanceContractTestCase
     {
         $device = new Device;
         $device->forceFill([
+            ...self::liveSession(),
             'authenticatable_type' => IntegrationIdentity::class,
             'authenticatable_id'   => (string) $identity->getKey(), // @phpstan-ignore cast.string
-            'os'                   => 'ios',
         ])->save();
 
         return $device;

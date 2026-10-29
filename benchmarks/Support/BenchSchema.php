@@ -4,6 +4,7 @@ declare(strict_types = 1);
 
 namespace Benchmarks\Support;
 
+use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 
 /**
@@ -98,17 +99,60 @@ final class BenchSchema
     public static function ensureDeviceTable(): void
     {
         self::ensureTable('devices', static function (Blueprint $blueprint): void {
-            $blueprint->uuid('id')->primary();
-            $blueprint->string('authenticatable_type');
-            $blueprint->string('authenticatable_id');
-            $blueprint->index(['authenticatable_type', 'authenticatable_id']);
-            $blueprint->string('os');
-            $blueprint->string('refresh_key', 64)->nullable()->index();
-            $blueprint->timestamp('revoked_at')->nullable();
-            $blueprint->timestamp('last_logged_in_at')->nullable();
-            $blueprint->timestamp('last_mfa_verified_at')->nullable();
-            $blueprint->timestamps();
+            self::defineDeviceColumns($blueprint);
         });
+    }
+
+    /**
+     * Define the columns and indexes of the shipped devices migration.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @return void
+     */
+    public static function defineDeviceColumns(Blueprint $blueprint): void
+    {
+        $blueprint->uuid('id')->primary();
+        $blueprint->string('authenticatable_type')->nullable();
+        $blueprint->string('authenticatable_id')->nullable();
+        $blueprint->string('principal_type')->nullable();
+        $blueprint->string('principal_id')->nullable();
+        $blueprint->string('guard')->nullable();
+        $blueprint->string('sign_in_method')->nullable();
+        $blueprint->string('client_name')->nullable();
+        $blueprint->string('platform')->nullable();
+        $blueprint->string('created_ip', 45)->nullable();
+        $blueprint->string('created_user_agent', 512)->nullable();
+        $blueprint->dateTime('last_used_at', 0)->nullable();
+        $blueprint->string('last_used_ip', 45)->nullable();
+        $blueprint->string('last_used_user_agent', 512)->nullable();
+        $blueprint->string('refresh_key', 64)->nullable();
+        $blueprint->string('previous_refresh_key', 64)->nullable();
+        $blueprint->dateTime('refresh_rotated_at', 0)->nullable();
+        $blueprint->dateTime('idle_expires_at', 0);
+        $blueprint->dateTime('absolute_expires_at', 0);
+        $blueprint->dateTime('revoked_at', 0)->nullable();
+        $blueprint->string('revoked_reason', 64)->nullable();
+        $blueprint->datetimes(0);
+        $blueprint->index(['authenticatable_type', 'authenticatable_id']);
+        $blueprint->index(['principal_type', 'principal_id']);
+        $blueprint->index('guard');
+        $blueprint->index('idle_expires_at');
+        $blueprint->index('absolute_expires_at');
+        $blueprint->index('revoked_at');
+    }
+
+    /**
+     * The deadlines of a session that starts now, with the package's default
+     * lifetimes.
+     *
+     * @return array{idle_expires_at: \Carbon\CarbonInterface, absolute_expires_at: \Carbon\CarbonInterface}
+     */
+    public static function liveSession(): array
+    {
+        return [
+            'idle_expires_at'     => Carbon::now()->addDays(90),
+            'absolute_expires_at' => Carbon::now()->addDays(180),
+        ];
     }
 
     /**
