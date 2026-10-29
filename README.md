@@ -3897,6 +3897,7 @@ reviewers, live in `docs/design/`:
 - `docs/design/one-time-codes.md`
 - `docs/design/passkeys.md`
 - `docs/design/machine-credentials.md`
+- `docs/design/passwords.md`
 - `docs/design/identifier-changes.md`
 - `docs/design/testing-helpers.md`
 

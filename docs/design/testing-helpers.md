@@ -27,6 +27,12 @@ assertions compare, and the fakes the package ships for its delivery contracts.
   when they are of the same class with identifiers that are equal as strings. Scopes and type compare exactly.
 - Laravel's `actingAs()` is unchanged: it binds through `setUser()` for code running in the test, and a request through
   the kernel starts over.
+- Each fake implements one contract the package delivers or checks through (`OneTimeCodeSender`,
+  `PasswordResetLinkSender`, `IdentifierChangeNotifier`, `BreachedPasswordChecker`), binds a fresh instance of itself in
+  place of it with `fake()`, keeps what it receives instead of delivering it, and reads it back (`sent()` and
+  `hasSent()`, or `checked()` and `hasChecked()` for the checker, each with an optional filter, `count()`, `forget()`,
+  and a reader for the common question: `lastCodeFor()`, `lastTokenFor()`, `noticesFor()`). A delivery fake receives
+  what the queued job delivers, so it holds nothing until the job runs.
 
 ## Success Path
 
@@ -66,7 +72,8 @@ assertions compare, and the fakes the package ships for its delivery contracts.
   `assertBound()`.
 - `src/Guards/AbstractGuard.php`: `authenticateAs()`, `forgetUser()`; `src/Guards/Concerns/RebindsCollaborators.php`:
   `setRequest()`; `src/AuthenticationServiceProvider.php`: `wireGuardRebinds()`.
-- `src/Testing/FakeOneTimeCodeSender.php`: the code sender fake.
+- `src/Testing/FakeOneTimeCodeSender.php`, `src/Testing/FakePasswordResetLinkSender.php`,
+  `src/Testing/FakeIdentifierChangeNotifier.php`, `src/Testing/FakeBreachedPasswordChecker.php`: the fakes.
 
 ## Authoritative Tests
 
@@ -75,7 +82,8 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 - `tests/Feature/Testing/InteractsWithAuthenticationContextTest.php`
 - `tests/Feature/Testing/MachineInteractsWithAuthenticationContextTest.php`
 - `tests/Integration/Testing/QueuedJobInteractsWithAuthenticationContextTest.php`
-- `tests/Unit/Testing/FakeOneTimeCodeSenderTest.php`
+- `tests/Unit/Testing/FakeOneTimeCodeSenderTest.php`, `tests/Unit/Testing/FakePasswordResetLinkSenderTest.php`,
+  `tests/Unit/Testing/FakeIdentifierChangeNotifierTest.php`, `tests/Unit/Testing/FakeBreachedPasswordCheckerTest.php`
 
 ## Change Triggers
 
