@@ -154,6 +154,38 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
+     * An identity that cannot report verification and stores its address in
+     * another case holds the address in canonical form: found by a provider
+     * that matches any case, it is sent the link and resets with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityWithoutVerificationStoringAnotherCaseResets(): void
+    {
+        $this->createSessionTables();
+
+        try {
+            $identity = $this->seedIdentity('Ada@Example.test');
+
+            $this->passwords('lookalike_plain')->sendResetLink(['email' => self::EMAIL]);
+            app()->terminate();
+
+            $link = $this->links->sent()[0] ?? null;
+
+            self::assertNotNull($link);
+            self::assertTrue($identity->is($link->identity));
+
+            $result = $this->passwords('lookalike_plain')->reset(['email' => self::EMAIL, 'token' => $link->token(), 'password' => self::NEW_PASSWORD]);
+
+            self::assertSame(ResetStatus::RESET, $result->status);
+        } finally {
+            $this->dropSessionTables();
+        }
+    }
+
+    /**
      * An identity that reports its email address through its verification, from
      * a column not named after the type, holds the address: it is sent the link
      * and resets with it.

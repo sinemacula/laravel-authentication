@@ -316,6 +316,30 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
+     * An identity that cannot report verification and stores its address in
+     * another case has the links of that address, in canonical form, ended.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityWithoutVerificationStoringAnotherCaseOutdatesItsLinks(): void
+    {
+        $this->createSessionTables();
+
+        try {
+            $identity = $this->seedIdentity('Ada@Example.test');
+            $token    = self::issueToken('lookalike_plain');
+
+            self::assertTrue($this->passwords('lookalike_plain')->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->set);
+            self::assertSame(0, DB::table('one_time_codes')->count());
+            self::assertSame(ResetStatus::INVALID, $this->passwords('lookalike_plain')->reset(self::takeover('email', self::EMAIL, $token, 'token'))->status);
+        } finally {
+            $this->dropSessionTables();
+        }
+    }
+
+    /**
      * An identity that reports its email address from a column of another name
      * has that address's links outdated, and a type it cannot report at all
      * (its verification throws a `LogicException` for it) is skipped.
@@ -365,16 +389,18 @@ final class OutdatedProofsTest extends TestCase
     }
 
     /**
-     * The input of a reset with the code that would set the takeover password.
+     * The input of a reset with the code, or the link's token, that would set
+     * the takeover password.
      *
      * @param  string  $type
      * @param  string  $identifier
-     * @param  string  $code
+     * @param  string  $proof
+     * @param  string  $field
      * @return array<string, string>
      */
-    private static function takeover(string $type, string $identifier, string $code): array
+    private static function takeover(string $type, string $identifier, string $proof, string $field = 'code'): array
     {
-        return [$type => $identifier, 'code' => $code, 'password' => self::TAKEOVER_PASSWORD];
+        return [$type => $identifier, $field => $proof, 'password' => self::TAKEOVER_PASSWORD];
     }
 
     /**
