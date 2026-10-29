@@ -3363,8 +3363,8 @@ a cache. Publish the migration with the others (`authentication-migrations` crea
 | `password_reset_request` | `per_ip`         | 50 per 3600 seconds | Every request for a reset link or code from the IP address; never given back                                   |
 | `password_reset`         | `per_identifier` | 10 per 900 seconds  | Every reset submission naming the identifier, before anything is checked; a success is given back              |
 | `password_reset`         | `per_ip`         | 50 per 900 seconds  | Every reset submission from the IP address, before anything is checked; a success is given back                |
-| `identifier_change`      | `per_identifier` | 5 per 3600 seconds  | Every change request to the new identifier, and every one the identity's account makes; never given back       |
-| `identifier_change`      | `per_ip`         | 50 per 3600 seconds | Every change request from the IP address; never given back                                                     |
+| `identifier_change`      | `per_identifier` | 5 per 3600 seconds  | Every change request to the new identifier or by the identity; given back only when refused under its lock     |
+| `identifier_change`      | `per_ip`         | 50 per 3600 seconds | Every change request from the IP address; given back only when refused under the identity's lock               |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from

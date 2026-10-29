@@ -265,15 +265,16 @@ return [
     | back (`password_reset`); both count an identifier no one holds the same.
     | A request to change an identifier counts every request against the new
     | identifier, under `per_identifier`, the identity's own account under the
-    | same limit, and the IP address, and never gives one back
-    | (`identifier_change`). Counts on `connection` are rolled back with any
-    | transaction a caller opened there around a sign-in. A guard overrides any
-    | limit in a `rate_limits` block on its `config/auth.php` entry, where a
-    | scope that is present wins, `null` included, and a flow set to `null`
-    | turns both of its limits off. A malformed limit or an unknown key fails
-    | closed with an `InvalidArgumentException` naming the guard and the key.
-    | Counters are stored under digests keyed from `app.key`, so rotating it
-    | starts every window afresh. Prune ended windows with `model:prune`.
+    | same limit, and the IP address, and gives them back only when it is
+    | refused under the identity's lock (`identifier_change`). Counts on
+    | `connection` are rolled back with any transaction a caller opened there
+    | around a sign-in. A guard overrides any limit in a `rate_limits` block on
+    | its `config/auth.php` entry, where a scope that is present wins, `null`
+    | included, and a flow set to `null` turns both of its limits off. A
+    | malformed limit or an unknown key fails closed with an
+    | `InvalidArgumentException` naming the guard and the key. Counters are
+    | stored under digests keyed from `app.key`, so rotating it starts every
+    | window afresh. Prune ended windows with `model:prune`.
     |
     */
 
