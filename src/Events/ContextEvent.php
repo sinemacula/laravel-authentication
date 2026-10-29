@@ -16,7 +16,9 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  */
 abstract readonly class ContextEvent implements AuthenticationEvent
 {
-    use SerializesModels;
+    use SerializesModels {
+        __unserialize as private restoreSerializedProperties;
+    }
 
     /**
      * Constructor.
@@ -28,6 +30,30 @@ abstract readonly class ContextEvent implements AuthenticationEvent
         /** Who and what the event is about. */
         public EventContext $context,
     ) {}
+
+    /**
+     * Restore the event after serialization.
+     *
+     * The context is restored here because PHP 8.3 lets only the declaring
+     * class initialise a readonly property, and the trait's restore writes from
+     * the subclass's scope.
+     *
+     * @param  array<string, mixed>  $values
+     * @return void
+     *
+     * @SuppressWarnings("php:S100")
+     */
+    public function __unserialize(array $values): void
+    {
+        /** @var \SineMacula\Laravel\Authentication\Events\EventContext $context */
+        $context = $this->getRestoredPropertyValue($values['context']);
+
+        $this->context = $context;
+
+        unset($values['context']);
+
+        $this->restoreSerializedProperties($values);
+    }
 
     /**
      * Return who and what the event is about.
