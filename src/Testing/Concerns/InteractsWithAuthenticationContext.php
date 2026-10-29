@@ -60,6 +60,7 @@ trait InteractsWithAuthenticationContext
      * @param  ?list<string>  $scopes
      * @return static
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
@@ -82,6 +83,7 @@ trait InteractsWithAuthenticationContext
      * @param  ?list<string>  $scopes
      * @return static
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
@@ -129,6 +131,7 @@ trait InteractsWithAuthenticationContext
      * @param  ?string  $guard
      * @return static
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      */
     public function stopActing(?string $guard = null): static
@@ -291,6 +294,7 @@ trait InteractsWithAuthenticationContext
      * @param  ?list<string>  $scopes
      * @return static
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */

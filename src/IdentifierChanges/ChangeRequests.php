@@ -139,8 +139,11 @@ final readonly class ChangeRequests
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeRequest
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
      * @throws \LogicException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \Throwable
      */
     private function unauthenticated(
         Identity&Model $identity,

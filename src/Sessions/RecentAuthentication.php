@@ -87,6 +87,7 @@ final readonly class RecentAuthentication
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \Throwable
      */
     public function refusal(Identity $identity, Reauthentication $proof, ?string $ip): FailureReason|int|null
     {

@@ -118,6 +118,7 @@ final readonly class IdentifierChangeService
      * @throws \LogicException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \Throwable
      *
      * @phpstan-impure
      */
@@ -158,6 +159,7 @@ final readonly class IdentifierChangeService
      * @throws \LogicException
      * @throws \Random\RandomException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \Throwable
      *
      * @phpstan-impure
      */
