@@ -161,9 +161,11 @@ final class ClientCredentialsRequest
 
     /**
      * Whether the raw body names a parameter more than once, which PHP would
-     * otherwise read as its last value. Each pair is read by PHP's own parser,
-     * so its name is compared as PHP reads it: `client.id`, `client[id`,
-     * `client_id[]` and `client_id%00x` all repeat `client_id`.
+     * otherwise read as its last value. Each name is read by PHP's own parser,
+     * so it is compared as PHP reads it: `client.id`, `client[id`,
+     * `client_id[]` and `client_id%00x` all repeat `client_id`. The decoded
+     * name is encoded again first, because `parse_str()` also splits on
+     * `arg_separator.input`, which a form body is not split on.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return bool
@@ -173,7 +175,7 @@ final class ClientCredentialsRequest
         $names = [];
 
         foreach (explode('&', $request->getContent()) as $pair) {
-            parse_str($pair, $parameter);
+            parse_str(rawurlencode(urldecode(explode('=', $pair, 2)[0])) . '=', $parameter);
             array_push($names, ...array_keys($parameter));
         }
 

@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest;
 use SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient;
+use Symfony\Component\Process\Process;
 
 /**
  * Unit tests for reading a client credentials token request as RFC 6749 defines
@@ -24,6 +25,16 @@ use SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient;
 #[CoversClass(PresentedClient::class)]
 final class ClientCredentialsRequestTest extends TestCase
 {
+    /** @var string Reads the request a body and its parameters make, in a PHP process of its own, and prints the result. */
+    private const string READER = <<<'PHP'
+        require $argv[1];
+
+        $request = Illuminate\Http\Request::create('/oauth/token', 'POST', json_decode($argv[3], true), [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], $argv[2]);
+        $read    = SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsRequest::read($request);
+
+        echo is_string($read) ? $read : json_encode([$read->clientId, $read->scope]);
+        PHP;
+
     /**
      * Body credentials and a scope are read; the client did not use Basic.
      *
@@ -208,6 +219,45 @@ final class ClientCredentialsRequestTest extends TestCase
         }
 
         self::assertInstanceOf(PresentedClient::class, ClientCredentialsRequest::read(self::request("{$body}&extra%00x=1")));
+    }
+
+    /**
+     * Rows of `[body, parameters, result]`: bodies read where
+     * `arg_separator.input` is `&;`, with the parameters PHP's form parser,
+     * which splits only on `&`, reads from them.
+     *
+     * @return iterable<string, array{0: string, 1: array<string, string>, 2: string}>
+     */
+    public static function provideBodiesUnderAnotherSeparator(): iterable
+    {
+        $body       = 'grant_type=client_credentials&client_id=id&client_secret=secret';
+        $parameters = ['grant_type' => 'client_credentials', 'client_id' => 'id', 'client_secret' => 'secret'];
+
+        yield from [
+            'a separator in a value' => ["{$body}&scope=read;client_id=x", $parameters + ['scope' => 'read;client_id=x'], '["id","read;client_id=x"]'],
+            'a repeat'               => ["{$body}&scope=a&scope=b", $parameters + ['scope' => 'b'], 'invalid_request'],
+            'a repeat cut at NUL'    => ["{$body}&client_id%00x=id", $parameters, 'invalid_request'],
+        ];
+    }
+
+    /**
+     * Repeats are found among the pairs a form body is split into on `&` alone,
+     * whatever else `arg_separator.input` splits a query string on.
+     *
+     * @param  string  $body
+     * @param  array<string, string>  $parameters
+     * @param  string  $result
+     * @return void
+     */
+    #[DataProvider('provideBodiesUnderAnotherSeparator')]
+    public function testFindsRepeatsAsAFormBodyIsSplit(string $body, array $parameters, string $result): void
+    {
+        $autoload = dirname(__DIR__, 3) . '/vendor/autoload.php';
+        $process  = new Process([PHP_BINARY, '-d', 'arg_separator.input=&;', '-r', self::READER, '--', $autoload, $body, json_encode($parameters, JSON_THROW_ON_ERROR)]);
+
+        $process->mustRun();
+
+        self::assertSame($result, $process->getOutput());
     }
 
     /**
