@@ -403,6 +403,33 @@ final class IdentifierChangeRequestsTest extends TestCase
     }
 
     /**
+     * A request made with an instance loaded before its row changed is decided
+     * on the row as stored: the row's current address is unchanged, with
+     * nothing counted, and a new one records the row's address and that it is
+     * not verified, not what the instance says.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAStaleInstanceIsDecidedOnTheRowAsStored(): void
+    {
+        $identity = self::seedChangeable();
+        $proof    = Reauthentication::confirmedAt($this->now);
+
+        DB::table('changeable_identities')->update(['email' => 'moved@example.test', 'email_verified_at' => null]);
+
+        $unchanged = $this->changes()->requestByLink($identity, 'email', 'moved@example.test', $proof, 'email.confirm');
+
+        self::assertSame(IdentifierChangeRequestStatus::IDENTIFIER_UNCHANGED, $unchanged->status);
+        self::assertSame(0, self::rows('rate_limits'));
+
+        self::assertTrue($this->changes()->requestByLink($identity, 'email', self::NEW_EMAIL, $proof, 'email.confirm')->isSent());
+        self::assertSame(['moved@example.test', false], [self::stored('identifier_changes', 'previous'), (bool) DB::table('identifier_changes')->value('previous_verified')]);
+        self::assertSame(self::EMAIL, $identity->email);
+    }
+
+    /**
      * A request made with an instance loaded before its password changed is
      * proven by the password the row holds: the lock finds the hash the
      * password was checked against.
