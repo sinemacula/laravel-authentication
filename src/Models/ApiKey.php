@@ -40,6 +40,7 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * @property string $authenticatable_id
  * @property string $principal_type
  * @property string $principal_id
+ * @property ?string $tenant_type
  * @property ?string $tenant_id
  * @property list<string> $scopes
  * @property ?\Carbon\CarbonInterface $expires_at

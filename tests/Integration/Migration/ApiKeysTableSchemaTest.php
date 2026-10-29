@@ -106,6 +106,7 @@ final class ApiKeysTableSchemaTest extends TestCase
             'scopes'               => false,
             'secret_hash'          => false,
             'tenant_id'            => true,
+            'tenant_type'          => true,
             'updated_at'           => true,
         ], $columns);
 

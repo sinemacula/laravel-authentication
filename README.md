@@ -2585,10 +2585,12 @@ secret are stored, so the key is shown once and cannot be shown again; a secret 
 to resist guessing. `IssuedApiKey` holds the key as a `SensitiveParameterValue`, so no dump of it (`dump()`, `print_r`,
 `var_export`) shows the key, and serialising it throws. The principal must be one the identity acts as on the guard
 (resolved through the guard's principal resolver, as a pinned principal is) and one the guard's audience admits; the key
-records the identity, the principal, the principal's tenant and the guard, and authenticates only as them, on that
-guard. A malformed or past expiry, a principal the identity does not act as or the audience does not admit, a name that
-is empty or longer than 255 characters, and a malformed or rejected scope (see [Credential scopes](#credential-scopes))
-are each an `InvalidArgumentException`: issuing is a trusted, programmatic action.
+records the identity, the principal and the principal's tenant, each by type and identifier, and the guard, and
+authenticates only as them, on that guard. A tenant's type is its morph class, or its class name when it is not an
+Eloquent model, so a tenant of another type that shares the identifier is not the recorded one. A malformed or past
+expiry, a principal the identity does not act as or the audience does not admit, a name that is empty or longer than 255
+characters, and a malformed or rejected scope (see [Credential scopes](#credential-scopes)) are each an
+`InvalidArgumentException`: issuing is a trusted, programmatic action.
 
 A request presents the key as a bearer credential, `Authorization: Bearer <key>`, on a route the guard protects
 (`auth:machine`). The guard reads the key's public part with one indexed lookup on the write connection, compares the

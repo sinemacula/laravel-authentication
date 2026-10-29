@@ -121,6 +121,7 @@ final class ApiKeyServiceTest extends TestCase
         self::assertSame(IdentifierCoercion::stringify($machine->getKey()), $row->authenticatable_id);
         self::assertSame(MachineClient::class, $row->principal_type);
         self::assertSame(IdentifierCoercion::stringify($machine->getKey()), $row->principal_id);
+        self::assertNull($row->tenant_type);
         self::assertNull($row->tenant_id);
         self::assertSame('["invoices:read","reports"]', $row->scopes);
         self::assertSame('2026-05-06 12:00:00', $row->expires_at);
@@ -183,6 +184,7 @@ final class ApiKeyServiceTest extends TestCase
         self::assertSame(MachineAccount::class, $row->authenticatable_type);
         self::assertSame(MachineMembership::class, $row->principal_type);
         self::assertSame(IdentifierCoercion::stringify($membership->getKey()), $row->principal_id);
+        self::assertSame($tenant->getMorphClass(), $row->tenant_type);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $row->tenant_id);
     }
 
@@ -756,6 +758,7 @@ final class ApiKeyServiceTest extends TestCase
         self::assertSame('2026-04-06 12:00:30', $old->rotated_at);
         self::assertSame($rotated->id, $old->replaced_by);
         self::assertSame('2026-04-06 12:00:30', $old->updated_at);
+        self::assertSame($tenant->getMorphClass(), $new->tenant_type);
         self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), $new->tenant_id);
         self::assertSame($old->authenticatable_id, $new->authenticatable_id);
         self::assertSame($old->principal_type, $new->principal_type);

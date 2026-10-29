@@ -451,19 +451,21 @@ final class ClientCredentialsExchangeTest extends TestCase
     public static function provideUnboundPrincipals(): iterable
     {
         yield from [
-            'principal moved tenant' => ['moved', FailureReason::PRINCIPAL_MISMATCH],
-            'principal type changed' => ['retyped', FailureReason::PRINCIPAL_MISMATCH],
-            'owner type changed'     => ['owner', FailureReason::IDENTITY_UNKNOWN],
-            'principal deactivated'  => ['inactive', FailureReason::PRINCIPAL_INACTIVE],
-            'tenant deactivated'     => ['tenant', FailureReason::TENANT_INACTIVE],
+            'principal moved tenant'           => ['moved', FailureReason::PRINCIPAL_MISMATCH],
+            'tenant type changed under its id' => ['workspace', FailureReason::PRINCIPAL_MISMATCH],
+            'principal type changed'           => ['retyped', FailureReason::PRINCIPAL_MISMATCH],
+            'owner type changed'               => ['owner', FailureReason::IDENTITY_UNKNOWN],
+            'principal deactivated'            => ['inactive', FailureReason::PRINCIPAL_INACTIVE],
+            'tenant deactivated'               => ['tenant', FailureReason::TENANT_INACTIVE],
         ];
     }
 
     /**
-     * A key whose principal moved tenant, whose recorded principal or owner
-     * type changed under the same ids, or whose principal or tenant is no
-     * longer active authenticates no client: `invalid_client`, counted, with
-     * the reason on the event.
+     * A key whose principal moved tenant, to another tenant or to a tenant of
+     * another type under the same id, whose recorded principal or owner type
+     * changed under the same ids, or whose principal or tenant is no longer
+     * active authenticates no client: `invalid_client`, counted, with the
+     * reason on the event.
      *
      * @param  string  $case
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
@@ -478,11 +480,12 @@ final class ClientCredentialsExchangeTest extends TestCase
         $other  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
 
         match ($case) {
-            'moved'    => $membership->forceFill(['tenant_id' => $other->getKey()])->save(),
-            'retyped'  => DB::table('api_keys')->update(['principal_type' => MachineClient::class]),
-            'owner'    => DB::table('api_keys')->update(['authenticatable_type' => MachineClient::class]),
-            'inactive' => $membership->forceFill(['is_active' => false])->save(),
-            default    => $tenant->forceFill(['is_active' => false])->save(),
+            'moved'     => $membership->forceFill(['tenant_id' => $other->getKey()])->save(),
+            'workspace' => $this->moveToAWorkspaceOfTheSameId($membership, $tenant),
+            'retyped'   => DB::table('api_keys')->update(['principal_type' => MachineClient::class]),
+            'owner'     => DB::table('api_keys')->update(['authenticatable_type' => MachineClient::class]),
+            'inactive'  => $membership->forceFill(['is_active' => false])->save(),
+            default     => $tenant->forceFill(['is_active' => false])->save(),
         };
 
         $this->token('grant_type=client_credentials', $this->basic($issued), '/oauth/accounts/token')

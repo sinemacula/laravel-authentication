@@ -77,6 +77,7 @@ final class ReplicaApiKeysTest extends TestCase
         $this->createOnPrimaryAndReplica('machine_memberships', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->unsignedInteger('account_id');
+            $blueprint->string('tenant_type')->default(ActivatableTenant::class);
             $blueprint->unsignedInteger('tenant_id');
             $blueprint->string('type')->default('service');
             $blueprint->boolean('is_active')->default(true);

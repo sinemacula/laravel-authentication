@@ -15,9 +15,8 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 
 /**
  * Holds a machine credential to what it was issued for: one owner, one
- * principal, one tenant. The owner's recorded type and identifier, the
- * principal's recorded type and identifier, and the tenant identifier must all
- * equal what was loaded for the request; matching identifiers alone never
+ * principal, one tenant. The recorded type and identifier of each must equal
+ * those of what was loaded for the request; matching identifiers alone never
  * suffice, since two types may share them. One check serves an API key on its
  * guard, a client credentials exchange, and the access tokens that exchange
  * issued, so a principal moved to another tenant, or another type under the
@@ -52,11 +51,10 @@ final class CredentialBinding
             return FailureReason::CREDENTIAL_INVALID;
         }
 
-        $tenantId = IdentifierCoercion::stringify($tenant?->getTenantIdentifier());
+        $recorded = [$key->principal_type, $key->tenant_type, $key->tenant_id];
+        $loaded   = [PrincipalReference::type($principal), self::tenantType($tenant), IdentifierCoercion::stringify($tenant?->getTenantIdentifier())];
 
-        return $key->principal_type === PrincipalReference::type($principal)
-            && IdentifierCoercion::matches($key->principal_id, PrincipalReference::id($principal))
-            && $key->tenant_id === $tenantId
+        return $recorded === $loaded && IdentifierCoercion::matches($key->principal_id, PrincipalReference::id($principal))
             ? null
             : FailureReason::PRINCIPAL_MISMATCH;
     }
@@ -84,6 +82,28 @@ final class CredentialBinding
      */
     public static function ownerType(Identity $identity): string
     {
-        return $identity instanceof Model ? $identity->getMorphClass() : $identity::class;
+        return self::typeOf($identity);
+    }
+
+    /**
+     * The type recorded for a tenant, as for an owner, or `null` for none.
+     *
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
+     * @return ?string
+     */
+    public static function tenantType(?Tenant $tenant): ?string
+    {
+        return $tenant === null ? null : self::typeOf($tenant);
+    }
+
+    /**
+     * An Eloquent model's morph class, any other object's class name.
+     *
+     * @param  object  $subject
+     * @return string
+     */
+    private static function typeOf(object $subject): string
+    {
+        return $subject instanceof Model ? $subject->getMorphClass() : $subject::class;
     }
 }

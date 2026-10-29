@@ -50,6 +50,7 @@ return new class extends Migration {
             $blueprint->string('authenticatable_id');
             $blueprint->string('principal_type');
             $blueprint->string('principal_id');
+            $blueprint->string('tenant_type')->nullable();
             $blueprint->string('tenant_id')->nullable();
 
             // The granted scopes, as a JSON list.

@@ -6,6 +6,7 @@ namespace Tests\Integration\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use SineMacula\Laravel\Authentication\Concerns\ActsAsPrincipal;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesActiveState;
 use SineMacula\Laravel\Authentication\Concerns\ProvidesType;
@@ -14,15 +15,16 @@ use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 
 /**
- * A service account's membership of an activatable tenant: the principal a
- * machine credential acts as, typed by its `type` column, stored in
- * `machine_memberships`.
+ * A service account's membership of a tenant, an activatable tenant unless its
+ * `tenant_type` names another: the principal a machine credential acts as,
+ * typed by its `type` column, stored in `machine_memberships`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @property int $id
  * @property int $account_id
+ * @property string $tenant_type
  * @property int $tenant_id
  * @property string $type
  * @property bool $is_active
@@ -50,13 +52,17 @@ final class MachineMembership extends Model implements CanBeActive, HasType, Pri
     }
 
     /**
-     * The tenant the membership acts within.
+     * The tenant the membership acts within, typed by `tenant_type`.
      *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo<\Tests\Integration\Fixtures\ActivatableTenant, covariant $this>
+     * @formatter:off
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\MorphTo<\Illuminate\Database\Eloquent\Model, covariant $this>
+     *
+     * @formatter:on
      */
-    public function tenant(): BelongsTo
+    public function tenant(): MorphTo
     {
-        return $this->belongsTo(ActivatableTenant::class, 'tenant_id');
+        return $this->morphTo();
     }
 
     /**

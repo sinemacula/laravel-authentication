@@ -30,9 +30,10 @@ authorization package decides what they allow.
   is also its OAuth client id) and the SHA-256 digest of the secret are stored, so the key exists in plaintext only in
   the `IssuedApiKey` the issuing call returns, which holds it as a `SensitiveParameterValue` read through `key()`, so
   no dump shows it and serialising it throws. The exchange holds a presented client secret the same way.
-- A key belongs to one guard, one non-human identity, one principal and that principal's tenant. Every keyed operation
-  of the service matches the principal's type and identifier, and the guard, in its statement; a key of another
-  principal or guard is absent.
+- A key belongs to one guard, one non-human identity, one principal and that principal's tenant, each of the last three
+  recorded by type (morph class, else class name) and identifier, so a tenant of another type under the same
+  identifier is not the key's. Every keyed operation of the service matches the principal's type and identifier, and
+  the guard, in its statement; a key of another principal or guard is absent.
 - A presented key costs one indexed lookup of its public part on the write connection and a constant-time digest
   comparison, against a fixed digest when no key matched; never a password hash.
 - A client credentials exchange (RFC 6749 section 4.4) takes a key of a `jwt` guard, its public part as the client id

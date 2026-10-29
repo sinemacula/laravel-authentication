@@ -180,6 +180,30 @@ final class ApiKeyGuardTest extends TestCase
     }
 
     /**
+     * A 3D key's membership moved to a tenant of another type under the same
+     * identifier is `principal_mismatch`: the key recorded the tenant by type
+     * as well as identifier.
+     *
+     * @return void
+     */
+    public function testAKeyRefusesATenantOfAnotherTypeUnderTheSameId(): void
+    {
+        [$account, $membership, $tenant] = $this->seedAccount();
+
+        $issued    = $this->apiKeys('accounts')->issue($account, $membership);
+        $workspace = $this->moveToAWorkspaceOfTheSameId($membership, $tenant);
+
+        self::assertSame(IdentifierCoercion::stringify($tenant->getKey()), IdentifierCoercion::stringify($workspace->getKey()));
+
+        $this->dispatched = [];
+        $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
+        $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $issued->id);
+
+        $membership->forceFill(['tenant_type' => $tenant->getMorphClass()])->save();
+        $this->getWithKey('/accounts/me', $issued->key())->assertOk()->assertJsonPath('tenant', $tenant->getKey());
+    }
+
+    /**
      * A request without a bearer credential attempts nothing and dispatches
      * nothing.
      *

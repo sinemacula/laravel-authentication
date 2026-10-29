@@ -19,16 +19,18 @@ use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineAccount;
 use Tests\Integration\Fixtures\MachineClient;
 use Tests\Integration\Fixtures\MachineMembership;
+use Tests\Integration\Fixtures\MachineWorkspace;
 
 /**
  * Shared set-up for tests of machine credentials: an `api_key` guard
  * (`machine`) over `MachineClient`, which acts as its own principal; an
  * `api_key` guard (`accounts`) over `MachineAccount`, whose principals are
- * typed memberships of activatable tenants; `jwt` guards for client credentials
- * over `MachineClient` (`m2m`) and over `MachineAccount` (`m2m_accounts`,
- * admitting `service` memberships only); a `jwt` guard (`api`) over the human
- * `IntegrationIdentity`; the tables behind them; seeded identities; the request
- * a call comes from; and a record of the events dispatched.
+ * typed memberships of activatable tenants or workspaces; `jwt` guards for
+ * client credentials over `MachineClient` (`m2m`) and over `MachineAccount`
+ * (`m2m_accounts`, admitting `service` memberships only); a `jwt` guard (`api`)
+ * over the human `IntegrationIdentity`; the tables behind them; seeded
+ * identities; the request a call comes from; and a record of the events
+ * dispatched.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -49,8 +51,8 @@ trait InteractsWithMachineCredentials
     protected array $machineEvents = [];
 
     /**
-     * Create the machine, account, membership, tenant and human identity
-     * tables.
+     * Create the machine, account, membership, tenant, workspace and human
+     * identity tables.
      *
      * @return void
      */
@@ -68,6 +70,7 @@ trait InteractsWithMachineCredentials
         Schema::create('machine_memberships', static function (Blueprint $blueprint): void {
             $blueprint->increments('id');
             $blueprint->unsignedInteger('account_id');
+            $blueprint->string('tenant_type')->default(ActivatableTenant::class);
             $blueprint->unsignedInteger('tenant_id');
             $blueprint->string('type')->default('service');
             $blueprint->boolean('is_active')->default(true);
@@ -80,6 +83,12 @@ trait InteractsWithMachineCredentials
             $blueprint->boolean('is_active')->default(true);
             $blueprint->timestamps();
             $blueprint->softDeletes();
+        });
+
+        Schema::create('machine_workspaces', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('name');
+            $blueprint->timestamps();
         });
 
         Schema::create('integration_identities', static function (Blueprint $blueprint): void {
@@ -98,7 +107,7 @@ trait InteractsWithMachineCredentials
      */
     protected function dropMachineTables(): void
     {
-        foreach (['machine_clients', 'machine_accounts', 'machine_memberships', 'activatable_tenants', 'integration_identities'] as $table) {
+        foreach (['machine_clients', 'machine_accounts', 'machine_memberships', 'activatable_tenants', 'machine_workspaces', 'integration_identities'] as $table) {
             Schema::dropIfExists($table);
         }
     }
@@ -151,9 +160,31 @@ trait InteractsWithMachineCredentials
         $tenant ??= ActivatableTenant::query()->create(['name' => 'Tenant', 'is_active' => true]);
 
         $account    = MachineAccount::query()->create(['name' => 'Reporting']);
-        $membership = MachineMembership::query()->create(['account_id' => $account->getKey(), 'tenant_id' => $tenant->getKey(), 'type' => $type]);
+        $membership = MachineMembership::query()->create([
+            'account_id'  => $account->getKey(),
+            'tenant_type' => $tenant->getMorphClass(),
+            'tenant_id'   => $tenant->getKey(),
+            'type'        => $type,
+        ]);
 
         return [$account, $membership, $tenant];
+    }
+
+    /**
+     * Move the membership to a workspace with its tenant's identifier, so only
+     * the tenant's type changes.
+     *
+     * @param  \Tests\Integration\Fixtures\MachineMembership  $membership
+     * @param  \Tests\Integration\Fixtures\ActivatableTenant  $tenant
+     * @return \Tests\Integration\Fixtures\MachineWorkspace
+     */
+    protected function moveToAWorkspaceOfTheSameId(MachineMembership $membership, ActivatableTenant $tenant): MachineWorkspace
+    {
+        $workspace = MachineWorkspace::query()->create(['id' => $tenant->getKey(), 'name' => 'Workspace']);
+
+        $membership->forceFill(['tenant_type' => $workspace->getMorphClass(), 'tenant_id' => $workspace->getKey()])->save();
+
+        return $workspace;
     }
 
     /**

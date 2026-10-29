@@ -313,6 +313,31 @@ final class ClientTokenBearerAuthenticationTest extends TestCase
     }
 
     /**
+     * A token issued before the membership moved to a tenant of another type
+     * under the same identifier is rejected as `principal_mismatch`, and
+     * accepted again once the membership is back.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testATokenStaysBoundToItsKeysTenantType(): void
+    {
+        [$account, $membership, $tenant] = $this->seedAccount();
+
+        $issued = $this->apiKeys('m2m_accounts')->issue($account, $membership, ['read']);
+        $token  = $this->exchange($issued, null, 'm2m_accounts');
+
+        $this->moveToAWorkspaceOfTheSameId($membership, $tenant);
+
+        $this->assertRefused('/m2m_accounts/me', $token, FailureReason::PRINCIPAL_MISMATCH, $issued->id, ['read']);
+
+        $membership->forceFill(['tenant_type' => $tenant->getMorphClass()])->save();
+
+        $this->bearer('/m2m_accounts/me', $token)->assertOk();
+    }
+
+    /**
      * A client token is its guard's only: another guard rejects it as
      * `token_invalid`.
      *
