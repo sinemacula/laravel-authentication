@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Validator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthManager;
+use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
@@ -32,6 +33,7 @@ use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Passwords\PasswordWriter;
 use SineMacula\Laravel\Authentication\Testing\FakeBreachedPasswordChecker;
 use Tests\Concerns\InteractsWithPasswords;
+use Tests\Fixtures\Passwords\FailingBreachedPasswordChecker;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 use Tests\TestCase;
@@ -314,6 +316,43 @@ final class PasswordServiceTest extends TestCase
         self::assertSame($before, $identity->password);
         self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
         self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * A checker failing with an exception of its own lets it propagate through
+     * `check()` and `set()`, and no frame of its trace carries the password as
+     * an argument, even with arguments recorded in traces.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAFailingCheckerLeavesThePasswordOutOfTheTrace(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $ignored  = ini_set('zend.exception_ignore_args', '0');
+
+        app()->instance(BreachedPasswordChecker::class, new FailingBreachedPasswordChecker);
+
+        $calls = [
+            fn (): mixed => $this->passwords()->check(self::NEW_PASSWORD),
+            fn (): mixed => $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE),
+        ];
+
+        try {
+            foreach ($calls as $call) {
+                try {
+                    $call();
+                    self::fail('The checker\'s failure was swallowed.');
+                } catch (\RuntimeException $exception) {
+                    self::assertSame('a bug in the checker', $exception->getMessage());
+                    self::assertNotSame([], array_filter(array_column($exception->getTrace(), 'args')));
+                    self::assertFalse(self::carries($exception->getTrace(), self::NEW_PASSWORD));
+                }
+            }
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignored);
+        }
     }
 
     /**
@@ -659,6 +698,25 @@ final class PasswordServiceTest extends TestCase
         self::configurePasswordGuards($config);
 
         $config->set('auth.guards.session', ['driver' => 'session', 'provider' => 'password_identities']);
+    }
+
+    /**
+     * Whether any frame of the trace has the secret among its arguments, at any
+     * depth of an array argument.
+     *
+     * @param  array<array-key, mixed>  $values
+     * @param  string  $secret
+     * @return bool
+     */
+    private static function carries(array $values, string $secret): bool
+    {
+        foreach ($values as $value) {
+            if ($value === $secret || (is_array($value) && self::carries($value, $secret))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

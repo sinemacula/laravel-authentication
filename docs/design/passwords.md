@@ -226,6 +226,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `tests/Unit/Passwords/PasswordSettingsTest.php`
 - `tests/Unit/Passwords/PasswordPolicyTest.php`
 - `tests/Unit/Passwords/PasswordResultTest.php`
+- `tests/Unit/Passwords/SensitiveParametersTest.php` (every parameter a password, token, code or the input holding one
+  passes through is `#[\SensitiveParameter]`)
 - `tests/Unit/Testing/FakeBreachedPasswordCheckerTest.php`
 - `tests/Feature/Passwords/PasswordServiceTest.php`
 - `tests/Integration/Passwords/PasswordWriterTest.php`
