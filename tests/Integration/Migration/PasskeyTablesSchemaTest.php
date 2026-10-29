@@ -16,8 +16,8 @@ use Tests\TestCase;
  * passkey challenges migrations create, on whichever engine the suite runs
  * against: the columns and their nullability, the index a credential is found
  * by, the owner and expiry indexes, whole-second times, a credential id of the
- * longest length WebAuthn allows, and ceremony options longer than a 64 KiB
- * text column holds.
+ * longest length WebAuthn allows, and a public key and ceremony options longer
+ * than a 64 KiB text column holds.
  *
  * The migrations run for configured table names other than the defaults and
  * with the schema builder's default time precision raised, so the index names
@@ -225,6 +225,32 @@ final class PasskeyTablesSchemaTest extends TestCase
         self::assertSame(0, DB::table(self::PASSKEYS)->insertOrIgnore(['id' => '0195f4a2-7b1c-7000-8000-000000000002'] + $row));
         self::assertSame($credentialId, DB::table(self::PASSKEYS)->where('credential_id_hash', $row['credential_id_hash'])->value('credential_id'));
         self::assertEquals(4294967295, DB::table(self::PASSKEYS)->value('sign_count'));
+    }
+
+    /**
+     * A public key longer than a 64 KiB text column holds is stored and read
+     * back in full by the insert that ignores conflicts, which on MySQL would
+     * otherwise cut it without an error.
+     *
+     * @return void
+     */
+    public function testThePublicKeyHoldsMoreThanATextColumn(): void
+    {
+        $publicKey = str_repeat('k', 70000);
+
+        self::assertSame(1, DB::table(self::PASSKEYS)->insertOrIgnore([
+            'id'                   => '0195f4a2-7b1c-7000-8000-000000000004',
+            'credential_id_hash'   => hash('sha256', 'credential'),
+            'credential_id'        => 'Y3JlZGVudGlhbA',
+            'authenticatable_type' => 'identity',
+            'authenticatable_id'   => '1',
+            'rp_id'                => 'example.test',
+            'user_handle'          => str_repeat('h', 43),
+            'public_key'           => $publicKey,
+            'transports'           => '[]',
+        ]));
+
+        self::assertSame($publicKey, DB::table(self::PASSKEYS)->value('public_key'));
     }
 
     /**

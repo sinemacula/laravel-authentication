@@ -84,6 +84,9 @@ final class VirtualAuthenticator
     /** @var list<string> Transports a created credential reports. */
     public array $transports = ['internal', 'hybrid'];
 
+    /** @var string Key id (COSE label 2) a created credential's public key carries; empty for none. */
+    public string $keyId = '';
+
     /** @var array<string, array{key: \OpenSSLAsymmetricKey|string, alg: int, rp: string, user: string, counter: int}> Credentials created, keyed by their raw id. */
     private array $credentials = [];
 
@@ -362,7 +365,7 @@ final class VirtualAuthenticator
 
             $pair = sodium_crypto_sign_keypair();
 
-            return [sodium_crypto_sign_secretkey($pair), Cbor::encode([[1, 1], [3, self::EDDSA], [-1, 6], [-2, sodium_crypto_sign_publickey($pair)]])];
+            return [sodium_crypto_sign_secretkey($pair), $this->coseKey([[1, 1], [3, self::EDDSA], [-1, 6], [-2, sodium_crypto_sign_publickey($pair)]])];
         }
 
         if ($algorithm === self::RS256) {
@@ -373,7 +376,7 @@ final class VirtualAuthenticator
 
             $rsa = openssl_pkey_get_details($key)['rsa'] ?? [];
 
-            return [$key, Cbor::encode([[1, 3], [3, self::RS256], [-1, $rsa['n']], [-2, $rsa['e']]])];
+            return [$key, $this->coseKey([[1, 3], [3, self::RS256], [-1, $rsa['n']], [-2, $rsa['e']]])];
         }
 
         $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
@@ -382,6 +385,17 @@ final class VirtualAuthenticator
 
         $ec = openssl_pkey_get_details($key)['ec'] ?? [];
 
-        return [$key, Cbor::encode([[1, 2], [3, self::ES256], [-1, 1], [-2, str_pad($ec['x'], 32, "\0", STR_PAD_LEFT)], [-3, str_pad($ec['y'], 32, "\0", STR_PAD_LEFT)]])];
+        return [$key, $this->coseKey([[1, 2], [3, self::ES256], [-1, 1], [-2, str_pad($ec['x'], 32, "\0", STR_PAD_LEFT)], [-3, str_pad($ec['y'], 32, "\0", STR_PAD_LEFT)]])];
+    }
+
+    /**
+     * Encode the COSE public key's parameters, with the key id when one is set.
+     *
+     * @param  list<array{0: int, 1: mixed}>  $parameters
+     * @return string
+     */
+    private function coseKey(array $parameters): string
+    {
+        return Cbor::encode($this->keyId === '' ? $parameters : [...$parameters, [2, $this->keyId]]);
     }
 }

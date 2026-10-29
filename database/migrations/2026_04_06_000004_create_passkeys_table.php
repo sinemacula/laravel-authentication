@@ -47,7 +47,12 @@ return new class extends Migration {
 
             $blueprint->string('rp_id');
             $blueprint->string('user_handle');
-            $blueprint->text('public_key');
+
+            // Long text: nothing bounds a COSE key, which may carry further
+            // parameters such as a key id, and MySQL silently cuts a value past
+            // its 64 KiB text when the insert ignores duplicates.
+            $blueprint->longText('public_key');
+
             $blueprint->unsignedBigInteger('sign_count')->default(0);
             $blueprint->text('transports');
             $blueprint->string('aaguid', 36)->nullable();
