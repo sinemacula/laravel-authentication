@@ -65,17 +65,7 @@ final class SeparateConnectionResetSubmissionsTest extends TestCase
 
         self::createDeviceTable('devices', 'id', SeparateConnectionDevice::CONNECTION);
 
-        Schema::connection(SeparateConnectionDevice::CONNECTION)->create('one_time_codes', static function (Blueprint $blueprint): void {
-            $blueprint->char('id', 64)->primary();
-            $blueprint->string('purpose');
-            $blueprint->string('guard');
-            $blueprint->uuid('issue_id');
-            $blueprint->char('code_hash', 64);
-            $blueprint->unsignedTinyInteger('attempts');
-            $blueprint->dateTime('issued_at', 0);
-            $blueprint->dateTime('expires_at', 0);
-            $blueprint->dateTime('consumed_at', 0)->nullable();
-        });
+        self::createCodeTableOn(SeparateConnectionDevice::CONNECTION);
 
         SeparateConnectionCutoffIdentity::query()->create(['email' => 'ada@example.test', 'password' => app(Hasher::class)->make('the old passphrase')]);
 

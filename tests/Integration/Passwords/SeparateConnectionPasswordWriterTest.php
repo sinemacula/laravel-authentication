@@ -48,7 +48,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
 
     /**
      * Freeze the clock and create the identity table on the default connection
-     * and the device and pending tables on the device connection.
+     * and the device, pending and codes tables on the device connection.
      *
      * @return void
      */
@@ -68,6 +68,7 @@ final class SeparateConnectionPasswordWriterTest extends TestCase
         });
 
         self::createDeviceTable('devices', 'id', SeparateConnectionDevice::CONNECTION);
+        self::createCodeTableOn(SeparateConnectionDevice::CONNECTION);
 
         Schema::connection(SeparateConnectionDevice::CONNECTION)->create('pending_sign_ins', static function (Blueprint $blueprint): void {
             $blueprint->uuid('id')->primary();

@@ -66,6 +66,9 @@ Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel i
   the container's `Hasher`.
 - The write, the cutoff and the revocation run in one transaction on the identity's connection; `PasswordSet` is
   dispatched once that commits (`Database\AfterCommit`), never for a rollback, and never by the automatic rehash.
+- A new password outdates every reset link and code still waiting for the identity, whatever the flow: the same
+  transaction invalidates them (`ResetProofs`), so a link or code someone else obtained earlier (a forwarded mail, a
+  mailbox read while it was compromised) cannot take the account back after its owner recovers it, through any guard.
 
 ## Success Path
 
@@ -79,6 +82,13 @@ Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel i
      discarded and no model event fires, so `RevokeDevicesOnPasswordChange` neither sees the write nor undoes the device
      a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.
+   - `ResetProofs::invalidate()`: one `DELETE` on the codes' table of the reset link and code bindings of every `jwt`
+     guard for each identifier the identity holds, in canonical form, of a type a reset can be bound to (each guard's
+     password identifier, for links, and every type with a registered normaliser, for codes). An identifier is read as
+     `ResetRecipient` reads it (through `HasVerifiableIdentifiers`, else the attribute named after the type, skipped
+     when the model has none); a type the identity's verification throws a `LogicException` for has nothing to
+     invalidate, since a reset of it would fail the same way, but an `InvalidArgumentException` (a normaliser that
+     cannot be built) fails the write closed.
    - `CHANGE`: `SessionService::passwordChanged($identity, $except)`; `RESET`: `passwordReset($identity)` (every guard's
      devices, the identity's "tokens valid after" cutoff moved, pending sign-ins ended, their events after their
      commit); `REGISTRATION`: nothing.
@@ -154,7 +164,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `src/Passwords/PasswordService.php`
 - `src/Passwords/PasswordPolicy.php`
 - `src/Passwords/PasswordSettings.php`
-- `src/Passwords/PasswordWriter.php`
+- `src/Passwords/PasswordWriter.php`, `src/Passwords/ResetProofs.php`, `src/Guards/JwtGuards.php`
 - `src/Passwords/NoBreachedPasswordCheck.php`
 - `src/Contracts/BreachedPasswordChecker.php`
 - `src/Exceptions/BreachedPasswordCheckUnavailableException.php`
@@ -179,7 +189,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `tests/Integration/Passwords/SeparateConnectionPasswordWriterTest.php`
 - `tests/Performance/PasswordSetQueryBudgetTest.php`
 - `tests/Feature/Passwords/ResetRequestsTest.php`, `ResetSubmissionsTest.php`, `ResetRecipientTest.php`,
-  `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
+  `ResetProofsTest.php`, `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
 - `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
   `tests/Feature/Database/SharedConnectionTest.php`
@@ -190,6 +200,6 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 
 Update this note when the policy gains or loses a rule, Laravel's `Password` rule changes its expressions, the bcrypt
 ceiling or the default minimum changes, the breached check's outage behaviour changes, a flow ends different sessions,
-`set()` writes more than the password column, a reset request starts doing identity-dependent work, a reset stops
-spending its proof in the transaction of the change, or Laravel's broker changes in a way that would let it meet the
-criteria above.
+`set()` writes more than the password column or outdates a different set of proofs, a reset request starts doing
+identity-dependent work, a reset stops spending its proof in the transaction of the change, or Laravel's broker changes
+in a way that would let it meet the criteria above.

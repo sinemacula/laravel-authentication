@@ -78,6 +78,19 @@ final readonly class IdentifierNormalisers
     }
 
     /**
+     * The identifier types a normaliser is registered for, in their configured
+     * order.
+     *
+     * @return list<string>
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function types(): array
+    {
+        return array_keys($this->normalisers());
+    }
+
+    /**
      * The configured map of identifier types to normaliser abstracts.
      *
      * @return array<string, non-empty-string>

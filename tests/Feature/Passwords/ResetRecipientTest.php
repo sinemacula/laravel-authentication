@@ -154,6 +154,36 @@ final class ResetRecipientTest extends TestCase
     }
 
     /**
+     * An identity that reports its email address through its verification, from
+     * a column not named after the type, holds the address: it is sent the link
+     * and resets with it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnIdentityReportingItsAddressFromAnotherColumnResets(): void
+    {
+        $identity = self::seedMappedIdentity();
+
+        try {
+            $this->passwords('mapped')->sendResetLink(['email' => ' Ada@Example.test']);
+            app()->terminate();
+
+            $link = $this->links->sent()[0] ?? null;
+
+            self::assertNotNull($link);
+            self::assertTrue($identity->is($link->identity));
+
+            $result = $this->passwords('mapped')->reset(['email' => self::EMAIL, 'token' => $link->token(), 'password' => self::NEW_PASSWORD]);
+
+            self::assertSame(ResetStatus::RESET, $result->status);
+        } finally {
+            self::dropMappedIdentities();
+        }
+    }
+
+    /**
      * An identity that cannot report verification, found only by a look-alike
      * of its stored address, does not hold the address: it is sent nothing, and
      * a live token for the address resets nothing.

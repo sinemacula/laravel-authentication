@@ -106,28 +106,30 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
     }
 
     /**
-     * A registration of a stored identity is one `UPDATE` and one hash.
+     * A registration of a stored identity is one `UPDATE`, the `DELETE` of the
+     * reset links and codes the password outdates, and one hash.
      *
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARegistrationOfAStoredIdentityIsOneUpdate(): void
+    public function testARegistrationOfAStoredIdentityIsOneUpdateAndOneSweep(): void
     {
         $identity = self::seedPasswordIdentity();
         $service  = $this->service();
 
         $this->hashes = 0;
 
-        $this->assertQueryBudget(0, 1, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::REGISTRATION));
+        $this->assertQueryBudget(0, 2, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::REGISTRATION));
 
         self::assertSame(1, $this->hashesMade());
     }
 
     /**
-     * A change that keeps one of three devices is the password's `UPDATE`, the
-     * cutoff's `UPDATE`, one read of the devices, one `UPDATE` for each of the
-     * two it revokes and the `DELETE` of the pending sign-ins.
+     * A change that keeps one of three devices is the password's `UPDATE`, one
+     * `DELETE` of the reset links and codes it outdates, the cutoff's `UPDATE`,
+     * one read of the devices, one `UPDATE` for each of the two it revokes and
+     * the `DELETE` of the pending sign-ins.
      *
      * @return void
      *
@@ -145,7 +147,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
 
         $this->hashes = 0;
 
-        $result = $this->assertQueryBudget(1, 5, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept));
+        $result = $this->assertQueryBudget(1, 6, static fn () => $service->set($identity, 'a brand new passphrase', PasswordFlow::CHANGE, $kept));
 
         self::assertSame(2, $result->revoked);
         self::assertSame(1, $this->hashesMade());

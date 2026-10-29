@@ -7,9 +7,11 @@ namespace Tests\Concerns;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
@@ -21,6 +23,8 @@ use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\LookAlikeModelProvider;
+use Tests\Integration\Fixtures\MappedColumnModelProvider;
+use Tests\Integration\Fixtures\MappedEmailIdentity;
 use Tests\Integration\Fixtures\PasswordIdentity;
 use Tests\Integration\Fixtures\PasswordMachine;
 
@@ -28,8 +32,9 @@ use Tests\Integration\Fixtures\PasswordMachine;
  * Shared set-up for the password reset tests, built on the password helpers': a
  * frozen clock, the `password_identities` table, the guards (and a `lookalike`
  * one whose provider finds an email by any casing and accents, as a lenient
- * collation would), faked link and code senders, and the reset routes an
- * application would register (`/password/forgot`, `/password/forgot/code`,
+ * collation would, and a `mapped` one over identities whose email address is in
+ * an `email_address` column), faked link and code senders, and the reset routes
+ * an application would register (`/password/forgot`, `/password/forgot/code`,
  * `/password/reset`, `/password/reset/code`).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
@@ -86,6 +91,11 @@ trait InteractsWithPasswordResets
             static fn (Application $app): LookAlikeModelProvider => new LookAlikeModelProvider($app->make(Hasher::class), PasswordIdentity::class),
         );
 
+        Auth::provider(
+            'mapped-column',
+            static fn (Application $app): MappedColumnModelProvider => new MappedColumnModelProvider($app->make(Hasher::class), MappedEmailIdentity::class),
+        );
+
         Route::post('/password/forgot', static fn (Request $request): array => ['status' => Auth::passwords('web')->sendResetLink($request->all())->status->value]);
         Route::post('/password/forgot/code', static fn (Request $request): array => ['status' => Auth::passwords('web')->sendResetCode('phone', $request->all())->status->value]);
         Route::post('/password/reset', static fn (Request $request): array => self::answer(Auth::passwords('web')->reset($request->all())));
@@ -137,6 +147,8 @@ trait InteractsWithPasswordResets
             'audience' => ['methods' => ['password'], 'require_verified_identifier' => true],
         ]);
         $config->set('auth.guards.lookalike', ['driver' => 'jwt', 'provider' => 'lookalike', 'audience' => ['methods' => ['password']]]);
+        $config->set('auth.providers.mapped', ['driver' => 'mapped-column']);
+        $config->set('auth.guards.mapped', ['driver' => 'jwt', 'provider' => 'mapped', 'audience' => ['methods' => ['password']]]);
     }
 
     /**
@@ -187,6 +199,38 @@ trait InteractsWithPasswordResets
         self::assertInstanceOf(IssuedCode::class, $issued);
 
         return $issued->code;
+    }
+
+    /**
+     * Create the `mapped_email_identities` table and persist an identity whose
+     * email address, the seeded one, is in its `email_address` column.
+     *
+     * @return \Tests\Integration\Fixtures\MappedEmailIdentity
+     */
+    protected static function seedMappedIdentity(): MappedEmailIdentity
+    {
+        Schema::create('mapped_email_identities', static function (Blueprint $blueprint): void {
+            $blueprint->increments('id');
+            $blueprint->string('email_address')->unique();
+            $blueprint->string('password')->nullable();
+            $blueprint->timestamps();
+        });
+
+        $identity = new MappedEmailIdentity;
+
+        $identity->forceFill(['email_address' => self::EMAIL, 'password' => app(Hasher::class)->make(self::PASSWORD)])->save();
+
+        return $identity;
+    }
+
+    /**
+     * Drop the `mapped_email_identities` table.
+     *
+     * @return void
+     */
+    protected static function dropMappedIdentities(): void
+    {
+        Schema::dropIfExists('mapped_email_identities');
     }
 
     /**

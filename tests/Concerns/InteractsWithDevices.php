@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Tests\Concerns;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
@@ -87,6 +88,29 @@ trait InteractsWithDevices
             'idle_expires_at'     => $idle,
             'absolute_expires_at' => $absolute,
         ];
+    }
+
+    /**
+     * Create the one-time codes table on the connection with the shipped
+     * migration, for a test whose devices, and so codes, live on a connection
+     * of their own.
+     *
+     * @param  string  $connection
+     * @return void
+     */
+    protected static function createCodeTableOn(string $connection): void
+    {
+        $manager   = app(DatabaseManager::class);
+        $default   = $manager->getDefaultConnection();
+        $migration = require __DIR__ . '/../../database/migrations/2026_04_06_000003_create_one_time_codes_table.php';
+
+        $manager->setDefaultConnection($connection);
+
+        try {
+            $migration->up();
+        } finally {
+            $manager->setDefaultConnection($default);
+        }
     }
 
     /**

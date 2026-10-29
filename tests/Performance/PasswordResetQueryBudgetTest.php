@@ -112,8 +112,9 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
     /**
      * A reset of an identity with two devices reads the identity, the token and
      * the devices once each, and writes the submission's limits, the token's
-     * use, the password, the cutoff, one revocation per device, the pending
-     * sign-ins' end, and the slots it gives back.
+     * use, the password, one `DELETE` of every other reset link and code, the
+     * cutoff, one revocation per device, the pending sign-ins' end, and the
+     * slots it gives back.
      *
      * @return void
      *
@@ -134,7 +135,7 @@ final class PasswordResetQueryBudgetTest extends PerformanceContractTestCase
         $token = (string) $this->links->lastTokenFor(self::EMAIL);
 
         $input  = ['email' => self::EMAIL, 'token' => $token, 'password' => 'a brand new passphrase'];
-        $result = $this->assertQueryBudget(3, 12, static fn (): ResetResult => $passwords->reset($input));
+        $result = $this->assertQueryBudget(3, 13, static fn (): ResetResult => $passwords->reset($input));
 
         self::assertSame(2, $result->revoked);
     }

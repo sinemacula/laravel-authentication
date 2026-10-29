@@ -2048,7 +2048,10 @@ attempt, so limit the route (Laravel's `throttle` middleware here). A change end
 every guard, but the device in `$except` (the request's own device, to keep it signed in; `null` ends them all); a reset
 ends every session. Both move the identity's "tokens valid after" cutoff when it keeps one and end its pending sign-ins
 (see [Revoking on security changes](#revoking-on-security-changes)), and report each revoked device with `DeviceRevoked`
-and then `SignedOutEverywhere`. `$except` is for a change only.
+and then `SignedOutEverywhere`. `$except` is for a change only. Whatever the flow, the same transaction invalidates every
+password reset link and code still waiting for the identity's identifiers, through every guard (see
+[Password reset](#password-reset)): a link or code someone else obtained before cannot take the account back once its
+owner has set a new password.
 
 A stored identity gets one query-builder update of its password column (and `updated_at` when the model keeps
 timestamps) on its own row, without its scopes: nothing else you changed on the model is saved or discarded, and no
@@ -2165,7 +2168,8 @@ token or code is checked whatever the identity, a code counting its attempt as a
 the job would not have sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with
 the new password in the same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see
 [Setting a password](#setting-a-password)): every session of the identity ended, its cutoff moved, its pending sign-ins
-ended, and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends. The result is a
+ended, every other reset link and code for its identifiers invalidated, through every guard, and `PasswordSet` reported
+once that commits. Only a reset returns before the timebox ends. The result is a
 `ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with `retryAfter`, or
 `password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
 `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`, `machine_identity`,

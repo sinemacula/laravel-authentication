@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\IdentifierChanged;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
+use SineMacula\Laravel\Authentication\Guards\JwtGuards;
 use SineMacula\Laravel\Authentication\IdentifierChanges\Enums\IdentifierChangeOutcome;
 use SineMacula\Laravel\Authentication\Models\IdentifierChange;
 use SineMacula\Laravel\Authentication\Sessions\AccountAttempts;
@@ -151,7 +152,7 @@ final readonly class ChangeConfirmation
         $identifiers = array_filter([$previous, $change->identifier], is_string(...));
         $bindings    = [];
 
-        foreach ($this->jwtGuards() as $guard) {
+        foreach (JwtGuards::names($this->container->make(Repository::class)) as $guard) {
             foreach ($identifiers as $identifier) {
                 $bindings[] = CodeBinding::signIn($guard, $type, $identifier);
                 $bindings[] = CodeBinding::passwordReset($guard, $type, $identifier);
@@ -161,32 +162,6 @@ final readonly class ChangeConfirmation
         }
 
         return $bindings;
-    }
-
-    /**
-     * The names of the configured `jwt` guards, any of which may have issued a
-     * code for either identifier.
-     *
-     * @return list<string>
-     *
-     * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     */
-    private function jwtGuards(): array
-    {
-        $guards = $this->container->make(Repository::class)->get('auth.guards');
-        $names  = [];
-
-        foreach (is_array($guards) ? $guards : [] as $name => $config) {
-            $driver = is_array($config) ? $config['driver'] ?? null : null;
-
-            if ($driver !== 'jwt') {
-                continue;
-            }
-
-            $names[] = (string) $name;
-        }
-
-        return $names;
     }
 
     /**

@@ -73,8 +73,40 @@ final class ResetRecipient
     }
 
     /**
-     * Whether the identity's own identifier of the binding's type, read on the
-     * write connection, is exactly the bound one in canonical form.
+     * The identity's own identifier of the type, read on the write connection,
+     * in canonical form: through `HasVerifiableIdentifiers` when the identity
+     * implements it, otherwise from the model attribute named by the type;
+     * `null` when it has none, or the model has no such attribute. An identity
+     * whose verification cannot report the type at all may throw a
+     * `LogicException` (`ProvidesIdentifierVerification` does, for a column the
+     * model has not loaded).
+     *
+     * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  string  $type
+     * @param  \SineMacula\Laravel\Authentication\Verification\IdentifierVerifier  $verifier
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    public static function identifierOf(Identity&Model $identity, string $type, IdentifierVerifier $verifier): ?string
+    {
+        if ($identity instanceof HasVerifiableIdentifiers) {
+            return CodeIdentifiers::of($identity, $type, $verifier);
+        }
+
+        if (!$identity->hasAttribute($type)) {
+            return null;
+        }
+
+        $own = WriteConnection::during($identity, static fn (): mixed => $identity->getAttribute($type));
+
+        return is_string($own) ? $verifier->canonical($type, $own) : null;
+    }
+
+    /**
+     * Whether the identity's own identifier of the binding's type is exactly
+     * the bound one in canonical form.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
@@ -82,15 +114,11 @@ final class ResetRecipient
      * @return bool
      *
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      */
     private static function holds(Identity&Model $identity, CodeBinding $binding, IdentifierVerifier $verifier): bool
     {
-        if ($identity instanceof HasVerifiableIdentifiers) {
-            return CodeIdentifiers::isHeldBy($identity, $binding, $verifier);
-        }
-
-        $own = WriteConnection::during($identity, static fn (): mixed => $identity->getAttribute($binding->type));
-        $own = is_string($own) ? $verifier->canonical($binding->type, $own) : null;
+        $own = self::identifierOf($identity, $binding->type, $verifier);
 
         return $own !== null && hash_equals($binding->identifier, $own);
     }
