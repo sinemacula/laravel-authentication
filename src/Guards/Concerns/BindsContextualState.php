@@ -270,6 +270,25 @@ trait BindsContextualState
     }
 
     /**
+     * Refuse scopes for an identity that is not a machine: scopes limit a
+     * credential, and no credential limits a human identity's session.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  ?list<string>  $scopes
+     * @return void
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function assertScopable(Identity $identity, ?array $scopes): void
+    {
+        if ($scopes === null || $identity instanceof MachineIdentity) {
+            return;
+        }
+
+        throw new \InvalidArgumentException(sprintf('Scopes limit the credential of a machine identity; %s is not one, so no credential limits it.', $identity::class));
+    }
+
+    /**
      * Bind the whole triple, with the credential that authenticated it and the
      * scopes it grants, then dispatch Laravel's `Authenticated`,
      * `PrincipalAssigned` and, with a device, `DeviceAuthenticated`, all

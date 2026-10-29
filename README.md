@@ -2387,7 +2387,8 @@ enforces this at every entry point that verifies something:
 | `Auth::identifierChanges()`, every method                          | refused with an `InvalidArgumentException`: it has none      |
 
 The trusted binds stay trusted: `login()`, `setUser()` and `authenticateAs()` (and so Laravel's `actingAs()` in tests)
-bind a machine as given, limited to no scope (`Auth::scopes()` is `[]`), since the caller has proven it.
+bind a machine as given, limited to no scope (`Auth::scopes()` is `[]`), since the caller has proven it;
+`authenticateAs()` limits it to the scopes it is given instead, when it is given some.
 
 ### Credential scopes
 
@@ -2413,7 +2414,9 @@ with the credential's scopes, so a scope grants nothing the principal could not 
 
 `[]` and `null` differ: `[]` is a credential that grants no scope, `null` is no credential limit at all. A
 `MachineIdentity` is never left without a ceiling, so binding one through the trusted `login()`, `setUser()` or
-`authenticateAs()` (Laravel's `actingAs()` in tests, say) gives it `[]`. The scopes are also in every event's context
+`authenticateAs()` (Laravel's `actingAs()` in tests, say) gives it `[]`; `authenticateAs($identity, $principal, $device,
+$scopes)` gives it the scopes named instead (a test acting as a machine with scopes, say; see [Testing](#testing)), and
+refuses scopes for a human identity with an `InvalidArgumentException`. The scopes are also in every event's context
 (`$event->context->scopes`), with the credential's id in `credentialId`.
 
 Scopes are checked when a credential is issued: each must be a well-formed scope token, and the bound
@@ -3728,15 +3731,15 @@ final class ProfileTest extends TestCase
 }
 ```
 
-| Method                                                         | What it does                                                                                              |
-|----------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| `actingAsIdentity($identity, ?$principal, ?$device, ?$guard)`  | Acts as the identity, as the principal given or the resolver's default, on the device given or none       |
-| `actingAsPrincipal($principal, ?$device, ?$guard)`             | Acts as the principal, for the identity its `getIdentity()` returns                                       |
-| `actingOnDevice($device, ?$guard)`                             | Acts on a device's session: its owner, the principal it records and the guard it records                  |
-| `stopActing(?$guard)`                                          | Ends acting: signed out for the rest of the request, and the next request uses its own credential, if any |
-| `assertBoundIdentity()`, `Principal()`, `Tenant()`, `Device()` | What the guard has bound: `null` for nothing, otherwise the same class with the same identifier           |
-| `assertBoundScopes(?array $scopes)`                            | The scopes, exactly and in order: `null` for no ceiling (a human's session), `[]` for none (a machine)    |
-| `assertBoundType(?string $type)`                               | The principal's type: its own, else its tenant's                                                          |
+| Method                                                                  | What it does                                                                                              |
+|-------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| `actingAsIdentity($identity, ?$principal, ?$device, ?$guard, ?$scopes)` | Acts as the identity, as the principal given or the resolver's default, on the device given or none       |
+| `actingAsPrincipal($principal, ?$device, ?$guard, ?$scopes)`            | Acts as the principal, for the identity its `getIdentity()` returns                                       |
+| `actingOnDevice($device, ?$guard)`                                      | Acts on a device's session: its owner, the principal it records and the guard it records                  |
+| `stopActing(?$guard)`                                                   | Ends acting: signed out for the rest of the request, and the next request uses its own credential, if any |
+| `assertBoundIdentity()`, `Principal()`, `Tenant()`, `Device()`          | What the guard has bound: `null` for nothing, otherwise the same class with the same identifier           |
+| `assertBoundScopes(?array $scopes)`                                     | The scopes, exactly and in order: `null` for no ceiling (a human's session), `[]` for none (a machine)    |
+| `assertBoundType(?string $type)`                                        | The principal's type: its own, else its tenant's                                                          |
 
 `actingAsIdentity()` without a principal throws an `InvalidArgumentException` when the identity has no default one, as
 `setUser()` does. `actingOnDevice()` finds the owner through the guard's provider and the principal through the guard's
@@ -3745,7 +3748,10 @@ does not record.
 
 Every method takes the guard last and uses the default guard when it is left out; acting makes the guard the default,
 as `actingAs()` does. The context is bound through the guard's trusted `authenticateAs()`, so nothing is checked: a
-test can act as a revoked device, an inactive principal or a machine (which is limited to no scope, `[]`). Each request
+test can act as a revoked device, an inactive principal or a machine, which is limited to the scopes given (`[]`, none,
+when the test names none), as if its credential granted them, so a test of a scope-gated route needs no real API key
+(`$this->actingAsIdentity($client, guard: 'api_keys', scopes: ['orders:read'])`); scopes for a human identity throw an
+`InvalidArgumentException`. Each request
 the test sends fires `Authenticated`, `PrincipalAssigned` and, with a device, `DeviceAuthenticated` (which records the
 device's use), as a bearer request does, and a context acted as wins over a credential the request carries.
 

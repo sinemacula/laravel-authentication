@@ -89,6 +89,28 @@ final class MachineInteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
+     * A machine acted as with scopes is limited to them, on every request, as
+     * if its key granted them; acting as one of its principals takes them too.
+     *
+     * @return void
+     */
+    public function testAMachineActedAsWithScopesIsLimitedToThem(): void
+    {
+        $robot = $this->seedMachine();
+
+        $this->actingAsIdentity($robot, guard: 'machine', scopes: ['reports:read', 'reports:write'])->assertBoundScopes(['reports:read', 'reports:write']);
+
+        $this->getJson('/machine/me')->assertOk()->assertJsonPath('scopes', ['reports:read', 'reports:write']);
+        $this->getJson('/machine/me')->assertOk()->assertJsonPath('scopes', ['reports:read', 'reports:write']);
+
+        [, $membership] = $this->seedAccount();
+
+        $this->actingAsPrincipal($membership, guard: 'accounts', scopes: ['billing:read'])->assertBoundScopes(['billing:read']);
+
+        $this->getJson('/accounts/me')->assertOk()->assertJsonPath('scopes', ['billing:read']);
+    }
+
+    /**
      * A service account's membership acted as carries its type and tenant.
      *
      * @return void

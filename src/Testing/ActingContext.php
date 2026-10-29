@@ -42,7 +42,7 @@ use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
  */
 final class ActingContext
 {
-    /** @var array<string, array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, device: ?\SineMacula\Laravel\Authentication\Contracts\Device}> The context acted as, by guard name. */
+    /** @var array<string, array{identity: \SineMacula\Laravel\Authentication\Contracts\Identity, principal: \SineMacula\Laravel\Authentication\Contracts\Principal, device: ?\SineMacula\Laravel\Authentication\Contracts\Device, scopes: ?list<string>}> The context acted as, by guard name. */
     private array $acting = [];
 
     /** @var array<string, \SineMacula\Laravel\Authentication\Guards\AbstractGuard> The guard instance, by name, whose request rebinding binds the context again. */
@@ -199,30 +199,37 @@ final class ActingContext
 
     /**
      * Act as the context on the guard: bind it now and again on every request
-     * the guard is rebound to, until the acting ends.
+     * the guard is rebound to, until the acting ends. A context the guard
+     * refuses to bind (scopes for an identity that is not a machine) is not
+     * kept.
      *
      * @param  \SineMacula\Laravel\Authentication\Guards\AbstractGuard  $guard
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?list<string>  $scopes
      * @return void
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
      */
-    public function act(AbstractGuard $guard, Identity $identity, Principal $principal, ?Device $device): void
+    public function act(AbstractGuard $guard, Identity $identity, Principal $principal, ?Device $device, ?array $scopes = null): void
     {
         $name = $guard->getName();
 
-        $this->acting[$name] = ['identity' => $identity, 'principal' => $principal, 'device' => $device];
+        $guard->authenticateAs($identity, $principal, $device, $scopes);
 
-        if (($this->wired[$name] ?? null) !== $guard) {
+        $this->acting[$name] = ['identity' => $identity, 'principal' => $principal, 'device' => $device, 'scopes' => $scopes];
 
-            $this->wired[$name] = $guard;
-
-            $this->container->rebinding('request', function () use ($guard): void {
-                $this->bind($guard);
-            });
+        if (($this->wired[$name] ?? null) === $guard) {
+            return;
         }
 
-        $this->bind($guard);
+        $this->wired[$name] = $guard;
+
+        $this->container->rebinding('request', function () use ($guard): void {
+            $this->bind($guard);
+        });
     }
 
     /**
@@ -253,7 +260,7 @@ final class ActingContext
             return;
         }
 
-        $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['device']);
+        $guard->authenticateAs($acting['identity'], $acting['principal'], $acting['device'], $acting['scopes']);
     }
 
     /**

@@ -179,6 +179,27 @@ final class InteractsWithAuthenticationContextTest extends TestCase
     }
 
     /**
+     * Scopes limit a machine identity's credential, so acting as a human with
+     * scopes is refused, and nothing is acted as: the next request is
+     * unauthenticated.
+     *
+     * @return void
+     */
+    public function testAHumanCannotBeActedAsWithScopes(): void
+    {
+        $ada = $this->seedIdentity();
+
+        try {
+            $this->actingAsIdentity($ada, guard: 'api', scopes: ['reports:read']);
+            self::fail('A human was acted as with scopes.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertSame(sprintf('Scopes limit the credential of a machine identity; %s is not one, so no credential limits it.', $ada::class), $exception->getMessage());
+        }
+
+        $this->getJson('/api/me')->assertUnauthorized();
+    }
+
+    /**
      * Acting as a principal acts for the identity that owns it.
      *
      * @return void

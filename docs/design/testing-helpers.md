@@ -37,9 +37,10 @@ assertions compare, and the fakes the package ships for its delivery contracts.
 ## Success Path
 
 1. `actingAsIdentity()`, `actingAsPrincipal()` or `actingOnDevice()` resolves the package guard named (or the default),
-   works out the identity, principal and device, and hands them to the container's `Testing\ActingContext`.
-2. The context stores them for the guard, registers its `request` rebinding callback for that guard instance once, and
-   binds them at once through `authenticateAs()`.
+   works out the identity, principal and device (and, for a machine, the scopes the test names), and hands them to the
+   container's `Testing\ActingContext`.
+2. The context binds them at once through `authenticateAs()` (which refuses scopes for a human, so nothing is kept),
+   then stores them for the guard and registers its `request` rebinding callback for that guard instance once.
 3. Each request the test sends rebinds `request`: the guard resets, then the callback binds the context again
    (`Authenticated`, `PrincipalAssigned` and, with a device, `DeviceAuthenticated`, as a bearer request).
 4. `actingOnDevice()` reads the device's owner key and principal columns without a query, loads the owner through the

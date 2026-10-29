@@ -45,42 +45,49 @@ trait InteractsWithAuthenticationContext
     /**
      * Act as the identity on the guard (the default guard when none is named),
      * as the principal given or the resolver's default one, on the device given
-     * or none.
+     * or none. A machine identity is limited to the scopes given, as if its
+     * credential granted them (none, `[]`, when no list is given), so a test of
+     * a scope-gated route needs no real API key.
      *
      * Throws an `InvalidArgumentException` when no principal is given and the
-     * identity has no default one, or when the guard is not a package guard.
+     * identity has no default one, when scopes are given for an identity that
+     * is not a machine, or when the guard is not a package guard.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  ?string  $guard
+     * @param  ?list<string>  $scopes
      * @return static
      *
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function actingAsIdentity(Identity $identity, ?Principal $principal = null, ?Device $device = null, ?string $guard = null): static
+    public function actingAsIdentity(Identity $identity, ?Principal $principal = null, ?Device $device = null, ?string $guard = null, ?array $scopes = null): static
     {
         $resolved = ActingContext::guard($guard);
 
-        return $this->actOnGuard($resolved, $identity, $principal ?? ActingContext::defaultPrincipal($resolved, $identity), $device);
+        return $this->actOnGuard($resolved, $identity, $principal ?? ActingContext::defaultPrincipal($resolved, $identity), $device, $scopes);
     }
 
     /**
      * Act as the principal, for the identity that owns it, on the guard (the
-     * default guard when none is named), on the device given or none.
+     * default guard when none is named), on the device given or none, limited,
+     * for a machine identity, to the scopes given (see `actingAsIdentity()`).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  ?string  $guard
+     * @param  ?list<string>  $scopes
      * @return static
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function actingAsPrincipal(Principal $principal, ?Device $device = null, ?string $guard = null): static
+    public function actingAsPrincipal(Principal $principal, ?Device $device = null, ?string $guard = null, ?array $scopes = null): static
     {
-        return $this->actOnGuard(ActingContext::guard($guard), $principal->getIdentity(), $principal, $device);
+        return $this->actOnGuard(ActingContext::guard($guard), $principal->getIdentity(), $principal, $device, $scopes);
     }
 
     /**
@@ -281,15 +288,19 @@ trait InteractsWithAuthenticationContext
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?list<string>  $scopes
      * @return static
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
      */
-    private function actOnGuard(AbstractGuard $guard, Identity $identity, Principal $principal, ?Device $device): static
+    private function actOnGuard(AbstractGuard $guard, Identity $identity, Principal $principal, ?Device $device, ?array $scopes = null): static
     {
         if ($identity instanceof Model) {
             $identity->wasRecentlyCreated = false;
         }
 
-        ActingContext::current()->act($guard, $identity, $principal, $device);
+        ActingContext::current()->act($guard, $identity, $principal, $device, $scopes);
 
         /** @var \Illuminate\Auth\AuthManager $auth */
         $auth = Container::getInstance()->make('auth');

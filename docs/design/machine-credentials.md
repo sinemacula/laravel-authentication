@@ -118,7 +118,8 @@ authorization package decides what they allow.
 - A scope that is not a scope token (empty, spaced, quoted, non-ASCII, too long, not a string) is refused with every
   offending value named; a value that is not a string is named by its type.
 - A registry that names a scope it was not asked about cannot widen the refusal: only scopes being granted are refused.
-- The trusted binds (`login()`, `setUser()`, `authenticateAs()`) bind a machine as given, with `[]` scopes.
+- The trusted binds (`login()`, `setUser()`, `authenticateAs()`) bind a machine as given, with `[]` scopes, or, through
+  `authenticateAs()`, the scopes it is given (the testing helpers' `scopes`); scopes for a human are refused.
 
 ## Implementation Anchors
 
