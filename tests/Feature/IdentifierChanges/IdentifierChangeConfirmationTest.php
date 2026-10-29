@@ -135,8 +135,40 @@ final class IdentifierChangeConfirmationTest extends TestCase
         $notices = $this->notifier->noticesFor($identity);
 
         self::assertCount(1, $notices);
-        self::assertSame(['web', 'email', self::EMAIL, self::NEW_EMAIL], [$notices[0]->guard, $notices[0]->type, $notices[0]->previous, $notices[0]->identifier]);
-        self::assertTrue($this->now->addMinute()->equalTo($notices[0]->changedAt));
+        $notice = $notices[0];
+
+        self::assertSame(['web', 'email', self::EMAIL, true, self::NEW_EMAIL], [$notice->guard, $notice->type, $notice->previous, $notice->previousVerified, $notice->identifier]);
+        self::assertTrue($this->now->addMinute()->equalTo($notice->changedAt));
+    }
+
+    /**
+     * The notice says whether the old identifier was verified when the change
+     * was requested, as the pending change recorded it then: one never verified
+     * may be a stranger's, for the notifier to decide what to tell. The notice
+     * is queued either way.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheNoticeSaysWhetherTheOldIdentifierWasVerified(): void
+    {
+        $identity = self::seedChangeable(self::EMAIL, self::PHONE);
+
+        DB::table('changeable_identities')->update(['phone_verified_at' => null]);
+
+        $identity->refresh();
+
+        self::assertTrue($this->changes()->requestByCode($identity, 'phone', self::NEW_PHONE, Reauthentication::confirmedAt($this->now))->isSent());
+        self::assertSame([false], DB::table('identifier_changes')->pluck('previous_verified')->map(static fn (mixed $value): bool => (bool) $value)->all());
+        self::assertSame(IdentifierChangeOutcome::CHANGED, $this->changes()->confirmByCode($identity, 'phone', self::CODE));
+
+        $this->runQueued(SendIdentifierChangeNotice::class);
+
+        $notices = $this->notifier->noticesFor($identity);
+
+        self::assertCount(1, $notices);
+        self::assertSame([self::PHONE, false, self::NEW_PHONE], [$notices[0]->previous, $notices[0]->previousVerified, $notices[0]->identifier]);
     }
 
     /**

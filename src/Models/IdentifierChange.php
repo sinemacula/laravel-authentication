@@ -36,6 +36,7 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * @property string $guard
  * @property string $type
  * @property ?string $previous
+ * @property bool $previous_verified
  * @property string $identifier
  * @property string $request_id
  * @property \Carbon\CarbonInterface $requested_at
@@ -99,8 +100,9 @@ final class IdentifierChange extends Model
     protected function casts(): array
     {
         return [
-            'requested_at' => 'datetime',
-            'expires_at'   => 'datetime',
+            'previous_verified' => 'boolean',
+            'requested_at'      => 'datetime',
+            'expires_at'        => 'datetime',
         ];
     }
 }

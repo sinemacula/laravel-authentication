@@ -195,7 +195,7 @@ final readonly class ChangeConfirmation
             return;
         }
 
-        $notice = new IdentifierChangeNotice($change->guard, $change->type, $change->previous, $change->identifier, $identity, $now);
+        $notice = new IdentifierChangeNotice($change->guard, $change->type, $change->previous, $change->previous_verified, $change->identifier, $identity, $now);
 
         $container->make(QueuedDelivery::class)->dispatch(new SendIdentifierChangeNotice($notice), $identity);
     }

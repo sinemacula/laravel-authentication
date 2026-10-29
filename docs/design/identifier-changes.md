@@ -98,6 +98,12 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - The notifier fails: the job fails and the queue retries; the change stands. The new identifier was proven and the
   request recently authenticated, so rolling back on a mail outage would block the owner while protecting nothing the
   proof did not, and notices are dispatched after commit by design, outside the atomic unit.
+- The old identifier was never verified (an address mistyped at registration, say): it may be a stranger's. The pending
+  change records whether it was verified when the change was requested (`previous_verified`, read with
+  `hasVerifiedIdentifier()`), and the notice carries it (`IdentifierChangeNotice::$previousVerified`), so the notifier
+  decides what, if anything, to tell it; the package still queues the notice, since whether an unverified address is
+  the owner's is the application's to judge. The README's notifier sends nothing to one, and names only part of the
+  new identifier to a verified one.
 - Sessions are not revoked by a change; the application may sign the identity out everywhere if it wants that.
 - Every bulk revocation of an identity's sessions deletes every pending change of the identity, of each type with a
   registered normaliser and through any guard, in one `DELETE` by key inside the revocation's transaction on the device

@@ -112,6 +112,7 @@ final readonly class ChangeRequests
         $settings   = new IdentifierChangeSettings($this->container->make(Repository::class));
         $normalised = $this->container->make(IdentifierNormalisers::class)->get($type)->normalise($identifier);
         $previous   = WriteConnection::during($identity, static fn (): ?string => $identity->getIdentifierForVerification($type));
+        $verified   = WriteConnection::during($identity, static fn (): bool => $identity->hasVerifiedIdentifier($type));
 
         $refused = $this->unauthenticated($identity, $proof, $settings, $context, $identifier, $now)
             ?? $this->unacceptable($type, $previous, $normalised, $context, $identifier)
@@ -121,7 +122,7 @@ final readonly class ChangeRequests
             return $refused;
         }
 
-        $change    = new RequestedChange($type, $previous, (string) $normalised, Str::uuid()->toString(), $now, $now->addSeconds($settings->ttlSeconds()));
+        $change    = new RequestedChange($type, $previous, $verified, (string) $normalised, Str::uuid()->toString(), $now, $now->addSeconds($settings->ttlSeconds()));
         $requested = $identity->getConnection()->transaction(fn (): IdentifierChangeRequest|int => $this->write($identity, $change, $link, $context));
 
         return is_int($requested) ? $this->refuse(IdentifierChangeRequest::rateLimited($requested), FailureReason::RATE_LIMITED, $context, $identifier, $requested) : $requested;

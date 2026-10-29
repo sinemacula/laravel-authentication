@@ -61,7 +61,8 @@ final class IdentifierChangeTest extends TestCase
 
     /**
      * The row's digest, both identifiers and the request never reach a
-     * serialised row, and the times are cast.
+     * serialised row; the times and whether the replaced identifier was
+     * verified are cast.
      *
      * @return void
      */
@@ -71,7 +72,8 @@ final class IdentifierChangeTest extends TestCase
 
         $change = IdentifierChange::query()->sole();
 
-        self::assertSame(['guard', 'type', 'requested_at', 'expires_at'], array_keys($change->toArray()));
+        self::assertSame(['guard', 'type', 'previous_verified', 'requested_at', 'expires_at'], array_keys($change->toArray()));
+        self::assertFalse($change->previous_verified);
         self::assertSame('2026-04-06 13:00:00', $change->expires_at->format('Y-m-d H:i:s'));
         self::assertSame('2026-04-06 12:00:00', $change->requested_at->format('Y-m-d H:i:s'));
     }

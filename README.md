@@ -2246,9 +2246,14 @@ verified, and tells the old one. The application owns the routes, the messages a
 The identity implements `HasChangeableIdentifiers` (it extends `HasVerifiableIdentifiers`); the
 `ProvidesIdentifierVerification` trait already implements it from the identifier's column and `<type>_verified_at`, so
 the model only declares it. The application binds an `IdentifierChangeNotifier`, which tells the old identifier: no
-change is requested or confirmed while none is bound.
+change is requested or confirmed while none is bound. The notice says whether the old identifier was verified when the
+change was requested (`previousVerified`): one never verified, such as an address mistyped at registration, may belong
+to a stranger, whom a notice would tell that the account exists and, if it named the new identifier, where its owner
+now is. The package queues the notice either way and leaves that choice to the notifier; the one below sends nothing to
+an unverified address and names only part of the new one.
 
 ```php
+use Illuminate\Support\Str;
 use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeNotice;
@@ -2262,8 +2267,13 @@ final class MailIdentifierChangeNotifier implements IdentifierChangeNotifier
 {
     public function notify(IdentifierChangeNotice $notice): void
     {
-        // $notice->previous is the destination; $notice->identifier is the new one.
-        Mail::to($notice->previous)->send(new EmailAddressChanged($notice->identifier, $notice->changedAt));
+        // Never verified, the old address may be a stranger's: tell it nothing.
+        if (!$notice->previousVerified) {
+            return;
+        }
+
+        // $notice->previous is the destination; name only part of the new address.
+        Mail::to($notice->previous)->send(new EmailAddressChanged(Str::mask($notice->identifier, '*', 2, -6), $notice->changedAt));
     }
 }
 

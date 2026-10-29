@@ -119,13 +119,14 @@ final class PendingChanges
         $replaced = self::find($identity, $change->type);
         $model    = new IdentifierChange;
         $values   = [
-            'guard'        => $guard,
-            'type'         => $change->type,
-            'previous'     => $change->previous,
-            'identifier'   => $change->identifier,
-            'request_id'   => $change->requestId,
-            'requested_at' => $model->fromDateTime($change->requestedAt),
-            'expires_at'   => $model->fromDateTime($change->expiresAt),
+            'guard'             => $guard,
+            'type'              => $change->type,
+            'previous'          => $change->previous,
+            'previous_verified' => $change->previousVerified,
+            'identifier'        => $change->identifier,
+            'request_id'        => $change->requestId,
+            'requested_at'      => $model->fromDateTime($change->requestedAt),
+            'expires_at'        => $model->fromDateTime($change->expiresAt),
         ];
 
         if (self::table()->where('id', $key)->update($values) === 0 && self::table()->insertOrIgnore(['id' => $key, ...$values]) === 0) {

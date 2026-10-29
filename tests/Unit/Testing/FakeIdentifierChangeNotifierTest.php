@@ -131,7 +131,7 @@ final class FakeIdentifierChangeNotifierTest extends TestCase
      */
     private static function notice(Identity $identity, string $type): IdentifierChangeNotice
     {
-        return new IdentifierChangeNotice('web', $type, 'old', 'new', $identity, CarbonImmutable::parse('2027-03-01 08:30:00'));
+        return new IdentifierChangeNotice('web', $type, 'old', true, 'new', $identity, CarbonImmutable::parse('2027-03-01 08:30:00'));
     }
 
     /**

@@ -91,14 +91,15 @@ final class IdentifierChangesTableSchemaTest extends TestCase
         ksort($columns);
 
         self::assertSame([
-            'expires_at'   => false,
-            'guard'        => false,
-            'id'           => false,
-            'identifier'   => false,
-            'previous'     => true,
-            'request_id'   => false,
-            'requested_at' => false,
-            'type'         => false,
+            'expires_at'        => false,
+            'guard'             => false,
+            'id'                => false,
+            'identifier'        => false,
+            'previous'          => true,
+            'previous_verified' => false,
+            'request_id'        => false,
+            'requested_at'      => false,
+            'type'              => false,
         ], $columns);
 
         $primary = array_values(array_filter(Schema::getIndexes(self::TABLE), static fn (array $index): bool => $index['primary']));

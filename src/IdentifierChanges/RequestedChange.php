@@ -9,8 +9,8 @@ use Carbon\CarbonImmutable;
 /**
  * A change of identifier being requested, as it is written to the pending
  * changes and signed into a link: the type, the identifier it replaces exactly
- * as stored, the new one in its normal form, the request its proofs are bound
- * to, and when it was requested and expires.
+ * as stored and whether that one was verified, the new one in its normal form,
+ * the request its proofs are bound to, and when it was requested and expires.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -24,6 +24,7 @@ final readonly class RequestedChange
      *
      * @param  string  $type
      * @param  ?string  $previous
+     * @param  bool  $previousVerified
      * @param  string  $identifier
      * @param  string  $requestId
      * @param  \Carbon\CarbonImmutable  $requestedAt
@@ -36,6 +37,9 @@ final readonly class RequestedChange
 
         /** The identifier the change replaces, as stored, or `null` for none. */
         #[\SensitiveParameter] public ?string $previous,
+
+        /** Whether the identity had verified the identifier the change replaces when the change was requested. */
+        public bool $previousVerified,
 
         /** The identifier the change sets, in its normal form. */
         #[\SensitiveParameter] public string $identifier,
@@ -60,7 +64,7 @@ final readonly class RequestedChange
     public function expiringBy(CarbonImmutable $deadline): self
     {
         return $deadline->lessThan($this->expiresAt)
-            ? new self($this->type, $this->previous, $this->identifier, $this->requestId, $this->requestedAt, $deadline)
+            ? new self($this->type, $this->previous, $this->previousVerified, $this->identifier, $this->requestId, $this->requestedAt, $deadline)
             : $this;
     }
 }

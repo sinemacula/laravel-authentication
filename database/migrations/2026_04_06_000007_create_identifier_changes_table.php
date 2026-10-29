@@ -39,9 +39,12 @@ return new class extends Migration {
             $blueprint->string('type', 64);
 
             // The identifier the change replaces, exactly as stored when it was
-            // requested (none for an identity that had none), and the one it
-            // sets, in its normal form.
+            // requested (none for an identity that had none), whether it was
+            // verified then, so the notice to it can tell a proven owner from
+            // an address that may be a stranger's, and the one it sets, in its
+            // normal form.
             $blueprint->string('previous')->nullable();
+            $blueprint->boolean('previous_verified')->default(false);
             $blueprint->string('identifier');
 
             // Random per request: the code and the link that confirm a change

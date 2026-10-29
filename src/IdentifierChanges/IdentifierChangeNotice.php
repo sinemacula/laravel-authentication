@@ -13,7 +13,11 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
  * `IdentifierChangeNotifier::notify()` is given.
  *
  * `previous` is the destination: the identifier the identity held when the
- * change was requested, exactly as it was stored. `identifier` is the one that
+ * change was requested, exactly as it was stored. `previousVerified` says
+ * whether the identity had verified it then: one never verified (an address
+ * mistyped at registration, say) may belong to a stranger, whom a notice naming
+ * the new identifier would tell that the account exists and where its owner now
+ * is, so decide what to send it, if anything. `identifier` is the one that
  * replaced it, in its normal form, for a message that names it (or, better,
  * only part of it). Neither is a secret, and no code, link or token is carried.
  * The identity survives queueing as Laravel's `SerializesModels` keeps a model:
@@ -34,6 +38,7 @@ final readonly class IdentifierChangeNotice
      * @param  string  $guard
      * @param  string  $type
      * @param  string  $previous
+     * @param  bool  $previousVerified
      * @param  string  $identifier
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \Carbon\CarbonImmutable  $changedAt
@@ -48,6 +53,9 @@ final readonly class IdentifierChangeNotice
 
         /** Destination: the identifier replaced, as it was stored. */
         #[\SensitiveParameter] public string $previous,
+
+        /** Whether the identity had verified the destination when the change was requested. */
+        public bool $previousVerified,
 
         /** The identifier that replaced it, in its normal form. */
         #[\SensitiveParameter] public string $identifier,

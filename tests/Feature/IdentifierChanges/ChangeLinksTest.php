@@ -84,7 +84,7 @@ final class ChangeLinksTest extends TestCase
      */
     public function testALinkReadsBackAsTheChangeItNames(): void
     {
-        $change = new RequestedChange('email', 'ada@example.test', 'ada@new.example.test', 'request-1', CarbonImmutable::now(), CarbonImmutable::now()->addHour());
+        $change = new RequestedChange('email', 'ada@example.test', true, 'ada@new.example.test', 'request-1', CarbonImmutable::now(), CarbonImmutable::now()->addHour());
         $link   = self::links()->sign('email.confirm', ['tab' => 'profile'], 'web', '7', $change);
         $read   = self::links()->read(Request::create($link));
 
