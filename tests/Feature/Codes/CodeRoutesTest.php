@@ -192,7 +192,10 @@ final class CodeRoutesTest extends TestCase
         $this->post('/codes', ['phone' => self::PHONE])->assertAccepted();
         $this->post('/codes', ['phone' => self::PHONE])->assertTooManyRequests()->assertHeader('Retry-After', '60');
         $this->post('/codes', ['phone' => '07700 900123'])->assertUnprocessable();
-        $this->post('/sign-in/code', ['phone' => self::PHONE, 'code' => '000000'])->assertUnauthorized();
+
+        $wrong = $this->sender->lastCodeFor(self::PHONE) === '000000' ? '111111' : '000000';
+
+        $this->post('/sign-in/code', ['phone' => self::PHONE, 'code' => $wrong])->assertUnauthorized();
     }
 
     /**
@@ -214,7 +217,9 @@ final class CodeRoutesTest extends TestCase
 
         self::assertIsString($code);
 
-        $this->bearer($access, 'post', '/phone/verification/confirm', ['code' => '000000'])->assertUnprocessable();
+        $wrong = $code === '000000' ? '111111' : '000000';
+
+        $this->bearer($access, 'post', '/phone/verification/confirm', ['code' => $wrong])->assertUnprocessable();
         $this->bearer($access, 'post', '/phone/verification/confirm', ['code' => $code])->assertOk()->assertExactJson(['verified' => 'verified']);
 
         self::assertTrue($identity->fresh()?->hasVerifiedIdentifier('phone'));

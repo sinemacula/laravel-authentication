@@ -682,12 +682,11 @@ final class OneTimeCodesTest extends TestCase
     public function testACallersRollbackGivesTheAttemptBack(): void
     {
         $binding = self::binding();
-
-        self::issued($binding);
+        $wrong   = self::issued($binding)->code === '000000' ? '111111' : '000000';
 
         DB::beginTransaction();
 
-        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, '000000', $this->now));
+        self::assertSame(CodeCheck::INVALID, self::codes()->check($binding, $wrong, $this->now));
         self::assertSame(1, self::attempts());
 
         DB::rollBack();

@@ -112,7 +112,9 @@ final class IdentifierChangeRoutesTest extends TestCase
 
         self::assertIsString($code);
 
-        $this->bearer($access, 'post', '/email/change/confirm', ['code' => '000000'])->assertUnprocessable();
+        $wrong = $code === '000000' ? '111111' : '000000';
+
+        $this->bearer($access, 'post', '/email/change/confirm', ['code' => $wrong])->assertUnprocessable();
         $this->bearer($access, 'post', '/email/change/confirm', ['code' => $code])->assertNoContent();
 
         $notices = array_map(static fn (IdentifierChangeNotice $notice): array => [$notice->previous, $notice->identifier], $this->notifier->sent());
