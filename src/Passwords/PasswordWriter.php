@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Passwords;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -25,9 +26,12 @@ use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
  * An identity already stored gets one query-builder update of its password
  * column (and `updated_at`, when the model keeps timestamps) on its own row,
  * without its scopes: no other attribute is saved or discarded, and no model
- * event fires, so no observer can cancel the write or revoke again behind it.
- * An identity not stored yet, which only a registration may set, is inserted
- * with `save()`. The model is given the hash only once the row has it.
+ * event fires, so no observer can cancel the write or revoke again behind it. A
+ * registration updates the row only while it has no password (`null` or empty),
+ * in the same statement, so it can never replace one, which would be a change
+ * that ends no session. An identity not stored yet, which only a registration
+ * may set, is inserted with `save()`. The model is given the hash only once the
+ * row has it.
  *
  * A change ends every session of the identity but the one it was made from,
  * when the caller keeps that device; a reset ends every session; a registration
@@ -90,7 +94,7 @@ final readonly class PasswordWriter
 
         return $identity->getConnection()->transaction(function () use ($identity, $hash, $flow, $except, $container, $client, $events): int {
 
-            $this->store($identity, $hash);
+            $this->store($identity, $hash, $flow);
 
             (new ResetProofs($container))->invalidate($identity);
 
@@ -112,15 +116,17 @@ final readonly class PasswordWriter
 
     /**
      * Store the hash on the identity's row, or insert the identity when it is
-     * not stored yet, and give the model the hash.
+     * not stored yet, and give the model the hash. A registration stores it
+     * only on a row that has no password yet.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $hash
+     * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
      * @return void
      *
      * @throws \LogicException
      */
-    private function store(Identity&Model $identity, #[\SensitiveParameter] string $hash): void
+    private function store(Identity&Model $identity, #[\SensitiveParameter] string $hash, PasswordFlow $flow): void
     {
         $column = $identity->getAuthPasswordName();
 
@@ -140,8 +146,20 @@ final readonly class PasswordWriter
             $values[$updated] = $identity->fromDateTime($identity->freshTimestamp());
         }
 
-        if ($identity->newQueryWithoutScopes()->whereKey($identity->getKey())->toBase()->update($values) !== 1) {
-            throw new \LogicException(sprintf('%s %s is no longer stored, so no password was set.', $identity::class, IdentifierCoercion::stringify($identity->getKey())));
+        $row          = $identity->newQueryWithoutScopes()->whereKey($identity->getKey());
+        $registration = $flow === PasswordFlow::REGISTRATION;
+
+        if ($registration) {
+            $row->where(static fn (Builder $query): Builder => $query->whereNull($column)->orWhere($column, ''));
+        }
+
+        if ($row->toBase()->update($values) !== 1) {
+
+            $message = $registration
+                ? '%s %s already has a password, or is no longer stored: a registration sets only a first password.'
+                : '%s %s is no longer stored, so no password was set.';
+
+            throw new \LogicException(sprintf($message, $identity::class, IdentifierCoercion::stringify($identity->getKey())));
         }
 
         $identity->forceFill($values)->syncOriginalAttributes(array_keys($values));

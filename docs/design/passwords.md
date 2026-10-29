@@ -61,7 +61,9 @@ Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel i
   `authentication:check` reports it under `[passwords]`.
 - `set()` is a trusted call: the caller authorises the change and chooses the `PasswordFlow` on the server. A
   `MachineIdentity` never gets a password (`InvalidArgumentException`); an identity that is not an Eloquent model, a
-  change or reset of an identity not stored, and a device to keep on any flow but a change are misconfigurations.
+  change or reset of an identity not stored, and a device to keep on any flow but a change are misconfigurations. A
+  registration sets only a first password: on a stored identity its `UPDATE` matches the row only while the password
+  column is `null` or empty, so it can never replace a password without ending the sessions a change ends.
 - A password that breaks the policy writes nothing and dispatches nothing. Only a password that passes is hashed with
   the container's `Hasher`.
 - The write, the cutoff and the revocation run in one transaction on the identity's connection; `PasswordSet` is
@@ -78,7 +80,8 @@ Laravel's `Illuminate\Auth\Events\PasswordReset` is not dispatched (in Laravel i
 3. `PasswordWriter::write()`: hash outside the transaction (the costly part), then in
    `$identity->getConnection()->transaction()`:
    - a stored identity: one query-builder `UPDATE` of the password column (and `updated_at` when the model keeps
-     timestamps) on its row by key without scopes; 0 rows is a `LogicException`. No other dirty attribute is saved or
+     timestamps) on its row by key without scopes, and for a registration only while the column is `null` or empty; 0
+     rows is a `LogicException`. No other dirty attribute is saved or
      discarded and no model event fires, so `RevokeDevicesOnPasswordChange` neither sees the write nor undoes the device
      a change kept. The model is given the hash with `forceFill()` and `syncOriginalAttributes()`.
    - an unsaved identity (registration only): `forceFill()->save()`; a save a model event cancels is a `LogicException`.

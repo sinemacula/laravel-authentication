@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
@@ -137,28 +138,98 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A registration of an identity the application stored first sets only its
-     * password (and `updated_at`), revoking nothing, even sessions it already
-     * had.
+     * The values a stored identity with no password yet holds.
      *
+     * @return iterable<string, array{0: ?string}>
+     */
+    public static function provideNoPassword(): iterable
+    {
+        yield from [
+            'null'  => [null],
+            'empty' => [''],
+        ];
+    }
+
+    /**
+     * A registration of an identity the application stored first, with no
+     * password yet (`null` or empty), sets only its password (and
+     * `updated_at`), revoking nothing, even sessions it already had.
+     *
+     * @param  ?string  $none
      * @return void
      *
      * @throws \Throwable
      */
-    public function testARegistrationOfAStoredIdentityRevokesNothing(): void
+    #[DataProvider('provideNoPassword')]
+    public function testARegistrationOfAStoredIdentityRevokesNothing(?string $none): void
     {
         $identity = self::seedPasswordIdentity();
 
         $this->signInWithPassword();
 
-        DB::table('password_identities')->update(['updated_at' => '2026-01-01 00:00:00']);
+        DB::table('password_identities')->update(['password' => $none, 'updated_at' => '2026-01-01 00:00:00']);
 
-        $result = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
+        $identity = $identity->fresh() ?? $identity;
+        $result   = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
 
         self::assertSame([true, 0], [$result->set, $result->revoked]);
+        $stored = DB::table('password_identities')->value('password');
+
+        self::assertIsString($stored);
+        self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, $stored));
         self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
         self::assertSame(self::NOW, $identity->refresh()->updated_at?->format('Y-m-d H:i:s'));
         self::assertNull($identity->fresh()?->tokens_valid_after);
+    }
+
+    /**
+     * A registration never replaces a password a stored identity has, which
+     * would be a change that ends no session: it throws, and the password, the
+     * sessions and the events stay as they were.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testARegistrationNeverReplacesAPassword(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $stored   = (string) $identity->password;
+
+        $this->signInWithPassword();
+        $this->recordEvents([PasswordSet::class, DeviceRevoked::class]);
+
+        try {
+            $this->passwords()->set($identity->fresh() ?? $identity, self::NEW_PASSWORD, PasswordFlow::REGISTRATION);
+            self::fail('A registration replaced a password.');
+        } catch (\LogicException $exception) {
+            $message = PasswordIdentity::class . " {$identity->id} already has a password, or is no longer stored: a registration sets only a first password.";
+
+            self::assertSame($message, $exception->getMessage());
+        }
+
+        self::assertSame($stored, DB::table('password_identities')->value('password'));
+        self::assertNull(DB::table('devices')->value('revoked_at'));
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * The events of a password set report the client the caller names, not the
+     * request the guard is serving.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheClientNamedIsReported(): void
+    {
+        $identity = self::seedPasswordIdentity();
+        $client   = new ClientContext('198.51.100.9', 'Worker/1.0');
+
+        $this->recordEvents([PasswordSet::class]);
+
+        self::assertTrue($this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE, client: $client)->isSet());
+        self::assertSame($client, $this->recordedEvent(PasswordSet::class)->context->client);
     }
 
     /**

@@ -115,7 +115,7 @@ final class PasswordSetQueryBudgetTest extends PerformanceContractTestCase
      */
     public function testARegistrationOfAStoredIdentityIsOneUpdateAndOneSweep(): void
     {
-        $identity = self::seedPasswordIdentity();
+        $identity = self::seedPasswordIdentity(attributes: ['password' => null]);
         $service  = $this->service();
 
         $this->hashes = 0;

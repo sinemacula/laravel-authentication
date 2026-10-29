@@ -32,11 +32,12 @@ final class PasswordResultTest extends TestCase
      */
     public function testASetPasswordAndARejectedOne(): void
     {
-        $set      = PasswordResult::set(3);
-        $rejected = PasswordResult::rejected([PasswordViolation::TOO_SHORT, PasswordViolation::SYMBOLS]);
+        $set        = PasswordResult::set(3);
+        $violations = [PasswordViolation::TOO_SHORT, PasswordViolation::SYMBOLS];
+        $rejected   = PasswordResult::rejected($violations);
 
-        self::assertSame([true, [], 3], [$set->set, $set->violations, $set->revoked]);
-        self::assertSame([false, [PasswordViolation::TOO_SHORT, PasswordViolation::SYMBOLS], 0], [$rejected->set, $rejected->violations, $rejected->revoked]);
+        self::assertSame([true, true, [], 3], [$set->set, $set->isSet(), $set->violations, $set->revoked]);
+        self::assertSame([false, false, $violations, 0], [$rejected->set, $rejected->isSet(), $rejected->violations, $rejected->revoked]);
     }
 
     /**

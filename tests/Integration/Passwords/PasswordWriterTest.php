@@ -141,8 +141,8 @@ final class PasswordWriterTest extends TestCase
 
         $this->recordEvents([PasswordSet::class]);
 
-        $writer->write($identity, 'a brand new passphrase', PasswordFlow::REGISTRATION, null, $client);
-        $writer->write($identity, 'another new passphrase', PasswordFlow::REGISTRATION);
+        $writer->write($identity, 'a brand new passphrase', PasswordFlow::CHANGE, null, $client);
+        $writer->write($identity, 'another new passphrase', PasswordFlow::CHANGE);
 
         [$named, $served] = $this->recorded;
 

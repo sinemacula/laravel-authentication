@@ -55,4 +55,14 @@ final readonly class PasswordResult
     {
         return new self(false, $violations, 0);
     }
+
+    /**
+     * Whether the password was set.
+     *
+     * @return bool
+     */
+    public function isSet(): bool
+    {
+        return $this->set;
+    }
 }

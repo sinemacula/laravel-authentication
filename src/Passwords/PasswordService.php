@@ -97,13 +97,17 @@ final readonly class PasswordService
      * nothing: the result says which rules it breaks.
      *
      * The identity must be an Eloquent model, stored already for a change or a
-     * reset (only a registration may insert it), and `$except` is for a change
-     * only.
+     * reset (only a registration may insert it); a registration sets only a
+     * first password, so a stored identity it is given must have none yet; and
+     * `$except` is for a change only. The events report the client given, or
+     * the client of the request the guard is serving (pass one from a queued
+     * job or a console command).
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  string  $password
      * @param  \SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow  $flow
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
+     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @return \SineMacula\Laravel\Authentication\Passwords\PasswordResult
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
@@ -111,7 +115,7 @@ final readonly class PasswordService
      * @throws \LogicException
      * @throws \Throwable
      */
-    public function set(Identity $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Device $except = null): PasswordResult
+    public function set(Identity $identity, #[\SensitiveParameter] string $password, PasswordFlow $flow, ?Device $except = null, ?ClientContext $client = null): PasswordResult
     {
         $model = self::settable($identity, $flow, $except);
         $check = $this->check($password);
@@ -120,7 +124,7 @@ final readonly class PasswordService
             return PasswordResult::rejected($check->violations);
         }
 
-        return PasswordResult::set((new PasswordWriter($this->guard, $this->container))->write($model, $password, $flow, $except));
+        return PasswordResult::set((new PasswordWriter($this->guard, $this->container))->write($model, $password, $flow, $except, $client));
     }
 
     /**

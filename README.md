@@ -2008,10 +2008,12 @@ the identity already has, so an older password shorter than today's minimum stil
 
 ### Setting a password
 
-`set($identity, $password, $flow, ?Device $except = null)` applies the policy, and only a password that passes is
-hashed with Laravel's `Hasher` and stored; a password that fails writes nothing and reports nothing. The result is a
-`PasswordResult`: `set`, the `violations` when it was not, and how many devices the flow `revoked`. The `PasswordFlow`
-decides what else happens, in one transaction on the identity's connection:
+`set($identity, $password, $flow, ?Device $except = null, ?ClientContext $client = null)` applies the policy, and only
+a password that passes is hashed with Laravel's `Hasher` and stored; a password that fails writes nothing and reports
+nothing. The result is a `PasswordResult`: `set` (or `isSet()`), the `violations` when it was not, and how many devices
+the flow `revoked`. The events report `$client`, or the client of the request the guard is serving, so pass one when
+you set a password from a queued job or a console command. The `PasswordFlow` decides what else happens, in one
+transaction on the identity's connection:
 
 | Flow           | For                                                       | Ends                                                |
 |----------------|-----------------------------------------------------------|-----------------------------------------------------|
@@ -2035,7 +2037,7 @@ Route::middleware(['auth:api', 'throttle:6,1'])->put('/password', function (Requ
 
     $result = $passwords->set($identity, $request->input('password'), PasswordFlow::CHANGE, Auth::device());
 
-    return $result->set
+    return $result->isSet()
         ? response()->noContent()
         : response()->json(['violations' => array_map(fn ($violation) => $violation->value, $result->violations)], 422);
 });
@@ -2058,9 +2060,11 @@ timestamps) on its own row, without its scopes: nothing else you changed on the 
 model event fires, so an observer neither cancels the write nor revokes again behind it (`RevokeDevicesOnPasswordChange`
 does not undo the device a change kept). The model then holds the new hash. Only a registration may set the password of
 an identity not stored yet, which is then inserted with `save()`; a model event that cancels that save throws a
-`LogicException`. So does a change or a reset of an identity not stored, or one whose row is gone, and an identity that
-is not an Eloquent model; a non-human identity (`MachineIdentity`) has no password and throws an
-`InvalidArgumentException`.
+`LogicException`. A registration sets only a first password: given a stored identity, it updates the row only while its
+password column is `null` or empty, in the same statement, and throws a `LogicException` otherwise, since replacing a
+password without ending any session would be a change that leaves a stolen session signed in. So does a change or a
+reset of an identity not stored, or one whose row is gone, and an identity that is not an Eloquent model; a non-human
+identity (`MachineIdentity`) has no password and throws an `InvalidArgumentException`.
 
 `PasswordSet` reports the password set, with the flow, once the transaction commits on the identity's connection, and
 never for one rolled back; its context names the guard, the client and the identity, and, for a change, the device kept.
