@@ -182,9 +182,12 @@ final class ApiKeyGuardTest extends TestCase
     /**
      * A 3D key's membership moved to a tenant of another type under the same
      * identifier is `principal_mismatch`: the key recorded the tenant by type
-     * as well as identifier.
+     * as well as identifier, and a replacement rotated meanwhile keeps the
+     * recorded type rather than taking the new one.
      *
      * @return void
+     *
+     * @throws \Random\RandomException
      */
     public function testAKeyRefusesATenantOfAnotherTypeUnderTheSameId(): void
     {
@@ -199,8 +202,17 @@ final class ApiKeyGuardTest extends TestCase
         $this->getWithKey('/accounts/me', $issued->key())->assertUnauthorized();
         $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $issued->id);
 
+        $rotated = $this->apiKeys('accounts')->rotate($membership, $issued->id, 60);
+
+        self::assertNotNull($rotated);
+
+        $this->dispatched = [];
+        $this->getWithKey('/accounts/me', $rotated->key())->assertUnauthorized();
+        $this->assertRefused(FailureReason::PRINCIPAL_MISMATCH, $rotated->id);
+
         $membership->forceFill(['tenant_type' => $tenant->getMorphClass()])->save();
         $this->getWithKey('/accounts/me', $issued->key())->assertOk()->assertJsonPath('tenant', $tenant->getKey());
+        $this->getWithKey('/accounts/me', $rotated->key())->assertOk()->assertJsonPath('tenant', $tenant->getKey());
     }
 
     /**
