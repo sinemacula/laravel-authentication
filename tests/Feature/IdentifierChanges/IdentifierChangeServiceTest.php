@@ -21,6 +21,7 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeLinks;
+use SineMacula\Laravel\Authentication\IdentifierChanges\ChangeRequests;
 use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
@@ -45,6 +46,7 @@ use Tests\Unit\Stubs\PlainIdentityFixture;
  * @internal
  */
 #[CoversClass(IdentifierChangeService::class)]
+#[CoversClass(ChangeRequests::class)]
 #[CoversClass(ChangeLinks::class)]
 #[CoversClass(AuthManager::class)]
 final class IdentifierChangeServiceTest extends TestCase
@@ -278,7 +280,8 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
-     * A malformed setting fails closed before anything is counted or written.
+     * A malformed setting fails closed before any statement runs, so before
+     * anything is locked, counted or written.
      *
      * @param  string  $key
      * @param  mixed  $value
@@ -290,7 +293,8 @@ final class IdentifierChangeServiceTest extends TestCase
     #[DataProvider('provideMalformedSettings')]
     public function testMalformedSettingsFailClosed(string $key, mixed $value, string $message): void
     {
-        $identity = self::seedChangeable();
+        $identity   = self::seedChangeable();
+        $statements = self::recordStatements();
 
         config()->set($key, $value);
 
@@ -301,12 +305,13 @@ final class IdentifierChangeServiceTest extends TestCase
             self::assertStringContainsString($message, $e->getMessage());
         }
 
+        self::assertSame([], $statements());
         self::assertSame([0, 0], [DB::table('rate_limits')->count(), DB::table('identifier_changes')->count()]);
     }
 
     /**
-     * A change proven by code reads the code settings first, before anything is
-     * counted.
+     * A change proven by code reads the code settings first, before any
+     * statement runs, so before anything is locked or counted.
      *
      * @return void
      *
@@ -314,7 +319,8 @@ final class IdentifierChangeServiceTest extends TestCase
      */
     public function testACodeRequestReadsTheCodeSettings(): void
     {
-        $identity = self::seedChangeable();
+        $identity   = self::seedChangeable();
+        $statements = self::recordStatements();
 
         config()->set('authentication.codes.length', 4);
 
@@ -325,6 +331,7 @@ final class IdentifierChangeServiceTest extends TestCase
             self::assertSame('authentication.codes.length must be an integer from 6 to 10.', $e->getMessage());
         }
 
+        self::assertSame([], $statements());
         self::assertSame(0, self::rows('rate_limits'));
     }
 
