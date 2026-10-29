@@ -2,6 +2,7 @@
 
 declare(strict_types = 1);
 
+use SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser;
 use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
 use SineMacula\Laravel\Authentication\Models\Device;
 
@@ -215,13 +216,18 @@ return [
     | normalised when it is set, the `model` provider normalises it before it
     | looks an identity up, and attempts are counted against its normal form.
     | Each value is a container abstract resolving to an
-    | `IdentifierNormaliser`; the email normaliser trims and lower-cases.
+    | `IdentifierNormaliser`; the email normaliser trims and lower-cases. The
+    | phone normaliser accepts only numbers already in E.164 form (`+` and up
+    | to 15 digits) and refuses anything else: an application that takes
+    | mobile or free-form numbers binds its own normaliser under `phone`,
+    | backed by `giggsey/libphonenumber-for-php` (see the README).
     |
     */
 
     'identifiers' => [
         'normalisers' => [
             'email' => EmailNormaliser::class,
+            'phone' => E164PhoneNormaliser::class,
         ],
     ],
 
@@ -243,11 +249,18 @@ return [
     | that carries an IPv4 client's address (IPv4-mapped, or the NAT64
     | well-known prefix `64:ff9b::/96`) as that IPv4 address. Refresh, which
     | cannot guess a secret, counts only failures, per device and per IP
-    | address. Counts on `connection` are rolled back with any transaction a
-    | caller opened there around a sign-in. A guard overrides any limit in a
-    | `rate_limits` block on its `config/auth.php` entry, where a scope that is
-    | present wins, `null` included, and a flow set to `null` turns both of its
-    | limits off. A malformed limit or an unknown key fails closed with an
+    | address. A request for a one-time code counts every request, per
+    | identifier and per IP address, and never gives one back. A request for
+    | passkey sign-in options counts every request per IP address (it names no
+    | identifier, so its `per_identifier` must stay `null`). A client
+    | credentials exchange counts only failures, per IP address; not per client
+    | id by default, since a client id is not a secret and a count on it would
+    | let anyone who knows it lock the client out. Counts on `connection` are
+    | rolled back with any transaction a caller opened there around a sign-in. A
+    | guard overrides any limit in a `rate_limits` block on its
+    | `config/auth.php` entry, where a scope that is present wins, `null`
+    | included, and a flow set to `null` turns both of its limits off. A
+    | malformed limit or an unknown key fails closed with an
     | `InvalidArgumentException` naming the guard and the key. Counters are
     | stored under digests keyed from `app.key`, so rotating it starts every
     | window afresh. Prune ended windows with `model:prune`.
@@ -265,6 +278,21 @@ return [
 
         'refresh' => [
             'per_identifier' => ['max' => 10, 'decay_seconds' => 60],
+            'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
+        ],
+
+        'code_request' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 3600],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 3600],
+        ],
+
+        'passkey_options' => [
+            'per_identifier' => null,
+            'per_ip'         => ['max' => 100, 'decay_seconds' => 300],
+        ],
+
+        'client_credentials' => [
+            'per_identifier' => null,
             'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
         ],
     ],
@@ -316,6 +344,40 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | API keys
+    |---------------------------------------------------------------------------
+    |
+    | Keys non-human identities authenticate with, on an `api_key` guard (as
+    | `Authorization: Bearer <key>`) or, as an OAuth client's id and secret, in
+    | a `jwt` guard's client credentials exchange. Stored in `table`, on the
+    | device model's connection. A key is `<prefix>_<public>_<secret>`: `prefix`
+    | (a lower-case letter, then up to 15 lower-case letters or digits) marks
+    | the keys an application issues, so they are recognisable in logs and
+    | secret scanners; changing it leaves existing keys working. Only the
+    | secret's SHA-256 digest is stored. A rotation keeps the replaced key
+    | working for `rotation_overlap_seconds` (0 to
+    | `max_rotation_overlap_seconds`, itself 0 to 2592000, 30 days) unless the
+    | rotation names its own overlap within the maximum; the replacement expires
+    | only when the rotation names an expiry. A key's last use is recorded at
+    | most once per `last_used_throttle_seconds` (0 to 86400; 0 records every
+    | use). Laravel's `model:prune` deletes keys revoked or expired more than
+    | `prune_after_days` ago (0 to 3650). Each value is an integer, or a digit
+    | string as `env()` returns one; anything else fails closed when it is used,
+    | and `authentication:check` reports it.
+    |
+    */
+
+    'api_keys' => [
+        'table'                        => env('AUTHENTICATION_API_KEYS_TABLE', 'api_keys'),
+        'prefix'                       => env('AUTHENTICATION_API_KEYS_PREFIX', 'ak'),
+        'rotation_overlap_seconds'     => env('AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS', 86400),
+        'max_rotation_overlap_seconds' => env('AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS', 604800),
+        'last_used_throttle_seconds'   => env('AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS', 60),
+        'prune_after_days'             => env('AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS', 30),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Identifier verification
     |---------------------------------------------------------------------------
     |
@@ -328,5 +390,87 @@ return [
 
     'verification' => [
         'link_ttl_minutes' => env('AUTHENTICATION_VERIFICATION_LINK_TTL_MINUTES', 60),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | One-time codes
+    |---------------------------------------------------------------------------
+    |
+    | The `phone_code` and `email_code` sign-in methods, and verifying an
+    | identifier by code, send a code of `length` digits (6 to 10) that works
+    | once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts`
+    | checks (1 to 20), after which it is locked until another is requested.
+    | Another code for the same identifier may be requested
+    | `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and
+    | replaces it at once. Each number is an integer, or a digit string as
+    | `env()` returns one. Codes are stored in `table`, on the device model's
+    | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a key
+    | derived from `app.key` when `key` is not set; rotating either only
+    | invalidates the codes outstanding. Requests for codes are limited by the
+    | `code_request` rate limits. Delivery is a queued job, never part of the
+    | request, pushed to the `queue` connection and queue named (`null` for the
+    | defaults); on a `sync` connection it runs after the response is sent, a
+    | `failover` connection that can fall back to `sync` is pushed to after the
+    | response, and `authentication:check` warns about both, since a worker is
+    | the production setting. The application binds its `OneTimeCodeSender`. A
+    | malformed value fails closed when a code is first issued, and
+    | `authentication:check` reports it. Prune expired codes with `model:prune`.
+    |
+    */
+
+    'codes' => [
+        'table'                   => env('AUTHENTICATION_CODES_TABLE', 'one_time_codes'),
+        'key'                     => env('AUTHENTICATION_CODES_KEY'),
+        'length'                  => env('AUTHENTICATION_CODES_LENGTH', 6),
+        'ttl_seconds'             => env('AUTHENTICATION_CODES_TTL_SECONDS', 600),
+        'max_attempts'            => env('AUTHENTICATION_CODES_MAX_ATTEMPTS', 5),
+        'resend_cooldown_seconds' => env('AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS', 60),
+
+        'queue' => [
+            'connection' => env('AUTHENTICATION_CODES_QUEUE_CONNECTION'),
+            'name'       => env('AUTHENTICATION_CODES_QUEUE'),
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Passkeys
+    |---------------------------------------------------------------------------
+    |
+    | Passkeys (WebAuthn credentials) are kept in `table` and the ceremonies'
+    | single-use challenges in `challenges_table`, both on the device model's
+    | connection. A challenge lives `challenge_ttl_seconds` (30 to 600; an
+    | integer, or a digit string as `env()` returns one), which is also the
+    | `timeout` the options give the browser. Prune expired challenges with
+    | `model:prune`.
+    |
+    | `relying_party` is the default every guard starts from; a guard
+    | overrides any of its keys in a `passkeys` block on its `config/auth.php`
+    | entry, where a key that is present wins. `id` is the relying party id: a
+    | lower-case host name (not an IP address), required on every guard that
+    | uses passkeys, which every credential is scoped to. `name` is the name
+    | the browser shows, by default `app.name`. `origins` lists the exact
+    | origins the ceremonies may run on, each `https://host[:port]` (or
+    | `http://localhost[:port]` for development), in lower case, whose host is
+    | the relying party id or a subdomain of it; the package does not consult
+    | the public suffix list, so never name a public suffix as the id. A
+    | malformed value or an unknown key fails closed with an
+    | `InvalidArgumentException` naming the guard and the key when the guard's
+    | passkeys are first used, and `authentication:check` reports it for every
+    | guard whose audience allows `passkey` or that sets a `passkeys` block.
+    |
+    */
+
+    'passkeys' => [
+        'table'                 => env('AUTHENTICATION_PASSKEYS_TABLE', 'passkeys'),
+        'challenges_table'      => env('AUTHENTICATION_PASSKEYS_CHALLENGES_TABLE', 'passkey_challenges'),
+        'challenge_ttl_seconds' => env('AUTHENTICATION_PASSKEYS_CHALLENGE_TTL_SECONDS', 300),
+
+        'relying_party' => [
+            'id'      => env('AUTHENTICATION_PASSKEYS_RP_ID'),
+            'name'    => env('APP_NAME'),
+            'origins' => [],
+        ],
     ],
 ];

@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -235,6 +236,34 @@ final class BearerAuthenticationTest extends JwtGuardTestCase
 
             self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])))->user());
         }
+    }
+
+    /**
+     * A token whose subject is a non-human identity, active or not, is rejected
+     * as `machine_identity` before any principal is resolved: a machine's
+     * tokens come only from a client credentials exchange.
+     *
+     * @return void
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     */
+    public function testATokenOfAMachineIsRejected(): void
+    {
+        $machine = \Mockery::mock(MachineIdentity::class, CanBeActive::class);
+        $machine->shouldReceive('getAuthIdentifier')->andReturn('i-1');
+        $machine->shouldNotReceive('isActive');
+
+        $this->provider->shouldReceive('retrieveById')->once()->with('i-1')->andReturn($machine);
+        $this->resolver->shouldNotReceive('resolve');
+
+        $this->events->shouldReceive('dispatch')
+            ->once()
+            ->with(\Mockery::on(static fn (mixed $event): bool => $event instanceof AuthenticationFailed
+                && $event->flow              === AuthenticationFlow::BEARER
+                && $event->reason            === FailureReason::MACHINE_IDENTITY
+                && $event->context->identity === $machine));
+
+        self::assertNull($this->makeGuard($this->makeRequest($this->encodeAccessToken(['sub' => 'i-1', 'pid' => 'p-1'])))->user());
     }
 
     /**

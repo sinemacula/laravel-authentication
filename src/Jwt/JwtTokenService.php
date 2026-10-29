@@ -8,11 +8,14 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Firebase\JWT\ExpiredException;
 use Firebase\JWT\JWT;
+use Illuminate\Database\Eloquent\Model;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use SineMacula\Laravel\Authentication\Audience\PrincipalType;
 use SineMacula\Laravel\Authentication\Contracts\Device;
+use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
@@ -147,7 +150,8 @@ final class JwtTokenService
      * part of its context: the identity and principal, and the device when one
      * is given, must each have an identifier that can be written into its claim
      * (a saved model's scalar key). Refuses, too, a device whose session has
-     * ended or that has no deadlines.
+     * ended or that has no deadlines, and a non-human identity: a machine gets
+     * tokens only from a client credentials exchange.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -162,23 +166,45 @@ final class JwtTokenService
      */
     public function issueAccessToken(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt = null): string
     {
-        $issuedAt   = $this->issueTime($issuedAt);
-        $sessionEnd = $device === null ? null : $this->sessionEnd($device, $issuedAt);
-        $type       = PrincipalType::of($principal);
-        $expiresAt  = $this->lifetimesOfType($type)->accessExpiry($issuedAt, $sessionEnd);
+        MachineTokens::refuseSession($identity instanceof MachineIdentity);
 
-        $payload = $this->baseClaims($issuedAt, $expiresAt->getTimestamp(), TokenType::ACCESS);
+        return $this->issueAccess($identity, $principal, $device, $issuedAt, null, []);
+    }
 
-        $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
-        $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
-        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
-        $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
-
-        if ($type !== null) {
-            $payload[Claims::PRINCIPAL_TYPE->value] = $type;
-        }
-
-        return $this->encode($payload);
+    /**
+     * Encode the access token a client credentials exchange hands a non-human
+     * identity, acting as the principal, for the API key it was exchanged for:
+     * no device and no refresh, the key's id in `cid` and the granted scopes,
+     * space-separated, in `scope` (`""` for none). The token lives the access
+     * lifetime for the principal's type, never past `$notAfter` (the key's
+     * expiry); `$issuedAt` (default now, cut to the whole second) sets `iat`.
+     * Every other claim is an access token's, so the bearer path admits the
+     * identity and principal as it would any other, and then holds the token to
+     * its key.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\MachineIdentity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $credentialId
+     * @param  list<string>  $scopes
+     * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @param  ?\Carbon\CarbonInterface  $issuedAt
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
+     */
+    public function issueClientAccessToken(
+        MachineIdentity $identity,
+        Principal $principal,
+        #[\SensitiveParameter]
+        string $credentialId,
+        array $scopes,
+        ?CarbonInterface $notAfter = null,
+        ?CarbonInterface $issuedAt = null,
+    ): string {
+        return $this->issueAccess($identity, $principal, null, $issuedAt, $notAfter, MachineTokens::claims($credentialId, $scopes));
     }
 
     /**
@@ -194,7 +220,9 @@ final class JwtTokenService
      * would reject or that would lose its principal: the device, and the
      * principal when one is given, must each have an identifier that can be
      * written into its claim, and the rotation id must not be empty. Refuses,
-     * too, a device whose session has ended or that has no deadlines.
+     * too, a device whose session has ended or that has no deadlines, and a
+     * device a non-human identity owns, or a non-human principal: a machine has
+     * no device and no refresh.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  string  $rotationId
@@ -207,7 +235,11 @@ final class JwtTokenService
      */
     public function issueRefreshToken(Device $device, #[\SensitiveParameter] string $rotationId, ?Principal $principal = null, ?CarbonInterface $issuedAt = null): string
     {
-        $issuedAt = $this->issueTime($issuedAt);
+        $machineOwned = $device instanceof EloquentDevice && $device instanceof Model && DeviceOwnership::isMachineOwned($device);
+
+        MachineTokens::refuseSession($principal instanceof MachineIdentity || $machineOwned);
+
+        $issuedAt = TokenLifetimes::issueTime($issuedAt);
 
         $payload = $this->baseClaims($issuedAt, $this->sessionEnd($device, $issuedAt)->getTimestamp(), TokenType::REFRESH);
 
@@ -296,14 +328,43 @@ final class JwtTokenService
     }
 
     /**
-     * The whole second a token is issued at: the given time, or now.
+     * Encode an access token for the context, with any further claims: its
+     * lifetime is the access lifetime for the principal's type, never past the
+     * end of the device's session or, without a device, `$notAfter`, which must
+     * be after the issue time.
      *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @param  ?\Carbon\CarbonInterface  $issuedAt
-     * @return \Carbon\CarbonImmutable
+     * @param  ?\Carbon\CarbonInterface  $notAfter
+     * @param  array<string, string>  $claims
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     * @throws \Random\RandomException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException
      */
-    private function issueTime(?CarbonInterface $issuedAt): CarbonImmutable
+    private function issueAccess(Identity $identity, Principal $principal, ?Device $device, ?CarbonInterface $issuedAt, ?CarbonInterface $notAfter, array $claims): string
     {
-        return ($issuedAt === null ? CarbonImmutable::now() : CarbonImmutable::instance($issuedAt))->startOfSecond();
+        $issuedAt  = TokenLifetimes::issueTime($issuedAt);
+        $ends      = $device === null ? TokenLifetimes::notAfter($notAfter, $issuedAt) : $this->sessionEnd($device, $issuedAt);
+        $type      = PrincipalType::of($principal);
+        $expiresAt = $this->lifetimesOfType($type)->accessExpiry($issuedAt, $ends);
+
+        $payload = $this->baseClaims($issuedAt, $expiresAt->getTimestamp(), TokenType::ACCESS);
+
+        $payload[Claims::SUBJECT->value]      = $this->requireClaimValue(Claims::SUBJECT, $identity->getAuthIdentifier());
+        $payload[Claims::PRINCIPAL_ID->value] = $this->requireClaimValue(Claims::PRINCIPAL_ID, $principal->getPrincipalIdentifier());
+        $payload[Claims::DEVICE_ID->value]    = $device === null ? null : $this->requireClaimValue(Claims::DEVICE_ID, $device->getDeviceIdentifier());
+        $payload[Claims::JWT_ID->value]       = RefreshTokenHasher::generate();
+
+        if ($type !== null) {
+            $payload[Claims::PRINCIPAL_TYPE->value] = $type;
+        }
+
+        return $this->encode(array_merge($payload, $claims));
     }
 
     /**
@@ -470,7 +531,10 @@ final class JwtTokenService
      */
     private function matchesExpectedClaims(array $claims, ?TokenType $expectedType): bool
     {
-        $failure = $this->firstClaimMismatch($claims, $expectedType) ?? $this->firstMissingClaim($claims);
+        $failure = $this->firstClaimMismatch($claims, $expectedType) ?? $this->firstMissingClaim($claims) ?? (MachineTokens::credential($claims) === false ? [
+            'message' => 'JWT credential claims malformed',
+            'context' => ['claims' => [Claims::CREDENTIAL_ID->value, Claims::SCOPE->value, Claims::DEVICE_ID->value]],
+        ] : null);
 
         if ($failure === null) {
             return true;

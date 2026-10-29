@@ -39,11 +39,33 @@ device record live in the `devices` table so replay and stale credentials can be
 ## Features
 
 - **A sessionless `jwt` guard** that authenticates Bearer tokens and signs in with credentials through `attempt()`.
-- **Pluggable sign-in methods** behind one `SignInMethod` contract (a password method ships; SSO and others register
-  on the `SignInMethodManager`), checked against each guard's audience policy and attempt limits, with an
-  additional-factor seam whose default never asks for one.
+- **Pluggable sign-in methods** behind one `SignInMethod` contract (password, one-time code and passkey methods ship;
+  SSO and others register on the `SignInMethodManager`), checked against each guard's audience policy and attempt
+  limits, with an additional-factor seam whose default never asks for one.
+- **One-time codes**: passwordless sign-in with a numeric code sent to a verified phone number (`phone_code`) or email
+  address (`email_code`), and identifier verification by code, through a sender contract the application binds (no
+  provider ships; a fake for tests does). Codes are stored as keyed hashes bound to their purpose, guard and
+  identifier, work once, expire, lock after a few wrong guesses, resend after a cooldown, and are delivered by a queued
+  job, so a request for a code looks the same whether or not anyone has the identifier.
+- **Passkeys** (WebAuthn): usernameless sign-in with discoverable, user-verified credentials as the `passkey` method,
+  registration through single-use challenges held in the database, a relying party per guard, a sign counter rule that
+  refuses a cloned authenticator, `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` events, and a factor ceremony
+  through which a further-factor package verifies the same passkeys.
 - **Contextual accessors** on the standard `Auth` facade: `identity()`, `principal()`, `device()`, `tenant()`,
-  `type()`.
+  `type()`, and `scopes()`, the ceiling a machine credential grants.
+- **Non-human identities**: an identity marked `MachineIdentity` has no password, no interactive sign-in, no session
+  and no device refresh, refused at every path that verifies something; it authenticates only with a credential bound to
+  one principal in one tenant.
+- **API keys for non-human identities**: an `api_key` guard that authenticates `Authorization: Bearer <key>` with one
+  indexed lookup on the write connection and no password hashing; keys shown once, stored as a SHA-256 digest, bound
+  to one guard, one principal and its tenant, with scopes, optional expiry, throttled last use, rotation with a bounded
+  overlap, immediate revocation and lifecycle events.
+- **OAuth 2.0 client credentials** (RFC 6749 section 4.4): an API key, as a client id and secret, exchanged for a
+  short-lived access token of a `jwt` guard, with no device and no refresh, answered in RFC 6749's shapes; the token
+  carries its key and scopes and is held to its key on every request, so revoking the key ends it at once.
+- **Credential scopes for the suite**: the package carries a credential's scopes and never interprets them; they are
+  opaque RFC 6749 scope tokens, a ceiling an authorization package intersects with the principal's permissions, held at
+  issue to an optional `ScopeRegistry` (default: accept any).
 - **Hardened JWT pipeline**: HMAC-only signing (`HS256`, `HS384`, `HS512`), every token bound to the guard that
   issued it, strict `iss` / `aud` / `typ` / `exp` / leeway enforcement, required claims per token type (`exp`, `iat`,
   `jti`, `typ`, and `grd` on both, plus `sub` and `pid` on access tokens and `did` on refresh tokens), the principal's
@@ -78,23 +100,26 @@ device record live in the `devices` table so replay and stale credentials can be
 - **First-class events** - Laravel's standard `Attempting` / `Validated` / `Authenticated` / `Login` / `Failed` /
   `Logout` alongside custom `PrincipalAssigned` / `DeviceAuthenticated` / `SignedIn` / `DeviceCreated` /
   `AdditionalFactorRequired` / `PrincipalChoiceRequired` / `PrincipalSwitched` / `Refreshed` / `DeviceRevoked` /
-  `SignedOutEverywhere` / `IdentifierVerified` and one `AuthenticationFailed` with a reason, each carrying the same
-  context (guard, client, identity, principal, tenant, device, method) and never a secret. A bearer request is not a
-  sign-in: it fires only `Authenticated` and the contextual events.
+  `SignedOutEverywhere` / `IdentifierVerified` / `PasskeyAdded` / `PasskeyUsed` / `PasskeyRemoved` / `ApiKeyIssued` /
+  `ApiKeyRotated` / `ApiKeyRevoked` / `ClientCredentialsGranted` and one `AuthenticationFailed` with a reason, each
+  carrying the same context (guard, client, identity, principal, tenant, device, method, and the credential and its
+  scopes where one is used) and never a secret. A bearer request is not a sign-in: it fires only `Authenticated` and the
+  contextual events.
 - **Audiences per guard**: the sign-in methods and principal types each guard admits, and token and session lifetimes
   per principal type.
-- **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email by
-  default), and a password rehash that never overwrites a concurrent change.
-- **Rate limits in the database**: sign-in and refresh limited per identifier and per IP address, counted atomically on
-  the write connection without a cache.
-- **Identifier verification**: signed verification links bound to their purpose and identifier, and an opt-in,
-  per-guard requirement that sign-in identifiers be verified.
-- **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` guard's settings and fails
-  the deploy on a problem, listing all of them.
+- **Normalised identifiers**: designated identifiers stored and looked up in one form (trimmed, lower-cased email and
+  E.164 phone numbers by default), and a password rehash that never overwrites a concurrent change.
+- **Rate limits in the database**: sign-in, code requests and refresh limited per identifier and per IP address;
+  passkey sign-in options and client credentials exchanges per IP address (a client id only when you opt in); all
+  counted atomically on the write connection without a cache.
+- **Identifier verification**: signed verification links or one-time codes bound to their purpose and identifier, and
+  an opt-in, per-guard requirement that sign-in identifiers be verified.
+- **A configuration check**, `php artisan authentication:check`, that resolves every `jwt` and `api_key` guard's
+  settings and fails the deploy on a problem, listing all of them.
 - **Safe in long-running processes**: nothing one request or queued job binds reaches the next under Octane or a queue
   worker.
 - **Pluggable everywhere**: identity model, device model, principal resolver, sign-in methods, additional-factor
-  policy, audience policy, attempt limiter, identifier normalisers, table names.
+  policy, audience policy, attempt limiter, identifier normalisers, one-time code sender, scope registry, table names.
 
 ## Design Notes
 
@@ -112,6 +137,9 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 - `docs/design/device-lifecycle.md`
 - `docs/design/principal-choice-and-switch.md`
 - `docs/design/audience-policy.md`
+- `docs/design/one-time-codes.md`
+- `docs/design/passkeys.md`
+- `docs/design/machine-credentials.md`
 
 ## Installation
 
@@ -119,7 +147,8 @@ Adoption-focused quick-starts are below. Maintainer-oriented security and lifecy
 composer require sinemacula/laravel-authentication
 ```
 
-Publish the config and the migrations (the `devices`, `pending_sign_ins` and `rate_limits` tables), then migrate:
+Publish the config and the migrations (the `devices`, `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
+`passkey_challenges` and `api_keys` tables), then migrate:
 
 ```bash
 php artisan vendor:publish --tag=authentication-config
@@ -129,7 +158,8 @@ php artisan migrate
 
 Each migration refuses to run over an existing table of the same name, before changing anything, with a
 `TableAlreadyExistsException` that names the configuration key renaming its table (`device.table`,
-`sign_in.pending_table`, `rate_limits.table`).
+`sign_in.pending_table`, `rate_limits.table`, `codes.table`, `passkeys.table`, `passkeys.challenges_table`,
+`api_keys.table`).
 
 Generate a random JWT signing key into `.env`:
 
@@ -150,7 +180,8 @@ empty, or too-short key, or an `active_kid` that is not in the map.
 
 ### Access-only mode (no devices, no refresh)
 
-Device tracking and refresh are opt-in. For M2M APIs, simple backends, or short-lived session flows:
+Device tracking and refresh are opt-in. For simple backends or short-lived session flows (non-human clients use
+[machine credentials](#machine-credentials) instead):
 
 1. Do not implement `HasDevices` on your identity model.
 2. Issue access tokens with `Auth::jwt('api')->issueAccessToken($identity, $principal, null)`.
@@ -188,6 +219,19 @@ Register guards and providers in `config/auth.php` exactly as you would with any
     'users' => [
         'driver' => 'model',
         'model'  => App\Models\User::class,
+    ],
+],
+```
+
+Non-human identities authenticate with API keys on a guard of the `api_key` driver, whose audience lists `api_key`
+(see [API keys](#api-keys)):
+
+```php
+'guards' => [
+    'machine' => [
+        'driver'   => 'api_key',
+        'provider' => 'clients',
+        'audience' => ['methods' => ['api_key']],
     ],
 ],
 ```
@@ -310,11 +354,11 @@ hold them, and can give each principal type its own token and session lifetimes.
 ],
 ```
 
-| Key                           | Default        | Meaning                                                                                        |
-|-------------------------------|----------------|------------------------------------------------------------------------------------------------|
-| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions (a non-empty list of lower-case names) |
-| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types            |
-| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                              |
+| Key                           | Default        | Meaning                                                                                                                                                                  |
+|-------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `methods`                     | `['password']` | The sign-in methods that may start the guard's sessions, and the machine credentials (`api_key`, `client_credentials`) it accepts (a non-empty list of lower-case names) |
+| `principal_types`             | `null`         | `null` admits any principal; a non-empty list admits only principals of those types                                                                                      |
+| `require_verified_identifier` | `false`        | Refuse a sign-in with an identifier the identity has not verified                                                                                                        |
 
 A principal's type is its own or its tenant's (see [Principal type](#principal-type)); with a list, a principal without
 a type is refused. The session layer asks the guard before it issues anything: a sign-in with a method the guard does
@@ -469,11 +513,23 @@ The package's models live outside your application's `app/Models`, so name them 
 
 ```php
 use Illuminate\Support\Facades\Schedule;
+use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Models\OneTimeCode;
+use SineMacula\Laravel\Authentication\Models\PasskeyChallenge;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\Models\RateLimit;
 
-Schedule::command('model:prune', ['--model' => [Device::class, PendingSignIn::class, RateLimit::class]])->hourly();
+Schedule::command('model:prune', [
+    '--model' => [
+        Device::class,
+        PendingSignIn::class,
+        RateLimit::class,
+        OneTimeCode::class,
+        PasskeyChallenge::class,
+        ApiKey::class,
+    ],
+])->hourly();
 ```
 
 A custom device model opts in with the `PrunesDevices` trait alone (it brings Laravel's `MassPrunable` with it, and
@@ -518,12 +574,140 @@ when a password sign-in runs. A sign-in that needs a further factor waits in `pe
 (on the device model's connection) for at most `pending_ttl_seconds`, an integer from 30 to 3600 (see
 [Additional factors](#additional-factors)).
 
+### One-time codes
+
+```php
+'codes' => [
+    'table'                   => 'one_time_codes',
+    'key'                     => env('AUTHENTICATION_CODES_KEY'),
+    'length'                  => 6,
+    'ttl_seconds'             => 600,
+    'max_attempts'            => 5,
+    'resend_cooldown_seconds' => 60,
+    'queue'                   => ['connection' => null, 'name' => null],
+],
+```
+
+The `phone_code` and `email_code` sign-in methods and verification by code (see
+[Signing in with a one-time code](#signing-in-with-a-one-time-code)) send a code of `length` digits (6 to 10), drawn
+uniformly with `random_int()`, that works once, for `ttl_seconds` (60 to 3600), and for at most `max_attempts` checks (1
+to 20); after that it is locked until another is requested. Another code for the same number may be requested
+`resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and replaces it at once: the earlier code stops working.
+Each number is an integer, or a digit string as `env()` returns one; anything else fails closed with an
+`InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it. The
+settings are global, not per guard.
+
+Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the device model's connection, one row
+per binding: the purpose (a sign-in or a verification), the guard, the identifier's type and normal form and, for a
+verification, the identity. The row is stored under an HMAC-SHA256 of that binding and holds the code only as an
+HMAC-SHA256 of the binding, a random id for the issuance and the code, each with its own key derived from `key` (at
+least 32 bytes) or, when `key` is not set, from `app.key`. A code has a few million values at most, so a plain hash of it
+could be reversed by anyone who reads the table (from a backup or a replica, say); a keyed one cannot without the key,
+and the table holds neither a code nor an identifier. Rotating the key, or `app.key` when it is the source, only
+invalidates the codes outstanding. A shorter `key` fails closed.
+
+A code is delivered by a queued job, `ShouldBeEncrypted` so its payload (which carries the code and the number) is
+encrypted with `app.key` on the queue, pushed to `queue.connection` and `queue.name` (`null` for your defaults) once the
+code is committed on its connection. Delivery is never part of the request: on Laravel's `sync` driver, which would run
+the job during its dispatch, it is dispatched after the response instead, in the application's terminating callbacks
+(and in a console command, when it ends); if you turn after-response dispatching off
+(`Bus::withoutDispatchingAfterResponses()`), Laravel runs it at once. A `failover` connection that lists a `sync` one
+(directly or through another `failover`) would run the job during its dispatch whenever the connections before it
+fail, so the job is pushed to it in the terminating callbacks instead: a worker-backed connection still gets it, and a
+fall back to `sync` runs it after the response. Run a worker in production: `authentication:check` warns when a guard
+allows a code method and the delivery connection is `sync`, or a `failover` that can fall back to `sync`. Bind your
+gateway as the sender, from a service provider (the package ships none, and fails the job with a
+`BindingResolutionException` without one; `authentication:check` reports a guard that allows a code method with no
+sender bound):
+
+```php
+use App\Auth\SmsCodeSender;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+
+$this->app->bind(OneTimeCodeSender::class, SmsCodeSender::class);
+```
+
+```php
+use Illuminate\Support\Facades\Mail;
+use SineMacula\Laravel\Authentication\Codes\OneTimeCodeMessage;
+use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+
+final class SmsCodeSender implements OneTimeCodeSender
+{
+    public function __construct(private SmsGateway $sms) {}
+
+    public function send(OneTimeCodeMessage $message): void
+    {
+        // $message->identifier is the recipient's own number or address; $message->code is in clear: never log it.
+        match ($message->type) {
+            'phone' => $this->sms->send($message->identifier, "Your code is {$message->code}."),
+            'email' => Mail::to($message->identifier)->send(new CodeMail($message->code, $message->expiresAt)),
+        };
+    }
+}
+```
+
+The message also carries the guard, the purpose (`CodePurpose::SIGN_IN` or `VERIFY_IDENTIFIER`, to word it) and the
+recipient identity.
+
+A sender that throws fails the job, and your queue's retry policy applies; a retry checks the code first, so a code
+that expired or was replaced is never sent. Requests for codes are limited by the `code_request` rate limits (see
+[Rate limits](#rate-limits)). Expired codes stay in the table until they are pruned: schedule `model:prune` with
+`Models\OneTimeCode` beside the others (see [Pruning devices](#pruning-devices)).
+
+### Passkeys
+
+```php
+'passkeys' => [
+    'table'                 => 'passkeys',
+    'challenges_table'      => 'passkey_challenges',
+    'challenge_ttl_seconds' => 300,
+
+    'relying_party' => [
+        'id'      => env('AUTHENTICATION_PASSKEYS_RP_ID'),   // e.g. example.com
+        'name'    => env('APP_NAME'),
+        'origins' => [],                                      // e.g. ['https://app.example.com']
+    ],
+],
+```
+
+Passkeys belong to a WebAuthn relying party. Every guard that uses passkeys needs one: the package's `relying_party`,
+with any of its keys overridden in a `passkeys` block on the guard's `config/auth.php` entry, where a key that is
+present wins:
+
+```php
+'guards' => [
+    'console' => [
+        'driver'   => 'jwt',
+        'provider' => 'users',
+        'audience' => ['methods' => ['password', 'passkey']],
+        'passkeys' => ['id' => 'console.example.com', 'origins' => ['https://console.example.com']],
+    ],
+],
+```
+
+`id` is the relying party id, a lower-case host name (not an IP address); every passkey registered through the guard is
+scoped to it, and a guard only ever sees the passkeys of its own id, so guards that share an id share their passkeys.
+`name` is what the browser shows, by default `app.name`. `origins` lists the exact origins the ceremonies may run on,
+each `https://host[:port]`, or `http://localhost[:port]` for development, in lower case, with a host that is the id or a
+subdomain of it; a ceremony from any other origin, or framed in another site (whether the browser reports the
+top-level origin or only that the ceremony is cross-origin), is refused. The package does not consult
+the public suffix list, so never name a public suffix (`co.uk`, say) as the id. Anything else, or an unknown key, fails
+closed with an `InvalidArgumentException` naming the guard and the key when the guard's passkeys are first used, and
+`authentication:check` reports it for every guard whose audience allows `passkey` or that sets a `passkeys` block.
+
+A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
+give the browser. Both tables live on the device model's connection; prune expired challenges with `model:prune` (see
+[Pruning devices](#pruning-devices)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms
+offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
+
 ### Rate limits
 
-Sign-in and refresh are limited per identifier and per IP address, counted in the database on the write connection, so
-the limits hold across servers and do not depend on a cache. Publish the migration with the others
-(`authentication-migrations` creates `rate_limits`), then set limits in the package `rate_limits` block or a guard's
-own `rate_limits` block:
+Sign-in, requests for one-time codes and refresh are limited per identifier and per IP address; requests for passkey
+sign-in options and client credentials exchanges per IP address (an exchange per client id too, only when you opt in).
+Every limit is counted in the database on the write connection, so the limits hold across servers and do not depend on
+a cache. Publish the migration with the others (`authentication-migrations` creates
+`rate_limits`), then set limits in the package `rate_limits` block or a guard's own `rate_limits` block:
 
 ```php
 'guards' => [
@@ -540,12 +724,17 @@ own `rate_limits` block:
 ],
 ```
 
-| Flow      | Scope            | Default            | Counts                                                                                                         |
-|-----------|------------------|--------------------|----------------------------------------------------------------------------------------------------------------|
-| `sign_in` | `per_identifier` | 5 per 300 seconds  | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
-| `sign_in` | `per_ip`         | 50 per 300 seconds | Every attempt from the IP address; a success is given back                                                     |
-| `refresh` | `per_identifier` | 10 per 60 seconds  | Failed refreshes of the device                                                                                 |
-| `refresh` | `per_ip`         | 100 per 60 seconds | Failed refreshes from the IP address                                                                           |
+| Flow                 | Scope            | Default             | Counts                                                                                                         |
+|----------------------|------------------|---------------------|----------------------------------------------------------------------------------------------------------------|
+| `sign_in`            | `per_identifier` | 5 per 300 seconds   | Every attempt for the identifier, and every secret a method checks against an account; a success is given back |
+| `sign_in`            | `per_ip`         | 50 per 300 seconds  | Every attempt from the IP address; a success is given back                                                     |
+| `refresh`            | `per_identifier` | 10 per 60 seconds   | Failed refreshes of the device                                                                                 |
+| `refresh`            | `per_ip`         | 100 per 60 seconds  | Failed refreshes from the IP address                                                                           |
+| `code_request`       | `per_identifier` | 5 per 3600 seconds  | Every request for a one-time code to the identifier, sent or not; never given back                             |
+| `code_request`       | `per_ip`         | 50 per 3600 seconds | Every request for a one-time code from the IP address; never given back                                        |
+| `passkey_options`    | `per_ip`         | 100 per 300 seconds | Every request for passkey sign-in options from the IP address; never given back                                |
+| `client_credentials` | `per_identifier` | Off                 | When set: exchanges refused for the client's credentials or identity, by client id as given                    |
+| `client_credentials` | `per_ip`         | 100 per 60 seconds  | Exchanges refused for the client's credentials or identity from the IP address                                 |
 
 Each limit is `['max' => ..., 'decay_seconds' => ...]`: at most `max` attempts (at least 1) in each window of
 `decay_seconds` (1 to 86400), or `null` for none. Windows are aligned to the clock (a 300-second window runs from
@@ -554,7 +743,8 @@ boundary. A counter started before `decay_seconds` changed keeps its window unti
 forgives the attempts already counted nor gives a slot back to the wrong window. A guard scope that is present wins,
 `null` included; a flow set to `null` turns both of its limits off; a scope the guard leaves out is the package's. A
 malformed limit, a missing one, or an unknown key fails closed with an `InvalidArgumentException` naming the guard and
-the key.
+the key, as does a `passkey_options.per_identifier` other than `null`: a request for passkey sign-in options names no
+identifier, so such a limit could never apply.
 
 A sign-in guesses a secret, so it reserves its slots before the method runs: a refused sign-in fails with
 `rate_limited` and a wait in seconds, without checking the password, and a successful one gives its own slots back.
@@ -581,7 +771,9 @@ not reveal that the account exists. Only your own listeners are told why: `Authe
 `account_rate_limited` and the wait, so a lockout notice or a SIEM can tell a locked account from a wrong password. A
 refresh cannot guess a secret (its tokens are signed and its rotation ids random), so it counts only its failures, per
 device and per IP address, and a successful refresh costs one read. A refresh refused for its failures answers `429`
-with a `Retry-After` header.
+with a `Retry-After` header. A request for a one-time code costs a message whoever has the number, so every request for a
+valid number counts, whether a code is sent or the resend cooldown holds it back, and no slot is given back; the number
+is counted in its normal form, whether or not anyone has it.
 
 Identifiers are counted in their canonical form, through the normaliser of their type when one is registered (see
 [Identifiers](#identifiers)), so every casing of an address shares one counter, and otherwise trimmed and lower-cased.
@@ -609,6 +801,27 @@ exception is giving back a completed further factor's slots after its commit, wh
 Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
 [Additional factors](#additional-factors)). Schedule Laravel's pruning command with both models, and the device model,
 as shown in [Pruning devices](#pruning-devices).
+
+### API keys
+
+```php
+'api_keys' => [
+    'table'                        => env('AUTHENTICATION_API_KEYS_TABLE', 'api_keys'),
+    'prefix'                       => env('AUTHENTICATION_API_KEYS_PREFIX', 'ak'),
+    'rotation_overlap_seconds'     => env('AUTHENTICATION_API_KEYS_ROTATION_OVERLAP_SECONDS', 86400),
+    'max_rotation_overlap_seconds' => env('AUTHENTICATION_API_KEYS_MAX_ROTATION_OVERLAP_SECONDS', 604800),
+    'last_used_throttle_seconds'   => env('AUTHENTICATION_API_KEYS_LAST_USED_THROTTLE_SECONDS', 60),
+    'prune_after_days'             => env('AUTHENTICATION_API_KEYS_PRUNE_AFTER_DAYS', 30),
+],
+```
+
+Keys live in `table`, on the device model's connection. `prefix` (a lower-case letter, then up to 15 lower-case letters
+or digits) starts every new key, so your keys are recognisable in logs and to secret scanners; changing it leaves
+existing keys working. A rotation keeps the replaced key working for `rotation_overlap_seconds` unless it names its own
+overlap, never beyond `max_rotation_overlap_seconds` (at most 30 days). A key's last use is recorded at most once per
+`last_used_throttle_seconds` (0 to 86400; 0 records every use), and `model:prune` deletes keys revoked or expired more
+than `prune_after_days` ago (0 to 3650). Each number is an integer, or a digit string as `env()` returns one; anything
+else fails closed when it is used, and `authentication:check` reports it.
 
 ### Credential validation timing
 
@@ -660,19 +873,27 @@ $principal = WriteConnection::during($identity, fn () => $this->lookUpPrincipal(
 
 ### Checking the configuration
 
-`php artisan authentication:check` resolves every `jwt` guard's settings the way the guard would and exits `1` when any
-is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each guard's token service (keys, active
-kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and audience), that its
-provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings when the package's
-`AudiencePolicy` is bound, the rate limits of every flow, the password identifier and the refresh token transport, and,
-for the whole package, the configured device model and pruning retention (`authentication.device.prune_after_days`,
-otherwise checked only when `model:prune` runs) and the pending sign-in lifetime
+`php artisan authentication:check` resolves every `jwt` and `api_key` guard's settings the way the guard would and exits
+`1` when any is wrong, `0` otherwise, for a deploy pipeline or a readiness probe. It checks each `jwt` guard's token
+service (keys, active kid, algorithm, key lengths, lifetimes, those per principal type included, leeway, issuer and
+audience), that its provider resolves to an `IdentityProvider`, its `principal_resolver` override, its audience settings
+when the package's `AudiencePolicy` is bound, the rate limits of every flow, the password identifier, the refresh token
+transport and, when its audience allows `passkey` or it sets a `passkeys` block, its passkey relying party; each
+`api_key` guard's provider, `principal_resolver` override, audience settings (which must allow `api_key`) and rate
+limits; and, for the whole package, the configured device model and pruning retention
+(`authentication.device.prune_after_days`, otherwise checked only when `model:prune` runs), the pending sign-in lifetime
 (`authentication.sign_in.pending_ttl_seconds`, otherwise checked only when a sign-in waits for a further factor or a
-choice of principal). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]` for
-the device model and retention, `[sign_in]` for the pending lifetime), and a subject without one as `[<guard>] OK`.
-`--guard=api --guard=admin` checks only the named guards; a named guard that is not configured, or not a `jwt` guard, is
-a problem. The command reads configuration only: it opens no database connection and never prints a key. The package
-does not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
+choice of principal), the one-time code settings and key (`authentication.codes`) and a bound `OneTimeCodeSender` when
+any guard allows a code sign-in method (`phone_code`, `email_code`, or a `CodeSignIn` you registered), the passkey
+challenge lifetime (`authentication.passkeys.challenge_ttl_seconds`) and the API key settings
+(`authentication.api_keys`). Every check runs, so one run lists every problem, each as `[<guard>] <message>` (`[device]`
+for the device model and retention, `[sign_in]` for the pending lifetime, `[codes]` for the code settings and sender,
+`[passkeys]` for the challenge lifetime, `[api_keys]` for the API key settings), and a subject without one as
+`[<guard>] OK`. Code delivery on a `sync` queue connection, or on a `failover` one that can fall back to `sync`, while a
+guard allows a code method, is a warning that leaves the exit code alone. Only the named guards are checked with
+`--guard=api --guard=admin`; a named guard that is not configured, or neither a `jwt` nor an `api_key` guard, is a
+problem. The command reads configuration only: it opens no database connection and never prints a key. The package does
+not run these checks at boot; a misconfiguration otherwise surfaces when a guard first uses the setting.
 
 ## Identity Models
 
@@ -875,6 +1096,7 @@ underscores:
 'identifiers' => [
     'normalisers' => [
         'email'         => SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser::class,
+        'phone'         => SineMacula\Laravel\Authentication\Identifiers\E164PhoneNormaliser::class,
         'member_number' => App\Auth\MemberNumberNormaliser::class,
     ],
 ],
@@ -883,6 +1105,45 @@ underscores:
 A normaliser must be deterministic and idempotent (normalising a normal form returns it unchanged), and return `null`
 for a value that cannot be an identifier of its type. A malformed map, or an abstract that does not resolve to a
 normaliser, fails closed with an `InvalidArgumentException`.
+
+The shipped `phone` normaliser accepts only a number already in E.164 form (`+`, a country code, at most 15 digits in
+all, surrounding whitespace removed) and refuses anything else: spaces, dashes, brackets, a national format or a leading
+`00`. It does not parse numbers, since turning what a person types into E.164 depends on their country and on numbering
+plans that change. To take mobile or free-form numbers, install `giggsey/libphonenumber-for-php` (the package suggests
+it but does not require it) and bind a normaliser of your own under `phone`:
+
+```php
+use libphonenumber\NumberParseException;
+use libphonenumber\PhoneNumberFormat;
+use libphonenumber\PhoneNumberType;
+use libphonenumber\PhoneNumberUtil;
+use SineMacula\Laravel\Authentication\Contracts\IdentifierNormaliser;
+
+final readonly class MobileNumberNormaliser implements IdentifierNormaliser
+{
+    public function normalise(string $identifier): ?string
+    {
+        $numbers = PhoneNumberUtil::getInstance();
+
+        try {
+            $number = $numbers->parse($identifier, 'GB'); // the region a number without `+` belongs to
+        } catch (NumberParseException) {
+            return null;
+        }
+
+        $mobile = in_array($numbers->getNumberType($number), [PhoneNumberType::MOBILE, PhoneNumberType::FIXED_LINE_OR_MOBILE], true);
+
+        return $numbers->isValidNumber($number) && $mobile ? $numbers->format($number, PhoneNumberFormat::E164) : null;
+    }
+}
+```
+
+```php
+'identifiers' => ['normalisers' => ['email' => EmailNormaliser::class, 'phone' => App\Auth\MobileNumberNormaliser::class]],
+```
+
+It must return E.164 (so normalising its own output returns it unchanged), and existing rows must be normalised to it
+before a unique index is added, as below.
 
 Make the identifier unique on its normalised value, with a unique index on the stored column:
 
@@ -957,8 +1218,37 @@ lifetime in minutes (1 to 10080, a week, like the configured one). Consuming a l
 guard's identity provider from the write connection and verifies the identifier; it never signs anyone in. Following it
 again reports `already_verified`.
 
-`Verification\IdentifierVerifier::verify($guard, $identity, $type, $identifier, $client)` is the step a link (or, later,
-a one-time code) ends in: the proven identifier must be the identity's current one, compared in its normal form. Only
+Verify by one-time code with `Auth::codes($guard)`: `sendVerification()` sends a code to the identity's current
+identifier of the type, and `verify()` checks it and records the verification:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
+
+// Send it: a code to the signed-in identity's phone number, delivered by your OneTimeCodeSender.
+$request = Auth::codes('mobile')->sendVerification(Auth::identity(), 'phone');   // sent, rate_limited or identifier_invalid
+
+// Check it: verified, already_verified or mismatch, or the FailureReason why not.
+$result = Auth::codes('mobile')->verify(Auth::identity(), 'phone', $input['code']);
+
+abort_unless(in_array($result, [IdentifierVerification::VERIFIED, IdentifierVerification::ALREADY_VERIFIED], true), 422);
+```
+
+A verification code is bound to its purpose, its guard, its identity and the identifier in its normal form, so it
+verifies nothing else, signs no one in, and stops working when the identifier changes: `sendVerification()` and
+`verify()` read the identifier from the identity they are given (load it from the write connection, as the guard does),
+and the delivery job reads the identity again from the write connection and sends nothing once its identifier is no
+longer the one the code is bound to. Requests are held to the `code_request` limits and the resend cooldown, and the
+code to the same lifetime, attempts and single use as a sign-in code (see [One-time codes](#one-time-codes)). A refused
+check returns `invalid_credentials`, `code_expired` or `code_exhausted` as it is (the caller already holds the
+identity), and reports it with `AuthenticationFailed` on the `identifier_verification` flow. A right code whose
+identifier changed after the identity you passed was loaded is used up and answers `mismatch`, as a link does: nothing
+is recorded or reported, and the identity can request a code for its new identifier. An identity with no
+identifier of the type, or one its normaliser rejects, is `identifier_invalid`; an identity that cannot verify
+identifiers throws a `LogicException`, and a machine identity, which has none to verify, an `InvalidArgumentException`.
+
+`Verification\IdentifierVerifier::verify($guard, $identity, $type, $identifier, $client)` is the step a link or a
+one-time code ends in: the proven identifier must be the identity's current one, compared in its normal form. Only
 the call that records the verification dispatches `Events\IdentifierVerified` (guard, identity, type and client, never
 the identifier), once the record is committed on the identity's connection; a rolled-back verification is never
 reported.
@@ -1032,6 +1322,7 @@ Auth::principal();      // Principal|null  - the acting principal
 Auth::device();         // Device|null     - the issuing device
 Auth::tenant();         // Tenant|null     - the tenant the principal acts within
 Auth::type();           // string|null     - the principal's type, else its tenant's
+Auth::scopes();         // list<string>|null - the credential's scope ceiling (null: no credential limits the request)
 ```
 
 Like `Auth::user()` and `Auth::id()`, each accessor authenticates the request on first access, so they also work on
@@ -1197,6 +1488,114 @@ device, so the session service signs in only identities that implement `HasDevic
 device the guard could never find again. Access-only guards (identities without `HasDevices`) sign in with `attempt()`
 and issue access tokens with `Auth::jwt('api')->issueAccessToken()`.
 
+#### Signing in with a one-time code
+
+The package registers `phone_code`, a numeric code sent to a verified phone number, and `email_code`, the same sent to a
+verified email address: either signs in with no password, as a primary method or a fallback. Allow it in the guard's
+audience, bind a `OneTimeCodeSender` (see [One-time codes](#one-time-codes)), and give the identity a normalised `phone`
+or `email` column with `HasVerifiableIdentifiers` (see [Identifiers](#identifiers) and
+[Identifier verification](#identifier-verification)). The input carries the identifier under its type's name (`phone`,
+`email`) and the code under `code`:
+
+```php
+'mobile' => [
+    'driver'   => 'jwt',
+    'provider' => 'staff',
+    'audience' => ['methods' => ['phone_code']],
+],
+```
+
+Two routes of your own ask for a code and sign in with it, through `Auth::codes()` and the session service:
+
+```php
+use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::post('/codes', function (Request $request) {
+    $input  = $request->validate(['phone' => ['required', 'string']]);
+    $result = Auth::codes('mobile')->send('phone_code', ['phone' => $input['phone']]);
+
+    // The same answer whether or not anyone has the number.
+    return match ($result->status) {
+        CodeRequestStatus::RATE_LIMITED       => response()->json(['message' => 'Too Many Attempts.'], 429, ['Retry-After' => $result->retryAfter]),
+        CodeRequestStatus::IDENTIFIER_INVALID => response()->json(['message' => 'Enter a number in international format.'], 422),
+        CodeRequestStatus::METHOD_NOT_ALLOWED => abort(403),
+        CodeRequestStatus::SENT               => response()->json(['expires_at' => $result->expiresAt->toIso8601String()], 202),
+    };
+});
+
+Route::post('/sign-in/code', function (Request $request) {
+    $input  = $request->validate(['phone' => ['required', 'string'], 'code' => ['required', 'string']]);
+    $result = Auth::sessions('mobile')->signIn('phone_code', ['phone' => $input['phone'], 'code' => $input['code']]);
+
+    abort_unless($result->isSignedIn(), 401);
+
+    return ['access_token' => $result->session->tokens->accessToken, 'refresh_token' => $result->session->tokens->refreshToken];
+});
+```
+
+An email address is used in its normal form throughout: a code requested for `Ben@Example.com` is sent to, bound to and
+signs in with `ben@example.com`, however either step spells it, and the sender's message carries the normal form; an
+address the `email` normaliser rejects (blank, or not valid UTF-8) is `identifier_invalid`. Everything below applies to
+`email_code` as to `phone_code`, with the address for the number.
+
+A code request does nothing that depends on whether anyone has the number. The guard must allow the method
+(`method_not_allowed`), the number must be one the `phone` normaliser accepts (`identifier_invalid`), the number and the
+IP address must have code requests left (`rate_limited`, with the wait), and no code may have been sent to the number
+within the resend cooldown (`rate_limited`, with the seconds left); then a code is issued, for anyone's number, and its
+delivery queued. The job alone finds the recipient, when it runs: the active identity the guard's provider returns for
+the number that holds exactly that number, reports it verified and is not a machine identity. For anyone else it sends
+nothing and says nothing, so the response, the statements run and the time taken are the same for a number no one has.
+"Exactly" is decided by the package, not your database: the identity's own identifier, in its normal form, must be
+byte for byte the requested one. A lookup matches whatever the column's collation does, and MySQL's default
+`utf8mb4_unicode_ci` ignores accents, so `ben@examplé.com` (another domain, which anyone can register) finds the holder
+of `ben@example.com`; such an identity neither receives the code nor signs in with it. Each refusal is reported
+with `AuthenticationFailed` on the `code_request` flow (an invalid number as `invalid_credentials`).
+
+Signing in, the method brings the number to its normal form and requires a code of exactly `length` digits
+(`invalid_credentials` otherwise, nothing counted), looks the identity up (an identity that does not hold exactly that
+number, as above, counts as none), counts the check against the account's limit as the password method does, and checks
+the code against the one sent to the number on this guard. It checks it whether or not anyone has the number, so a guess
+at a number no one has counts against, and locks, its code exactly as one at a known number does. A wrong code, a code
+used before, a code for another guard, purpose or number, and the right code for a number no one has are
+`invalid_credentials`; an expired code and one that used up its attempts are refused as `code_expired` and
+`code_exhausted`, which only `AuthenticationFailed` says: the result says `invalid_credentials`. The right code for an
+identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
+guesser nothing). Then the session service does the rest, as for a password: activity, the principal, the audience
+policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its row, on the
+device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the
+sign-in limits on `rate_limits.connection` still count it.
+
+Another identifier type signs in by code once it has a normaliser and a column: register a code method for it, and
+allow it.
+
+```php
+use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+
+$this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+```
+
+#### Enumeration resistance
+
+No response, and no response time, tells a client whether an identifier belongs to anyone. Routes and responses are
+yours; what the package guarantees for each method and helper, and what its tests hold it to, is:
+
+| Flow                 | Same outcome for an unknown identifier                                                                                                                                      | Delivery                                  | Timing                                                                                                       |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| Password sign-in     | `invalid_credentials` for an unknown identifier, a wrong password and a locked account                                                                                      | None                                      | Padded to the credential timebox                                                                             |
+| Code request         | A code is issued for any identifier: same status, expiry, cooldown, limits and statements                                                                                   | Queued job (after the response on `sync`) | No identity work at all, so nothing to pad                                                                   |
+| Code sign-in         | `invalid_credentials` for an unknown identifier, a wrong, expired, exhausted or used code, and a locked account                                                             | None                                      | Padded to the credential timebox                                                                             |
+| Verification by code | Not applicable: the caller holds the identity                                                                                                                               | Queued job (after the response on `sync`) | Not applicable                                                                                               |
+| Passkey sign-in      | No identifier to probe: an unknown, foreign or ownerless passkey, a bad signature or user handle, a regressed counter and a locked account all answer `invalid_credentials` | None                                      | Padded to the credential timebox, owner looked up or not; sign-in options do no identity work                |
+| API key              | `credential_invalid` for a malformed key, an unknown public part and a wrong secret; the key's status only once the secret verifies                                         | None                                      | No hasher; an unknown public part is checked against a dummy digest, so the work and statements are the same |
+| Client credentials   | 401 `invalid_client` with the same body for every client failure (a Basic challenge only to a Basic client); `slow_down` counts the client id as given, when limited        | None                                      | As API key                                                                                                   |
+
+The code request's answer for a number nobody has is `sent`, with the same expiry as any other; only the delivery job
+looks the number up, and it sends nothing to an unknown, unverified, inactive or machine identity, or to one that holds
+only a look-alike of it. Answer `sent` the same way whatever happens next, and do not tell the client whether a message
+went out.
+
 #### Writing a sign-in method
 
 A sign-in method verifies input the client sends to your sign-in route and answers with the identity it proves, or why
@@ -1205,7 +1604,9 @@ further factor, the device and the tokens). Use a method for input the package v
 your application issued, or an identity provider's signed assertion the method checks itself. Use `start()` instead
 when something outside the session service has already proven the identity, such as an SSO callback your identity
 provider's package handles: `start()` runs the same checks after the proof, but no `Attempting`, attempt limit or
-timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three.
+timebox, since nothing is guessed there. A method signed in through `signIn()` gets all three. `start()` refuses the
+machine credential kinds (`api_key`, `client_credentials`) as the method with an `InvalidArgumentException`, even when
+the guard's audience lists them: they authenticate requests and exchanges, never sessions.
 
 ```php
 use Illuminate\Contracts\Hashing\Hasher;
@@ -1248,12 +1649,16 @@ identifier a guard that requires verified identifiers checks. Return `null` for 
 assertion that names the identity itself): then only the IP address is limited and the verified-identifier requirement
 does not apply. `identifier()` returns the identifier as the input gives it, for the limits and the failure events,
 never to look anyone up. `authenticate()` returns the identity, or `FailureReason::INVALID_CREDENTIALS` for anything the
-input did not prove (every other reason is the session service's to give, and a method that returns one throws a
-`LogicException`); it must not bind a guard, issue tokens or write session state, and must hold no state between calls,
-since the manager keeps one instance per name for the life of the process. The credential timebox pads every refused
-sign-in, the method's own work included, to `timebox.credentials_microseconds`, so a method may answer an unknown
-identifier at once, as the example does; keep the method's worst case under that budget, and only a method whose work
-can take longer needs to do the same work whether or not the identifier exists.
+input did not prove. A method may also answer `identifier_unverified`, but only once its input proved possession of the
+identifier (as a one-time code does), and `code_expired`, `code_exhausted`, `passkey_challenge_invalid` or
+`passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
+the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
+returns one throws a `LogicException` (see [Events](#events)). A method must not bind a guard, issue tokens or write
+session state, and must hold no state between calls, since the manager keeps one instance per name for the life of the
+process. The credential timebox pads every refused sign-in, the method's own work included, to
+`timebox.credentials_microseconds`, so a method may answer an unknown identifier at once, as the example does; keep the
+method's worst case under that budget, and only a method whose work can take longer needs to do the same work whether or
+not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -1273,7 +1678,9 @@ account check; a fifth argument decides them instead, so `fn (Identity $identity
 whose accounts have used up their attempts, to test the `invalid_credentials` answer.
 
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
-refuses anything else, and `password`), from a service provider, and allow that exact name in each guard's audience:
+refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
+credential kinds `api_key` and `client_credentials`; see [Extensibility](#extensibility)), from a service provider, and
+allow that exact name in each guard's audience:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
@@ -1413,6 +1820,130 @@ chosen principal and is unchanged, else on a new one, and the slots are given ba
 continues no live choice of this guard fails as `pending_invalid`; `pending()` and `complete()` refuse choice tokens,
 and `choice()` and `choose()` refuse factor tokens. `discard()` takes either: a discarded choice reports
 `AuthenticationFailed` with `principal_choice_abandoned`.
+
+### Using passkeys
+
+Each JWT guard has a passkey service, `Auth::passkeys('api')`, for its relying party (see [Passkeys](#passkeys)
+under Configuration). Passkeys are usernameless: the browser offers the passkeys it holds for the relying party, the
+user verifies (biometrics, a PIN), and the passkey names its owner. Every ceremony is two calls, options and then the
+browser's answer: the options carry a single-use challenge stored in `passkey_challenges`, which the answer must use up
+within its lifetime, through the same guard, for the same relying party (and, for a registration or a factor, the same
+identity), whatever it then proves. The routes and responses are yours.
+
+Allow the method in each guard's audience (`'methods' => ['password', 'passkey']`). A signed-in identity registers a
+passkey:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeySummary;
+
+// POST /passkeys/options, behind auth:api
+$identity = Auth::identity();
+
+return Auth::passkeys('api')->registrationOptions($identity, $identity->email, $identity->name);
+
+// POST /passkeys, behind auth:api
+$input = $request->validate([
+    'challenge'  => ['required', 'string'],
+    'credential' => ['required'],
+    'name'       => ['nullable', 'string'],
+]);
+
+$outcome = Auth::passkeys('api')->register(
+    Auth::identity(),
+    $input['challenge'],
+    $input['credential'],
+    $input['name'] ?? null,
+);
+
+return $outcome instanceof PasskeySummary
+    ? response()->json($outcome, 201)
+    : response()->json(['error' => $outcome->value], 422);
+```
+
+The options (`CeremonyOptions`: `challenge`, `options`, `expires_at` as JSON) ask for a discoverable credential with
+user verification and no attestation, exclude the identity's passkeys, and hand the browser its options in their
+WebAuthn JSON form: pass `options` to `PublicKeyCredential.parseCreationOptionsFromJSON()` and
+`navigator.credentials.create()`, and post the credential's `toJSON()` back with the `challenge`. Choose the user name
+and display name from the identity's own record, never from the request: the browser shows them. Every passkey an
+identity registers for a relying party carries the random user handle its passkeys already had when the options were
+handed out, or a new random one when it had none, so registrations whose options were handed out before the first one
+completed (on two devices, say) may each get their own; every passkey is checked against its own handle. A handle
+carries no personal data and does not depend on `app.key`. `register()` answers a `PasskeySummary`, or a
+`PasskeyRegistrationFailure`: `challenge_invalid` (not a live registration challenge of this guard for the identity),
+`response_invalid` (malformed, or it does not verify: origin, relying party, user presence and verification, challenge,
+algorithm, attestation statement) or `already_registered`. The name is stored cleaned and cut to 255 characters. Under
+`attestation: none` a browser may still pass an authenticator's own statement through, so the formats the WebAuthn
+library checks on its own (`none`, `packed`, `fido-u2f`, `android-key`, `tpm`, `apple`) are accepted for their internal
+consistency, but no certificate chain or metadata is evaluated and every passkey is recorded as unattested. A machine
+identity holds no passkey (an `InvalidArgumentException`), and passkeys belong to saved Eloquent identities.
+
+Signing in takes options and then the session service:
+
+```php
+// POST /sign-in/passkey/options
+return Auth::passkeys('api')->signInOptions();
+
+// POST /sign-in/passkey
+$result = Auth::sessions('api')->signIn('passkey', $request->only('challenge', 'credential'));
+```
+
+`signInOptions()` names no credential, so the browser offers every passkey it holds for the relying party. Anyone may
+ask for them and each request writes a challenge, so each is counted against the client's IP address under the guard's
+`passkey_options` limit (see [Rate limits](#rate-limits)); past it, a `ThrottleRequestsException` answers `429` with
+`Retry-After`. The `passkey` method uses the challenge up, finds the passkey of the guard's relying party the answer
+names, loads its owner through the guard's provider as the very model it records, takes a slot of the owner's account
+limit, and verifies the assertion: the origin, the relying party, user presence and verification, the signature, the
+challenge, and the user handle the passkey was registered under. The session service then decides the rest, as for any
+method (see [Signing in: the session service](#signing-in-the-session-service)): no identifier is named, so only the IP
+address is limited before the method runs and the verified-identifier requirement does not apply. A challenge the
+answer cannot use fails as `passkey_challenge_invalid`, in the result too, since it says nothing about any account (the
+client starts again); every other refusal is `invalid_credentials`.
+
+The sign counter guards against a cloned authenticator. With `s` the count stored and `p` the assertion's: `s = 0` and
+`p = 0` is accepted and the count stays 0 (most synced passkeys keep no counter); `p > s` is accepted and the count
+becomes `p`, with a compare-and-set on `s`, so of two assertions read against one count only one moves it; anything else
+(`p <= s` with `s > 0`) is refused as `passkey_counter_regressed`, which only `AuthenticationFailed` says (the result
+says `invalid_credentials`). Nothing is written then, so a clone cannot lock the genuine authenticator out; the owner
+can remove the passkey. A passkey removed while one of its sign-ins is in flight is refused the same way, with or
+without a counter, so no session starts once the removal is committed. A verified passkey records its count, backup
+state and last use and dispatches `PasskeyUsed` whether or not the session service then admits its owner: the passkey
+was used.
+
+A further-factor package verifies one of an identity's passkeys through the same checks:
+
+```php
+// Allows only the identity's passkeys.
+$options = Auth::passkeys('api')->factorOptions($identity);
+
+// null once verified, else the reason.
+$reason = Auth::passkeys('api')->verifyFactor($identity, $challenge, $credential);
+```
+
+`verifyFactor()` answers `null` once the identity's own passkey verified (with `PasskeyUsed`), and otherwise
+`passkey_challenge_invalid`, `invalid_credentials` (malformed, not verified, or not the identity's) or
+`passkey_counter_regressed`, which the caller already holding the identity may see. It counts nothing and reports no
+failure: the factor's outcome is the further-factor package's to limit and report.
+
+`Auth::passkeys('api')->passkeys($identity)` lists the identity's passkeys for the relying party, oldest first, as
+`PasskeySummary` (id, name, transports, AAGUID, backup state, created and last used), never the credential id, public
+key, user handle or count. `remove($identity, $passkeyId)` removes the identity's passkey of the relying party and
+reports `PasskeyRemoved` once committed; it answers whether this call removed it. Finding, listing and removal hold to
+the relying party's exact id and the identity's exact type and key, and every ceremony's challenge to its exact
+ceremony, guard, relying party and owner, whatever the column's collation counts as equal (`alice` and `Alice` under
+MySQL's default `_ci` collations). Removing a passkey removes a way to sign in, but ends no session unless you register
+the optional listener:
+
+```php
+use Illuminate\Support\Facades\Event;
+use SineMacula\Laravel\Authentication\Events\PasskeyRemoved;
+use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasskeyRemoval;
+
+Event::listen(PasskeyRemoved::class, RevokeDevicesOnPasskeyRemoval::class);
+```
+
+It ends every session of the identity with `factor_removed`; to keep the current device signed in, call
+`Auth::sessions()->factorRemoved($identity, Auth::device())` yourself instead. See `docs/design/passkeys.md`.
 
 ### Refreshing
 
@@ -1950,6 +2481,249 @@ property. The sign-in methods you register are kept for the life of the process 
 between calls (see [Writing a sign-in method](#writing-a-sign-in-method)), and so must a factor or audience policy you
 bind as a singleton.
 
+### Machine credentials
+
+#### Non-human identities
+
+An API client or a service account is an identity of its own type: implement `Contracts\MachineIdentity` on its model
+(a marker that extends `Identity`). A non-human identity has no password, no interactive sign-in, no device and no
+refresh; it authenticates only with a credential issued to it, each bound to one principal in one tenant. The package
+enforces this at every entry point that verifies something:
+
+| Entry point                                                        | A non-human identity is                                      |
+|--------------------------------------------------------------------|--------------------------------------------------------------|
+| A password check (`signIn('password')`, `attempt()`, `validate()`) | refused as `invalid_credentials`, no hash computed, no count |
+| Any other sign-in method, `start()`, `complete()`, `choose()`      | refused at admission as `machine_identity`                   |
+| A refresh or a switch of principal on a device it owns             | refused as `machine_identity`                                |
+| A session's access token (`jwt` guard) naming it                   | refused as `machine_identity`                                |
+| `Auth::jwt()->issueAccessToken()` / `issueRefreshToken()`          | refused with a `LogicException`                              |
+| An `api_key` guard's `attempt()`                                   | refused as `method_not_allowed`: machines do not sign in     |
+| A one-time code for sign-in                                        | never delivered; one it holds anyway is refused at admission |
+| `Auth::codes()->sendVerification()` / `verify()`                   | refused with an `InvalidArgumentException`                   |
+| Registering, listing or removing passkeys, or a passkey factor     | refused with an `InvalidArgumentException`: it holds none    |
+
+The trusted binds stay trusted: `login()`, `setUser()` and `authenticateAs()` (and so Laravel's `actingAs()` in tests)
+bind a machine as given, limited to no scope (`Auth::scopes()` is `[]`), since the caller has proven it.
+
+#### Credential scopes
+
+A credential issued to a machine (an API key, or the access token a client credentials exchange hands out) carries
+scopes: the most its bearer may do. The package carries them and never interprets them. A scope is an opaque string
+(`invoices:read`, `https://api.example.test/reports`), an RFC 6749 scope token: printable ASCII other than space, `"`
+and `\`, at most 255 bytes, kept as an ordered list without duplicates and written as one space-separated string in a
+token's `scope` claim. That string may be at most 8,192 bytes: a longer list is refused with an `InvalidScopeException`
+when the key is issued, so it is always stored whole. A client credentials token carries the list in its claims, so one
+granting a long list can outgrow a proxy's limit on a request header line (8 KB under nginx's and Apache's defaults,
+which a token reaches once its list passes about 5,800 bytes); keep the scopes a client asks for short, or raise that
+limit. Scopes are a ceiling, never a permission: authorization computes the principal's permissions and intersects them
+with the credential's scopes, so a scope grants nothing the principal could not already do.
+
+`Auth::scopes()` (and `scopes()` on a package guard) reports them for the request:
+
+| The request authenticated with                                   | `Auth::scopes()`         |
+|------------------------------------------------------------------|--------------------------|
+| A human identity's session token, or a trusted bind of a human   | `null`: no ceiling       |
+| An API key, or a client credentials access token                 | the granted list         |
+| A non-human identity bound without a credential (`login()`, ...) | `[]`: limited to nothing |
+| Nothing, or a guard that is not the package's                    | `null`                   |
+
+`[]` and `null` differ: `[]` is a credential that grants no scope, `null` is no credential limit at all. A
+`MachineIdentity` is never left without a ceiling, so binding one through the trusted `login()`, `setUser()` or
+`authenticateAs()` (Laravel's `actingAs()` in tests, say) gives it `[]`. The scopes are also in every event's context
+(`$event->context->scopes`), with the credential's id in `credentialId`.
+
+Scopes are checked when a credential is issued: each must be a well-formed scope token, and the bound
+`ScopeRegistry` may reject any of them for the principal on the guard. The default, `AcceptAnyScope`, accepts every
+well-formed scope; an authorization package binds its own so keys can only carry scopes that name real permissions:
+
+```php
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+
+final class PermissionScopes implements ScopeRegistry
+{
+    public function rejected(string $guard, Principal $principal, array $scopes): array
+    {
+        return array_values(array_diff($scopes, Permission::names()));
+    }
+}
+
+$this->app->singleton(ScopeRegistry::class, PermissionScopes::class);
+```
+
+Any answer but `[]` refuses the credential, whatever it names: a scope given (named in the exception), or a pattern or a
+form of its own (every scope given is named then). A malformed or rejected scope throws
+`Exceptions\InvalidScopeException` (an `InvalidArgumentException`) naming the offending scopes in `$exception->scopes`:
+issuing a credential is a trusted, programmatic action, so this is the caller's error, not a failed authentication. A
+credential's scopes are fixed for its life.
+
+#### API keys
+
+An API key authenticates a non-human identity, a model that implements `Contracts\MachineIdentity`, as one of its
+principals on one guard. Issue keys through the guard's key service, `Auth::apiKeys($guard)`, for an `api_key` guard
+(whose requests present the key) or a `jwt` guard (whose client credentials exchange takes it, see
+[Client credentials](#client-credentials)):
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+$issued = Auth::apiKeys('machine')->issue(
+    identity: $client,                 // a MachineIdentity
+    principal: $client,                // the principal the key acts as (the client itself in 2D)
+    scopes: ['invoices:read'],
+    name: 'Billing sync',
+    expiresAt: now()->addYear(),       // optional; never expires without it
+);
+
+$issued->key();    // ak_k3j9x0m2p8q4r7t1_9fJ2kL8mN3pQ7rS1tV5wX0yZ4aB6cD8eF2gH4iJ6 - show it once
+$issued->summary;  // ApiKeySummary: id, public id, guard, name, scopes, expiry, last use, rotation, revocation
+```
+
+A key is `<prefix>_<public>_<secret>`: the configured prefix (`ak` by default), 16 random lower-case letters or digits,
+and a 40-character random secret. Only `<prefix>_<public>` (the summary's `publicId`) and the SHA-256 digest of the
+secret are stored, so the key is shown once and cannot be shown again; a secret of about 238 bits needs no password hash
+to resist guessing. `IssuedApiKey` holds the key as a `SensitiveParameterValue`, so no dump of it (`dump()`, `print_r`,
+`var_export`) shows the key, and serialising it throws. The principal must be one the identity acts as on the guard
+(resolved through the guard's principal resolver, as a pinned principal is) and one the guard's audience admits; the key
+records the identity, the principal and the principal's tenant, each by type and identifier, and the guard, and
+authenticates only as them, on that guard. A tenant's type is its morph class, or its class name when it is not an
+Eloquent model, so a tenant of another type that shares the identifier is not the recorded one. A malformed or past
+expiry, a principal the identity does not act as or the audience does not admit, a name that is empty, longer than 255
+characters, not valid UTF-8 or holds a NUL byte, and a malformed or rejected scope (see
+[Credential scopes](#credential-scopes)) are each an `InvalidArgumentException`: issuing is a trusted, programmatic
+action.
+
+A request presents the key as a bearer credential, `Authorization: Bearer <key>`, on a route the guard protects
+(`auth:machine`). The guard reads the key's public part with one indexed lookup on the write connection, compares the
+digest of the secret in constant time, and then requires, in order:
+
+| Check                                                                         | Failure reason              |
+|-------------------------------------------------------------------------------|-----------------------------|
+| the key is in form, its public part names a key, and the secret is that key's | `credential_invalid`        |
+| the key was issued for this guard                                             | `credential_guard_mismatch` |
+| it is not revoked                                                             | `credential_revoked`        |
+| it has not expired (from the second its expiry names)                         | `credential_expired`        |
+| the guard's audience lists `api_key` in `methods`                             | `method_not_allowed`        |
+| the provider returns exactly the owner the key records                        | `identity_unknown`          |
+| the owner is a `MachineIdentity`                                              | `credential_invalid`        |
+| the owner is active                                                           | `identity_inactive`         |
+| the principal resolves exactly to the one the key records                     | `principal_mismatch`        |
+| the principal is active                                                       | `principal_inactive`        |
+| its tenant, if any, is active                                                 | `tenant_inactive`           |
+| the principal and its tenant are, by type and identifier, the ones recorded   | `principal_mismatch`        |
+| the guard's audience admits the principal                                     | `principal_ineligible`      |
+
+A malformed key, an unknown public part and a wrong secret are refused alike, and an unknown public part is compared
+against a fixed digest so it costs the same as a wrong secret. A refused key dispatches one `AuthenticationFailed` (flow
+`api_key`, naming the key once one was found) and nothing else; an accepted key binds the owner and principal with the
+key's scopes (`Auth::scopes()`) as an authentication, not a sign-in: only `Authenticated` and `PrincipalAssigned` fire,
+with method `api_key`, the key's id in `credentialId` and its scopes. Keys carry no device and no refresh. The key's
+last use is recorded at most once per `last_used_throttle_seconds`, with one conditional update. The guard counts no
+attempts: a secret this long cannot be guessed, and a write per refused request would cost the hot path more than it
+protects, so throttle the routes for that. A machine has no interactive sign-in: the guard's `attempt()` always fails
+(`method_not_allowed`) and checks nothing. `Auth::guard('machine')->validate(['api_key' => $key])` says whether a key
+would authenticate, binding and dispatching nothing.
+
+Every other operation names the principal the key must belong to, and treats a key of another principal or guard as
+absent, even one whose guard, type or identifier the column's collation counts as equal (`alice` and `Alice` under
+MySQL's default `_ci` collations). These are privileged operations: authorise your caller to manage that principal's
+keys first, since the package decides no permission.
+
+```php
+$keys = Auth::apiKeys('machine');
+
+$keys->keys($principal);                       // list<ApiKeySummary>, newest first, revoked and rotated included
+$keys->find($principal, $keyId);               // ?ApiKeySummary
+$keys->revoke($principal, $keyId);             // whether this call revoked it; it stops working at once
+$keys->rotate($principal, $keyId, overlapSeconds: 3600, expiresAt: now()->addYear()); // ?IssuedApiKey
+```
+
+A summary is safe to return from a route as it is: `toArray()` and its JSON use snake_case keys and ISO-8601 times, and
+neither holds the secret or its digest.
+
+Rotating issues a replacement with the same guard, owner, principal, tenant, name and scopes (held to the scope registry
+again), but not the same expiry: the replacement expires at the `expiresAt` you pass, and never without one, so pass it
+when you rotate a key that expires, or the replacement will not. The rotation ends the replaced key once the overlap
+passes (`rotation_overlap_seconds` by default, at most `max_rotation_overlap_seconds`), or at its own expiry when that
+comes sooner; both keys work during the overlap, and the replaced one then fails as `credential_expired`. Only a live
+key that has not been rotated rotates: `null` otherwise, and of two concurrent rotations only one replaces the key. A
+key's scopes are fixed for its life; to change them, issue a new key and revoke the old one. `ApiKeyIssued`,
+`ApiKeyRotated` (with `previousKeyId`) and `ApiKeyRevoked` report each change once it is committed on the key's own
+connection, never the key or its digest.
+
+Schedule pruning of keys revoked or expired more than `prune_after_days` ago:
+
+```php
+$schedule->command('model:prune', ['--model' => [\SineMacula\Laravel\Authentication\Models\ApiKey::class]])->daily();
+```
+
+#### Client credentials
+
+The OAuth 2.0 client credentials grant (RFC 6749 section 4.4) exchanges a machine's API key for a short-lived access
+token of a `jwt` guard. The key is issued on that guard (`Auth::apiKeys('m2m')->issue(...)`): its public part is the
+OAuth `client_id` and its secret the `client_secret`, so a key is either presented to an `api_key` guard or exchanged on
+a `jwt` guard, never both, and rotating a key gives its client a new id. The guard's audience lists the grant:
+
+```php
+'m2m' => [
+    'driver'   => 'jwt',
+    'provider' => 'clients',
+    'audience' => ['methods' => ['client_credentials']],
+],
+```
+
+Routes stay yours; the exchange reads the request and answers in RFC 6749's shapes:
+
+```php
+use SineMacula\Laravel\Authentication\Facades\Auth;
+
+Route::post('/oauth/token', fn () => Auth::clientCredentials('m2m')->fromRequest());
+```
+
+`fromRequest()` reads a form-encoded POST: `grant_type=client_credentials`, an optional `scope` (space-separated), and
+the client authenticated with HTTP Basic (`client_id:client_secret`, each form-url-encoded) or with `client_id` and
+`client_secret` in the body, never both. A parameter in the query string, given twice or not a string is refused
+rather than ignored, so a credential in a URL never works. `exchange($clientId, $clientSecret, $scope)` does the same
+for a client id and secret your code read itself. The result is `Responsable`, answered with `Cache-Control: no-store`
+and `Pragma: no-cache`, or read with `isGranted()`, `accessToken`, `expiresIn`, `scopes`, `error` and `reason`. Its
+`toArray()` and JSON form are the response body alone, so `reason`, which only your code and the event should see, never
+reaches a client however you encode the result:
+
+| Outcome                                                                                  | Response                       |
+|------------------------------------------------------------------------------------------|--------------------------------|
+| Granted                                                                                  | 200, the token (below)         |
+| Not a POST or not form-encoded; a parameter in the query, repeated or not a string       | 400 `invalid_request`          |
+| No `grant_type`; Basic and body credentials together                                     | 400 `invalid_request`          |
+| A `grant_type` other than `client_credentials`                                           | 400 `unsupported_grant_type`   |
+| No client authentication, malformed Basic, an unknown client or a wrong secret           | 401 `invalid_client`           |
+| A revoked, expired or another guard's key; its owner unknown, not a machine or inactive  | 401 `invalid_client`           |
+| Its principal or tenant no longer the key's, or inactive                                 | 401 `invalid_client`           |
+| The guard's audience does not list `client_credentials`, or does not admit the principal | 400 `unauthorized_client`      |
+| A scope that is malformed or not granted to the key                                      | 400 `invalid_scope`            |
+| The IP address (or, when you limit it, the client id) used up its failures               | 429 `slow_down`, `Retry-After` |
+
+A granted response is `{"access_token": "...", "token_type": "Bearer", "expires_in": 900, "scope": "invoices:read"}`,
+without `scope` when the token grants none (RFC 6749 has no empty scope value; the token's own `scope` claim is then
+`""`); `invalid_client` carries `WWW-Authenticate: Basic` for a client that used Basic. `slow_down` is not an RFC 6749
+error but a registered OAuth one (RFC 8628), used because RFC 6749 defines no rate-limit error. Only failures to
+authenticate the client count against the `client_credentials` limits (100 per IP address a minute by default), and each
+is answered alike. Failures are not counted per client id by default: a client id is not a secret (RFC 6749 section
+2.2), so a limit on it would let anyone who knows it hold the real client back from any address, while against a
+40-character random secret it protects nothing. Set `rate_limits.client_credentials.per_identifier` only if you accept
+that. No scope asks for every scope the key grants; otherwise the token grants exactly those asked for. Every failure
+dispatches `AuthenticationFailed` (flow `client_credentials`, the client id when it is a key's public part in form, else
+none, so a whole key or a secret sent as the id never reaches a listener, and the key once found) and a grant
+`ClientCredentialsGranted`, with the key and the scopes granted.
+
+The token is an access token of the guard with no device, the key's id in `cid` and its scopes in `scope`; it lives
+the guard's access lifetime for the principal's type, never past the key's expiry, and no refresh token is issued. On
+every request the bearer path reads its key by primary key (one query more than any device-less token) and requires it
+to be the guard's (`credential_invalid`), not revoked (`credential_revoked`) and not expired (`credential_expired`);
+the subject must be a machine (`credential_invalid`), and the key's owner, principal and tenant must still be what
+loaded (`principal_mismatch`, `credential_invalid`). Revoking the key, or the end of its rotation's overlap, so ends
+its tokens at the next request. A request with such a token binds with method `client_credentials`, the key in
+`credentialId` and `Auth::scopes()` the token's scopes.
+
 ## Key Rotation
 
 Signing keys live in `jwt.keys` as a `kid → secret` map, and `jwt.active_kid` names the key that signs new tokens.
@@ -2001,7 +2775,14 @@ Removing a kid immediately rejects every token signed under it, which is also ho
 | `SineMacula\...\Events\PrincipalChoiceRequired`  | A sign-in waits for a choice of principal, once committed |
 | `SineMacula\...\Events\PrincipalSwitched`        | A session switched its principal, once committed          |
 | `SineMacula\...\Events\IdentifierVerified`       | An identifier was verified (after commit); carries type   |
-| `SineMacula\...\Events\AuthenticationFailed`     | A sign-in, refresh, switch or bearer token failed; reason |
+| `SineMacula\...\Events\PasskeyAdded`             | A passkey was registered, once committed                  |
+| `SineMacula\...\Events\PasskeyUsed`              | A passkey's assertion was verified, once committed        |
+| `SineMacula\...\Events\PasskeyRemoved`           | A passkey was removed, once committed                     |
+| `SineMacula\...\Events\ApiKeyIssued`             | An API key was issued, once committed                     |
+| `SineMacula\...\Events\ApiKeyRotated`            | An API key was rotated, once committed; previous key id   |
+| `SineMacula\...\Events\ApiKeyRevoked`            | An API key was revoked, once committed                    |
+| `SineMacula\...\Events\ClientCredentialsGranted` | A client credentials exchange issued an access token      |
+| `SineMacula\...\Events\AuthenticationFailed`     | Any sign-in, refresh, switch, bearer, key or code failure |
 
 The credentials on `Attempting` and `Failed` never include a password: every key whose name contains `password`
 (case-insensitive), such as `password`, `current_password`, or `password_confirmation`, is removed before the event is
@@ -2032,6 +2813,8 @@ Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event):
         tenant: $context->tenantId,
         device: $context->deviceId,
         method: $context->method,
+        credential: $context->credentialId,
+        scopes: $context->scopes,
         ip: $context->client->ip,
         userAgent: $context->client->userAgent,
     );
@@ -2040,22 +2823,24 @@ Event::listen(AuthenticationEvent::class, function (AuthenticationEvent $event):
 
 The context holds the guard, the client of the request being served (IP address and user agent, cleaned as the device
 columns are), and as much as the event's flow established of the identity, the principal, the tenant it acts within, the
-device and the sign-in method (for a device's events, the method its session records); what was not established is
-`null`. It also snapshots, when the event is built, the identity's auth identifier (`identityId`), the principal's
-recorded type and identifier (`principalType`, `principalId`), and the tenant's and the device's identifiers
-(`tenantId`, `deviceId`, which keeps the device id a token named even when no device was found). An event about a device
-row itself (every `DeviceRevoked`, and a refresh or switch refused on the row's own state before its owner was read,
-such as a revoked or ended device or a replay) names the owner and principal the row records in `identityId`,
-`principalType` and `principalId` when the flow did not load them; a device records no tenant, so a revocation's
-`tenantId` is known only when the tenant's deactivation or the request's own session is why. Other events name only what
-they hold, even when they carry a device: an identity's `SignedOutEverywhere`, `PrincipalChoiceRequired` and a switch
-refused for its target have no principal. The snapshots, the client, the method and the other values are fixed facts
-that survive a queue unchanged. The models are live references: a synchronous listener gets the package's own instances,
-and a queued listener gets them re-fetched in their state when it runs, as Laravel's `SerializesModels` does, or a
-`ModelNotFoundException` when one was deleted meanwhile (a pruned device, say). Audit sinks should record the snapshots.
-No event carries a token, a digest, a password or any other secret. An event that reports a write is dispatched once the
-write is committed on the written row's own connection: at once when it has no open transaction, on its commit
-otherwise, and never when it is rolled back; a transaction on another connection neither delays nor withdraws it.
+device and the sign-in method (for a device's events, the method its session records), and the credential (an API key or
+a passkey) in `credentialId` with the scopes it grants in `scopes` (`null` for a human identity's session, which no
+credential limits); what was not established is `null`. It also snapshots, when the event is built, the identity's auth
+identifier (`identityId`), the principal's recorded type and identifier (`principalType`, `principalId`), and the
+tenant's and the device's identifiers (`tenantId`, `deviceId`, which keeps the device id a token named even when no
+device was found). An event about a device row itself (every `DeviceRevoked`, and a refresh or switch refused on the
+row's own state before its owner was read, such as a revoked or ended device or a replay) names the owner and principal
+the row records in `identityId`, `principalType` and `principalId` when the flow did not load them; a device records no
+tenant, so a revocation's `tenantId` is known only when the tenant's deactivation or the request's own session is why.
+Other events name only what they hold, even when they carry a device: an identity's `SignedOutEverywhere`,
+`PrincipalChoiceRequired` and a switch refused for its target have no principal. The snapshots, the client, the method
+and the other values are fixed facts that survive a queue unchanged. The models are live references: a synchronous
+listener gets the package's own instances, and a queued listener gets them re-fetched in their state when it runs, as
+Laravel's `SerializesModels` does, or a `ModelNotFoundException` when one was deleted meanwhile (a pruned device, say).
+Audit sinks should record the snapshots. No event carries a token, a digest, a password or any other secret. An event
+that reports a write is dispatched once the write is committed on the written row's own connection: at once when it has
+no open transaction, on its commit otherwise, and never when it is rolled back; a transaction on another connection
+neither delays nor withdraws it.
 
 A request's bearer token authenticates; it is not a sign-in. It dispatches only Laravel's `Authenticated` and the
 package's `PrincipalAssigned` and `DeviceAuthenticated`, and a rejected token only `AuthenticationFailed`, once per
@@ -2075,52 +2860,68 @@ it `AuthenticationFailed` with `additional_factor_failed`. A sign-in that waits 
 choice dispatches `AuthenticationFailed` with `principal_choice_abandoned`. A switch of principal is no sign-in: it
 dispatches `PrincipalSwitched`, and no `Login` or `SignedIn`.
 
-`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal and bearer token, after Laravel's
-`Failed` where that fires, with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`), a
-`FailureReason`, the identifier a sign-in's input named (as given), and the wait for `rate_limited` and
-`account_rate_limited`. Its context carries the identity only once a sign-in method verified it, a refresh reloaded the
-device's owner or a token's subject was found (a wrong password or an unknown identifier carries none), the principal
-and tenant once resolved, and the device once found, else the `did` a token named. A bearer token is checked in this
-order, so its reason is the first that applies: `token_invalid`, `identity_unknown`, `identity_inactive`,
-`principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token that names no device
-`issued_before_cutoff`, and for one that names a device `device_unknown`, `device_guard_mismatch`, `device_revoked`,
-`session_expired`, `device_principal_mismatch`. It says why a sign-in failed even where the client is not told: a
-refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
+`AuthenticationFailed` reports every failed sign-in, refresh, switch of principal, bearer token, API key, client
+credentials exchange, request for a one-time code and verification by code, after Laravel's `Failed` where that fires,
+with the flow (`AuthenticationFlow`: `sign_in`, `refresh`, `bearer`, `principal_switch`, `api_key`,
+`client_credentials`, `code_request`, `identifier_verification`), a `FailureReason`, the identifier a sign-in's input
+named (as given), and the wait for `rate_limited` and `account_rate_limited`. Its context carries the identity only once
+a sign-in method verified it, a refresh reloaded the device's owner or a token's subject was found (a wrong password or
+an unknown identifier carries none), the principal and tenant once resolved, and the device once found, else the `did` a
+token named. A bearer token is checked in this order, so its reason is the first that applies: `token_invalid`, for a
+client credentials token `credential_invalid`, `credential_revoked` and `credential_expired`, then `identity_unknown`,
+`machine_identity`, `identity_inactive`, `principal_mismatch`, `principal_inactive`, `tenant_inactive`, then for a token
+that names no device `issued_before_cutoff`, and for one that names a device `device_unknown`, `device_guard_mismatch`,
+`device_revoked`, `session_expired`, `device_principal_mismatch`. It says why a sign-in failed even where the client is
+not told: a refusal by the account's own limit is `account_rate_limited` on the event, while the sign-in's result says
 `invalid_credentials`:
 
-| Reason                       | Meaning                                                                 |
-|------------------------------|-------------------------------------------------------------------------|
-| `invalid_credentials`        | The sign-in method did not accept the input                             |
-| `method_not_allowed`         | The guard does not allow the sign-in method, or no longer the session's |
-| `rate_limited`               | The identifier, device or IP address used up its attempts for now       |
-| `account_rate_limited`       | The account used up its attempts; event only, not on the result         |
-| `identity_unknown`           | The guard's provider does not return the identity or device owner       |
-| `identity_inactive`          | The identity reported inactive                                          |
-| `principal_unresolved`       | No principal could be resolved for the identity                         |
-| `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's      |
-| `principal_inactive`         | The principal reported inactive                                         |
-| `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                |
-| `principal_ineligible`       | The guard's audience policy does not admit the identity as principal    |
-| `identifier_unverified`      | The guard requires a verified identifier and it is not                  |
-| `device_mismatch`            | The pinned device is not a live device of the identity and principal    |
-| `additional_factor_required` | A further factor is required, which only `signIn()` can ask             |
-| `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed              |
-| `principal_choice_abandoned` | A choice of principal was discarded                                     |
-| `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's      |
-| `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                     |
-| `issued_before_cutoff`       | Device-less token issued at or before a "tokens valid after" time       |
-| `device_unknown`             | Device id is not a device key or names no device                        |
-| `device_guard_mismatch`      | Device is another guard's (or none's); not revoked                      |
-| `device_revoked`             | Device row marked revoked                                               |
-| `session_expired`            | Device's idle or absolute deadline reached, or unset                    |
-| `device_principal_mismatch`  | Device acts as another principal, or switched since the token's issue   |
-| `rotation_reuse`             | Rotated refresh token replayed; device revoked                          |
-| `rotation_conflict`          | Device changed during the refresh; retry                                |
-| `refresh_key_missing`        | Device holds no refresh credential                                      |
-| `refresh_token_conflict`     | The request carried a refresh token in more than one source             |
-| `cross_site_request`         | A cookie refresh token without an allowed origin and the custom header  |
+| Reason                       | Meaning                                                                    |
+|------------------------------|----------------------------------------------------------------------------|
+| `invalid_credentials`        | The sign-in method did not accept the input                                |
+| `method_not_allowed`         | The guard does not allow the sign-in method, or no longer the session's    |
+| `rate_limited`               | The identifier, device or IP address used up its attempts for now          |
+| `account_rate_limited`       | The account used up its attempts; event only, not on the result            |
+| `identity_unknown`           | The guard's provider does not return the identity or device owner          |
+| `identity_inactive`          | The identity reported inactive                                             |
+| `principal_unresolved`       | No principal could be resolved for the identity                            |
+| `principal_mismatch`         | The requested principal (or a token's `pid`) is not the identity's         |
+| `principal_inactive`         | The principal reported inactive                                            |
+| `tenant_inactive`            | The principal's tenant inactive, or opted in and missing                   |
+| `principal_ineligible`       | The guard's audience policy does not admit the identity as principal       |
+| `identifier_unverified`      | The guard requires a verified identifier and it is not                     |
+| `device_mismatch`            | The pinned device is not a live device of the identity and principal       |
+| `additional_factor_required` | A further factor is required, which only `signIn()` can ask                |
+| `additional_factor_failed`   | A pending sign-in was discarded: its further factor failed                 |
+| `principal_choice_abandoned` | A choice of principal was discarded                                        |
+| `pending_invalid`            | The pending sign-in is unknown, expired, used, or not this guard's         |
+| `token_invalid`              | Decode, expiry, missing claim, typ, guard, iss, aud                        |
+| `issued_before_cutoff`       | Device-less token issued at or before a "tokens valid after" time          |
+| `device_unknown`             | Device id is not a device key or names no device                           |
+| `device_guard_mismatch`      | Device is another guard's (or none's); not revoked                         |
+| `device_revoked`             | Device row marked revoked                                                  |
+| `session_expired`            | Device's idle or absolute deadline reached, or unset                       |
+| `device_principal_mismatch`  | Device acts as another principal, or switched since the token's issue      |
+| `rotation_reuse`             | Rotated refresh token replayed; device revoked                             |
+| `rotation_conflict`          | Device changed during the refresh; retry                                   |
+| `refresh_key_missing`        | Device holds no refresh credential                                         |
+| `refresh_token_conflict`     | The request carried a refresh token in more than one source                |
+| `cross_site_request`         | A cookie refresh token without an allowed origin and the custom header     |
+| `code_expired`               | The one-time code expired; event only, not on a sign-in's result           |
+| `code_exhausted`             | The code used up its attempts; event only, not on a sign-in's result       |
+| `passkey_challenge_invalid`  | The passkey challenge is unknown, expired, used, or another ceremony's     |
+| `passkey_counter_regressed`  | The passkey's sign counter did not advance; event only, not on result      |
+| `machine_identity`           | A non-human identity tried a sign-in, a session, a refresh or a switch     |
+| `credential_invalid`         | API key or client credential malformed, unknown, wrong, or not a machine's |
+| `credential_revoked`         | The API key or client credential is revoked                                |
+| `credential_expired`         | It expired, a rotated key's overlap included                               |
+| `credential_guard_mismatch`  | It was issued for another guard                                            |
+| `scope_invalid`              | A requested scope is malformed or not granted to the credential            |
 
-A sign-in method may answer only `invalid_credentials`; every other reason is the session service's to give.
+A sign-in method may answer only `invalid_credentials`, `identifier_unverified` (once its input proved possession of the
+identifier), `code_expired`, `code_exhausted`, `passkey_challenge_invalid` and `passkey_counter_regressed`; every other
+reason is the session service's to give. `account_rate_limited`, `code_expired`, `code_exhausted` and
+`passkey_counter_regressed` are on the event only: the sign-in's result says `invalid_credentials`. A code request
+refused because its number is not one is reported as `invalid_credentials`, while its result says `identifier_invalid`.
 
 ## Extensibility
 
@@ -2128,24 +2929,30 @@ Concrete classes in this package are `final` except `AuthManager` (the package's
 shipped `Models\Device` model, and the extension points noted below. Extension is through **composition and DI**, not
 inheritance:
 
-| Extension point                   | How                                                                                                           |
-|-----------------------------------|---------------------------------------------------------------------------------------------------------------|
-| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                        |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                   |
-| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`               |
-| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                     |
-| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                          |
-| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                           |
-| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                             |
-| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name other than `password` |
-| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed      |
-| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                       |
-| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                       |
-| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                           |
+| Extension point                   | How                                                                                                              |
+|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
+| Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
+| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                      |
+| Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
+| Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
+| Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
+| Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
+| Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
+| Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
+| Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
+| Passkeys as a further factor      | Call `Auth::passkeys()->factorOptions()` and `verifyFactor()` from your further-factor package                   |
+| Audience decisions                | Implement `AudiencePolicy` and bind it in the container                                                          |
+| Attempt limits                    | Implement `AttemptLimiter` and bind it in the container                                                          |
+| Identifier normal forms           | Implement `IdentifierNormaliser`, register it by type in the config                                              |
+| One-time code delivery            | Implement `OneTimeCodeSender` and bind it in the container                                                       |
+| Code sign-in for another type     | Register `CodeSignIn` for the type with `SignInMethodManager::extend()`                                          |
+| Credential scope validation       | Implement `ScopeRegistry` and bind it in the container                                                           |
 
 The `password` method is the package's own: `attempt()`, `validate()` and the password rehash use it directly, so
 `extend('password', ...)` throws an `InvalidArgumentException` rather than replace it for `signIn()` alone. Register a
-different password scheme under a name of its own and allow that name in the guard's audience. Names are lower case
+different password scheme under a name of its own and allow that name in the guard's audience. The package's other
+methods (`phone_code`, `email_code` and `passkey`) are reserved the same way, as are `api_key` and `client_credentials`,
+which an audience lists for machine credentials and which never resolve to a sign-in method. Names are lower case
 (a letter, then letters, digits or underscores), and a method resolves only by the exact name it was registered under,
 so one method never has a second spelling for a guard to allow or a device to record.
 
@@ -2165,10 +2972,31 @@ twice), and each is given back.
 
 ## Requirements
 
-- PHP ^8.3 (extensions: hash, mbstring, openssl)
+- PHP ^8.3 (extensions: hash, mbstring, openssl; sodium, bundled with PHP, for EdDSA passkeys)
 - Laravel ^12.40 || ^13.3
 
 ## Testing
+
+`Testing\FakeOneTimeCodeSender` stands in for your sender in tests: `FakeOneTimeCodeSender::fake()` binds a fresh one
+and returns it, and it keeps every message instead of delivering it, so a test reads the code a request sent and signs
+in with it:
+
+```php
+use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
+
+$sender = FakeOneTimeCodeSender::fake();
+
+$this->postJson('/codes', ['phone' => '+447700900123'])->assertAccepted();
+
+$code = $sender->lastCodeFor('+447700900123');   // the number as delivered, in E.164
+
+$this->postJson('/sign-in/code', ['phone' => '+447700900123', 'code' => $code])->assertOk();
+```
+
+The message arrives when the delivery job runs: on a `sync` queue connection once the response is sent (a test's HTTP
+request ends with it; call `$this->app->terminate()` after calling the service directly), on a faked queue when the test
+runs the pushed job. `sent()` and `hasSent()` take an optional filter over the messages, `count()` counts them all, and
+`forget()` clears them.
 
 ```bash
 composer test               # all suites in parallel (Paratest)

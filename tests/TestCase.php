@@ -73,7 +73,8 @@ abstract class TestCase extends OrchestraTestCase
 
     /**
      * Run the package's shipped migrations so the default `devices`,
-     * `pending_sign_ins` and `rate_limits` tables exist for tests that use the
+     * `pending_sign_ins`, `rate_limits`, `one_time_codes`, `passkeys`,
+     * `passkey_challenges` and `api_keys` tables exist for tests that use the
      * shipped models.
      *
      * With persistent databases (MySQL, PostgreSQL) the tables survive between
@@ -99,6 +100,10 @@ abstract class TestCase extends OrchestraTestCase
             Schema::dropIfExists($config->string('authentication.device.table', 'devices'));
             Schema::dropIfExists($config->string('authentication.sign_in.pending_table', 'pending_sign_ins'));
             Schema::dropIfExists($config->string('authentication.rate_limits.table', 'rate_limits'));
+            Schema::dropIfExists($config->string('authentication.codes.table', 'one_time_codes'));
+            Schema::dropIfExists($config->string('authentication.passkeys.table', 'passkeys'));
+            Schema::dropIfExists($config->string('authentication.passkeys.challenges_table', 'passkey_challenges'));
+            Schema::dropIfExists($config->string('authentication.api_keys.table', 'api_keys'));
         });
     }
 

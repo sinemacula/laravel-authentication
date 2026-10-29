@@ -49,6 +49,29 @@ final class EventContextTest extends TestCase
         self::assertSame($tenant, $context->tenant);
         self::assertSame($device, $context->device);
         self::assertSame('password', $context->method);
+        self::assertNull($context->credentialId);
+        self::assertNull($context->scopes);
+    }
+
+    /**
+     * The credential's identifier and the scopes it grants are kept as given;
+     * `[]` (a credential granting no scope) stays distinct from `null` (no
+     * credential limit).
+     *
+     * @return void
+     */
+    public function testKeepsTheCredentialAndItsScopes(): void
+    {
+        $client = new ClientContext(null, null);
+
+        $context = new EventContext('machine', $client, new PlainIdentityFixture(7), credentialId: 'key-1', scopes: ['invoices:read', 'invoices:write']);
+
+        self::assertSame('key-1', $context->credentialId);
+        self::assertSame(['invoices:read', 'invoices:write'], $context->scopes);
+
+        $none = new EventContext('machine', $client, credentialId: 'key-2', scopes: []);
+
+        self::assertSame([], $none->scopes);
     }
 
     /**
@@ -174,8 +197,10 @@ final class EventContextTest extends TestCase
     {
         self::assertContains(SerializesModels::class, class_uses(EventContext::class));
 
-        $client  = new ClientContext('203.0.113.7', 'agent');
-        $context = new EventContext('api', $client, new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), method: 'password', deviceId: 'named');
+        $client    = new ClientContext('203.0.113.7', 'agent');
+        $identity  = new PlainIdentityFixture(7);
+        $principal = new PlainPrincipalFixture('p-1');
+        $context   = new EventContext('api', $client, $identity, $principal, method: 'password', deviceId: 'named', credentialId: 'key-1', scopes: ['a', 'b']);
 
         $copy = unserialize(serialize($context));
 
@@ -189,6 +214,8 @@ final class EventContextTest extends TestCase
         self::assertSame('p-1', $copy->principalId);
         self::assertNull($copy->tenantId);
         self::assertSame('named', $copy->deviceId);
+        self::assertSame('key-1', $copy->credentialId);
+        self::assertSame(['a', 'b'], $copy->scopes);
         self::assertSame(7, $copy->identity?->getAuthIdentifier());
     }
 

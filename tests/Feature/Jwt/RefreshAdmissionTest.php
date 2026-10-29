@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -152,6 +153,54 @@ final class RefreshAdmissionTest extends TestCase
         self::assertInstanceOf(RefusedSignIn::class, $refused);
         self::assertSame(FailureReason::IDENTITY_UNKNOWN, $refused->reason);
         self::assertNull($refused->identity);
+    }
+
+    /**
+     * An owner that is a non-human identity is refused as `machine_identity`,
+     * carrying the owner, even when it is inactive too: a machine has no device
+     * refresh and no switch of principal, and that reason comes first.
+     *
+     * @return void
+     */
+    public function testAMachineOwnerIsRefusedWithTheOwner(): void
+    {
+        $device  = $this->seedDevice();
+        $machine = new class extends StubIdentity implements CanBeActive, MachineIdentity {
+            /**
+             * Inactive as well, so the machine reason must come before the
+             * activity check.
+             *
+             * @return bool
+             */
+            #[\Override]
+            public function isActive(): bool
+            {
+                return false;
+            }
+
+            /**
+             * Record the identity under the stub's own class, as the device
+             * does.
+             *
+             * @return string
+             */
+            #[\Override]
+            public function getMorphClass(): string
+            {
+                return StubIdentity::class;
+            }
+        };
+
+        $machine->forceFill(['id' => 7]);
+
+        $this->provider->shouldReceive('retrieveById')->once()->with('7')->andReturn($machine);
+        $this->resolver->shouldNotReceive('resolve');
+
+        $refused = $this->admission()->admit($device, 'p-1');
+
+        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertSame(FailureReason::MACHINE_IDENTITY, $refused->reason);
+        self::assertSame($machine, $refused->identity);
     }
 
     /**

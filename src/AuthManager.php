@@ -5,27 +5,34 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication;
 
 use Illuminate\Auth\AuthManager as IlluminateAuthManager;
+use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
+use SineMacula\Laravel\Authentication\Codes\CodeService;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
  * Package AuthManager.
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
- * (`identity`, `principal`, `device`, `tenant`, `type`), guard-scoped `jwt()`
- * issuance and each JWT guard's `sessions()` and `refreshTransport()` directly
- * on the manager. Each contextual accessor forwards to the active guard when it
- * implements `ContextualGuard`, otherwise returns `null`. Bound to the `auth`
- * container key by `AuthenticationServiceProvider`.
+ * (`identity`, `principal`, `device`, `tenant`, `type`, `scopes`), guard-scoped
+ * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passkeys()`,
+ * `refreshTransport()` and `clientCredentials()`, and the API keys of an
+ * `api_key` or JWT guard (`apiKeys()`) directly on the manager. Each contextual
+ * accessor forwards to the active guard when it implements `ContextualGuard`,
+ * otherwise returns `null`. Bound to the `auth` container key by
+ * `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -94,6 +101,21 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
+     * Return the one-time code service of the named JWT guard, or of the
+     * current default guard when the name is omitted, to send sign-in codes and
+     * to verify identifiers by code.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Codes\CodeService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function codes(?string $guard = null): CodeService
+    {
+        return new CodeService($this->jwtGuard($guard, 'one-time code service'), $this->app);
+    }
+
+    /**
      * Return the refresh token transport of the named JWT guard, or of the
      * current default guard when the name is omitted, to read a refresh token
      * from a request through the one source the guard allows.
@@ -106,6 +128,59 @@ class AuthManager extends IlluminateAuthManager
     public function refreshTransport(?string $guard = null): RefreshTokenTransport
     {
         return $this->jwtGuard($guard, 'refresh token transport')->refreshTransport();
+    }
+
+    /**
+     * Return the passkey service of the named JWT guard, or of the current
+     * default guard when the name is omitted: its registration, sign-in and
+     * factor ceremonies, and the listing and removal of an identity's passkeys,
+     * for the guard's relying party.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Passkeys\PasskeyService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function passkeys(?string $guard = null): PasskeyService
+    {
+        return new PasskeyService($this->jwtGuard($guard, 'passkey service'), $this->app);
+    }
+
+    /**
+     * Return the API keys of the named guard, or of the current default guard
+     * when the name is omitted: an `api_key` guard, whose requests present
+     * them, or a `jwt` guard, whose client credentials exchange takes them.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function apiKeys(?string $guard = null): ApiKeyService
+    {
+        $resolved = $this->guard($guard);
+
+        if (!$resolved instanceof ApiKeyGuard && !$resolved instanceof JwtGuard) {
+            throw new \InvalidArgumentException(sprintf('Auth guard [%s] is neither an api_key nor a jwt guard, so it has no API keys.', $guard ?? $this->getDefaultDriver()));
+        }
+
+        return new ApiKeyService($resolved, $this->app);
+    }
+
+    /**
+     * Return the client credentials exchange of the named JWT guard, or of the
+     * current default guard when the name is omitted, which exchanges an API
+     * key, as an OAuth client's id and secret, for an access token of the
+     * guard.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function clientCredentials(?string $guard = null): ClientCredentialsExchange
+    {
+        return new ClientCredentialsExchange($this->jwtGuard($guard, 'client credentials exchange'), $this->app);
     }
 
     /**
@@ -207,6 +282,23 @@ class AuthManager extends IlluminateAuthManager
         $guard = $this->guard();
 
         return $guard instanceof ContextualGuard ? $guard->type() : null;
+    }
+
+    /**
+     * The scopes the active request's credential grants, when the active guard
+     * is contextual: `null` for a human identity's session, which no credential
+     * limits (and when the guard is not contextual), otherwise the granted
+     * list.
+     *
+     * @return ?list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    public function scopes(): ?array
+    {
+        $guard = $this->guard();
+
+        return $guard instanceof ContextualGuard ? $guard->scopes() : null;
     }
 
     /**

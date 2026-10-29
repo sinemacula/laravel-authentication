@@ -4,11 +4,14 @@ declare(strict_types = 1);
 
 namespace Tests\Feature\Jwt;
 
+use Illuminate\Database\Eloquent\Relations\Relation;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
 use Tests\Concerns\InteractsWithDevices;
+use Tests\Integration\Fixtures\IntegrationIdentity;
+use Tests\Integration\Fixtures\MachineClient;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -108,6 +111,41 @@ final class DeviceOwnershipTest extends TestCase
         $constructor->invoke($instance);
 
         self::assertInstanceOf(DeviceOwnership::class, $instance);
+    }
+
+    /**
+     * A device whose recorded owner type is mapped through the morph map, or is
+     * not a class at all, is judged by the class the type names.
+     *
+     * @return void
+     */
+    public function testAMachineOwnedDeviceIsJudgedByTheClassItsTypeNames(): void
+    {
+        $device = new StubDevice;
+
+        self::assertFalse(DeviceOwnership::isMachineOwned($device));
+
+        $device->forceFill(['authenticatable_type' => MachineClient::class]);
+
+        self::assertTrue(DeviceOwnership::isMachineOwned($device));
+
+        $device->forceFill(['authenticatable_type' => 'not-a-class']);
+
+        self::assertFalse(DeviceOwnership::isMachineOwned($device));
+
+        $device->forceFill(['authenticatable_type' => IntegrationIdentity::class]);
+
+        self::assertFalse(DeviceOwnership::isMachineOwned($device));
+
+        Relation::morphMap(['robot' => MachineClient::class]);
+
+        try {
+            $device->forceFill(['authenticatable_type' => 'robot']);
+
+            self::assertTrue(DeviceOwnership::isMachineOwned($device));
+        } finally {
+            Relation::morphMap([], false);
+        }
     }
 
     /**

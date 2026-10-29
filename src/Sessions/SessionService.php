@@ -184,7 +184,11 @@ final readonly class SessionService
      * so a sign-in from outside cannot skip a required factor. No attempt limit
      * or timebox applies: nothing is guessed here.
      *
-     * The principal to act as is given here or on the context, not both.
+     * The principal to act as is given here or on the context, not both. The
+     * method may not be a machine credential kind (`api_key`,
+     * `client_credentials`): those authenticate requests or exchanges, never
+     * sessions, and a session recorded under one would pass for a machine
+     * credential to everything that reads the method.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $principal
@@ -197,6 +201,8 @@ final readonly class SessionService
      */
     public function start(Identity $identity, ?Principal $principal, string $method, ?SignInContext $context = null): SignInResult
     {
+        SessionPreconditions::assertSessionMethod($method);
+
         $context ??= SignInContext::fromRequest($this->guard->getRequest());
         $pinned = SessionPreconditions::pinnedPrincipal($principal, $context);
 

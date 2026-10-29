@@ -393,8 +393,19 @@ final class JwtGuard extends AbstractGuard
             return null;
         }
 
-        $this->bindVerifiedContext($outcome->identity, $outcome->principal, $outcome->device, $outcome->tenant, $outcome->device?->getSignInMethod(), false);
+        $admitted = $outcome->admitted;
 
-        return $outcome->identity;
+        $this->bindVerifiedContext(
+            $admitted->identity,
+            $admitted->principal,
+            $admitted->device,
+            $admitted->tenant,
+            $outcome->method(),
+            false,
+            $outcome->credentialId,
+            $outcome->scopes,
+        );
+
+        return $admitted->identity;
     }
 }

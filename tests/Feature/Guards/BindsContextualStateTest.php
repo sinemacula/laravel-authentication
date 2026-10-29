@@ -9,12 +9,14 @@ use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversTrait;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\PrincipalAssigned;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\Concerns\BindsContextualState;
+use Tests\Unit\Stubs\StubCredentialGuard;
 
 /**
  * Feature tests proving every contextual accessor resolves the request on first
@@ -285,6 +287,129 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
 
         self::assertSame([], $this->contextsOf($events, DeviceAuthenticated::class));
         self::assertCount(1, $this->contextsOf($events, PrincipalAssigned::class));
+    }
+
+    /**
+     * The first call to `scopes()` resolves the request: a machine identity the
+     * request binds without a credential is limited to no scope.
+     *
+     * @return void
+     */
+    public function testScopesResolvesTheRequestOnFirstCall(): void
+    {
+        $this->identity = $this->mockIdentity(MachineIdentity::class);
+
+        self::assertSame([], $this->makeResolvingGuard()->scopes());
+    }
+
+    /**
+     * A human identity bound without a credential has no scope ceiling, and its
+     * events carry no credential and no scopes.
+     *
+     * @return void
+     */
+    public function testAHumanIdentityHasNoScopeCeiling(): void
+    {
+        $events = $this->recordEvents();
+        $guard  = $this->makeGuard();
+
+        $guard->login($this->identity, $this->principal, $this->device);
+
+        self::assertNull($guard->scopes());
+
+        $context = $this->contextsOf($events, PrincipalAssigned::class)[0];
+
+        self::assertNull($context->credentialId);
+        self::assertNull($context->scopes);
+    }
+
+    /**
+     * A machine identity bound through any trusted bind, with no credential, is
+     * limited to no scope: a trusted bind never gives a machine access without
+     * a ceiling.
+     *
+     * @return void
+     */
+    public function testATrustedBindLimitsAMachineToNoScope(): void
+    {
+        $machine   = $this->mockIdentity(MachineIdentity::class);
+        $principal = $this->principal;
+
+        $this->resolver->shouldReceive('resolve')->with($machine)->andReturn($principal);
+
+        $events = $this->recordEvents();
+
+        $binds = [
+            'login'          => static fn (AbstractGuard $guard) => $guard->login($machine, $principal),
+            'setUser'        => static fn (AbstractGuard $guard) => $guard->setUser($machine),
+            'authenticateAs' => static fn (AbstractGuard $guard) => $guard->authenticateAs($machine, $principal),
+        ];
+
+        foreach ($binds as $name => $bind) {
+
+            $guard = $this->makeGuard();
+
+            $bind($guard);
+
+            self::assertSame([], $guard->scopes(), $name);
+            self::assertSame([], $this->contextsOf($events, PrincipalAssigned::class)[0]->scopes, $name);
+
+            $events->exchangeArray([]);
+        }
+    }
+
+    /**
+     * A context a credential authenticated is limited to the scopes it grants,
+     * and every event describing it, a later principal or device bind's
+     * included, carries the credential and its scopes; clearing the state,
+     * signing out or forgetting the user clears them.
+     *
+     * @return void
+     */
+    public function testACredentialsScopesAreBoundAndReported(): void
+    {
+        $machine = $this->mockIdentity(MachineIdentity::class);
+        $events  = $this->recordEvents();
+        $guard   = new StubCredentialGuard(self::GUARD_NAME, $this->provider, $this->resolver, $this->events, $this->request, $this->timebox);
+
+        $guard->bindCredential($machine, $this->principal, 'key-1', ['invoices:read']);
+
+        self::assertSame(['invoices:read'], $guard->scopes());
+
+        $guard->setPrincipal($this->principal);
+        $guard->setDevice($this->device);
+
+        $contexts = [...$this->contextsOf($events, PrincipalAssigned::class), ...$this->contextsOf($events, DeviceAuthenticated::class)];
+
+        self::assertCount(3, $contexts);
+
+        foreach ($contexts as $context) {
+            self::assertSame('key-1', $context->credentialId);
+            self::assertSame(['invoices:read'], $context->scopes);
+        }
+
+        $guard->clearState();
+
+        self::assertNull($guard->scopes());
+
+        $guard->bindCredential($machine, $this->principal, 'key-1', ['invoices:read']);
+        $guard->logout();
+
+        self::assertNull($guard->scopes());
+
+        $guard->bindCredential($machine, $this->principal, 'key-2', []);
+
+        self::assertSame([], $guard->scopes());
+
+        $guard->forgetUser();
+
+        self::assertNull($guard->scopes());
+
+        $events->exchangeArray([]);
+
+        $guard->setPrincipal($this->principal);
+
+        self::assertNull($this->contextsOf($events, PrincipalAssigned::class)[0]->credentialId);
     }
 
     /**

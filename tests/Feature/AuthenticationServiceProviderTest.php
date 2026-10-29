@@ -17,6 +17,7 @@ use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Console\Application as ConsoleApplication;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\DatabaseTransactionsManager;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobProcessing;
@@ -35,10 +36,13 @@ use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
@@ -47,9 +51,11 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
+use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
@@ -112,6 +118,62 @@ final class AuthenticationServiceProviderTest extends TestCase
     public function testJwtGuardDriverCreatorIsRegistered(): void
     {
         self::assertInstanceOf(JwtGuard::class, app('auth')->guard('api'));
+    }
+
+    /**
+     * The `api_key` guard driver creator is registered too: such a guard is an
+     * `ApiKeyGuard` with the guard's provider and the resolver it tracks, and
+     * follows later rebinds of the request, the dispatcher and the global
+     * resolver; a guard-local resolver override is kept.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardDriverCreatorIsRegistered(): void
+    {
+        $guard = app('auth')->guard('keys');
+
+        self::assertInstanceOf(ApiKeyGuard::class, $guard);
+        self::assertSame('keys', $guard->getName());
+        self::assertInstanceOf(ModelProvider::class, $guard->getProvider());
+
+        assert($this->app !== null);
+
+        $replacement = new StubReplacementPrincipalResolver;
+        $request     = Request::create('/rebound');
+        $events      = new Dispatcher($this->app);
+
+        $this->app->instance(PrincipalResolver::class, $replacement);
+        $this->app->instance('request', $request);
+        $this->app->instance('events', $events);
+
+        self::assertSame($replacement, $guard->getPrincipalResolver());
+        self::assertSame($request, $guard->getRequest());
+        self::assertSame($events, $guard->getDispatcher());
+
+        $override = app('auth')->guard('keys_override');
+
+        self::assertInstanceOf(ApiKeyGuard::class, $override);
+        self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $override->getPrincipalResolver());
+
+        $this->app->instance(PrincipalResolver::class, new StubReplacementPrincipalResolver);
+
+        self::assertInstanceOf(StubGuardScopedPrincipalResolver::class, $override->getPrincipalResolver());
+    }
+
+    /**
+     * An `api_key` guard fails fast when the device model, whose connection its
+     * keys live on, is misconfigured.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardRejectsAMisconfiguredDeviceModel(): void
+    {
+        config()->set('authentication.device.model', '');
+
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
+        $this->expectExceptionMessage('authentication.device.model');
+
+        app('auth')->guard('keys');
     }
 
     /**
@@ -431,6 +493,24 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * The default scope registry, which accepts every well-formed scope, is
+     * bound as a singleton so an authorization package or the application can
+     * rebind it.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultScopeRegistry(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(ScopeRegistry::class));
+        self::assertInstanceOf(AcceptAnyScope::class, app(ScopeRegistry::class));
+        self::assertSame(app(ScopeRegistry::class), app(ScopeRegistry::class));
+    }
+
+    /**
      * Package guards follow later rebinds of the `events` dispatcher, so an
      * `Event::fake()` (or any dispatcher swap) made after a guard resolves
      * still receives that guard's events.
@@ -609,8 +689,9 @@ final class AuthenticationServiceProviderTest extends TestCase
 
     /**
      * The migrations tag publishes every shipped migration (devices, pending
-     * sign-ins and rate limits), from the package to the application's
-     * migrations, under their own file names.
+     * sign-ins, rate limits, one-time codes, passkeys, passkey challenges and
+     * API keys), from the package to the application's migrations, under their
+     * own file names.
      *
      * @return void
      */
@@ -624,10 +705,25 @@ final class AuthenticationServiceProviderTest extends TestCase
         }
 
         self::assertSame([
-            realpath($source . '2026_04_06_000000_create_devices_table.php')          => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
-            realpath($source . '2026_04_06_000001_create_pending_sign_ins_table.php') => database_path('migrations/2026_04_06_000001_create_pending_sign_ins_table.php'),
-            realpath($source . '2026_04_06_000002_create_rate_limits_table.php')      => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
+            realpath($source . '2026_04_06_000000_create_devices_table.php')            => database_path('migrations/2026_04_06_000000_create_devices_table.php'),
+            realpath($source . '2026_04_06_000001_create_pending_sign_ins_table.php')   => database_path('migrations/2026_04_06_000001_create_pending_sign_ins_table.php'),
+            realpath($source . '2026_04_06_000002_create_rate_limits_table.php')        => database_path('migrations/2026_04_06_000002_create_rate_limits_table.php'),
+            realpath($source . '2026_04_06_000003_create_one_time_codes_table.php')     => database_path('migrations/2026_04_06_000003_create_one_time_codes_table.php'),
+            realpath($source . '2026_04_06_000004_create_passkeys_table.php')           => database_path('migrations/2026_04_06_000004_create_passkeys_table.php'),
+            realpath($source . '2026_04_06_000005_create_passkey_challenges_table.php') => database_path('migrations/2026_04_06_000005_create_passkey_challenges_table.php'),
+            realpath($source . '2026_04_06_000006_create_api_keys_table.php')           => database_path('migrations/2026_04_06_000006_create_api_keys_table.php'),
         ], $paths);
+    }
+
+    /**
+     * The WebAuthn wrapper is shared: built once and reused by every guard's
+     * passkeys.
+     *
+     * @return void
+     */
+    public function testTheWebAuthnWrapperIsShared(): void
+    {
+        self::assertSame(app(WebAuthn::class), app(WebAuthn::class));
     }
 
     /**
@@ -780,6 +876,17 @@ final class AuthenticationServiceProviderTest extends TestCase
         $config->set('auth.guards.api', [
             'driver'   => 'jwt',
             'provider' => 'identities',
+        ]);
+
+        $config->set('auth.guards.keys', [
+            'driver'   => 'api_key',
+            'provider' => 'identities',
+        ]);
+
+        $config->set('auth.guards.keys_override', [
+            'driver'             => 'api_key',
+            'provider'           => 'identities',
+            'principal_resolver' => StubGuardScopedPrincipalResolver::class,
         ]);
 
         $config->set('auth.guards.api_override', [

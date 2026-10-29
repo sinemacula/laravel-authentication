@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Enums\RefreshTokenSource;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 
 /**
@@ -88,6 +89,31 @@ final class AuthManagerTest extends TestCase
         self::assertInstanceOf(JwtGuard::class, $guard);
         self::assertSame($guard->sessions(), $manager->sessions('test_jwt'));
         self::assertSame($guard->sessions(), $manager->sessions());
+    }
+
+    /**
+     * `passkeys()` hands out a passkey service of the named JWT guard, or of
+     * the default guard when no name is given; a guard that is not a JWT guard
+     * has none, and asking for one names the guard.
+     *
+     * @return void
+     */
+    public function testPasskeysReturnsAJwtGuardsPasskeyService(): void
+    {
+        $this->configureJwtGuard();
+
+        config()->set('auth.defaults.guard', 'test_jwt');
+
+        /** @var \SineMacula\Laravel\Authentication\AuthManager $manager */
+        $manager = app('auth');
+
+        self::assertInstanceOf(PasskeyService::class, $manager->passkeys('test_jwt'));
+        self::assertInstanceOf(PasskeyService::class, $manager->passkeys());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Auth guard [web] is not a jwt guard, so it has no passkey service.');
+
+        $manager->passkeys('web');
     }
 
     /**

@@ -24,4 +24,17 @@ enum AuthenticationFlow: string
 
     // A switch of the principal a device's session acts as
     case PRINCIPAL_SWITCH = 'principal_switch';
+
+    // A request for a one-time code: a sign-in code or an identifier
+    // verification code
+    case CODE_REQUEST = 'code_request';
+
+    // A check of an identifier verification code
+    case IDENTIFIER_VERIFICATION = 'identifier_verification';
+
+    // A request's API key
+    case API_KEY = 'api_key';
+
+    // A client credentials exchange for an access token
+    case CLIENT_CREDENTIALS = 'client_credentials';
 }

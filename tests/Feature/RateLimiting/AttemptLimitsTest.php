@@ -31,7 +31,10 @@ final class AttemptLimitsTest extends TestCase
     /**
      * The shipped defaults: sign-in 5 per identifier and 50 per IP address in
      * five minutes; refresh failures 10 per device and 100 per IP address in a
-     * minute.
+     * minute; code requests 5 per identifier and 50 per IP address in an hour;
+     * passkey sign-in options 100 per IP address in five minutes, with no
+     * identifier to count; client credentials failures 100 per IP address in a
+     * minute, and none per client id, which is not a secret.
      *
      * @return void
      */
@@ -39,6 +42,9 @@ final class AttemptLimitsTest extends TestCase
     {
         self::assertSame(['per_identifier' => [5, 300], 'per_ip' => [50, 300]], $this->resolved(AttemptFlow::SIGN_IN));
         self::assertSame(['per_identifier' => [10, 60], 'per_ip' => [100, 60]], $this->resolved(AttemptFlow::REFRESH));
+        self::assertSame(['per_identifier' => [5, 3600], 'per_ip' => [50, 3600]], $this->resolved(AttemptFlow::CODE_REQUEST));
+        self::assertSame(['per_identifier' => null, 'per_ip' => [100, 300]], $this->resolved(AttemptFlow::PASSKEY_OPTIONS));
+        self::assertSame(['per_identifier' => null, 'per_ip' => [100, 60]], $this->resolved(AttemptFlow::CLIENT_CREDENTIALS));
     }
 
     /**
@@ -160,6 +166,33 @@ final class AttemptLimitsTest extends TestCase
     }
 
     /**
+     * A `per_identifier` limit on passkey sign-in options, which name no
+     * identifier and so could never be counted against one, fails closed from
+     * the guard or the package; `null` is accepted.
+     *
+     * @return void
+     */
+    public function testAPasskeyOptionsLimitPerIdentifierFailsClosed(): void
+    {
+        $message = 'Rate limit `passkey_options.per_identifier` for guard [api] must be null: a request for passkey sign-in options'
+            . ' names no identifier, so only `per_ip` limits it.';
+
+        $this->setGuardLimits(['passkey_options' => ['per_identifier' => ['max' => 5, 'decay_seconds' => 60]]]);
+
+        $this->assertFailsClosed($message, AttemptFlow::PASSKEY_OPTIONS);
+
+        $this->setGuardLimits(null);
+
+        config()->set('authentication.rate_limits.passkey_options.per_identifier', ['max' => 5, 'decay_seconds' => 60]);
+
+        $this->assertFailsClosed($message, AttemptFlow::PASSKEY_OPTIONS);
+
+        $this->setGuardLimits(['passkey_options' => ['per_identifier' => null]]);
+
+        self::assertSame(['per_identifier' => null, 'per_ip' => [100, 300]], $this->resolved(AttemptFlow::PASSKEY_OPTIONS));
+    }
+
+    /**
      * Blocks that are not arrays, or hold keys the limits do not know, fail
      * closed instead of being ignored.
      *
@@ -184,8 +217,8 @@ final class AttemptLimitsTest extends TestCase
 
         $this->setGuardLimits(null);
 
-        config()->set('authentication.rate_limits.code_request', null);
-        $this->assertFailsClosed('Rate limits for guard [api]: `authentication.rate_limits` has an unknown key `code_request`.', AttemptFlow::SIGN_IN);
+        config()->set('authentication.rate_limits.magic_link', null);
+        $this->assertFailsClosed('Rate limits for guard [api]: `authentication.rate_limits` has an unknown key `magic_link`.', AttemptFlow::SIGN_IN);
 
         config()->set('authentication.rate_limits', null);
         $this->assertFailsClosed('Rate limits for guard [api]: `authentication.rate_limits` must be an array.', AttemptFlow::SIGN_IN);

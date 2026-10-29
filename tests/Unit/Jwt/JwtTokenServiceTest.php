@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasType;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
@@ -41,6 +42,9 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
 {
     /** @var string A second guard sharing the test keyring. */
     private const string OTHER_GUARD = 'admin';
+
+    /** @var string The API key id a client credentials token names. */
+    private const string KEY_ID = '0196a1d2-7c3e-7b8a-9f10-2a3b4c5d6e7f';
 
     /**
      * A complete token of each type parses, so the rejections below come only
@@ -728,6 +732,52 @@ final class JwtTokenServiceTest extends JwtTokenServiceTestCase
         $this->expectExceptionMessage('Cannot issue a token for a device whose session has ended or that has no idle and absolute deadlines.');
 
         $this->makeService()->issueRefreshToken($device, 'rotation-id');
+    }
+
+    /**
+     * An access token carries exactly the access claims, and a client
+     * credentials token those and its `cid` and `scope`, with no device.
+     *
+     * @return void
+     *
+     * @throws \Random\RandomException
+     */
+    public function testAClientTokenAddsOnlyItsCredentialClaims(): void
+    {
+        $service = $this->makeService();
+        $access  = ['iat', 'exp', 'jti', 'typ', 'grd', 'sub', 'pid', 'did'];
+
+        $session = $service->parse($service->issueAccessToken($this->mockIdentity('identity-7'), $this->mockPrincipal('principal-3'), null), TokenType::ACCESS);
+
+        /** @var \Mockery\MockInterface&\SineMacula\Laravel\Authentication\Contracts\MachineIdentity $machine */
+        $machine = \Mockery::mock(MachineIdentity::class);
+        $machine->shouldReceive('getAuthIdentifier')->andReturn('machine-7');
+
+        $client = $service->parse($service->issueClientAccessToken($machine, $this->mockPrincipal('principal-3'), self::KEY_ID, ['read']), TokenType::ACCESS);
+
+        self::assertIsArray($session);
+        self::assertIsArray($client);
+        self::assertEqualsCanonicalizing($access, array_keys($session));
+        self::assertEqualsCanonicalizing([...$access, 'cid', 'scope'], array_keys($client));
+        self::assertSame([self::KEY_ID, 'read', null], [$client['cid'], $client['scope'], $client['did']]);
+    }
+
+    /**
+     * A token whose credential claims are out of form is debug-logged with the
+     * claims that must agree.
+     *
+     * @return void
+     */
+    public function testParseLogsMalformedCredentialClaims(): void
+    {
+        $logger = \Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')
+            ->once()
+            ->with('JWT credential claims malformed', ['claims' => ['cid', 'scope', 'did']]);
+
+        $claims = [...$this->completeClaims(TokenType::ACCESS), Claims::CREDENTIAL_ID->value => self::KEY_ID, Claims::SCOPE->value => 'read'];
+
+        self::assertNull($this->makeServiceWithLogger($logger)->parse($this->encode($claims), TokenType::ACCESS));
     }
 
     /**

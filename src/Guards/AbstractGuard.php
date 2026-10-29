@@ -506,9 +506,10 @@ abstract class AbstractGuard implements ContextualGuard
 
     /**
      * Bind a context the guard verified itself, with the tenant its activity
-     * check loaded and the sign-in method to report: clear prior state and
-     * settle the request, dispatch `Login` when it is a sign-in, then bind the
-     * triple and dispatch its events.
+     * check loaded, the sign-in method to report and, for a context a
+     * credential authenticated, its identifier and the scopes it grants: clear
+     * prior state and settle the request, dispatch `Login` when it is a
+     * sign-in, then bind the triple and dispatch its events.
      *
      * Login-before-Authenticated mirrors Laravel's `SessionGuard::login()`.
      *
@@ -523,10 +524,21 @@ abstract class AbstractGuard implements ContextualGuard
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Tenant  $tenant
      * @param  ?string  $method
      * @param  bool  $signIn
+     * @param  ?string  $credentialId
+     * @param  ?list<string>  $scopes
      * @return void
      */
-    protected function bindVerifiedContext(Identity $identity, Principal $principal, ?Device $device, ?Tenant $tenant, ?string $method, bool $signIn): void
-    {
+    protected function bindVerifiedContext(
+        Identity $identity,
+        Principal $principal,
+        ?Device $device,
+        ?Tenant $tenant,
+        ?string $method,
+        bool $signIn,
+        #[\SensitiveParameter]
+        ?string $credentialId = null,
+        ?array $scopes = null,
+    ): void {
         $this->requestResolved = true;
 
         $this->clearContextualState();
@@ -535,6 +547,6 @@ abstract class AbstractGuard implements ContextualGuard
             $this->events->dispatch(new Login($this->name, $identity, false));
         }
 
-        $this->bindContext($identity, $principal, $device, $tenant, $method);
+        $this->bindContext($identity, $principal, $device, $tenant, $method, $credentialId, $scopes);
     }
 }

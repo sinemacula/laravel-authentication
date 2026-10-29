@@ -18,6 +18,7 @@ use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
@@ -315,6 +316,31 @@ final class PasswordSignInTest extends TestCase
         self::assertNull($subjects[0]->identifierType);
         self::assertNull($subjects[0]->ip);
         self::assertSame(AccountAttempts::account($identity), $subjects[0]->account);
+    }
+
+    /**
+     * A non-human identity has no password: every check refuses it before its
+     * account is counted or its password compared, whatever it stores.
+     *
+     * @return void
+     */
+    public function testAMachineIdentityHasNoPassword(): void
+    {
+        $machine = \Mockery::mock(MachineIdentity::class);
+        $machine->shouldReceive('getAuthIdentifier')->andReturn(7);
+
+        $credentials = ['email' => 'robot@example.test', 'password' => 'secret'];
+
+        $this->limiter->shouldNotReceive('acquire');
+        $this->provider->shouldReceive('retrieveByCredentials')->with($credentials)->andReturn($machine);
+        $this->provider->shouldNotReceive('validateCredentials');
+
+        $method = $this->method('email');
+
+        self::assertSame(FailureReason::INVALID_CREDENTIALS, $method->authenticate($this->request($credentials)));
+        self::assertNull($method->verifyCredentials($this->provider, $credentials));
+        self::assertFalse($method->accepts($this->provider, $machine, $credentials));
+        self::assertFalse($method->verifyPassword(new AccountAttempts($this->limiter, 'api'), $this->provider, $machine, $credentials));
     }
 
     /**

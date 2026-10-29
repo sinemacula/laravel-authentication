@@ -1,0 +1,173 @@
+<?php
+
+declare(strict_types = 1);
+
+namespace SineMacula\Laravel\Authentication\Scopes;
+
+use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException;
+
+/**
+ * The form scopes take in the package: RFC 6749 scope tokens, kept as an
+ * ordered list without duplicates, and written as one space-separated string in
+ * a token's `scope` claim and an OAuth response. The package never reads
+ * meaning into a scope.
+ *
+ * @author      Ben Carey <bdmc@sinemacula.co.uk>
+ * @copyright   2026 Sine Macula Limited
+ *
+ * @internal
+ */
+final class Scopes
+{
+    /** @var int Longest scope accepted, in bytes. */
+    public const int MAX_LENGTH = 255;
+
+    /** @var int Longest list of scopes accepted, in bytes, written space-separated as a token's `scope` claim carries it. */
+    public const int MAX_LIST_LENGTH = 8192;
+
+    /** @var string An RFC 6749 scope token: printable ASCII except space, `"` and `\`. */
+    private const string TOKEN_PATTERN = '/^[\x21\x23-\x5B\x5D-\x7E]+$/D';
+
+    /**
+     * Bring scopes to their stored form: each a well-formed scope token of at
+     * most 255 bytes, duplicates removed, the first occurrence's order kept,
+     * and all of them, space-separated, at most 8,192 bytes. The list bound
+     * keeps the stored list whole in every engine's column (MySQL's `TEXT`
+     * holds 65,535 bytes, and an insert that ignores duplicate keys there would
+     * cut a longer value short without an error).
+     *
+     * @param  array<array-key, mixed>  $scopes
+     * @return list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException
+     */
+    public static function normalise(array $scopes): array
+    {
+        $malformed = [];
+
+        foreach ($scopes as $scope) {
+
+            if (self::isToken($scope)) {
+                continue;
+            }
+
+            $malformed[] = is_string($scope) ? $scope : get_debug_type($scope);
+        }
+
+        if ($malformed !== []) {
+            $message = 'Each scope must be an RFC 6749 scope token (printable ASCII other than space, `"` and `\`)'
+                . ' of at most ' . self::MAX_LENGTH . ' bytes.';
+
+            throw new InvalidScopeException($message, $malformed);
+        }
+
+        /** @var list<string> $unique */
+        $unique = array_values(array_unique($scopes));
+
+        return self::withinListLength($unique);
+    }
+
+    /**
+     * Read a space-separated scope string (RFC 6749 section 3.3): tokens
+     * separated by single spaces, or the empty string for none.
+     *
+     * @param  string  $scope
+     * @return list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException
+     */
+    public static function parse(string $scope): array
+    {
+        return $scope === '' ? [] : self::normalise(explode(' ', $scope));
+    }
+
+    /**
+     * Write scopes as one space-separated string.
+     *
+     * @param  list<string>  $scopes
+     * @return string
+     */
+    public static function format(array $scopes): string
+    {
+        return implode(' ', $scopes);
+    }
+
+    /**
+     * Whether every requested scope is one of those granted.
+     *
+     * @param  list<string>  $requested
+     * @param  list<string>  $granted
+     * @return bool
+     */
+    public static function isSubset(array $requested, array $granted): bool
+    {
+        return array_diff($requested, $granted) === [];
+    }
+
+    /**
+     * The scopes a credential of the principal on the guard may grant: the
+     * given scopes normalised, then held to the scope registry. Any answer from
+     * the registry but `[]` refuses them, naming the given scopes it names, or
+     * every given scope when it names none of them as given (a pattern, or its
+     * own form of a scope), so a refusal never depends on echoing the input.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\ScopeRegistry  $registry
+     * @param  string  $guard
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  array<array-key, mixed>  $scopes
+     * @return list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException
+     */
+    public static function grantable(ScopeRegistry $registry, string $guard, Principal $principal, array $scopes): array
+    {
+        $normalised = self::normalise($scopes);
+        $answer     = $registry->rejected($guard, $principal, $normalised);
+
+        if ($answer !== []) {
+            $named = array_values(array_intersect($normalised, $answer));
+
+            throw new InvalidScopeException("The scope registry does not allow these scopes for the principal on guard [{$guard}].", $named === [] ? $normalised : $named);
+        }
+
+        return $normalised;
+    }
+
+    /**
+     * The scopes when, space-separated, they fit the list bound; otherwise the
+     * scopes from the first that does not fit are refused.
+     *
+     * @param  list<string>  $scopes
+     * @return list<string>
+     *
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidScopeException
+     */
+    private static function withinListLength(array $scopes): array
+    {
+        $length = -1;
+
+        foreach ($scopes as $index => $scope) {
+
+            $length += strlen($scope) + 1;
+
+            if ($length > self::MAX_LIST_LENGTH) {
+                throw new InvalidScopeException('The scopes, written space-separated, must be at most ' . self::MAX_LIST_LENGTH . ' bytes.', array_slice($scopes, $index));
+            }
+        }
+
+        return $scopes;
+    }
+
+    /**
+     * Whether the value is a well-formed scope token.
+     *
+     * @param  mixed  $scope
+     * @return bool
+     */
+    private static function isToken(mixed $scope): bool
+    {
+        return is_string($scope) && strlen($scope) <= self::MAX_LENGTH && preg_match(self::TOKEN_PATTERN, $scope) === 1;
+    }
+}

@@ -4,12 +4,17 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Guards;
 
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
+use SineMacula\Laravel\Authentication\ApiKeys\CredentialBinding;
+use SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\HasTokensValidAfter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
@@ -22,6 +27,8 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
+use SineMacula\Laravel\Authentication\Jwt\MachineTokens;
+use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
@@ -31,9 +38,13 @@ use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
  * not.
  *
  * Checked in order, each failure with its own reason: the token itself
- * (`token_invalid`); the identity its `sub` names, reloaded through the guard's
- * provider (`identity_unknown`) and active (`identity_inactive`); the principal
- * its `pid` names, which must resolve to exactly that principal
+ * (`token_invalid`); for a client credentials token (one with `cid`), its API
+ * key: this guard's, live and not revoked (`credential_invalid`,
+ * `credential_expired`, `credential_revoked`); the identity its `sub` names,
+ * reloaded through the guard's provider (`identity_unknown`), of the kind the
+ * token is for (`machine_identity` for a session's token, `credential_invalid`
+ * for a client credentials token) and active (`identity_inactive`); the
+ * principal its `pid` names, which must resolve to exactly that principal
  * (`principal_mismatch`) and be active in an active tenant
  * (`principal_inactive`, `tenant_inactive`); for a token that names no device,
  * an issue time after the identity's and the principal's "tokens valid after"
@@ -81,52 +92,113 @@ final readonly class BearerAuthentication
     /**
      * Authenticate the access token for a request from the client: the admitted
      * identity, principal, the tenant its activity check loaded, and the
-     * device, or the failure that reports why not, with as much of the context
-     * as was established (the device id the token named included).
+     * device, with, for a client credentials token, its API key and scopes; or
+     * the failure that reports why not, with as much of the context as was
+     * established (the device id the token named included).
      *
      * @param  string  $token
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
-     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn
+     * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed|\SineMacula\Laravel\Authentication\Guards\AuthenticatedBearer
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function authenticate(#[\SensitiveParameter] string $token, ClientContext $client): AdmittedSignIn|AuthenticationFailed
+    public function authenticate(#[\SensitiveParameter] string $token, ClientContext $client): AuthenticatedBearer|AuthenticationFailed
     {
         $claims = $this->tokens->parse($token, TokenType::ACCESS);
 
         if ($claims === null) {
-            return $this->failed(new RefusedSignIn(FailureReason::TOKEN_INVALID), $client, null);
+            return $this->failed(new RefusedSignIn(FailureReason::TOKEN_INVALID), $client, null, null);
         }
 
-        $deviceId = $claims[Claims::DEVICE_ID->value] ?? null;
-        $admitted = $this->admit($claims);
-        $admitted = $admitted instanceof AdmittedSignIn ? $this->onDevice($admitted, $deviceId, $claims[Claims::ISSUED_AT->value]) : $admitted;
+        $credential = MachineTokens::credential($claims) ?: null;
+        $deviceId   = $claims[Claims::DEVICE_ID->value] ?? null;
+        $admitted   = $credential === null ? $this->admit($claims, false) : $this->admitForKey($claims, $credential[0]);
+        $admitted   = $admitted instanceof AdmittedSignIn ? $this->onDevice($admitted, $deviceId, $claims[Claims::ISSUED_AT->value]) : $admitted;
 
-        return $admitted instanceof RefusedSignIn ? $this->failed($admitted, $client, IdentifierCoercion::stringify($deviceId)) : $admitted;
+        return $admitted instanceof RefusedSignIn
+            ? $this->failed($admitted, $client, IdentifierCoercion::stringify($deviceId), $credential)
+            : new AuthenticatedBearer($admitted, $credential[0] ?? null, $credential[1] ?? null);
     }
 
     /**
-     * Admit the identity the claims name as the principal they name: the
-     * identity must be found and active, and the principal must resolve exactly
-     * and be active in an active tenant.
+     * Admit a client credentials token: its API key, read by its id on the
+     * write connection, must be this guard's (`credential_invalid`), not
+     * revoked (`credential_revoked`) and not expired (`credential_expired`);
+     * the identity and principal are then admitted as for any access token, the
+     * subject must be a non-human identity, and the key's binding to its owner,
+     * principal and tenant must still hold. Revoking a key, or the end of a
+     * rotation's overlap, so ends its tokens at the next request.
      *
      * @param  array<string, mixed>  $claims
+     * @param  string  $credentialId
      * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
      *
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admit(#[\SensitiveParameter] array $claims): AdmittedSignIn|RefusedSignIn
+    private function admitForKey(#[\SensitiveParameter] array $claims, #[\SensitiveParameter] string $credentialId): AdmittedSignIn|RefusedSignIn
+    {
+        $key = $this->liveKey($credentialId);
+
+        if ($key instanceof FailureReason) {
+            return new RefusedSignIn($key);
+        }
+
+        $admitted = $this->admit($claims, true);
+        $binding  = $admitted instanceof AdmittedSignIn ? CredentialBinding::refusal($key, $admitted->identity, $admitted->principal, $admitted->tenant) : null;
+
+        return $admitted instanceof AdmittedSignIn && $binding !== null ? RefusedSignIn::after($binding, $admitted) : $admitted;
+    }
+
+    /**
+     * The API key with the id, read on the write connection, when it is this
+     * guard's and live, or why not.
+     *
+     * @param  string  $credentialId
+     * @return \SineMacula\Laravel\Authentication\Events\Enums\FailureReason|\SineMacula\Laravel\Authentication\Models\ApiKey
+     */
+    private function liveKey(#[\SensitiveParameter] string $credentialId): ApiKey|FailureReason
+    {
+        $key = ApiKeyLookup::findById($credentialId);
+
+        if ($key === null) {
+            return FailureReason::CREDENTIAL_INVALID;
+        }
+
+        return ($key->guard === $this->guard ? ApiKeyLookup::refusal($key, $this->guard, CarbonImmutable::now()->startOfSecond()) : FailureReason::CREDENTIAL_INVALID) ?? $key;
+    }
+
+    /**
+     * Admit the identity the claims name as the principal they name: the
+     * identity must be found, of the kind the token is for (a non-human
+     * identity's tokens come only from a client credentials exchange, so a
+     * session's token naming one is refused as `machine_identity`, and a client
+     * credentials token naming a human one as `credential_invalid`) and active,
+     * and the principal must resolve exactly and be active in an active tenant.
+     *
+     * @param  array<string, mixed>  $claims
+     * @param  bool  $client
+     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     *
+     * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
+     */
+    private function admit(#[\SensitiveParameter] array $claims, bool $client): AdmittedSignIn|RefusedSignIn
     {
         $identity = $this->provider->retrieveById($claims[Claims::SUBJECT->value]);
 
-        if (!$identity instanceof Identity || !ActivationPolicy::isActive($identity)) {
-            return $identity instanceof Identity
-                ? new RefusedSignIn(FailureReason::IDENTITY_INACTIVE, $identity)
-                : new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
+        if (!$identity instanceof Identity) {
+            return new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
         }
 
-        return $this->admitAs($identity, $claims[Claims::PRINCIPAL_ID->value]);
+        $refusal = match (true) {
+            !$client && $identity instanceof MachineIdentity  => FailureReason::MACHINE_IDENTITY,
+            $client  && !$identity instanceof MachineIdentity => FailureReason::CREDENTIAL_INVALID,
+            !ActivationPolicy::isActive($identity)            => FailureReason::IDENTITY_INACTIVE,
+            default                                           => null,
+        };
+
+        return $refusal === null ? $this->admitAs($identity, $claims[Claims::PRINCIPAL_ID->value]) : new RefusedSignIn($refusal, $identity);
     }
 
     /**
@@ -244,17 +316,31 @@ final readonly class BearerAuthentication
     /**
      * The failure event of a refused token, with the guard, the client, the
      * context the refusal established, the method the device's session records
-     * when a device was found, and the device id the token named.
+     * when a device was found (`client_credentials` for a client credentials
+     * token, with its key and scopes), and the device id the token named.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn  $refused
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  ?string  $deviceId
+     * @param  ?array{0: string, 1: list<string>}  $credential
      * @return \SineMacula\Laravel\Authentication\Events\AuthenticationFailed
      */
-    private function failed(RefusedSignIn $refused, ClientContext $client, ?string $deviceId): AuthenticationFailed
+    private function failed(RefusedSignIn $refused, ClientContext $client, ?string $deviceId, #[\SensitiveParameter] ?array $credential): AuthenticationFailed
     {
         $device  = $refused->device;
-        $context = new EventContext($this->guard, $client, $refused->identity, $refused->principal, $refused->tenant, $device, $device?->getSignInMethod(), $deviceId);
+        $method  = $credential === null ? $device?->getSignInMethod() : ClientCredentialsExchange::METHOD;
+        $context = new EventContext(
+            $this->guard,
+            $client,
+            $refused->identity,
+            $refused->principal,
+            $refused->tenant,
+            $device,
+            $method,
+            $deviceId,
+            credentialId: $credential[0] ?? null,
+            scopes: $credential[1]       ?? null,
+        );
 
         return new AuthenticationFailed($context, AuthenticationFlow::BEARER, $refused->reason);
     }

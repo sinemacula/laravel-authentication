@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\HasDevices;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
@@ -34,13 +35,16 @@ final class SessionPreconditionsTest extends TestCase
 
     /**
      * An identity that owns devices may be signed in; one that does not is
-     * refused as a misconfiguration naming its class.
+     * refused as a misconfiguration naming its class. A non-human identity,
+     * which owns none, is let through, for the admission to refuse as the
+     * result it is.
      *
      * @return void
      */
     public function testOnlyAnIdentityThatOwnsDevicesMayStartASession(): void
     {
         SessionPreconditions::assertHoldsDevices(\Mockery::mock(Identity::class, HasDevices::class));
+        SessionPreconditions::assertHoldsDevices(\Mockery::mock(MachineIdentity::class));
 
         $identity = \Mockery::mock(Identity::class);
 
@@ -89,6 +93,28 @@ final class SessionPreconditionsTest extends TestCase
     }
 
     /**
+     * A session may be started under any sign-in method's name, but under no
+     * machine credential kind.
+     *
+     * @return void
+     */
+    public function testASessionIsNeverStartedUnderACredentialKind(): void
+    {
+        SessionPreconditions::assertSessionMethod('sso');
+        SessionPreconditions::assertSessionMethod('password');
+
+        foreach (['api_key', 'client_credentials'] as $kind) {
+            try {
+                SessionPreconditions::assertSessionMethod($kind);
+
+                self::fail("A session was allowed under [{$kind}].");
+            } catch (\InvalidArgumentException $exception) {
+                self::assertSame("[{$kind}] names a machine credential, not a sign-in method; no session can be started with it.", $exception->getMessage());
+            }
+        }
+    }
+
+    /**
      * A reloaded identity is the verified one only when it is of the same class
      * and has the same auth identifier, compared as identifiers are.
      *
@@ -120,7 +146,7 @@ final class SessionPreconditionsTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(sprintf(
             'Sign-in method %s refused a sign-in as `identity_inactive`, which only the session service may decide;'
-            . ' a method answers `invalid_credentials`.',
+            . ' a method answers `invalid_credentials` or another sign-in method reason.',
             $method::class,
         ));
 

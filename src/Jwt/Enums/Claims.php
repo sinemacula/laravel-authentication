@@ -12,7 +12,9 @@ namespace SineMacula\Laravel\Authentication\Jwt\Enums;
  * against the JWT payload (which is `array<string, mixed>`).
  *
  * `typ` is the token's type (access or refresh); the principal's type travels
- * in `pty`, which an access token carries only when the principal has one.
+ * in `pty`, which an access token carries only when the principal has one. An
+ * access token a client credentials exchange issued carries the API key's id in
+ * `cid` and the scopes it grants, space-separated, in `scope`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -30,4 +32,6 @@ enum Claims: string
     case PRINCIPAL_TYPE = 'pty';
     case DEVICE_ID      = 'did';
     case GUARD          = 'grd';
+    case CREDENTIAL_ID  = 'cid';
+    case SCOPE          = 'scope';
 }

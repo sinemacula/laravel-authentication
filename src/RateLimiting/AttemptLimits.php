@@ -12,12 +12,15 @@ use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
  * defaults in `authentication.rate_limits`.
  *
  * Every flow has a `per_identifier` and a `per_ip` limit, each either
- * `['max' => int, 'decay_seconds' => int]` or `null` (off). A guard's flow
- * block that is present wins for the scopes it sets, `null` included, and a
- * flow block of `null` turns the flow's limits off. Nothing falls back to a
- * literal: a scope missing at both levels, a malformed value, or an unknown key
- * fails closed with an `InvalidArgumentException` naming the guard and the key.
- * The configuration is read on every call.
+ * `['max' => int, 'decay_seconds' => int]` or `null` (off). A request for
+ * passkey sign-in options names no identifier, so its `per_identifier` limit
+ * must be `null`: one that could never apply fails closed rather than seeming
+ * to limit something. A guard's flow block that is present wins for the scopes
+ * it sets, `null` included, and a flow block of `null` turns the flow's limits
+ * off. Nothing falls back to a literal: a scope missing at both levels, a
+ * malformed value, or an unknown key fails closed with an
+ * `InvalidArgumentException` naming the guard and the key. The configuration is
+ * read on every call.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -91,7 +94,17 @@ final readonly class AttemptLimits
             throw new \InvalidArgumentException(self::message($guard, $flow, $scope));
         }
 
-        return $source[$scope] === null ? null : self::fromValue($guard, $flow, $scope, $source[$scope]);
+        if ($source[$scope] === null) {
+            return null;
+        }
+
+        if ($scope === self::PER_IDENTIFIER && $flow === AttemptFlow::PASSKEY_OPTIONS) {
+            $message = sprintf('Rate limit `%s.%s` for guard [%s] must be null: a request for passkey sign-in options', $flow->value, $scope, $guard);
+
+            throw new \InvalidArgumentException($message . ' names no identifier, so only `per_ip` limits it.');
+        }
+
+        return self::fromValue($guard, $flow, $scope, $source[$scope]);
     }
 
     /**

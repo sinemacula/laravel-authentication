@@ -26,9 +26,14 @@ use SineMacula\Laravel\Authentication\AuthManager;
  * @method static \SineMacula\Laravel\Authentication\Contracts\Device|null device()
  * @method static \SineMacula\Laravel\Authentication\Contracts\Tenant|null tenant()
  * @method static string|null type()
+ * @method static list<string>|null scopes()
  * @method static \SineMacula\Laravel\Authentication\Jwt\JwtTokenService|null jwt(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Sessions\SessionService sessions(?string $guard = null)
  * @method static \SineMacula\Laravel\Authentication\Http\RefreshTokenTransport refreshTransport(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\Codes\CodeService codes(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\Passkeys\PasskeyService passkeys(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\ApiKeys\ApiKeyService apiKeys(?string $guard = null)
+ * @method static \SineMacula\Laravel\Authentication\ClientCredentials\ClientCredentialsExchange clientCredentials(?string $guard = null)
  * @method static void inheritDriversFrom(\Illuminate\Auth\AuthManager $existing)
  */
 final class Auth extends IlluminateAuth

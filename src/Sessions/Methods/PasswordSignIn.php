@@ -9,6 +9,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
+use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
@@ -25,6 +26,11 @@ use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
  * guard can sign in by the column its identities are found by. `authenticate()`
  * passes the provider only that key, with a string value, and `password`, so no
  * other input key reaches a query.
+ *
+ * A non-human identity (`MachineIdentity`) has no password: every path refuses
+ * it as invalid credentials before any hash is computed or its account is
+ * counted, whatever its stored value, and the caller's timebox hides that it
+ * did.
  *
  * Every password checked for a sign-in is counted against the account it is
  * checked for, on top of the identifier's and the IP address's limits the
@@ -190,7 +196,7 @@ final readonly class PasswordSignIn implements SignInMethod
 
         $user = $this->retrieve($request->provider, $credentials);
 
-        return $user instanceof Identity && $request->reserveAccountAttempt($user) && $request->provider->validateCredentials($user, $credentials)
+        return $user instanceof Identity && self::hasPassword($user) && $request->reserveAccountAttempt($user) && $request->provider->validateCredentials($user, $credentials)
             ? $user
             : FailureReason::INVALID_CREDENTIALS;
     }
@@ -274,7 +280,7 @@ final readonly class PasswordSignIn implements SignInMethod
      */
     public function verifyPassword(AccountAttempts $attempts, IdentityProvider $provider, Identity $identity, #[\SensitiveParameter] array $credentials): bool
     {
-        return $attempts->reserve($identity) && $provider->validateCredentials($identity, $credentials);
+        return self::hasPassword($identity) && $attempts->reserve($identity) && $provider->validateCredentials($identity, $credentials);
     }
 
     /**
@@ -291,7 +297,20 @@ final readonly class PasswordSignIn implements SignInMethod
      */
     public function accepts(IdentityProvider $provider, ?Authenticatable $user, #[\SensitiveParameter] array $credentials): bool
     {
-        return $user !== null && $provider->validateCredentials($user, $credentials);
+        return $user !== null && self::hasPassword($user) && $provider->validateCredentials($user, $credentials);
+    }
+
+    /**
+     * Whether the account can hold a password credential: a non-human identity
+     * never does, so its password is never checked, nor its account counted,
+     * whatever its stored value.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @return bool
+     */
+    private static function hasPassword(Authenticatable $user): bool
+    {
+        return !$user instanceof MachineIdentity;
     }
 
     /**

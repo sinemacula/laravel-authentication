@@ -32,10 +32,12 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\ContextualGuard;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
+use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\DeviceAuthenticated;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
+use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\Middleware\Authenticate;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
@@ -46,17 +48,19 @@ use SineMacula\Laravel\Authentication\Jwt\RefreshTokenExchange;
 use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
+use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
+use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
 /**
  * Package service provider: registers the package's configuration, auth
- * manager, guard and provider drivers, sign-in collaborators and policies,
- * middleware, listener, publishing tags and console command.
+ * manager, guard (`jwt`, `api_key`) and provider drivers, sign-in collaborators
+ * and policies, middleware, listener, publishing tags and console command.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -68,6 +72,10 @@ final class AuthenticationServiceProvider extends ServiceProvider
         '2026_04_06_000000_create_devices_table.php',
         '2026_04_06_000001_create_pending_sign_ins_table.php',
         '2026_04_06_000002_create_rate_limits_table.php',
+        '2026_04_06_000003_create_one_time_codes_table.php',
+        '2026_04_06_000004_create_passkeys_table.php',
+        '2026_04_06_000005_create_passkey_challenges_table.php',
+        '2026_04_06_000006_create_api_keys_table.php',
     ];
 
     /**
@@ -90,6 +98,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
         $this->app->singleton(SignInMethodManager::class);
         $this->app->scoped(Rehashing::class);
         $this->app->singleton(AdditionalFactorPolicy::class, NeverRequireAdditionalFactor::class);
+        $this->app->singleton(WebAuthn::class);
+        $this->app->singleton(ScopeRegistry::class, AcceptAnyScope::class);
         $this->app->bind(IlluminateAuthenticate::class, Authenticate::class);
         $this->app->singleton(
             JwtTokenServiceFactory::class,
@@ -175,6 +185,45 @@ final class AuthenticationServiceProvider extends ServiceProvider
                 static fn (): mixed => $app->bound('db.transactions') ? $app->make('db.transactions') : null,
             ),
             static fn (): RefreshTokenTransport => RefreshTokenTransport::forGuard($name, $app->make(ConfigRepository::class)),
+        );
+
+        self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
+
+        return $guard;
+    }
+
+    /**
+     * Construct an `ApiKeyGuard` from the supplied container, guard name, and
+     * Laravel guard config block.
+     *
+     * @param  \Illuminate\Foundation\Application  $app
+     * @param  string  $name
+     * @param  array<string, mixed>  $config
+     * @return \SineMacula\Laravel\Authentication\Guards\ApiKeyGuard
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     */
+    public static function createApiKeyGuard(Application $app, string $name, array $config): ApiKeyGuard
+    {
+        $providerName = $config['provider'] ?? '';
+
+        /** @var \SineMacula\Laravel\Authentication\Contracts\IdentityProvider $provider */
+        $provider = IlluminateAuth::createUserProvider(is_string($providerName) ? $providerName : '');
+
+        $selection = self::resolveGuardPrincipalResolver($app, $name, $config);
+
+        InvalidDeviceModelConfigurationException::validate(
+            $app->make(ConfigRepository::class)->string('authentication.device.model', ''),
+        );
+
+        $guard = new ApiKeyGuard(
+            $name,
+            $provider,
+            $selection['resolver'],
+            $app->make(Dispatcher::class),
+            $app->make('request'),
+            $app->make(Timebox::class),
         );
 
         self::wireGuardRebinds($app, $guard, $selection['tracks_global']);
@@ -273,7 +322,8 @@ final class AuthenticationServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register the `jwt` guard driver creator against Laravel's `Auth` factory.
+     * Register the `jwt` and `api_key` guard driver creators against Laravel's
+     * `Auth` factory.
      *
      * @return void
      */
@@ -282,6 +332,11 @@ final class AuthenticationServiceProvider extends ServiceProvider
         IlluminateAuth::extend(
             'jwt',
             static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createJwtGuard($app, $name, $config),
+        );
+
+        IlluminateAuth::extend(
+            'api_key',
+            static fn (Application $app, string $name, array $config): ContextualGuard => AuthenticationServiceProvider::createApiKeyGuard($app, $name, $config),
         );
     }
 

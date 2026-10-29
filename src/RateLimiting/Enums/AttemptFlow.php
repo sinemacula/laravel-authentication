@@ -13,6 +13,9 @@ namespace SineMacula\Laravel\Authentication\RateLimiting\Enums;
  */
 enum AttemptFlow: string
 {
-    case SIGN_IN = 'sign_in';
-    case REFRESH = 'refresh';
+    case SIGN_IN            = 'sign_in';
+    case REFRESH            = 'refresh';
+    case CODE_REQUEST       = 'code_request';
+    case PASSKEY_OPTIONS    = 'passkey_options';
+    case CLIENT_CREDENTIALS = 'client_credentials';
 }

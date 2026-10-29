@@ -39,6 +39,33 @@ final class StubCredentialGuard extends AbstractGuard
     }
 
     /**
+     * Bind a context a credential authenticated, with the credential's id and
+     * the scopes it grants, through the inherited `bindVerifiedContext()` hook,
+     * as a request rather than a sign-in.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @param  string  $credentialId
+     * @param  list<string>  $scopes
+     * @return void
+     */
+    public function bindCredential(Identity $identity, Principal $principal, #[\SensitiveParameter] string $credentialId, array $scopes): void
+    {
+        $this->bindVerifiedContext($identity, $principal, null, null, 'api_key', false, $credentialId, $scopes);
+    }
+
+    /**
+     * Clear the bound state through the inherited `clearContextualState()`
+     * hook.
+     *
+     * @return void
+     */
+    public function clearState(): void
+    {
+        $this->clearContextualState();
+    }
+
+    /**
      * Bind an identity through the inherited `setIdentity()` hook.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity

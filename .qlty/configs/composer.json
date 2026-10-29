@@ -16,7 +16,8 @@
         "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^12.5",
         "sinemacula/coding-standards-laravel": "^1.6.2",
-        "slevomat/coding-standard": "^8.28"
+        "slevomat/coding-standard": "^8.28",
+        "web-auth/webauthn-lib": "^5.3"
     },
     "conflict": {
         "symfony/clock": ">=8.0",
@@ -32,10 +33,14 @@
         "symfony/mime": ">=8.0",
         "symfony/options-resolver": ">=8.0",
         "symfony/process": ">=8.0",
+        "symfony/property-access": ">=8.0",
+        "symfony/property-info": ">=8.0",
         "symfony/routing": ">=8.0",
+        "symfony/serializer": ">=8.0",
         "symfony/stopwatch": ">=8.0",
         "symfony/string": ">=8.0",
         "symfony/translation": ">=8.0",
+        "symfony/type-info": ">=8.0",
         "symfony/uid": ">=8.0",
         "symfony/var-dumper": ">=8.0",
         "symfony/yaml": ">=8.0"

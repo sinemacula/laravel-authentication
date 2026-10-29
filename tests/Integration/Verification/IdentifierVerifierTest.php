@@ -16,6 +16,7 @@ use SineMacula\Laravel\Authentication\Contracts\HasVerifiableIdentifiers;
 use SineMacula\Laravel\Authentication\Events\IdentifierVerified;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Identifiers\EmailNormaliser;
 use SineMacula\Laravel\Authentication\Verification\Enums\IdentifierVerification;
 use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
 use Tests\Concerns\InteractsWithVerifiableIdentities;
@@ -186,12 +187,15 @@ final class IdentifierVerifierTest extends TestCase
     }
 
     /**
-     * A type without a registered normaliser is compared exactly.
+     * A type without a registered normaliser (here `phone`, once the
+     * application removes the package's) is compared exactly.
      *
      * @return void
      */
     public function testTypeWithoutANormaliserIsComparedExactly(): void
     {
+        config()->set('authentication.identifiers.normalisers', ['email' => EmailNormaliser::class]);
+
         $identity = self::seedVerifiableIdentity('ben@example.com', 'Member-42');
 
         self::assertSame(IdentifierVerification::MISMATCH, $this->verifier()->verify(self::GUARD, $identity, 'phone', 'member-42'));
