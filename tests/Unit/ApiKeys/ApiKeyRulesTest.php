@@ -238,6 +238,11 @@ final class ApiKeyRulesTest extends TestCase
      */
     private static function configure(array $settings): void
     {
+        // Laravel clears resolved facades on set up, not on tear down, so a
+        // Testbench test run just before would otherwise leave its config
+        // repository behind the facade.
+        Facade::clearResolvedInstances();
+
         $app = new Application;
 
         $app->instance('config', new Repository(['authentication' => ['api_keys' => $settings]]));
