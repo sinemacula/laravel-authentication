@@ -31,12 +31,12 @@ use Tests\Performance\Fixtures\SlowPasswordResetLinkSender;
 
 /**
  * The enumeration criteria for password resets, held as contracts: a request
- * for a link runs the same statements, gives the same answer and takes the
- * same time whether or not anyone holds the address, with its delivery never
- * inside it, against a slow identity store and a slow mail gateway; a failed
- * reset answers `invalid` and waits out the real credential timebox whatever
- * failed, running the same statements for an address no one holds as for a
- * wrong token; and a successful one returns early.
+ * for a link runs the same statements, gives the same answer and takes the same
+ * time whether or not anyone holds the address, with its delivery never inside
+ * it, against a slow identity store and a slow mail gateway; a failed reset
+ * answers `invalid` and waits out the real credential timebox whatever failed,
+ * running for a wrong token the statements it runs for an address no one holds,
+ * and the lock of the holder's row besides; and a successful one returns early.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -178,7 +178,10 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
     /**
      * A reset for an address no one holds and one with a wrong token for the
      * seeded identity run the same statements, in the same order, with the same
-     * answer.
+     * answer, but for the one statement a holder adds: its row locked by key as
+     * the transaction starts, so a password write racing the reset waits rather
+     * than deadlocks (see `IdentityLock`). Inside the timebox, that statement
+     * takes no time a client can see.
      *
      * @return void
      *
@@ -203,9 +206,14 @@ final class PasswordResetEnumerationTest extends PerformanceContractTestCase
         [$known, $knownSql]     = $this->recorded(static fn (): ResetResult => $reset(self::EMAIL, $knownClient));
         [$unknown, $unknownSql] = $this->recorded(static fn (): ResetResult => $reset(self::UNKNOWN_EMAIL, $unknownClient));
 
+        $lock = (new PasswordIdentity)->newQueryWithoutScopes()->whereKey(1)->toBase()->lockForUpdate()->limit(1)->select('id')->toSql();
+        $at   = array_search($lock, $knownSql, true);
+
         self::assertEquals($known, $unknown);
         self::assertSame(ResetStatus::INVALID, $known->status);
-        self::assertSame($knownSql, $unknownSql);
+        self::assertIsInt($at);
+        self::assertSame($unknownSql, [...array_slice($knownSql, 0, $at), ...array_slice($knownSql, $at + 1)]);
+        self::assertStringContainsString('one_time_codes', $knownSql[$at + 1]);
     }
 
     /**

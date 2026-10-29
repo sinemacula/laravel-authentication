@@ -5,9 +5,12 @@ declare(strict_types = 1);
 namespace Tests\Feature\IdentifierChanges;
 
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -496,6 +499,30 @@ final class IdentifierChangeServiceTest extends TestCase
     }
 
     /**
+     * A confirmation locks the identity's row as its transaction starts, before
+     * it reads the pending change or touches a proof, the lock order a password
+     * write follows too, so the two wait for each other rather than deadlock.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAConfirmationLocksTheIdentitysRowFirst(): void
+    {
+        $identity = self::seedChangeable();
+
+        $this->changes()->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now));
+
+        $statements = self::recordStatements();
+        $lock       = $identity->newQueryWithoutScopes()->whereKey($identity->getKey())->toBase()->lockForUpdate()->limit(1)->select('id')->toSql();
+
+        $this->changes()->confirmByCode($identity, 'email', self::CODE);
+
+        self::assertSame(['begin', $lock], array_slice($statements(), 0, 2));
+        self::assertStringContainsString('identifier_changes', $statements()[2]);
+    }
+
+    /**
      * Register the guards the tests change identifiers through.
      *
      * @param  mixed  $app
@@ -509,5 +536,28 @@ final class IdentifierChangeServiceTest extends TestCase
         assert($app instanceof Application);
 
         self::configureChangeGuards($app->make(ConfigRepository::class));
+    }
+
+    /**
+     * Record from now on each statement run, and `begin` where a transaction
+     * starts, in order.
+     *
+     * @return \Closure(): list<string>
+     */
+    private static function recordStatements(): \Closure
+    {
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        Event::listen(TransactionBeginning::class, static function () use (&$statements): void {
+            $statements[] = 'begin';
+        });
+
+        return static function () use (&$statements): array {
+            return $statements;
+        };
     }
 }

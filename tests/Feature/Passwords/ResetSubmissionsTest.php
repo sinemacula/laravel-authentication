@@ -6,7 +6,10 @@ namespace Tests\Feature\Passwords;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Timebox;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -432,6 +435,32 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
+     * A reset for an identity it found locks that identity's row as the
+     * transaction that spends the proof starts, before the token is read, the
+     * lock order a password write follows too, so the two wait for each other
+     * rather than deadlock.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAResetLocksTheIdentitysRowBeforeTheProof(): void
+    {
+        $identity   = self::seedResettable();
+        $token      = $this->requestLink();
+        $statements = self::recordStatements();
+        $lock       = $identity->newQueryWithoutScopes()->whereKey($identity->getKey())->toBase()->lockForUpdate()->limit(1)->select('id')->toSql();
+
+        self::assertSame(ResetStatus::RESET, $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])->status);
+
+        $at = array_search($lock, $statements(), true);
+
+        self::assertIsInt($at);
+        self::assertSame('begin', $statements()[$at - 1]);
+        self::assertStringContainsString('one_time_codes', $statements()[$at + 1]);
+    }
+
+    /**
      * A reset by code for a type with no normaliser is a misconfiguration,
      * refused before anything is counted.
      *
@@ -449,5 +478,28 @@ final class ResetSubmissionsTest extends TestCase
         }
 
         self::assertSame(0, DB::table('rate_limits')->count());
+    }
+
+    /**
+     * Record from now on each statement run, and `begin` where a transaction
+     * starts, in order.
+     *
+     * @return \Closure(): list<string>
+     */
+    private static function recordStatements(): \Closure
+    {
+        $statements = [];
+
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        Event::listen(TransactionBeginning::class, static function () use (&$statements): void {
+            $statements[] = 'begin';
+        });
+
+        return static function () use (&$statements): array {
+            return $statements;
+        };
     }
 }

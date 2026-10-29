@@ -17,6 +17,7 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
+use SineMacula\Laravel\Authentication\Database\IdentityLock;
 use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
 use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
@@ -213,14 +214,14 @@ final readonly class ResetSubmissions
     }
 
     /**
-     * In one transaction on the codes' connection: check the proof, then set
-     * the password of an eligible identity, committing a refused proof (its
-     * attempt counted) and rolling back an accepted one that no eligible
-     * identity can use. The identity found is held to the connection rule only
-     * once the proof is accepted, so whether the rule refuses it (for a
-     * provider whose configuration names no model, which `validate()` cannot
-     * check) never says, to someone without a valid proof, that the identifier
-     * is held.
+     * In one transaction on the codes' connection: lock the row of the eligible
+     * identity found (see `IdentityLock`), check the proof, then set its
+     * password, committing a refused proof (its attempt counted) and rolling
+     * back an accepted one that no eligible identity can use. The identity
+     * found is held to the connection rule only once the proof is accepted, so
+     * whether the rule refuses it (for a provider whose configuration names no
+     * model, which `validate()` cannot check) never says, to someone without a
+     * valid proof, that the identifier is held.
      *
      * @param  \SineMacula\Laravel\Authentication\Codes\CodeBinding  $binding
      * @param  string  $proof
@@ -243,6 +244,10 @@ final readonly class ResetSubmissions
         $connection->beginTransaction();
 
         try {
+            if ($recipient instanceof Model) {
+                IdentityLock::acquire($recipient);
+            }
+
             $check = $this->checkProof($binding, $proof);
 
             if ($check !== CodeCheck::ACCEPTED) {

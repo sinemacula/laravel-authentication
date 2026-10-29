@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\IdentifierChangeNotifier;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
+use SineMacula\Laravel\Authentication\Database\IdentityLock;
 use SineMacula\Laravel\Authentication\Database\SharedConnection;
 use SineMacula\Laravel\Authentication\Delivery\QueuedDelivery;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -330,14 +331,15 @@ final readonly class IdentifierChangeService
     }
 
     /**
-     * In one transaction on the identity's connection: read the identity's
-     * pending change of the type (of this guard, unexpired), check the proof
-     * against it, and make it. A refused proof commits, so a code's attempt is
-     * counted; a change refused after the proof was accepted rolls back whole.
-     * An identity that is not active (see `ActivationPolicy`) is refused first,
-     * with nothing read or counted: a link needs no session, so no guard has
-     * checked it, and a suspended account must not have its identifier moved by
-     * a change requested before the suspension.
+     * In one transaction on the identity's connection: lock the identity's row
+     * (see `IdentityLock`), read its pending change of the type (of this guard,
+     * unexpired), check the proof against it, and make it. A refused proof
+     * commits, so a code's attempt is counted; a change refused after the proof
+     * was accepted rolls back whole. An identity that is not active (see
+     * `ActivationPolicy`) is refused first, with nothing read or counted: a
+     * link needs no session, so no guard has checked it, and a suspended
+     * account must not have its identifier moved by a change requested before
+     * the suspension.
      *
      * @formatter:off
      *
@@ -375,6 +377,9 @@ final readonly class IdentifierChangeService
 
         try {
             $refused = $identity->getConnection()->transaction(function () use ($identity, $context, $prove, $expired, $type, $now): ?ChangeRefused {
+
+                IdentityLock::acquire($identity);
+
                 $change = PendingChanges::find($identity, $type);
 
                 if ($change === null || $change->guard !== $this->guard->getName()) {

@@ -2197,20 +2197,22 @@ $this->app->singleton(PasswordResetLinkSender::class, ResetLinkMailer::class);
 
 `reset($input, ?ClientContext $client = null)` takes the identifier under the guard's password identifier, the `token`
 and the new `password`; `resetWithCode($type, $input)` the identifier under `$type`, the `code` and the `password`. The
-identifier as given and the IP address are counted under the `password_reset` limits before anything else, so a flood
-of guesses never reaches the hasher or your breached-password checker; a reset that succeeds gives its slots back. The
-rest runs inside the guard's credential timebox (see [Credential validation timing](#credential-validation-timing)): a
+identifier as given and the IP address are counted under the `password_reset` limits before anything else, so a flood of
+guesses never reaches the hasher or your breached-password checker; a reset that succeeds gives its slots back. The rest
+runs inside the guard's credential timebox (see [Credential validation timing](#credential-validation-timing)): a
 missing or malformed identifier, token, code or password is `invalid`; a password the policy rejects is
 `password_rejected` with its violations, and spends nothing; then the identity is looked up and, in one transaction, the
-token or code is checked whatever the identity, a code counting its attempt as a sign-in does. A refused proof is
-`invalid` (an expired or exhausted one included) and its attempt stays counted; a proof accepted for no identity, or one
-the job would not have sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with
-the new password in the same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see
-[Setting a password](#setting-a-password)): every session of the identity ended, its cutoff moved, its pending sign-ins
-ended, every other reset link and code and every sign-in code for its identifiers invalidated, through every guard
-whose provider returns it, and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends.
-The result is a `ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with
-`retryAfter`, or `password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
+token or code is checked whatever the identity, a code counting its attempt as a sign-in does. The transaction locks the
+identity's row before it touches the proof, as a password change does, so a reset and a change of the password or of an
+identifier racing on one identity wait for each other instead of failing. A refused proof is `invalid` (an expired or
+exhausted one included) and its attempt stays counted; a proof accepted for no identity, or one the job would not have
+sent to, is `invalid` and stays unspent; a proof accepted for an eligible identity is spent with the new password in the
+same transaction, set as `set()` sets it with `PasswordFlow::RESET` (see [Setting a password](#setting-a-password)):
+every session of the identity ended, its cutoff moved, its pending sign-ins and identifier changes ended, every other
+reset link and code and every sign-in code for its identifiers invalidated, through every guard whose provider returns
+it, and `PasswordSet` reported once that commits. Only a reset returns before the timebox ends. The result is a
+`ResetResult`: `reset` with how many devices were `revoked`, `invalid`, `rate_limited` with `retryAfter`, or
+`password_rejected` with `violations`. `AuthenticationFailed` (flow `password_reset`) says why a reset failed:
 `rate_limited`, `invalid_credentials`, `code_expired`, `code_exhausted`, `link_expired`, `machine_identity`,
 `identity_inactive` or `identifier_unverified`; the result never does. A reset signs no one in and verifies no
 identifier.
@@ -2404,10 +2406,11 @@ Route::post('/email/change/link/confirm', function (Request $request) {
 | `exhausted` | The code used up its attempts; request the change again                                                                                   |
 | `taken`     | Another identity holds the new identifier; the proof is not used up                                                                       |
 
-A confirmation reads the change, checks the proof and makes the change in one transaction on the identity's connection,
-so the identity must be stored on the device model's connection, where the codes and the pending changes are kept: as
-for a password reset, any other identity throws a `LogicException` naming both connections before anything is counted,
-and `authentication:check` warns about its guard. A wrong code's attempt is kept; a change refused once its proof is
+A confirmation locks the identity's row, reads the change, checks the proof and makes the change in one transaction on
+the identity's connection (the row lock comes first, as in a password change or reset, so they wait for each other), so
+the identity must be stored on the device model's connection, where the codes and the pending changes are kept: as for a
+password reset, any other identity throws a `LogicException` naming both connections before anything is counted, and
+`authentication:check` warns about its guard. A wrong code's attempt is kept; a change refused once its proof is
 accepted (`taken`, an identifier changed meanwhile, a database error, or a transaction you roll back) rolls back whole,
 so the proof is not spent. The same transaction invalidates, for every `jwt` guard whose provider returns the identity
 and for both the old identifier and the new one, the sign-in, password reset and reset link codes waiting for it, and

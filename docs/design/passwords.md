@@ -158,15 +158,15 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 3. Inside `JwtGuard::timeboxed()`: a missing or malformed identifier, token, code or password is `invalid`
    (`invalid_credentials`); the policy (`PasswordPolicy::check()`, the breached check included) rejects as
    `password_rejected`, spending nothing and reporting nothing; `ResetRecipient::find()` looks the identity up.
-4. One transaction on the codes' connection (the identity's, by the rule): the proof is checked whatever the identity
-   (`checkToken()`: no attempt counted, conditional consume; `check()`: attempt counted, conditional consume). Refused:
-   commit (the attempt stays counted), `invalid` (`invalid_credentials`, `code_expired`, `code_exhausted` or
-   `link_expired`). Accepted for no eligible identity: roll back (the proof stays unspent), `invalid` (the recipient's
-   reason). Accepted for a found model on another connection than the devices (a provider whose configuration names no
-   model, which step 1 cannot check): roll back and throw the connection rule's `LogicException`, only now, so the
-   refusal never tells someone without a valid proof that the identifier is held. Accepted for an eligible one:
-   `PasswordWriter::write($identity, $password, RESET)` (a savepoint inside), then commit; the timebox ends early and the
-   reservation is released.
+4. One transaction on the codes' connection (the identity's, by the rule): the eligible identity found has its row
+   locked first (`IdentityLock`, below), then the proof is checked whatever the identity (`checkToken()`: no attempt
+   counted, conditional consume; `check()`: attempt counted, conditional consume). Refused: commit (the attempt stays
+   counted), `invalid` (`invalid_credentials`, `code_expired`, `code_exhausted` or `link_expired`). Accepted for no
+   eligible identity: roll back (the proof stays unspent), `invalid` (the recipient's reason). Accepted for a found
+   model on another connection than the devices (a provider whose configuration names no model, which step 1 cannot
+   check): roll back and throw the connection rule's `LogicException`, only now, so the refusal never tells someone
+   without a valid proof that the identifier is held. Accepted for an eligible one: `PasswordWriter::write($identity,
+   $password, RESET)` (a savepoint inside), then commit; the timebox ends early and the reservation is released.
 5. The reset signs no one in and verifies no identifier.
 
 ## Failure / Edge Cases
@@ -182,6 +182,13 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - Laravel's `Password` rule in a form accepts a breached password and a bcrypt password over 72 bytes; `set()` refuses
   both.
 - Two resets with one token or code: the conditional consume lets exactly one reset; the other is `invalid`.
+- A password write racing a reset or an identifier change confirmation on one identity: every transaction that writes an
+  identity with its proofs locks the identity's row first (`Database\IdentityLock`). `set()` does it with its `UPDATE`,
+  before it invalidates the outdated proofs and ends the sessions (which cancels the pending identifier changes); a
+  reset and a confirmation read the row `FOR UPDATE` as their transaction starts, before the token, code or pending
+  change they spend. So the second waits for the first to commit and then finds what it left (a spent or outdated
+  proof is `invalid`) instead of deadlocking into a database exception. The lock is the one statement a reset for a
+  held address adds to a failed one for an address no one holds; the timebox hides its time.
 - A new request between a reset's read and its consume: the new issuance replaced the row, so the consume matches
   nothing and the reset is `invalid`.
 - A failure after the proof is accepted (a revocation statement failing, say) or a caller's rollback: one transaction,
@@ -207,7 +214,7 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
 - `src/Contracts/PasswordResetLinkSender.php`, `src/Passwords/NotifyingResetLinkSender.php`,
   `src/Testing/FakePasswordResetLinkSender.php`
 - `src/Codes/OneTimeCodes.php` (`issueToken()`, `checkToken()`, `isWellFormedToken()`)
-- `src/Database/SharedConnection.php`, `src/Console/PasswordChecks.php`
+- `src/Database/SharedConnection.php`, `src/Database/IdentityLock.php`, `src/Console/PasswordChecks.php`
 
 ## Authoritative Tests
 
@@ -223,6 +230,8 @@ when it can report verification. A link goes to `PasswordResetLinkSender`, a cod
   `OutdatedProofsTest.php`, `NotifyingResetLinkSenderTest.php`, `SendPasswordResetTest.php`
 - `tests/Integration/Passwords/ReplicaPasswordResetsTest.php` (a link delivered and spent behind a lagging replica),
   `tests/Integration/Passwords/ConcurrentResetSubmissionsTest.php`,
+  `tests/Integration/Passwords/ConcurrentProofSpendingTest.php` (a password write racing a reset, a confirmation, and a
+  bulk revocation racing a confirmation, on PostgreSQL and MySQL), `tests/Integration/Database/IdentityLockTest.php`,
   `tests/Integration/Passwords/SeparateConnectionResetSubmissionsTest.php`,
   `tests/Feature/Database/SharedConnectionTest.php`
 - `tests/Integration/Codes/OneTimeCodesTest.php` (the token tests), `tests/Unit/Guards/JwtGuardsTest.php`

@@ -36,11 +36,13 @@ outdates, and why the change stands when the notice to the old identifier fails.
   new identifier, so its answer cannot tell whether one exists.
 - A confirmation runs in one transaction on the identity's connection, which must be the device model's (the codes' and
   the pending changes'), checked by `Database\SharedConnection`, the rule password resets share, before anything is
-  counted or written. It reads the change (this guard's, live), checks the proof, deletes the change while it still
-  names its request, looks for another holder through the guard's provider, invalidates the outdated proofs and replaces
-  the identifier conditionally on `previous` (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one
-  as verified). A refused proof commits, so a code's attempt count is durable; any refusal after the proof is accepted
-  throws inside the transaction, so it rolls back whole and the proof is not spent.
+  counted or written. It locks the identity's row first (`Database\IdentityLock`, the lock order every transaction that
+  writes an identity with its proofs follows, so a password write or a reset racing it waits rather than deadlocks),
+  reads the change (this guard's, live), checks the proof, deletes the change while it still names its request, looks
+  for another holder through the guard's provider, invalidates the outdated proofs and replaces the identifier
+  conditionally on `previous` (`HasChangeableIdentifiers::replaceIdentifier()`, which records the new one as verified).
+  A refused proof commits, so a code's attempt count is durable; any refusal after the proof is accepted throws inside
+  the transaction, so it rolls back whole and the proof is not spent.
 - A change invalidates, in one statement, for every `jwt` guard whose provider can return the identity
   (`JwtGuards::namesFor()`: its configured model reads the identity's table on the identity's connection, or it names no
   model) and for both the canonical previous identifier and the new one: the sign-in, password reset and password reset
@@ -139,7 +141,9 @@ outdates, and why the change stands when the notice to the old identifier fails.
   `IdentifierChangeRoutesTest.php`, `ChangeLinksTest.php`; `tests/Feature/Database/SharedConnectionTest.php`.
 - `tests/Feature/IdentifierChanges/EndedSessionsCancelChangesTest.php`: every bulk revocation of the identity cancels its
   pending changes; one device or a principal's sessions keep them.
-- `tests/Integration/IdentifierChanges/ConcurrentIdentifierChangesTest.php`: races on PostgreSQL and MySQL.
+- `tests/Integration/IdentifierChanges/ConcurrentIdentifierChangesTest.php`: races on PostgreSQL and MySQL;
+  `tests/Integration/Passwords/ConcurrentProofSpendingTest.php`: a confirmation racing a password write, a reset and a
+  bulk revocation.
 - `tests/Integration/IdentifierChanges/ReplicaIdentifierChangesTest.php`: `pending()`, the code's delivery and a
   device's reauthentication read what only the primary holds yet, behind a lagging replica.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,
