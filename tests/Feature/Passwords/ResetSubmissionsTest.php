@@ -342,7 +342,8 @@ final class ResetSubmissionsTest extends TestCase
 
     /**
      * A reset that succeeds ends the credential timebox early; one that fails
-     * waits it out, a rejected password included.
+     * waits it out, a rejected password included, and so does one that fails
+     * after a success on the same timebox.
      *
      * @return void
      *
@@ -360,8 +361,9 @@ final class ResetSubmissionsTest extends TestCase
         $this->passwords()->reset(['email' => self::EMAIL, 'token' => str_repeat('a', 43), 'password' => self::NEW_PASSWORD]);
         $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => 'short']);
         $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
+        $this->passwords()->reset(['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD]);
 
-        self::assertSame([false, false, true], $box->endedEarly);
+        self::assertSame([false, false, true, false], $box->endedEarly);
     }
 
     /**

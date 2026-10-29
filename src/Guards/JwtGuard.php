@@ -137,7 +137,7 @@ final class JwtGuard extends AbstractGuard
      */
     public function timeboxed(\Closure $callback): mixed
     {
-        return $this->timebox->call($callback, $this->timeboxMicroseconds());
+        return $this->withinTimebox($callback);
     }
 
     /**

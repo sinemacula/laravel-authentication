@@ -78,6 +78,7 @@ abstract class AbstractGuardTestCase extends TestCase
         $this->events   = \Mockery::mock(Dispatcher::class);
         $this->request  = \Mockery::mock(Request::class);
         $this->timebox  = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
 
         // attempt() rehashes a password once it is accepted.
         $this->provider->shouldReceive('rehashPasswordIfRequired')

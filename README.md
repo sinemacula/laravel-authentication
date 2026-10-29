@@ -3322,7 +3322,9 @@ submission and the password check of `Reauthentication::password()` before an id
 ],
 ```
 
-Must exceed the worst-case hasher cost.
+Must exceed the worst-case hasher cost. Only a check that succeeds returns before the budget ends, and only for itself:
+every check a guard makes waits out the full budget again when it fails, however many succeeded before it on the same
+guard (one guard serves a whole request, command or queue worker).
 
 ## Events
 

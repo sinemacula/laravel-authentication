@@ -193,7 +193,7 @@ abstract class AbstractGuard implements ContextualGuard
     {
         $password = self::signInCollaborator(PasswordSignIn::class);
 
-        return $this->timebox->call(function (Timebox $timebox) use ($password, $credentials): bool {
+        return $this->withinTimebox(function (Timebox $timebox) use ($password, $credentials): bool {
 
             $identity = $password->verifyCredentials($this->provider, $credentials);
 
@@ -206,7 +206,7 @@ abstract class AbstractGuard implements ContextualGuard
             $timebox->returnEarly();
 
             return true;
-        }, $this->timeboxMicroseconds());
+        });
     }
 
     /**
@@ -502,6 +502,27 @@ abstract class AbstractGuard implements ContextualGuard
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
     {
         $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), true);
+    }
+
+    /**
+     * Run the callback inside the guard's credential timebox, which waits out
+     * its budget unless the callback ends it early. The box is told first that
+     * it may not: Laravel's `Timebox` keeps an early return for every later
+     * call, and one guard serves a whole request, command or worker, so a check
+     * that fails after one that succeeded would otherwise not be padded.
+     *
+     * @template TResult
+     *
+     * @param  \Closure(\Illuminate\Support\Timebox): TResult  $callback
+     * @return TResult
+     *
+     * @throws \Throwable
+     */
+    protected function withinTimebox(\Closure $callback): mixed
+    {
+        $this->timebox->dontReturnEarly();
+
+        return $this->timebox->call($callback, $this->timeboxMicroseconds());
     }
 
     /**

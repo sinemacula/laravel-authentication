@@ -287,6 +287,7 @@ final class SessionServiceTest extends TestCase
         $early = new \ArrayObject;
 
         $timebox = \Mockery::mock(Timebox::class);
+        $timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
         $timebox->shouldReceive('call')->andReturnUsing(static function (callable $callback) use ($early): mixed {
             $spy = new class extends Timebox {
                 /** @var bool Whether returnEarly() was called. */
