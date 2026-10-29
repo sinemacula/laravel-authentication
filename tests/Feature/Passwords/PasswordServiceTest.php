@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Validator;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -21,6 +22,7 @@ use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Events\DeviceRevoked;
 use SineMacula\Laravel\Authentication\Events\PasswordSet;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
+use SineMacula\Laravel\Authentication\Exceptions\BreachedPasswordCheckUnavailableException;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
@@ -403,8 +405,10 @@ final class PasswordServiceTest extends TestCase
     }
 
     /**
-     * A breached password is rejected after the other rules pass; with the
-     * checker down, the default fails closed and nothing is written.
+     * A breached password is rejected after the other rules pass, and with the
+     * checker down the default fails closed, in every flow: each is rejected
+     * with the violation, and the stored passwords, the sessions and the events
+     * stay as they were.
      *
      * @return void
      *
@@ -412,15 +416,62 @@ final class PasswordServiceTest extends TestCase
      */
     public function testTheBreachedCheckGuardsEveryFlow(): void
     {
-        $checker  = FakeBreachedPasswordChecker::fake([self::NEW_PASSWORD], $this->app);
-        $identity = self::seedPasswordIdentity();
+        $checker    = FakeBreachedPasswordChecker::fake([self::NEW_PASSWORD], $this->app);
+        $identity   = self::seedPasswordIdentity();
+        $registered = self::seedPasswordIdentity('new@example.test', ['password' => null]);
+        $before     = $identity->password;
 
-        self::assertSame([PasswordViolation::BREACHED], $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE)->violations);
+        $this->signInWithPassword();
+        $this->recordEvents([PasswordSet::class, DeviceRevoked::class, SignedOutEverywhere::class]);
+
+        $for = static fn (PasswordFlow $flow): PasswordIdentity => $flow === PasswordFlow::REGISTRATION ? $registered : $identity;
+        $set = fn (PasswordFlow $flow, string $password): PasswordResult => $this->passwords()->set($for($flow), $password, $flow);
+
+        foreach (PasswordFlow::cases() as $flow) {
+
+            $result = $set($flow, self::NEW_PASSWORD);
+
+            self::assertSame([false, [PasswordViolation::BREACHED]], [$result->set, $result->violations]);
+        }
 
         $checker->unavailable();
 
-        self::assertSame([PasswordViolation::BREACH_CHECK_UNAVAILABLE], $this->passwords()->check('another fine passphrase')->violations);
-        self::assertTrue(app(Hasher::class)->check(self::PASSWORD, (string) $identity->fresh()?->password));
+        foreach (PasswordFlow::cases() as $flow) {
+
+            $result = $set($flow, 'another fine passphrase');
+
+            self::assertSame([false, [PasswordViolation::BREACH_CHECK_UNAVAILABLE]], [$result->set, $result->violations]);
+        }
+
+        self::assertSame([$before, null], [$identity->fresh()?->password, $registered->fresh()?->password]);
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
+        self::assertSame([], $this->recordedClasses());
+    }
+
+    /**
+     * With the checker down and the policy set to fail open, the password is
+     * set as if it had passed, and the outage is reported to the exception
+     * handler.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAnUnavailableCheckerLetsThePasswordThroughWhenSetToFailOpen(): void
+    {
+        config()->set('authentication.passwords.breached.when_unavailable', 'allow');
+
+        $exceptions = Exceptions::fake([BreachedPasswordCheckUnavailableException::class]);
+
+        FakeBreachedPasswordChecker::fake(container: $this->app)->unavailable();
+
+        $identity = self::seedPasswordIdentity();
+        $result   = $this->passwords()->set($identity, self::NEW_PASSWORD, PasswordFlow::CHANGE);
+
+        self::assertSame([true, []], [$result->set, $result->violations]);
+        self::assertTrue(app(Hasher::class)->check(self::NEW_PASSWORD, (string) $identity->fresh()?->password));
+
+        $exceptions->assertReported(BreachedPasswordCheckUnavailableException::class);
     }
 
     /**

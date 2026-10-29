@@ -173,6 +173,45 @@ final class ResetSubmissionsTest extends TestCase
     }
 
     /**
+     * A breached password is `password_rejected` with the violation, over HTTP,
+     * and so is any password while the breached-password checker cannot answer
+     * and the policy fails closed (the default): the link is spent by neither,
+     * nothing is reported, and it resets once the checker is back.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheBreachedCheckGuardsAReset(): void
+    {
+        $checker = FakeBreachedPasswordChecker::fake([self::NEW_PASSWORD], $this->app);
+
+        self::seedResettable();
+
+        $before = PasswordIdentity::query()->sole()->password;
+        $token  = $this->requestLink();
+
+        $this->recordEvents([AuthenticationFailed::class, PasswordSet::class]);
+
+        $this->postJson('/password/reset', ['email' => self::EMAIL, 'token' => $token, 'password' => self::NEW_PASSWORD])
+            ->assertExactJson(['status' => 'password_rejected', 'revoked' => 0, 'violations' => ['breached']]);
+
+        $checker->unavailable();
+
+        $this->postJson('/password/reset', ['email' => self::EMAIL, 'token' => $token, 'password' => 'another fine passphrase'])
+            ->assertExactJson(['status' => 'password_rejected', 'revoked' => 0, 'violations' => ['breach_check_unavailable']]);
+
+        self::assertSame($before, PasswordIdentity::query()->sole()->password);
+        self::assertSame(0, DB::table('one_time_codes')->whereNotNull('consumed_at')->count());
+        self::assertSame([], $this->recordedClasses());
+
+        $checker->unavailable(false);
+
+        $this->postJson('/password/reset', ['email' => self::EMAIL, 'token' => $token, 'password' => 'another fine passphrase'])
+            ->assertExactJson(['status' => 'reset', 'revoked' => 0, 'violations' => []]);
+    }
+
+    /**
      * A failure inside the credential timebox, by link or by code, leaves the
      * new password and the token or code out of every frame of its trace, the
      * timebox's closure and what it captured included, even with arguments
