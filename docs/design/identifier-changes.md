@@ -151,7 +151,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `src/Events/IdentifierChangeRequested.php`, `src/Events/IdentifierChanged.php`.
 - `src/Console/CheckConfigurationCommand.php` (`[identifier_changes]`), `src/Database/SharedConnection.php` and
   `src/Console/PasswordChecks.php` (the connection rule and its warning, shared with password resets).
-- `src/Guards/JwtGuards.php` (`namesFor()`: the guards whose proofs a change outdates).
+- `src/Config/JwtGuards.php` (`namesFor()`: the guards whose proofs a change outdates).
 
 ## Authoritative Tests
 
@@ -177,7 +177,7 @@ outdates, and why the change stands when the notice to the old identifier fails.
 - `tests/Integration/IdentifierChanges/ReplaceIdentifierTest.php`, `IdentifierChangeDeliveryTest.php`,
   `PendingChangesTest.php`; `tests/Integration/Models/IdentifierChangeTest.php`,
   `tests/Integration/Migration/IdentifierChangesTableSchemaTest.php`.
-- `tests/Unit/Guards/JwtGuardsTest.php`: which guards' provider can return an identity.
+- `tests/Unit/Config/JwtGuardsTest.php`: which guards' provider can return an identity.
 - `tests/Performance/IdentifierChangeQueryBudgetTest.php`.
 
 ## Change Triggers

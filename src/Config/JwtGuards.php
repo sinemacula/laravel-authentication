@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Guards;
+namespace SineMacula\Laravel\Authentication\Config;
 
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Config\Repository;

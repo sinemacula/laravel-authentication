@@ -13,7 +13,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
-use SineMacula\Laravel\Authentication\Guards\JwtGuards;
+use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use SineMacula\Laravel\Authentication\Passwords\Enums\PasswordFlow;
 use SineMacula\Laravel\Authentication\Passwords\Enums\ResetStatus;
 use SineMacula\Laravel\Authentication\Passwords\OutdatedProofs;

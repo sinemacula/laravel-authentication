@@ -2,12 +2,12 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Guards;
+namespace Tests\Unit\Config;
 
 use Illuminate\Config\Repository;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Guards\JwtGuards;
+use SineMacula\Laravel\Authentication\Config\JwtGuards;
 use Tests\Fixtures\Guards\ReplicaPasswordIdentity;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\PasswordIdentity;
