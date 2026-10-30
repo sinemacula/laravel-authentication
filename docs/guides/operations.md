@@ -1,8 +1,8 @@
 # Operations
 
 Running the package in production: where its reads go, what a long-running process keeps between requests and jobs,
-rotating signing keys, pruning the rows sessions and credentials leave behind, and checking the configuration before a
-deploy.
+which settings it reads once, rotating signing keys, pruning the rows sessions and credentials leave behind, and checking
+the configuration before a deploy.
 
 ## Read replicas
 
@@ -70,15 +70,44 @@ dispatcher or principal resolver swapped in after a guard resolved (`Event::fake
 `PrincipalResolver`) reaches the guard, its refresh exchange and its session service (and, through it, a switch of
 principal and the revocations), which read the guard's collaborators each time they run.
 
-The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration,
-not any identity's data, and the mark the password-change listener reads during an automatic rehash is scoped, so it
-starts empty for each request and each job a worker runs (under Octane, every request after the first when the
-application resolved it at boot). `WriteConnection::during()` swaps Eloquent's process-wide connection resolver while
-its callback runs and restores it, and each connection's read mode, when the callback returns or throws, so the next
-request reads as configured. No package class keeps a request, an identity or a token in a static property. The sign-in
-methods you register are kept as long as the application serving them, so they must hold no state between calls (see
-[Writing a sign-in method](signing-in.md#writing-a-sign-in-method)), and so must a factor or audience policy you bind as
-a singleton.
+The package's singletons hold configuration only: the token service factory memoises each guard's signing configuration
+(see [Configuration lifetimes](#configuration-lifetimes)), not any identity's data, and the mark the password-change
+listener reads during an automatic rehash is scoped, so it starts empty for each request and each job a worker runs
+(under Octane, every request after the first when the application resolved it at boot). `WriteConnection::during()`
+swaps Eloquent's process-wide connection resolver while its callback runs and restores it, and each connection's read
+mode, when the callback returns or throws, so the next request reads as configured. No package class keeps a request, an
+identity or a token in a static property. The sign-in methods you register are kept as long as the application serving
+them, so they must hold no state between calls (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)),
+and so must a factor or audience policy you bind as a singleton.
+
+## Configuration lifetimes
+
+Laravel loads the configuration when the application boots, so a change to `config/authentication.php` or `.env` reaches
+a long-running process only once it restarts: rebuild the configuration cache (`php artisan config:cache`) if you use
+one, then restart the workers (`php artisan octane:reload`, `php artisan queue:restart`). A PHP-FPM request boots afresh
+each time. Treat the package's configuration as fixed for a deployment.
+
+Within one process, most settings are read each time they are used, so a value changed at runtime (`config([...])`, as a
+test does) applies from the next use. Two kinds are read once and kept:
+
+| Settings                                               | Read                                                   | Kept for                                                      |
+|--------------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------------|
+| `authentication.jwt.*` and the guard's `jwt` block     | when the guard is built, or `Auth::jwt()` first called | the token service factory's life: a queue worker's whole life |
+| A guard's `provider` and `principal_resolver` override | when the guard is built                                | the guard's life: one request, or a queue worker's whole life |
+
+The token service factory is a singleton that builds each guard's token service (its keys, active kid, algorithm,
+lifetimes, those per principal type included, refresh grace, leeway, issuer and audience) once, so a runtime change to a
+JWT setting does not reach a token service already built, even for a guard built afterwards. Nor does it reach the
+lifetimes per principal type the audience policy applies, which come from the token service; the rest of the audience
+settings, the rate limits and every other setting are read anew. A queue worker resets its guards between jobs rather
+than rebuilding them, so it keeps both kinds for as long as it runs. To change a kept setting, change the configuration
+and restart the worker, as above.
+
+Under Octane, each request runs in a copy of the application with its own copy of the configuration. A singleton first
+resolved while a request is served, the token service factory included, lives only as long as that request; one resolved
+before the first request (warmed through Octane's `warm` list, or resolved while the application boots) lives as long as
+the worker, and one built with the configuration repository, such as the attempt limiter or the audience policy, then
+reads the worker's configuration, not the request's copy.
 
 ## Key Rotation
 

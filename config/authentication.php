@@ -125,7 +125,11 @@ return [
     | issued by any other guard, even with a shared key. `issuer`/`audience`
     | are optional; when set they are strictly verified on every parse. Each
     | must be a string or null, and `algorithm` a string, here and in a guard
-    | override; any other type fails closed rather than being ignored.
+    | override; any other type fails closed rather than being ignored. Each
+    | guard's token service is built from these values once and kept while the
+    | token service factory lives, so a change needs a worker restart under
+    | Octane or a queue worker (see Configuration lifetimes in
+    | docs/guides/operations.md).
     |
     */
 

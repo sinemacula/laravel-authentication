@@ -24,6 +24,10 @@ use SineMacula\Laravel\Authentication\Config\IntegerSetting;
  * override is never ignored in favour of the package value. Only `issuer` and
  * `audience` may resolve to `null`, which turns that claim check off.
  *
+ * Each guard's service is built on first use and kept for the factory's life, a
+ * container singleton's, so a later change to the configuration does not reach
+ * it: in a queue worker, not until the worker restarts.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  */
