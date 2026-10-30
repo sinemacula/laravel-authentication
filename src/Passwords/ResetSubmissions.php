@@ -39,22 +39,22 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * the revocation of every one of its sessions, or not at all.
  *
  * In order: the settings fail closed, and the provider's configured model must
- * live on the device model's connection (see `SharedConnection`; a provider
- * that names no model has the identity it finds checked once the proof is
- * accepted); the identifier as given and the IP address must have submissions
- * left (`password_reset`, taken before any other work, so a flood of guesses
- * never reaches the hasher or the breached check, and given back only by a
- * reset that succeeds). Then, inside the guard's credential timebox: a
- * malformed identifier, token, code or password is `invalid`; a password the
- * policy rejects is `password_rejected`, with nothing spent; the identity is
- * looked up (see `ResetRecipient`); and, in one transaction on the codes'
- * connection, the row of an eligible one is locked and judged again as stored,
- * then the proof is checked whatever the identity, a code counting its attempt
- * as a sign-in's does. A refused proof commits (the attempt stays counted) and
- * is `invalid`; an accepted proof for no identity, or one that may not reset,
- * rolls back, so the proof stays unspent, and is `invalid`; an accepted proof
- * for an eligible identity sets the password (see `PasswordWriter`, flow
- * `reset`) and commits. Any exception rolls everything back together.
+ * live on the storage connection (see `SharedConnection`; a provider that names
+ * no model has the identity it finds checked once the proof is accepted); the
+ * identifier as given and the IP address must have submissions left
+ * (`password_reset`, taken before any other work, so a flood of guesses never
+ * reaches the hasher or the breached check, and given back only by a reset that
+ * succeeds). Then, inside the guard's credential timebox: a malformed
+ * identifier, token, code or password is `invalid`; a password the policy
+ * rejects is `password_rejected`, with nothing spent; the identity is looked up
+ * (see `ResetRecipient`); and, in one transaction on the codes' connection, the
+ * row of an eligible one is locked and judged again as stored, then the proof
+ * is checked whatever the identity, a code counting its attempt as a sign-in's
+ * does. A refused proof commits (the attempt stays counted) and is `invalid`;
+ * an accepted proof for no identity, or one that may not reset, rolls back, so
+ * the proof stays unspent, and is `invalid`; an accepted proof for an eligible
+ * identity sets the password (see `PasswordWriter`, flow `reset`) and commits.
+ * Any exception rolls everything back together.
  *
  * Every refusal but a rejected password is reported by `AuthenticationFailed`
  * (`password_reset`) with its reason; the result says only `invalid`. A reset
@@ -295,7 +295,6 @@ final readonly class ResetSubmissions
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     private function checkProof(CodeBinding $binding, #[\SensitiveParameter] string $proof): CodeCheck
     {
@@ -324,7 +323,8 @@ final readonly class ResetSubmissions
 
     /**
      * Validate every setting a reset reads, and refuse an identity model on
-     * another connection than the devices before anything is counted.
+     * another connection than the storage connection before anything is
+     * counted.
      *
      * @return void
      *

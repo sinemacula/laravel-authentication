@@ -70,7 +70,6 @@ final readonly class OutdatedProofs
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @imperative
      */

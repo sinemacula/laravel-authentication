@@ -9,6 +9,7 @@ guard), when it is first used, and `php artisan authentication:check` reports it
 
 | Key                                                 | Default                                                                      | Env                                                               | Per guard | See                                                                   |
 |-----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------------|-----------|-----------------------------------------------------------------------|
+| `storage.connection`                                | `null`                                                                       | `AUTHENTICATION_STORAGE_CONNECTION`                               |           | [Storage](#storage)                                                   |
 | `device.model`                                      | `Device::class`                                                              | `AUTHENTICATION_DEVICE_MODEL`                                     |           | [Device](#device)                                                     |
 | `device.table`                                      | `devices`                                                                    | `AUTHENTICATION_DEVICE_TABLE`                                     |           | [Device](#device)                                                     |
 | `device.last_used_throttle_seconds`                 | `60`                                                                         | `AUTHENTICATION_DEVICE_LAST_USED_THROTTLE_SECONDS`                |           | [Device](#device)                                                     |
@@ -90,6 +91,44 @@ guard), when it is first used, and `php artisan authentication:check` reports it
 | `passkeys.relying_party.id`                         | `null`                                                                       | `AUTHENTICATION_PASSKEYS_RP_ID`                                   | yes       | [Passkeys](#passkeys)                                                 |
 | `passkeys.relying_party.name`                       | `env('APP_NAME')`                                                            | `APP_NAME`                                                        | yes       | [Passkeys](#passkeys)                                                 |
 | `passkeys.relying_party.origins`                    | `[]`                                                                         |                                                                   | yes       | [Passkeys](#passkeys)                                                 |
+
+## Storage
+
+```php
+'storage' => [
+    'connection' => env('AUTHENTICATION_STORAGE_CONNECTION'),
+],
+```
+
+Every table the package ships lives on `storage.connection`, the default connection when `null`: devices, pending
+sign-ins, one-time codes, passkeys and their challenges, API keys, identifier changes, and the attempt counters unless
+`rate_limits.connection` names a connection of their own (see [Rate limits](#rate-limits)). The shipped models read and
+write them there, and the published migrations create them there: each names the storage connection as its own, so
+`php artisan migrate` creates every table where the package uses it, whichever connection the migrator runs on. With
+`null`, the migrations follow the migrator, as any migration that names no connection does, while the models use the
+default connection, so run them on the default connection. Laravel keeps its `migrations` table on the migrator's
+connection either way.
+
+The tables share one connection because a session, the completion of a pending sign-in, a password reset and an
+identifier change each write several of them in one transaction, which two connections cannot commit as one. The device
+model must therefore live there too: the shipped `Device` takes the storage connection unless a subclass names a
+connection of its own, and a device model, shipped or custom, on any other connection fails closed with an
+`InvalidDeviceModelConfigurationException` when a `jwt` guard is built or a device is looked up, rather than splitting a
+session across two transactions. Password resets and identifier changes need the identity there as well (see [Password
+reset](passwords.md#password-reset) and [Changing identifiers](identifier-changes.md)). API keys need no device model:
+an `api_key` guard never reads it. Connections are compared by name, a model's own or the default one, so two names for
+one database count as two connections.
+
+Identity and principal models may live on another connection, but Laravel gives a related model that names no connection
+its parent's, so such a model should name its own (`protected $connection = 'mysql';`) for the device's
+`authenticatable()` and `principal()` relations to load it from there. The package itself never loads an owner through
+those relations.
+
+A value that is neither a connection name nor `null` or empty fails closed with an `InvalidArgumentException` naming the
+key, and `authentication:check` reports it, as it does a name `database.connections` does not configure. A model takes
+the connection when it is built, so keep the setting fixed while the application runs. Changing it does not move tables
+already created, and a rollback runs against the setting at the time it runs: moving the tables is a deploy, with a
+migration of your own that moves them and a restart of every worker.
 
 ## Per-guard JWT configuration
 
@@ -315,11 +354,11 @@ method it records, and a switch of principal admits its target with the identifi
 sign-in that used none, which is held to no type), so a device written outside the session service must record all
 three.
 
-Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract. A
-device's identifier is always its primary key: tokens carry it in `did`, and the bearer path and refresh find the device
-by primary key, whatever the key column is called. Other column names come from the contract's accessors
-(`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration creates the default names, so a model
-that renames a column needs its own migration.
+Subclass the model or swap `device.model` entirely - custom models must implement the `EloquentDevice` contract and live
+on the storage connection (see [Storage](#storage)). A device's identifier is always its primary key: tokens carry it in
+`did`, and the bearer path and refresh find the device by primary key, whatever the key column is called. Other column
+names come from the contract's accessors (`getRefreshKeyName()`, `getRevokedAtName()`, and so on); the shipped migration
+creates the default names, so a model that renames a column needs its own migration.
 
 A device with `revoked_at` set is rejected everywhere: an access token naming it fails exactly as if the device were
 missing, and its refresh token fails with `device_revoked`. Revoking a device therefore ends its session at once rather
@@ -368,10 +407,9 @@ another column names its own, and that is the one `signIn('password', ...)` and 
 ```
 
 Either must be a lower-case column name (a letter, then letters, digits, or underscores) that does not contain
-`password`; anything else, or any other key in a guard's `sign_in` block, fails with an `InvalidArgumentException`
-when a password sign-in runs. A sign-in that needs a further factor waits in `pending_table`
-(on the device model's connection) for at most `pending_ttl_seconds`, an integer from 30 to 3600 (see
-[Additional factors](signing-in.md#additional-factors)).
+`password`; anything else, or any other key in a guard's `sign_in` block, fails with an `InvalidArgumentException` when
+a password sign-in runs. A sign-in that needs a further factor waits in `pending_table` (on the storage connection) for
+at most `pending_ttl_seconds`, an integer from 30 to 3600 (see [Additional factors](signing-in.md#additional-factors)).
 
 ## One-time codes
 
@@ -399,9 +437,9 @@ code stops working. Each number is an integer, or a digit string as `env()` retu
 an `InvalidArgumentException` naming the key when a code is first issued, and `authentication:check` reports it. The
 settings are global, not per guard.
 
-Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the device model's connection, one row
-per binding: the purpose (a sign-in, a verification, a password reset code or link, or an identifier change), the guard,
-the identifier's type and normal form and, for a verification or a change, the identity. The row is stored under an
+Codes live in `table` (`authentication-migrations` creates `one_time_codes`), on the storage connection, one row per
+binding: the purpose (a sign-in, a verification, a password reset code or link, or an identifier change), the guard, the
+identifier's type and normal form and, for a verification or a change, the identity. The row is stored under an
 HMAC-SHA256 of that binding and holds the code only as an HMAC-SHA256 of the binding, a random id for the issuance and
 the code, each with its own key derived from `key` (at least 32 bytes) or, when `key` is not set, from `app.key`. A code
 has a few million values at most, so a plain hash of it could be reversed by anyone who reads the table (from a backup
@@ -501,9 +539,9 @@ closed with an `InvalidArgumentException` naming the guard and the key when the 
 `authentication:check` reports it for every guard whose audience allows `passkey` or that sets a `passkeys` block.
 
 A challenge lives `challenge_ttl_seconds` (30 to 600, five minutes by default), which is also the `timeout` the options
-give the browser. Both tables live on the device model's connection; prune expired challenges with `model:prune` (see
-[Pruning devices](operations.md#pruning)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms
-offered are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
+give the browser. Both tables live on the storage connection; prune expired challenges with `model:prune` (see [Pruning
+devices](operations.md#pruning)). Passkeys are not pruned: one lasts until its owner removes it. The algorithms offered
+are ES256, EdDSA (when PHP's sodium extension is loaded, as it is by default) and RS256.
 
 ## Rate limits
 
@@ -603,13 +641,13 @@ database applies atomically. A database error propagates as a server error: a li
 through. The one exception is giving back a completed further factor's slots after its commit, which is reported instead
 (see [Writing a sign-in method](signing-in.md#writing-a-sign-in-method)).
 
-> **Transactions:** the counters live on `rate_limits.connection`, the default connection when `null`. Counts written on
-> the same connection as a transaction you open around a sign-in are rolled back with it, so a sign-in that your code
-> rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in transactions you may
-> roll back, point `rate_limits.connection` at a connection of its own (a second connection to the same database will
-> do). Do the same on MySQL when you call a limited flow, such as an identifier change request, inside a transaction of
-> yours: until your commit, a counter's row stays locked, and so does the gap of the index a counter not created yet
-> would go in, so two such transactions that each create a counter in one gap deadlock.
+> **Transactions:** the counters live on `rate_limits.connection`, the storage connection (see [Storage](#storage)) when
+> `null`. Counts written on the same connection as a transaction you open around a sign-in are rolled back with it, so a
+> sign-in that your code rolls back is not counted, and attempts made that way are not limited. If you wrap sign-ins in
+> transactions you may roll back, point `rate_limits.connection` at a connection of its own (a second connection to the
+> same database will do). Do the same on MySQL when you call a limited flow, such as an identifier change request,
+> inside a transaction of yours: until your commit, a counter's row stays locked, and so does the gap of the index a
+> counter not created yet would go in, so two such transactions that each create a counter in one gap deadlock.
 
 Ended windows stay in the table until they are pruned, as do pending sign-ins that were never completed (see
 [Additional factors](signing-in.md#additional-factors)). Schedule Laravel's pruning command with both models, and the
@@ -628,10 +666,10 @@ device model, as shown in [Pruning devices](operations.md#pruning).
 ],
 ```
 
-Keys live in `table`, on the device model's connection. `prefix` (a lower-case letter, then up to 15 lower-case letters
-or digits) starts every new key, so your keys are recognisable in logs and to secret scanners; changing it leaves
-existing keys working. A rotation keeps the replaced key working for `rotation_overlap_seconds` unless it names its own
-overlap, never beyond `max_rotation_overlap_seconds` (at most 30 days). A key's last use is recorded at most once per
+Keys live in `table`, on the storage connection. `prefix` (a lower-case letter, then up to 15 lower-case letters or
+digits) starts every new key, so your keys are recognisable in logs and to secret scanners; changing it leaves existing
+keys working. A rotation keeps the replaced key working for `rotation_overlap_seconds` unless it names its own overlap,
+never beyond `max_rotation_overlap_seconds` (at most 30 days). A key's last use is recorded at most once per
 `last_used_throttle_seconds` (0 to 86400; 0 records every use), and `model:prune` deletes keys revoked or expired more
 than `prune_after_days` ago (0 to 3650). Each number is an integer, or a digit string as `env()` returns one; anything
 else fails closed when it is used, and `authentication:check` reports it.

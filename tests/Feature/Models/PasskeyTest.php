@@ -6,7 +6,6 @@ namespace Tests\Feature\Models;
 
 use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\Attributes\CoversClass;
-use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\Passkey;
 use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\TestCase;
@@ -41,17 +40,22 @@ final class PasskeyTest extends TestCase
     }
 
     /**
-     * The model follows the device model onto its connection.
+     * The model lives on the storage connection, read each time it is built,
+     * whatever connection the device model names.
      *
      * @return void
      */
-    public function testTheConnectionIsTheDeviceModelsOne(): void
+    public function testTheConnectionIsTheStorageConnection(): void
     {
         Config::set('authentication.device.model', SeparateConnectionDevice::class);
 
-        self::assertSame(SeparateConnectionDevice::CONNECTION, (new Passkey)->getConnectionName());
+        self::assertNull((new Passkey)->getConnectionName());
 
-        Config::set('authentication.device.model', Device::class);
+        Config::set('authentication.storage.connection', 'package_store');
+
+        self::assertSame('package_store', (new Passkey)->getConnectionName());
+
+        Config::set('authentication.storage.connection', '');
 
         self::assertNull((new Passkey)->getConnectionName());
     }

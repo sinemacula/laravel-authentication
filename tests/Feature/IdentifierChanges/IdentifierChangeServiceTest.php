@@ -488,7 +488,8 @@ final class IdentifierChangeServiceTest extends TestCase
         $identity->setConnection('identities');
 
         $message = 'An identifier change spends its proof with its change to the identity in one transaction, so '
-            . ChangeableIdentity::class . ' must be on the device model\'s connection: the identity is on [identities], the devices on [testing].';
+            . ChangeableIdentity::class . ' must be on the storage connection (`authentication.storage.connection`): the identity is on [identities],'
+            . ' the package\'s tables on [testing].';
 
         foreach (
             [

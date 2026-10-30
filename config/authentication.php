@@ -10,18 +10,46 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Storage
+    |---------------------------------------------------------------------------
+    |
+    | The connection every package table lives on (`null` for the default):
+    | devices, pending sign-ins, one-time codes, passkeys and their challenges,
+    | API keys, identifier changes, and the rate limit counters unless
+    | `rate_limits.connection` names their own. The models read and write them
+    | there, and the published migrations create them there. They share one
+    | connection because a session, the completion of a pending sign-in, a
+    | password reset and an identifier change each write several of them in one
+    | transaction, which two connections cannot commit as one: a custom device
+    | model must live on it too, or every device flow fails closed, and password
+    | resets and identifier changes need the identity there as well. A value
+    | that is neither a connection name nor `null` or empty fails closed when a
+    | model is built, and `authentication:check` reports it, as it does a name
+    | `database.connections` does not configure. Keep it fixed while the
+    | application runs: moving the tables is a deploy, with a migration the
+    | application performs and a worker restart.
+    |
+    */
+
+    'storage' => [
+        'connection' => env('AUTHENTICATION_STORAGE_CONNECTION'),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | Device tracking
     |---------------------------------------------------------------------------
     |
     | Configures the package's default Eloquent device adapter. JWT refresh
     | lookup and rotation require `device.model` to be an Eloquent model
-    | implementing the package `EloquentDevice` contract. Column names come from
-    | that contract's accessors (e.g. `getRefreshKeyName()`); the shipped
-    | migration and model use the default names, so a custom model that renames
-    | a column ships its own migration. Every authentication that binds a
-    | persisted EloquentDevice records when, from which IP address, and with
-    | which user agent it was last used, at most once per
-    | `last_used_throttle_seconds` (0 records every use). Laravel's
+    | implementing the package `EloquentDevice` contract, on the storage
+    | connection (the shipped model takes it, unless a subclass names its own).
+    | Column names come from that contract's accessors (e.g.
+    | `getRefreshKeyName()`); the shipped migration and model use the default
+    | names, so a custom model that renames a column ships its own migration.
+    | Every authentication that binds a persisted EloquentDevice records when,
+    | from which IP address, and with which user agent it was last used, at most
+    | once per `last_used_throttle_seconds` (0 records every use). Laravel's
     | `model:prune` deletes devices whose session ended (revoked, or past its
     | idle or absolute deadline) more than `prune_after_days` ago (0 to 3650,
     | counted from that end, not from creation; 0 prunes them as soon as they
@@ -55,11 +83,10 @@ return [
     |
     | A sign-in the additional-factor policy asks a further factor of, or that
     | waits for the identity to choose its principal, waits in `pending_table`
-    | (on the device model's connection) for at most `pending_ttl_seconds` (30
-    | to 3600; an integer, or a digit string as `env()` returns one); anything
-    | else fails closed when a pending sign-in is issued, and
-    | `authentication:check` reports it. Prune expired pending sign-ins with
-    | `model:prune`.
+    | (on the storage connection) for at most `pending_ttl_seconds` (30 to 3600;
+    | an integer, or a digit string as `env()` returns one); anything else fails
+    | closed when a pending sign-in is issued, and `authentication:check`
+    | reports it. Prune expired pending sign-ins with `model:prune`.
     |
     */
 
@@ -240,42 +267,42 @@ return [
     |---------------------------------------------------------------------------
     |
     | Limits on each flow, per identifier and per IP address, counted in the
-    | `table` on the write PDO of `connection` (`null` for the default), so they
-    | hold across servers without a cache. Each limit allows `max` attempts (at
-    | least 1) in each window of `decay_seconds` (1 to 86400), windows aligned
-    | to the clock; `null` turns it off. Sign-in counts every attempt and gives
-    | a successful one back; a secret a method checks against an account also
-    | counts against that account under `per_identifier`, however the account
-    | was found, in one count the account keeps across guards, which each guard
-    | holds to its own limit, so the guard with the most permissive limit bounds
-    | the account's guesses. An IPv6 address counts by its /64 network, and one
-    | that carries an IPv4 client's address (IPv4-mapped, or the NAT64
-    | well-known prefix `64:ff9b::/96`) as that IPv4 address. Refresh, which
-    | cannot guess a secret, counts only failures, per device and per IP
-    | address. A request for a one-time code counts every request, per
-    | identifier and per IP address, and never gives one back. A request for
-    | passkey sign-in options counts every request per IP address (it names no
-    | identifier, so its `per_identifier` must stay `null`). A client
-    | credentials exchange counts only failures, per IP address; not per client
-    | id by default, since a client id is not a secret and a count on it would
-    | let anyone who knows it lock the client out. A request for a password
-    | reset link or code counts every request, per identifier and per IP
-    | address, and never gives one back (`password_reset_request`); a reset
-    | submission counts every submission, per the identifier it names and per
-    | IP address, before anything else is checked, and gives a successful one
-    | back (`password_reset`); both count an identifier no one holds the same.
-    | A request to change an identifier counts every request against the new
-    | identifier, under `per_identifier`, the identity's own account under the
-    | same limit, and the IP address, and gives them back only when it is
-    | refused under the identity's lock (`identifier_change`). Counts on
-    | `connection` are rolled back with any transaction a caller opened there
-    | around a sign-in. A guard overrides any limit in a `rate_limits` block on
-    | its `config/auth.php` entry, where a scope that is present wins, `null`
-    | included, and a flow set to `null` turns both of its limits off. A
-    | malformed limit or an unknown key fails closed with an
-    | `InvalidArgumentException` naming the guard and the key. Counters are
-    | stored under digests keyed from `app.key`, so rotating it starts every
-    | window afresh. Prune ended windows with `model:prune`.
+    | `table` on the write PDO of `connection` (`null` for the storage
+    | connection), so they hold across servers without a cache. Each limit
+    | allows `max` attempts (at least 1) in each window of `decay_seconds` (1 to
+    | 86400), windows aligned to the clock; `null` turns it off. Sign-in counts
+    | every attempt and gives a successful one back; a secret a method checks
+    | against an account also counts against that account under
+    | `per_identifier`, however the account was found, in one count the account
+    | keeps across guards, which each guard holds to its own limit, so the guard
+    | with the most permissive limit bounds the account's guesses. An IPv6
+    | address counts by its /64 network, and one that carries an IPv4 client's
+    | address (IPv4-mapped, or the NAT64 well-known prefix `64:ff9b::/96`) as
+    | that IPv4 address. Refresh, which cannot guess a secret, counts only
+    | failures, per device and per IP address. A request for a one-time code
+    | counts every request, per identifier and per IP address, and never gives
+    | one back. A request for passkey sign-in options counts every request per
+    | IP address (it names no identifier, so its `per_identifier` must stay
+    | `null`). A client credentials exchange counts only failures, per IP
+    | address; not per client id by default, since a client id is not a secret
+    | and a count on it would let anyone who knows it lock the client out. A
+    | request for a password reset link or code counts every request, per
+    | identifier and per IP address, and never gives one back
+    | (`password_reset_request`); a reset submission counts every submission,
+    | per the identifier it names and per IP address, before anything else is
+    | checked, and gives a successful one back (`password_reset`); both count an
+    | identifier no one holds the same. A request to change an identifier counts
+    | every request against the new identifier, under `per_identifier`, the
+    | identity's own account under the same limit, and the IP address, and gives
+    | them back only when it is refused under the identity's lock
+    | (`identifier_change`). Counts on `connection` are rolled back with any
+    | transaction a caller opened there around a sign-in. A guard overrides any
+    | limit in a `rate_limits` block on its `config/auth.php` entry, where a
+    | scope that is present wins, `null` included, and a flow set to `null`
+    | turns both of its limits off. A malformed limit or an unknown key fails
+    | closed with an `InvalidArgumentException` naming the guard and the key.
+    | Counters are stored under digests keyed from `app.key`, so rotating it
+    | starts every window afresh. Prune ended windows with `model:prune`.
     |
     */
 
@@ -377,20 +404,19 @@ return [
     | Keys non-human identities authenticate with, on an `api_key` guard (as
     | `Authorization: Bearer <key>`) or, as an OAuth client's id and secret, in
     | a `jwt` guard's client credentials exchange. Stored in `table`, on the
-    | device model's connection. A key is `<prefix>_<public>_<secret>`: `prefix`
-    | (a lower-case letter, then up to 15 lower-case letters or digits) marks
-    | the keys an application issues, so they are recognisable in logs and
-    | secret scanners; changing it leaves existing keys working. Only the
-    | secret's SHA-256 digest is stored. A rotation keeps the replaced key
-    | working for `rotation_overlap_seconds` (0 to
-    | `max_rotation_overlap_seconds`, itself 0 to 2592000, 30 days) unless the
-    | rotation names its own overlap within the maximum; the replacement expires
-    | only when the rotation names an expiry. A key's last use is recorded at
-    | most once per `last_used_throttle_seconds` (0 to 86400; 0 records every
-    | use). Laravel's `model:prune` deletes keys revoked or expired more than
-    | `prune_after_days` ago (0 to 3650). Each value is an integer, or a digit
-    | string as `env()` returns one; anything else fails closed when it is used,
-    | and `authentication:check` reports it.
+    | storage connection. A key is `<prefix>_<public>_<secret>`: `prefix` (a
+    | lower-case letter, then up to 15 lower-case letters or digits) marks the
+    | keys an application issues, so they are recognisable in logs and secret
+    | scanners; changing it leaves existing keys working. Only the secret's
+    | SHA-256 digest is stored. A rotation keeps the replaced key working for
+    | `rotation_overlap_seconds` (0 to `max_rotation_overlap_seconds`, itself 0
+    | to 2592000, 30 days) unless the rotation names its own overlap within the
+    | maximum; the replacement expires only when the rotation names an expiry. A
+    | key's last use is recorded at most once per `last_used_throttle_seconds`
+    | (0 to 86400; 0 records every use). Laravel's `model:prune` deletes keys
+    | revoked or expired more than `prune_after_days` ago (0 to 3650). Each
+    | value is an integer, or a digit string as `env()` returns one; anything
+    | else fails closed when it is used, and `authentication:check` reports it.
     |
     */
 
@@ -478,18 +504,18 @@ return [
     | phone number only once the new one is proven, by a one-time code sent to
     | it or a signed link the application sends it; until then the identity
     | keeps the current one. A request must come within
-    | `recent_authentication_seconds` (60 to 86400) of the identity's sign-in
-    | on the device it is made from, or of a proof the application confirmed
-    | itself, or give the current password. It waits in `table`, on the device
-    | model's connection, for at most `ttl_seconds` (300 to 86400; a code
-    | request also no longer than its code), and a newer request for the same
-    | identity and type replaces it. Requests are limited by the
-    | `identifier_change` rate limits, counted on the new identifier and on the
-    | identity. Each number is an integer, or a digit string as `env()` returns
-    | one; anything else fails closed when a change is first requested or
-    | confirmed, and `authentication:check` reports it. The application binds
-    | an `IdentifierChangeNotifier` to tell the old identifier; the change
-    | stands if that notice fails. Prune expired changes with `model:prune`.
+    | `recent_authentication_seconds` (60 to 86400) of the identity's sign-in on
+    | the device it is made from, or of a proof the application confirmed
+    | itself, or give the current password. It waits in `table`, on the storage
+    | connection, for at most `ttl_seconds` (300 to 86400; a code request also
+    | no longer than its code), and a newer request for the same identity and
+    | type replaces it. Requests are limited by the `identifier_change` rate
+    | limits, counted on the new identifier and on the identity. Each number is
+    | an integer, or a digit string as `env()` returns one; anything else fails
+    | closed when a change is first requested or confirmed, and
+    | `authentication:check` reports it. The application binds an
+    | `IdentifierChangeNotifier` to tell the old identifier; the change stands
+    | if that notice fails. Prune expired changes with `model:prune`.
     |
     */
 
@@ -511,7 +537,7 @@ return [
     | Another code for the same identifier may be requested
     | `resend_cooldown_seconds` (0 to `ttl_seconds`) after the last, and
     | replaces it at once. Each number is an integer, or a digit string as
-    | `env()` returns one. Codes are stored in `table`, on the device model's
+    | `env()` returns one. Codes are stored in `table`, on the storage
     | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a key
     | derived from `app.key` when `key` is not set; rotating either only
     | invalidates the codes outstanding. Requests for codes are limited by the
@@ -563,7 +589,7 @@ return [
     |---------------------------------------------------------------------------
     |
     | Passkeys (WebAuthn credentials) are kept in `table` and the ceremonies'
-    | single-use challenges in `challenges_table`, both on the device model's
+    | single-use challenges in `challenges_table`, both on the package's storage
     | connection. A challenge lives `challenge_ttl_seconds` (30 to 600; an
     | integer, or a digit string as `env()` returns one), which is also the
     | `timeout` the options give the browser. Prune expired challenges with

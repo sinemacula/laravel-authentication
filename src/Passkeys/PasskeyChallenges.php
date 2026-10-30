@@ -108,8 +108,8 @@ final readonly class PasskeyChallenges
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?array<array-key, mixed>
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @imperative
      */

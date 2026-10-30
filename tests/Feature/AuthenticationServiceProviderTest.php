@@ -63,6 +63,7 @@ use SineMacula\Laravel\Authentication\Scopes\AcceptAnyScope;
 use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubGuardScopedPrincipalResolver;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
@@ -165,17 +166,47 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
-     * An `api_key` guard fails fast when the device model, whose connection its
-     * keys live on, is misconfigured.
+     * A `jwt` guard fails fast when the device model names a connection other
+     * than the storage connection, where its sessions are written with the
+     * package's other rows.
      *
      * @return void
      */
-    public function testApiKeyGuardRejectsAMisconfiguredDeviceModel(): void
+    public function testJwtGuardRejectsADeviceModelOffTheStorageConnection(): void
+    {
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        $this->expectException(InvalidDeviceModelConfigurationException::class);
+        $this->expectExceptionMessage('must live on the storage connection');
+
+        app('auth')->guard('api');
+    }
+
+    /**
+     * An `api_key` guard does not read the device model, since keys have no
+     * device sessions: it is built whatever the device model is.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardIgnoresTheDeviceModel(): void
     {
         config()->set('authentication.device.model', '');
 
-        $this->expectException(InvalidDeviceModelConfigurationException::class);
-        $this->expectExceptionMessage('authentication.device.model');
+        self::assertInstanceOf(ApiKeyGuard::class, app('auth')->guard('keys'));
+    }
+
+    /**
+     * An `api_key` guard fails fast when the storage connection, where its keys
+     * live, is not a connection name.
+     *
+     * @return void
+     */
+    public function testApiKeyGuardRejectsAMalformedStorageConnection(): void
+    {
+        config()->set('authentication.storage.connection', ['keys']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('`authentication.storage.connection` must be a connection name, or null or empty for the default connection.');
 
         app('auth')->guard('keys');
     }

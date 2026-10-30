@@ -202,7 +202,7 @@ final readonly class DeviceRevocations
      * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
      * @return void
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private static function deletePendings(RevocationScope $scope): void
     {
@@ -220,7 +220,7 @@ final readonly class DeviceRevocations
      * @param  \SineMacula\Laravel\Authentication\Sessions\RevocationScope  $scope
      * @return void
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private static function forgetChanges(RevocationScope $scope): void
     {

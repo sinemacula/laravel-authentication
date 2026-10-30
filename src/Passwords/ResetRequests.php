@@ -38,8 +38,8 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  *
  * In order: the settings (codes, their key, the delivery queue and, for a link,
  * its lifetime) fail closed, and the provider's configured model must live on
- * the device model's connection, as a reset needs (see `SharedConnection`); the
- * guard must allow the password method; the identifier must be one its type's
+ * the storage connection, as a reset needs (see `SharedConnection`); the guard
+ * must allow the password method; the identifier must be one its type's
  * normaliser accepts (as given, for a link whose type has none); the identifier
  * and the IP address must have reset requests left (`password_reset_request`,
  * counted on every request and never given back); and no link or code may have
@@ -244,8 +244,8 @@ final readonly class ResetRequests
     /**
      * Validate every setting a request reads, the delivery queue included, and
      * refuse a guard whose provider's model is on another connection than the
-     * devices, whose resets could never run, before anything is counted; then
-     * answer the link lifetime.
+     * storage connection, whose resets could never run, before anything is
+     * counted; then answer the link lifetime.
      *
      * @param  \SineMacula\Laravel\Authentication\Delivery\QueuedDelivery  $delivery
      * @return int

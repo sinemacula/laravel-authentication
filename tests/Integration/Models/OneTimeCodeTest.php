@@ -43,21 +43,30 @@ final class OneTimeCodeTest extends TestCase
     }
 
     /**
-     * The model reads the configured table, on the device model's connection,
-     * each time one is made.
+     * The model reads the configured table, on the storage connection, each
+     * time one is made, whatever connection the device model names.
      *
      * @return void
      */
-    public function testUsesTheConfiguredTableOnTheDeviceModelsConnection(): void
+    public function testUsesTheConfiguredTableOnTheStorageConnection(): void
     {
         self::assertSame('one_time_codes', (new OneTimeCode)->getTable());
-        self::assertNull((new OneTimeCode)->getConnectionName());
 
         config()->set('authentication.codes.table', 'sign_in_codes');
-        config()->set('authentication.device.model', SeparateConnectionDevice::class);
 
         self::assertSame('sign_in_codes', (new OneTimeCode)->getTable());
-        self::assertSame((new SeparateConnectionDevice)->getConnectionName(), (new OneTimeCode)->getConnectionName());
+
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        self::assertNull((new OneTimeCode)->getConnectionName());
+
+        config()->set('authentication.storage.connection', 'package_store');
+
+        self::assertSame('package_store', (new OneTimeCode)->getConnectionName());
+
+        config()->set('authentication.storage.connection', '');
+
+        self::assertNull((new OneTimeCode)->getConnectionName());
     }
 
     /**

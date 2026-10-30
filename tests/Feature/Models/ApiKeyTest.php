@@ -15,9 +15,9 @@ use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\TestCase;
 
 /**
- * Feature tests for the API key model: its configured table on the device
- * model's connection, what it hides and casts, and pruning keys revoked or
- * expired longer ago than the retention.
+ * Feature tests for the API key model: its configured table on the storage
+ * connection, what it hides and casts, and pruning keys revoked or expired
+ * longer ago than the retention.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -43,21 +43,31 @@ final class ApiKeyTest extends TestCase
     }
 
     /**
-     * The model reads its table from the configuration and follows the device
-     * model onto its connection, each time it is built.
+     * The model reads its table from the configuration and its connection from
+     * the storage connection, each time it is built; a device model on another
+     * connection does not move it, since keys have no device sessions.
      *
      * @return void
      */
-    public function testUsesTheConfiguredTableOnTheDeviceConnection(): void
+    public function testUsesTheConfiguredTableOnTheStorageConnection(): void
     {
         self::assertSame('api_keys', (new ApiKey)->getTable());
-        self::assertNull((new ApiKey)->getConnectionName());
 
         Config::set('authentication.api_keys.table', 'machine_keys');
-        Config::set('authentication.device.model', SeparateConnectionDevice::class);
 
         self::assertSame('machine_keys', (new ApiKey)->getTable());
-        self::assertSame(SeparateConnectionDevice::CONNECTION, (new ApiKey)->getConnectionName());
+
+        Config::set('authentication.device.model', SeparateConnectionDevice::class);
+
+        self::assertNull((new ApiKey)->getConnectionName());
+
+        Config::set('authentication.storage.connection', 'package_store');
+
+        self::assertSame('package_store', (new ApiKey)->getConnectionName());
+
+        Config::set('authentication.storage.connection', '');
+
+        self::assertNull((new ApiKey)->getConnectionName());
     }
 
     /**

@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * Create the pending sign-ins table: sign-ins waiting for a further factor, and
@@ -28,9 +29,11 @@ return new class extends Migration {
     {
         $table = Config::string('authentication.sign_in.pending_table', 'pending_sign_ins');
 
-        (new MigrationCollisionGuard(Schema::getConnection()->getSchemaBuilder()))->ensureNotExists($table, 'sign_in.pending_table');
+        $schema = Schema::connection($this->getConnection());
 
-        Schema::create($table, static function (Blueprint $blueprint) use ($table): void {
+        (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'sign_in.pending_table');
+
+        $schema->create($table, static function (Blueprint $blueprint) use ($table): void {
             $blueprint->uuid('id')->primary();
 
             // SHA-256 hex digest of the token's secret, compared in constant
@@ -86,6 +89,20 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists(Config::string('authentication.sign_in.pending_table', 'pending_sign_ins'));
+        Schema::connection($this->getConnection())->dropIfExists(Config::string('authentication.sign_in.pending_table', 'pending_sign_ins'));
+    }
+
+    /**
+     * The connection the package's tables live on (see `StorageConnection`),
+     * the one the model reads and writes the table on.
+     *
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    #[Override]
+    public function getConnection(): ?string
+    {
+        return StorageConnection::name();
     }
 };

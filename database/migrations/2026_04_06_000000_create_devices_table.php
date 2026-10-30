@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * Create the devices table.
@@ -27,11 +28,11 @@ return new class extends Migration {
     {
         $table = Config::string('authentication.device.table', 'devices');
 
-        $schema = Schema::getConnection()->getSchemaBuilder();
+        $schema = Schema::connection($this->getConnection());
 
         (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'device.table');
 
-        Schema::create($table, static function (Blueprint $blueprint): void {
+        $schema->create($table, static function (Blueprint $blueprint): void {
             $blueprint->uuid('id')->primary();
 
             // Plain string polymorphic columns so the table works against
@@ -102,6 +103,20 @@ return new class extends Migration {
     {
         $table = Config::string('authentication.device.table', 'devices');
 
-        Schema::dropIfExists($table);
+        Schema::connection($this->getConnection())->dropIfExists($table);
+    }
+
+    /**
+     * The connection the package's tables live on (see `StorageConnection`),
+     * the one the device model must live on.
+     *
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    #[Override]
+    public function getConnection(): ?string
+    {
+        return StorageConnection::name();
     }
 };

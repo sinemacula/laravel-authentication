@@ -152,7 +152,6 @@ final readonly class OneTimeCodes
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -185,7 +184,6 @@ final readonly class OneTimeCodes
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -213,7 +211,6 @@ final readonly class OneTimeCodes
      * @return bool
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @phpstan-impure
      */
@@ -236,7 +233,6 @@ final readonly class OneTimeCodes
      * @return int
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @imperative
      */
@@ -326,7 +322,7 @@ final readonly class OneTimeCodes
      * @param  string  $digest
      * @return ?\SineMacula\Laravel\Authentication\Models\OneTimeCode
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private function find(string $digest): ?OneTimeCode
     {
@@ -366,7 +362,7 @@ final readonly class OneTimeCodes
      * @param  \Carbon\CarbonImmutable  $now
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private function recheck(string $digest, string $issueId, int $max, CarbonImmutable $now): CodeCheck
     {
@@ -387,7 +383,6 @@ final readonly class OneTimeCodes
      * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodeCheck
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     private function compare(OneTimeCode $row, string $digest, #[\SensitiveParameter] string $code, CarbonImmutable $now): CodeCheck
     {
@@ -406,7 +401,7 @@ final readonly class OneTimeCodes
      * @param  \Carbon\CarbonImmutable  $now
      * @return bool
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-impure
      *
@@ -431,7 +426,7 @@ final readonly class OneTimeCodes
      * @param  \Carbon\CarbonImmutable  $now
      * @return bool
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-impure
      *
@@ -468,7 +463,7 @@ final readonly class OneTimeCodes
      *
      * @return \Illuminate\Database\Query\Builder
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     private function table(): Builder
     {
