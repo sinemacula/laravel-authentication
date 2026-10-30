@@ -100,6 +100,36 @@ final class AuthFacadeTest extends TestCase
     }
 
     /**
+     * The facade annotates every public method the package `AuthManager`
+     * declares, with the method's parameters and the return type its own
+     * docblock states, so an IDE and static analysis see what a call takes and
+     * returns: no method is missing, none is left over, and none says it may
+     * return `null` when it never does.
+     *
+     * @return void
+     */
+    public function testTheFacadeAnnotatesEveryManagerMethodAsDeclared(): void
+    {
+        $declared = [];
+
+        foreach ((new \ReflectionClass(AuthManager::class))->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+
+            if ($method->getDeclaringClass()->getName() !== AuthManager::class) {
+                continue;
+            }
+
+            $declared[$method->getName()] = self::declaredSignature($method);
+        }
+
+        $annotated = self::annotatedSignatures();
+
+        ksort($declared);
+        ksort($annotated);
+
+        self::assertSame($declared, $annotated);
+    }
+
+    /**
      * Register the package service provider so the `auth` binding resolves to
      * the package `AuthManager` subclass.
      *
@@ -110,5 +140,55 @@ final class AuthFacadeTest extends TestCase
     protected function getPackageProviders(mixed $app): array
     {
         return [AuthenticationServiceProvider::class];
+    }
+
+    /**
+     * The signature each `@method` annotation on the facade gives, by method
+     * name: its return type and its parameter list.
+     *
+     * @return array<string, string>
+     */
+    private static function annotatedSignatures(): array
+    {
+        preg_match_all('/@method static (\S+) (\w+)\(([^)]*)\)/', (string) (new \ReflectionClass(Auth::class))->getDocComment(), $matches, PREG_SET_ORDER);
+
+        $signatures = [];
+
+        foreach ($matches as [, $return, $name, $parameters]) {
+            $signatures[$name] = $return . ' (' . $parameters . ')';
+        }
+
+        return $signatures;
+    }
+
+    /**
+     * The signature a manager method declares, in the facade's notation: the
+     * return type its docblock states (`?T` written `T|null`) and its
+     * parameters with their types and defaults.
+     *
+     * @param  \ReflectionMethod  $method
+     * @return string
+     */
+    private static function declaredSignature(\ReflectionMethod $method): string
+    {
+        preg_match('/@return (\S+)/', (string) $method->getDocComment(), $match);
+
+        $return     = $match[1] ?? '';
+        $return     = str_starts_with($return, '?') ? substr($return, 1) . '|null' : $return;
+        $parameters = [];
+
+        foreach ($method->getParameters() as $parameter) {
+
+            $type = $parameter->getType();
+
+            assert($type instanceof \ReflectionNamedType);
+
+            $name    = $type->isBuiltin() ? $type->getName() : '\\' . $type->getName();
+            $default = $parameter->isDefaultValueAvailable() ? ' = ' . strtolower(var_export($parameter->getDefaultValue(), true)) : '';
+
+            $parameters[] = ($type->allowsNull() ? '?' : '') . $name . ' $' . $parameter->getName() . $default;
+        }
+
+        return $return . ' (' . implode(', ', $parameters) . ')';
     }
 }

@@ -35,6 +35,8 @@ use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
+use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
+use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
 use SineMacula\Laravel\Authentication\Events\AuthenticationFailed;
@@ -52,6 +54,8 @@ use SineMacula\Laravel\Authentication\Listeners\ForgetGuardStateBeforeJob;
 use SineMacula\Laravel\Authentication\Listeners\RecordDeviceUsage;
 use SineMacula\Laravel\Authentication\Listeners\TrackCredentialAttempts;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
+use SineMacula\Laravel\Authentication\Passwords\NoBreachedPasswordCheck;
+use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Providers\ModelProvider;
 use SineMacula\Laravel\Authentication\RateLimiting\DatabaseAttemptLimiter;
 use SineMacula\Laravel\Authentication\Resolvers\DefaultPrincipalResolver;
@@ -511,6 +515,39 @@ final class AuthenticationServiceProviderTest extends TestCase
     }
 
     /**
+     * The default breached-password checker, which finds nothing, is bound as a
+     * singleton so the application can bind a real one.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultBreachedPasswordChecker(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(BreachedPasswordChecker::class));
+        self::assertInstanceOf(NoBreachedPasswordCheck::class, app(BreachedPasswordChecker::class));
+        self::assertFalse(app(BreachedPasswordChecker::class)->isBreached('password'));
+    }
+
+    /**
+     * Laravel's notification is the default password reset link sender, bound
+     * as a singleton so the application can bind its own.
+     *
+     * @return void
+     */
+    public function testRegistersTheDefaultResetLinkSender(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertTrue($app->isShared(PasswordResetLinkSender::class));
+        self::assertInstanceOf(NotifyingResetLinkSender::class, app(PasswordResetLinkSender::class));
+    }
+
+    /**
      * Package guards follow later rebinds of the `events` dispatcher, so an
      * `Event::fake()` (or any dispatcher swap) made after a guard resolves
      * still receives that guard's events.
@@ -712,6 +749,7 @@ final class AuthenticationServiceProviderTest extends TestCase
             realpath($source . '2026_04_06_000004_create_passkeys_table.php')           => database_path('migrations/2026_04_06_000004_create_passkeys_table.php'),
             realpath($source . '2026_04_06_000005_create_passkey_challenges_table.php') => database_path('migrations/2026_04_06_000005_create_passkey_challenges_table.php'),
             realpath($source . '2026_04_06_000006_create_api_keys_table.php')           => database_path('migrations/2026_04_06_000006_create_api_keys_table.php'),
+            realpath($source . '2026_04_06_000007_create_identifier_changes_table.php') => database_path('migrations/2026_04_06_000007_create_identifier_changes_table.php'),
         ], $paths);
     }
 

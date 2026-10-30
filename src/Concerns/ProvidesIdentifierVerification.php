@@ -21,7 +21,9 @@ use SineMacula\Laravel\Authentication\Identifiers\IdentifierType;
  * surfaces as a misconfiguration.
  *
  * When an identifier changes, its verification no longer applies: set its
- * `<type>_verified_at` to `null` with it.
+ * `<type>_verified_at` to `null` with it, unless the change replaces it with
+ * one already proven (`ProvidesIdentifierChanges::replaceIdentifier()` records
+ * that one as verified).
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited

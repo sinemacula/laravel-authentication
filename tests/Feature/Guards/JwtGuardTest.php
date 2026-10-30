@@ -165,6 +165,44 @@ final class JwtGuardTest extends JwtGuardTestCase
     }
 
     /**
+     * `timeboxed()` runs the callback in the guard's own credential timebox,
+     * with the configured budget, hands it that timebox, and returns what it
+     * returns; an exception from the callback propagates.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTimeboxedRunsTheCallbackInTheCredentialTimebox(): void
+    {
+        config()->set('authentication.timebox.credentials_microseconds', 650000);
+
+        $given = new Timebox;
+
+        $this->timebox->shouldReceive('call')
+            ->twice()
+            ->with(\Mockery::type(\Closure::class), 650000)
+            ->andReturnUsing(static fn (\Closure $callback): mixed => $callback($given));
+
+        $guard    = $this->makeGuard(Request::create('/'));
+        $received = null;
+
+        self::assertSame(42, $guard->timeboxed(static function (Timebox $timebox) use (&$received): int {
+            $received = $timebox;
+
+            return 42;
+        }));
+        self::assertSame($given, $received);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('inside the timebox');
+
+        $guard->timeboxed(static function (): never {
+            throw new \RuntimeException('inside the timebox');
+        });
+    }
+
+    /**
      * A refresh the limits refuse is counted against the request's IP address,
      * dispatches `Attempting`, `AuthenticationFailed` (`rate_limited`) and
      * `Failed` in that order, and then lets the 429 through instead of

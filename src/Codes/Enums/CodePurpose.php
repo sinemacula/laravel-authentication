@@ -6,8 +6,8 @@ namespace SineMacula\Laravel\Authentication\Codes\Enums;
 
 /**
  * What a one-time code was issued for. A code is bound to its purpose, so one
- * issued to verify an identifier never signs anyone in, and one issued to sign
- * in never verifies an identifier.
+ * issued to verify an identifier never signs anyone in, one issued to sign in
+ * never verifies an identifier, and neither resets a password.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -19,4 +19,13 @@ enum CodePurpose: string
 
     // Verifying an identity's current identifier of a type
     case VERIFY_IDENTIFIER = 'verify_identifier';
+
+    // A password reset code for an identifier
+    case PASSWORD_RESET = 'password_reset';
+
+    // A password reset link's token for an identifier
+    case PASSWORD_RESET_LINK = 'password_reset_link';
+
+    // Proving the new identifier of one change request
+    case CHANGE_IDENTIFIER = 'change_identifier';
 }

@@ -24,8 +24,7 @@ final class CodeSettingsTest extends TestCase
 {
     /**
      * With no `codes` block, each number takes its default: 6 digits, 600
-     * seconds, 5 attempts and a 60-second cooldown; the queue settings are
-     * `null`, for the application's defaults.
+     * seconds, 5 attempts and a 60-second cooldown.
      *
      * @return void
      */
@@ -34,8 +33,6 @@ final class CodeSettingsTest extends TestCase
         $settings = self::settings([]);
 
         self::assertSame([6, 600, 5, 60], [$settings->length(), $settings->ttlSeconds(), $settings->maxAttempts(), $settings->cooldownSeconds()]);
-        self::assertNull($settings->queueConnection());
-        self::assertNull($settings->queueName());
     }
 
     /**
@@ -141,162 +138,30 @@ final class CodeSettingsTest extends TestCase
     }
 
     /**
-     * The queue settings are names, and an empty string, as `env()` returns for
-     * a variable set to nothing, means the default like `null`.
+     * Read every number once, so a malformed one fails `validate()`.
      *
      * @return void
      */
-    public function testReadsTheQueueSettings(): void
+    public function testValidateReadsEveryNumber(): void
     {
-        $named = self::settings(['queue' => ['connection' => 'redis', 'name' => 'codes']]);
-        $empty = self::settings(['queue' => ['connection' => '', 'name' => '']]);
-
-        self::assertSame(['redis', 'codes'], [$named->queueConnection(), $named->queueName()]);
-        self::assertSame([null, null], [$empty->queueConnection(), $empty->queueName()]);
+        foreach (['length' => 11, 'max_attempts' => 0, 'resend_cooldown_seconds' => 601, 'ttl_seconds' => 59] as $key => $value) {
+            try {
+                self::settings([$key => $value])->validate();
+                self::fail("validate() accepted a malformed {$key}.");
+            } catch (\InvalidArgumentException $exception) {
+                self::assertStringStartsWith("authentication.codes.{$key} must be", $exception->getMessage());
+            }
+        }
     }
 
     /**
-     * Rows of `[queue block, message]`: settings that are not names.
-     *
-     * @return iterable<string, array{0: array<string, mixed>, 1: string}>
-     */
-    public static function provideMalformedQueues(): iterable
-    {
-        yield from [
-            'connection a number' => [['connection' => 1], 'authentication.codes.queue.connection must be a name, or null for the default.'],
-            'connection a list'   => [['connection' => ['redis']], 'authentication.codes.queue.connection must be a name, or null for the default.'],
-            'queue a boolean'     => [['name' => false], 'authentication.codes.queue.name must be a name, or null for the default.'],
-        ];
-    }
-
-    /**
-     * A queue setting that is not a name fails closed, naming the key.
-     *
-     * @param  array<string, mixed>  $queue
-     * @param  string  $message
-     * @return void
-     */
-    #[DataProvider('provideMalformedQueues')]
-    public function testRefusesMalformedQueueSettings(array $queue, string $message): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage($message);
-
-        self::settings(['queue' => $queue])->validate();
-    }
-
-    /**
-     * Delivery is synchronous when the configured connection, or the default
-     * one when none is configured, uses the `sync` driver.
-     *
-     * @return void
-     */
-    public function testTellsWhetherTheDeliveryConnectionIsSynchronous(): void
-    {
-        $connections = ['sync' => ['driver' => 'sync'], 'database' => ['driver' => 'database']];
-
-        self::assertTrue(self::settings([], ['default' => 'sync', 'connections' => $connections])->deliversSynchronously());
-        self::assertFalse(self::settings([], ['default' => 'database', 'connections' => $connections])->deliversSynchronously());
-        self::assertFalse(self::settings(['queue' => ['connection' => 'database']], ['default' => 'sync', 'connections' => $connections])->deliversSynchronously());
-        self::assertTrue(self::settings(['queue' => ['connection' => 'sync']], ['default' => 'database', 'connections' => $connections])->deliversSynchronously());
-    }
-
-    /**
-     * Rows of `[delivery connection, whether it falls back to sync]` over one
-     * set of connections.
-     *
-     * @return iterable<string, array{0: string, 1: bool}>
-     */
-    public static function provideFailoverConnections(): iterable
-    {
-        yield from [
-            'sync itself'                       => ['sync', false],
-            'a worker-backed connection'        => ['database', false],
-            'a failover listing sync'           => ['to_sync', true],
-            'a failover listing sync later'     => ['nested', true],
-            'a failover of workers only'        => ['workers', false],
-            'a failover listing itself'         => ['looping', false],
-            'failovers listing each other'      => ['ping', false],
-            'a failover leading into a loop'    => ['entry', false],
-            'a failover listing nothing'        => ['empty', false],
-            'a failover of unknown or no names' => ['unknown', false],
-        ];
-    }
-
-    /**
-     * A `failover` delivery connection falls back to `sync` when it lists a
-     * `sync` connection, directly or through other `failover` connections; a
-     * connection already on the path is not followed again, and a name that is
-     * not a configured connection leads nowhere.
-     *
-     * @param  string  $connection
-     * @param  bool  $fallsBack
-     * @return void
-     */
-    #[DataProvider('provideFailoverConnections')]
-    public function testTellsWhetherTheDeliveryConnectionFallsBackToSync(string $connection, bool $fallsBack): void
-    {
-        $connections = [
-            'sync'     => ['driver' => 'sync'],
-            'database' => ['driver' => 'database'],
-            'redis'    => ['driver' => 'redis'],
-            'to_sync'  => ['driver' => 'failover', 'connections' => ['redis', 'sync']],
-            'nested'   => ['driver' => 'failover', 'connections' => ['database', 'workers', 'looping', 'to_sync']],
-            'workers'  => ['driver' => 'failover', 'connections' => ['redis', 'database']],
-            'looping'  => ['driver' => 'failover', 'connections' => ['looping', 'workers']],
-            'ping'     => ['driver' => 'failover', 'connections' => ['pong', 'database']],
-            'pong'     => ['driver' => 'failover', 'connections' => ['ping', 'redis']],
-            'entry'    => ['driver' => 'failover', 'connections' => ['ping']],
-            'empty'    => ['driver' => 'failover'],
-            'unknown'  => ['driver' => 'failover', 'connections' => ['missing', ['sync'], 7]],
-        ];
-
-        $settings = self::settings(['queue' => ['connection' => $connection]], ['default' => 'sync', 'connections' => $connections]);
-
-        self::assertSame($fallsBack, $settings->fallsBackToSync());
-        self::assertSame($connection === 'sync', $settings->deliversSynchronously());
-    }
-
-    /**
-     * Rows of `[codes block, queue configuration]` whose delivery connection is
-     * not configured.
-     *
-     * @return iterable<string, array{0: array<string, mixed>, 1: array<string, mixed>}>
-     */
-    public static function provideUnconfiguredConnections(): iterable
-    {
-        yield from [
-            'unknown connection named'  => [['queue' => ['connection' => 'redis']], ['default' => 'sync', 'connections' => ['sync' => ['driver' => 'sync']]]],
-            'no default connection'     => [[], ['connections' => ['sync' => ['driver' => 'sync']]]],
-            'connection without driver' => [[], ['default' => 'sync', 'connections' => ['sync' => []]]],
-        ];
-    }
-
-    /**
-     * A delivery connection that is not configured fails closed.
+     * Build the settings over a `codes` block.
      *
      * @param  array<string, mixed>  $codes
-     * @param  array<string, mixed>  $queue
-     * @return void
-     */
-    #[DataProvider('provideUnconfiguredConnections')]
-    public function testRefusesAnUnconfiguredConnection(array $codes, array $queue): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.');
-
-        self::settings($codes, $queue)->validate();
-    }
-
-    /**
-     * Build the settings over a `codes` block and a queue configuration.
-     *
-     * @param  array<string, mixed>  $codes
-     * @param  array<string, mixed>  $queue
      * @return \SineMacula\Laravel\Authentication\Codes\CodeSettings
      */
-    private static function settings(array $codes, array $queue = ['default' => 'sync', 'connections' => ['sync' => ['driver' => 'sync']]]): CodeSettings
+    private static function settings(array $codes): CodeSettings
     {
-        return new CodeSettings(new Repository(['authentication' => ['codes' => $codes], 'queue' => $queue]));
+        return new CodeSettings(new Repository(['authentication' => ['codes' => $codes]]));
     }
 }

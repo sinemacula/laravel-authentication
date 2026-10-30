@@ -108,7 +108,8 @@ abstract class JwtGuardTestCase extends TestCase
         $this->resolver = \Mockery::mock(PrincipalResolver::class);
         $this->events   = \Mockery::mock(Dispatcher::class);
         $this->timebox  = \Mockery::mock(Timebox::class);
-        $this->tokens   = new JwtTokenService(
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
+        $this->tokens = new JwtTokenService(
             JwtKeyring::fromKeyMap([self::KID => self::SECRET], self::KID, self::ALGORITHM),
             self::GUARD_NAME,
             new TokenLifetimes(self::ACCESS_TTL, self::REFRESH_TTL, 60 * 24 * 180, 30),

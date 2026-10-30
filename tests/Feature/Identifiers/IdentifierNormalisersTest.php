@@ -41,6 +41,7 @@ final class IdentifierNormalisersTest extends TestCase
         self::assertFalse($registry->has('Email'));
         self::assertInstanceOf(EmailNormaliser::class, $registry->get('email'));
         self::assertInstanceOf(E164PhoneNormaliser::class, $registry->get('phone'));
+        self::assertSame(['email', 'phone'], $registry->types());
     }
 
     /**
@@ -72,6 +73,7 @@ final class IdentifierNormalisersTest extends TestCase
         config()->set('authentication.identifiers.normalisers.member_number', 'normalisers.digits');
 
         self::assertTrue($this->registry()->has('member_number'));
+        self::assertSame(['email', 'phone', 'member_number'], $this->registry()->types());
         self::assertSame($digits, $this->registry()->get('member_number'));
         self::assertSame('0042', $this->registry()->get('member_number')->normalise('No. 00-42'));
     }
@@ -139,7 +141,13 @@ final class IdentifierNormalisersTest extends TestCase
     {
         config()->set('authentication.identifiers.normalisers', $map);
 
-        foreach ([fn (): bool => $this->registry()->has('email'), fn (): IdentifierNormaliser => $this->registry()->get('email')] as $question) {
+        $questions = [
+            fn (): bool => $this->registry()->has('email'),
+            fn (): IdentifierNormaliser => $this->registry()->get('email'),
+            fn (): array => $this->registry()->types(),
+        ];
+
+        foreach ($questions as $question) {
             try {
                 $question();
                 self::fail('Expected the registry to fail closed.');

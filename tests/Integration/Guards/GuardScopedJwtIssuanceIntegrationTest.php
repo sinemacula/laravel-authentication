@@ -110,9 +110,6 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
         $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
 
-        assert($staffJwt !== null);
-        assert($customerJwt !== null);
-
         $staffToken    = $staffJwt->issueAccessToken($principal, $principal, null);
         $customerToken = $customerJwt->issueAccessToken($principal, $principal, null);
 
@@ -149,8 +146,6 @@ final class GuardScopedJwtIssuanceIntegrationTest extends TestCase
         ])->save();
 
         $jwtService = PackageAuth::jwt(self::STAFF_GUARD);
-
-        assert($jwtService !== null);
 
         $refreshToken = $jwtService->issueRefreshToken($device, $plainRotationId);
 

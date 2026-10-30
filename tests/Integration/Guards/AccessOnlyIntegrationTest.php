@@ -81,8 +81,6 @@ final class AccessOnlyIntegrationTest extends TestCase
 
         $jwtService = PackageAuth::jwt(self::GUARD);
 
-        assert($jwtService !== null);
-
         $token  = $jwtService->issueAccessToken($user, $user, null);
         $claims = $jwtService->parse($token, TokenType::ACCESS);
 
@@ -168,10 +166,7 @@ final class AccessOnlyIntegrationTest extends TestCase
      * @return void
      */
     #[\Override]
-    protected function defineDatabaseMigrations(): void
-    {
-        // intentionally empty
-    }
+    protected function defineDatabaseMigrations(): void {}
 
     /**
      * Minimal Testbench environment: in-memory sqlite, a single `identities`

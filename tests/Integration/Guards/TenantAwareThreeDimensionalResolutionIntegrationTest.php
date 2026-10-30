@@ -115,7 +115,6 @@ final class TenantAwareThreeDimensionalResolutionIntegrationTest extends TestCas
         [$identity, $principal, $tenant] = $this->seedTenantAwareThreeDimensionalFixtures();
 
         $jwt = PackageAuth::jwt(self::JWT_GUARD);
-        assert($jwt !== null);
 
         $token = $jwt->issueAccessToken($identity, $principal, null);
         $guard = $this->jwtGuardForBearer($token);

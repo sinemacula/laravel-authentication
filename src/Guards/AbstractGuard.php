@@ -193,7 +193,7 @@ abstract class AbstractGuard implements ContextualGuard
     {
         $password = self::signInCollaborator(PasswordSignIn::class);
 
-        return $this->timebox->call(function (Timebox $timebox) use ($password, $credentials): bool {
+        return $this->withinTimebox(function (Timebox $timebox) use ($password, $credentials): bool {
 
             $identity = $password->verifyCredentials($this->provider, $credentials);
 
@@ -206,7 +206,7 @@ abstract class AbstractGuard implements ContextualGuard
             $timebox->returnEarly();
 
             return true;
-        }, $this->timeboxMicroseconds());
+        });
     }
 
     /**
@@ -371,18 +371,25 @@ abstract class AbstractGuard implements ContextualGuard
      * A trusted entry point, like `login()`: the principal and device are bound
      * as given, without ownership, activity or revocation checks, so the caller
      * must have proven them. Previously bound state is cleared first, and the
-     * request is settled, so its own credential is not resolved afterwards.
+     * request is settled, so its own credential is not resolved afterwards. A
+     * non-human identity (`MachineIdentity`) is limited to the scopes given, as
+     * if a credential granted them (`[]`, none, when no list is given); only a
+     * machine identity takes scopes.
      *
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @param  ?list<string>  $scopes
      * @return void
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    public function authenticateAs(Identity $identity, Principal $principal, ?Device $device = null): void
+    public function authenticateAs(Identity $identity, Principal $principal, ?Device $device = null, ?array $scopes = null): void
     {
-        $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), false);
+        self::assertScopable($identity, $scopes);
+
+        $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), false, null, $scopes);
     }
 
     /**
@@ -502,6 +509,27 @@ abstract class AbstractGuard implements ContextualGuard
     protected function bindAuthenticationLifecycle(Identity $identity, Principal $principal, ?Device $device = null): void
     {
         $this->bindVerifiedContext($identity, $principal, $device, self::boundTenant($principal), $device?->getSignInMethod(), true);
+    }
+
+    /**
+     * Run the callback inside the guard's credential timebox, which waits out
+     * its budget unless the callback ends it early. The box is told first that
+     * it may not: Laravel's `Timebox` keeps an early return for every later
+     * call, and one guard serves a whole request, command or worker, so a check
+     * that fails after one that succeeded would otherwise not be padded.
+     *
+     * @template TResult
+     *
+     * @param  \Closure(\Illuminate\Support\Timebox): TResult  $callback
+     * @return TResult
+     *
+     * @throws \Throwable
+     */
+    protected function withinTimebox(\Closure $callback): mixed
+    {
+        $this->timebox->dontReturnEarly();
+
+        return $this->timebox->call($callback, $this->timeboxMicroseconds());
     }
 
     /**

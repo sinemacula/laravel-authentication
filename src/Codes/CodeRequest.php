@@ -12,8 +12,10 @@ use SineMacula\Laravel\Authentication\Codes\Enums\CodeRequestStatus;
  * rate limited, with the seconds until another may be requested; or refused
  * because the guard does not allow the method or the identifier is not one.
  *
- * A sign-in code is sent whether or not any identity has the identifier, so the
- * result is the same for an identifier no one has: answer it the same way.
+ * A sign-in code, and a password reset link or code, is sent whether or not any
+ * identity has the identifier, so the result is the same for an identifier no
+ * one has: answer it the same way. A reset is refused as `method_not_allowed`
+ * when the guard does not allow passwords.
  *
  * @api
  *

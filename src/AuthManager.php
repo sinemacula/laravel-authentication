@@ -17,9 +17,11 @@ use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenTransport;
+use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyService;
+use SineMacula\Laravel\Authentication\Passwords\PasswordService;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 
 /**
@@ -27,12 +29,12 @@ use SineMacula\Laravel\Authentication\Sessions\SessionService;
  *
  * Subclass of Laravel's `AuthManager` that exposes the contextual accessors
  * (`identity`, `principal`, `device`, `tenant`, `type`, `scopes`), guard-scoped
- * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passkeys()`,
- * `refreshTransport()` and `clientCredentials()`, and the API keys of an
- * `api_key` or JWT guard (`apiKeys()`) directly on the manager. Each contextual
- * accessor forwards to the active guard when it implements `ContextualGuard`,
- * otherwise returns `null`. Bound to the `auth` container key by
- * `AuthenticationServiceProvider`.
+ * `jwt()` issuance, each JWT guard's `sessions()`, `codes()`, `passwords()`,
+ * `passkeys()`, `identifierChanges()`, `refreshTransport()` and
+ * `clientCredentials()`, and the API keys of an `api_key` or JWT guard
+ * (`apiKeys()`) directly on the manager. Each contextual accessor forwards to
+ * the active guard when it implements `ContextualGuard`, otherwise returns
+ * `null`. Bound to the `auth` container key by `AuthenticationServiceProvider`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -116,6 +118,21 @@ class AuthManager extends IlluminateAuthManager
     }
 
     /**
+     * Return the password service of the named JWT guard, or of the current
+     * default guard when the name is omitted: the password policy, and setting
+     * a password at a registration, a change or a reset.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\Passwords\PasswordService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function passwords(?string $guard = null): PasswordService
+    {
+        return new PasswordService($this->jwtGuard($guard, 'password service'), $this->app);
+    }
+
+    /**
      * Return the refresh token transport of the named JWT guard, or of the
      * current default guard when the name is omitted, to read a refresh token
      * from a request through the one source the guard allows.
@@ -144,6 +161,21 @@ class AuthManager extends IlluminateAuthManager
     public function passkeys(?string $guard = null): PasskeyService
     {
         return new PasskeyService($this->jwtGuard($guard, 'passkey service'), $this->app);
+    }
+
+    /**
+     * Return the identifier change service of the named JWT guard, or of the
+     * current default guard when the name is omitted, to change an identity's
+     * email address or phone number once the new one is proven.
+     *
+     * @param  ?string  $guard
+     * @return \SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeService
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function identifierChanges(?string $guard = null): IdentifierChangeService
+    {
+        return new IdentifierChangeService($this->jwtGuard($guard, 'identifier change service'), $this->app);
     }
 
     /**

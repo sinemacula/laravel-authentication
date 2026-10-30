@@ -40,6 +40,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
     public function testValidateRunsInsideTimebox(): void
     {
         $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
         $this->timebox->shouldReceive('call')
             ->once()
             ->with(\Mockery::type('callable'), 400000)
@@ -74,6 +75,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         config()->set('authentication.timebox.credentials_microseconds', 750000);
 
         $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
         $this->timebox->shouldReceive('call')
             ->once()
             ->with(\Mockery::type('callable'), 750000)
@@ -127,6 +129,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         };
 
         $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
         $this->timebox->shouldReceive('call')
             ->once()
             ->andReturnUsing(static function (callable $callback) use ($timeboxSpy, &$returnEarlyCalled): mixed {
@@ -186,6 +189,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         };
 
         $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
         $this->timebox->shouldReceive('call')
             ->once()
             ->andReturnUsing(static function (callable $callback) use ($timeboxSpy, &$returnEarlyCalled): mixed {
@@ -266,6 +270,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         config()->set('authentication.timebox.credentials_microseconds', 'not-a-number');
 
         $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
         $this->timebox->shouldReceive('call')
             ->once()
             ->with(\Mockery::type('callable'), 400000)
@@ -440,6 +445,7 @@ final class AbstractGuardAttemptLifecycleTest extends AbstractGuardTestCase
         config()->set('authentication.timebox.credentials_microseconds', 0);
 
         $this->timebox = \Mockery::mock(Timebox::class);
+        $this->timebox->shouldReceive('dontReturnEarly')->andReturnSelf();
         $this->timebox->shouldReceive('call')
             ->once()
             ->with(\Mockery::type('callable'), 400000)

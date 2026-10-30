@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Contracts\HasChangeableIdentifiers;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
@@ -19,6 +20,7 @@ use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
+use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Sessions\ActiveDevices;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
 use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
@@ -129,7 +131,9 @@ trait ManagesDevices
      * device (an access-only token) is kept by leaving the identity's "tokens
      * valid after" cutoff where it is, since a device-less token can only be
      * ended through it: its devices are still revoked, but the identity's other
-     * device-less tokens then also keep working until they expire.
+     * device-less tokens then also keep working until they expire. The
+     * identity's pending identifier changes are cancelled either way, since
+     * none records the session it was requested from.
      *
      * The guard stays bound for the rest of the request either way; call
      * `signOut()` as well to end the request's own session.
@@ -137,6 +141,9 @@ trait ManagesDevices
      * @param  bool  $keepCurrentDevice
      * @return int
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      * @throws \Throwable
      */
@@ -149,7 +156,7 @@ trait ManagesDevices
         }
 
         $device = $keepCurrentDevice ? $this->guard->device() : null;
-        $scope  = RevocationScope::identity($identity);
+        $scope  = $this->identityScope($identity);
 
         return $this->endSessions([$keepCurrentDevice && $device === null ? $scope->keepingCutoff() : $scope], RevocationReason::SIGNED_OUT_EVERYWHERE, $device);
     }
@@ -184,7 +191,8 @@ trait ManagesDevices
 
     /**
      * Revoke every device of the identity, of every guard, except the given
-     * one, and end its pending sign-ins; when the identity records a "tokens
+     * one, end its pending sign-ins, and cancel its pending identifier changes
+     * (a change link needs no session); when the identity records a "tokens
      * valid after" cutoff, move it to now first, so its access tokens issued
      * without a device stop as well. Returns how many devices this call
      * revoked.
@@ -194,12 +202,14 @@ trait ManagesDevices
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $except
      * @return int
      *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \Throwable
      */
     public function revokeDevices(Identity $identity, RevocationReason $reason, ?Device $except = null): int
     {
-        return $this->endSessions([RevocationScope::identity($identity)], $reason, $except);
+        return $this->endSessions([$this->identityScope($identity)], $reason, $except);
     }
 
     /**
@@ -219,6 +229,25 @@ trait ManagesDevices
     public function revokePrincipalDevices(Principal $principal, RevocationReason $reason, ?Device $except = null): int
     {
         return $this->endSessions([RevocationScope::principal($principal)], $reason, $except);
+    }
+
+    /**
+     * Every session of the identity, with its pending identifier changes of
+     * every type that has a normaliser (a change needs one), when its
+     * identifiers can be changed.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
+     * @return \SineMacula\Laravel\Authentication\Sessions\RevocationScope
+     *
+     * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \InvalidArgumentException
+     * @throws \LogicException
+     */
+    private function identityScope(Identity $identity): RevocationScope
+    {
+        $types = $identity instanceof HasChangeableIdentifiers ? $this->collaborator(IdentifierNormalisers::class)->types() : [];
+
+        return RevocationScope::identity($identity, $types);
     }
 
     /**

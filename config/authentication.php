@@ -75,10 +75,11 @@ return [
     |---------------------------------------------------------------------------
     |
     | Microsecond budget passed to Illuminate\Support\Timebox around the
-    | credential checks in a guard's `attempt()` and `validate()`, and around
-    | a session service `signIn()` from its sign-in method to its admission.
-    | Must exceed the worst-case hasher cost (bcrypt cost 12 ≈ 150–250ms) or
-    | timing-safety breaks down.
+    | credential checks in a guard's `attempt()` and `validate()`, around a
+    | session service `signIn()` from its sign-in method to its admission,
+    | around a password reset submission, and around the password check that
+    | reauthenticates an identifier change. Must exceed the worst-case hasher
+    | cost (bcrypt cost 12 ≈ 150–250ms) or timing-safety breaks down.
     |
     */
 
@@ -186,15 +187,16 @@ return [
     | guard overrides any of them in an `audience` block on its
     | `config/auth.php` entry, where a key that is present wins, `null`
     | included. `methods` lists the sign-in methods that may start the guard's
-    | sessions (a non-empty list of the lower-case names they are registered
-    | under). `principal_types` lists the principal types that may hold them (a
-    | non-empty list), or is `null` to admit any principal, typed or not; with a
-    | list, an untyped principal is refused. `require_verified_identifier`
-    | refuses a sign-in with an identifier (an email address, say) the identity
-    | has not verified; sign-ins that use no identifier, such as SSO, are not
-    | affected. A malformed value, or an unknown key, fails closed with an
-    | `InvalidArgumentException` naming the guard and the key when the guard's
-    | policy is first used.
+    | sessions, by the lower-case names they are registered under, and the
+    | machine credentials it accepts (`api_key`, `client_credentials`): a
+    | non-empty list. `principal_types` lists the principal types that may hold
+    | them (a non-empty list), or is `null` to admit any principal, typed or
+    | not; with a list, an untyped principal is refused.
+    | `require_verified_identifier` refuses a sign-in with an identifier (an
+    | email address, say) the identity has not verified; sign-ins that use no
+    | identifier, such as SSO, are not affected. A malformed value, or an
+    | unknown key, fails closed with an `InvalidArgumentException` naming the
+    | guard and the key when the guard's policy is first used.
     |
     */
 
@@ -255,10 +257,19 @@ return [
     | identifier, so its `per_identifier` must stay `null`). A client
     | credentials exchange counts only failures, per IP address; not per client
     | id by default, since a client id is not a secret and a count on it would
-    | let anyone who knows it lock the client out. Counts on `connection` are
-    | rolled back with any transaction a caller opened there around a sign-in. A
-    | guard overrides any limit in a `rate_limits` block on its
-    | `config/auth.php` entry, where a scope that is present wins, `null`
+    | let anyone who knows it lock the client out. A request for a password
+    | reset link or code counts every request, per identifier and per IP
+    | address, and never gives one back (`password_reset_request`); a reset
+    | submission counts every submission, per the identifier it names and per
+    | IP address, before anything else is checked, and gives a successful one
+    | back (`password_reset`); both count an identifier no one holds the same.
+    | A request to change an identifier counts every request against the new
+    | identifier, under `per_identifier`, the identity's own account under the
+    | same limit, and the IP address, and gives them back only when it is
+    | refused under the identity's lock (`identifier_change`). Counts on
+    | `connection` are rolled back with any transaction a caller opened there
+    | around a sign-in. A guard overrides any limit in a `rate_limits` block on
+    | its `config/auth.php` entry, where a scope that is present wins, `null`
     | included, and a flow set to `null` turns both of its limits off. A
     | malformed limit or an unknown key fails closed with an
     | `InvalidArgumentException` naming the guard and the key. Counters are
@@ -294,6 +305,21 @@ return [
         'client_credentials' => [
             'per_identifier' => null,
             'per_ip'         => ['max' => 100, 'decay_seconds' => 60],
+        ],
+
+        'password_reset_request' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 3600],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 3600],
+        ],
+
+        'password_reset' => [
+            'per_identifier' => ['max' => 10, 'decay_seconds' => 900],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 900],
+        ],
+
+        'identifier_change' => [
+            'per_identifier' => ['max' => 5, 'decay_seconds' => 3600],
+            'per_ip'         => ['max' => 50, 'decay_seconds' => 3600],
         ],
     ],
 
@@ -394,6 +420,86 @@ return [
 
     /*
     |---------------------------------------------------------------------------
+    | Passwords
+    |---------------------------------------------------------------------------
+    |
+    | The policy `Auth::passwords()->check()` and `set()` apply to a new
+    | password (never to the automatic rehash on sign-in). A password has at
+    | least `min_length` characters (8 to 128) and at most `max_length`
+    | (`min_length` to 4096), counted as Laravel's `min` and `max` rules count
+    | them; each is an integer, or a digit string as `env()` returns one. The
+    | default minimum of 15 is NIST SP 800-63B's for a password that is the only
+    | factor; an application that always requires a further factor may lower it
+    | to 8. While the hashing driver is bcrypt, which reads only 72 bytes, a
+    | longer password is refused as too long and `min_length` may be at most 72,
+    | and a password holding a null character, which bcrypt cannot hash, is
+    | refused as well. `letters`, `mixed_case`, `numbers` and `symbols`
+    | (booleans, off by default, as NIST advises) turn on the composition rules
+    | of Laravel's `Password` rule. A password that passes is then given to the
+    | bound `BreachedPasswordChecker`: the default one blocks nothing, and NIST
+    | expects a blocklist check, so bind one of your own. When the checker
+    | cannot answer (it throws `BreachedPasswordCheckUnavailableException`) the
+    | exception is reported and `breached.when_unavailable` decides: `reject`
+    | refuses the password (fail closed, the default), `allow` lets it through
+    | (fail open). A password reset link works for `reset.link_ttl_seconds` (300
+    | to 86400) after it is requested; a reset code lives as long as any
+    | one-time code (see `codes`), and both share the codes' table, key and
+    | resend cooldown. Requests for either are limited by the
+    | `password_reset_request` rate limits, and submissions by the
+    | `password_reset` ones. A malformed value fails closed when a password is
+    | first checked, and `authentication:check` reports it.
+    |
+    */
+
+    'passwords' => [
+        'min_length' => env('AUTHENTICATION_PASSWORDS_MIN_LENGTH', 15),
+        'max_length' => env('AUTHENTICATION_PASSWORDS_MAX_LENGTH', 128),
+        'letters'    => false,
+        'mixed_case' => false,
+        'numbers'    => false,
+        'symbols'    => false,
+
+        'breached' => [
+            'when_unavailable' => env('AUTHENTICATION_PASSWORDS_BREACHED_WHEN_UNAVAILABLE', 'reject'),
+        ],
+
+        'reset' => [
+            'link_ttl_seconds' => env('AUTHENTICATION_PASSWORDS_RESET_LINK_TTL_SECONDS', 3600),
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Identifier changes
+    |---------------------------------------------------------------------------
+    |
+    | `Auth::identifierChanges($guard)` changes an identity's email address or
+    | phone number only once the new one is proven, by a one-time code sent to
+    | it or a signed link the application sends it; until then the identity
+    | keeps the current one. A request must come within
+    | `recent_authentication_seconds` (60 to 86400) of the identity's sign-in
+    | on the device it is made from, or of a proof the application confirmed
+    | itself, or give the current password. It waits in `table`, on the device
+    | model's connection, for at most `ttl_seconds` (300 to 86400; a code
+    | request also no longer than its code), and a newer request for the same
+    | identity and type replaces it. Requests are limited by the
+    | `identifier_change` rate limits, counted on the new identifier and on the
+    | identity. Each number is an integer, or a digit string as `env()` returns
+    | one; anything else fails closed when a change is first requested or
+    | confirmed, and `authentication:check` reports it. The application binds
+    | an `IdentifierChangeNotifier` to tell the old identifier; the change
+    | stands if that notice fails. Prune expired changes with `model:prune`.
+    |
+    */
+
+    'identifier_changes' => [
+        'table'                         => env('AUTHENTICATION_IDENTIFIER_CHANGES_TABLE', 'identifier_changes'),
+        'ttl_seconds'                   => env('AUTHENTICATION_IDENTIFIER_CHANGES_TTL_SECONDS', 3600),
+        'recent_authentication_seconds' => env('AUTHENTICATION_IDENTIFIER_CHANGES_RECENT_AUTHENTICATION_SECONDS', 900),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
     | One-time codes
     |---------------------------------------------------------------------------
     |
@@ -408,14 +514,10 @@ return [
     | connection, as an HMAC keyed with `key` (at least 32 bytes), or with a key
     | derived from `app.key` when `key` is not set; rotating either only
     | invalidates the codes outstanding. Requests for codes are limited by the
-    | `code_request` rate limits. Delivery is a queued job, never part of the
-    | request, pushed to the `queue` connection and queue named (`null` for the
-    | defaults); on a `sync` connection it runs after the response is sent, a
-    | `failover` connection that can fall back to `sync` is pushed to after the
-    | response, and `authentication:check` warns about both, since a worker is
-    | the production setting. The application binds its `OneTimeCodeSender`. A
-    | malformed value fails closed when a code is first issued, and
-    | `authentication:check` reports it. Prune expired codes with `model:prune`.
+    | `code_request` rate limits. Delivery is a queued job (see `delivery`). The
+    | application binds its `OneTimeCodeSender`. A malformed value fails closed
+    | when a code is first issued, and `authentication:check` reports it. Prune
+    | expired codes with `model:prune`.
     |
     */
 
@@ -426,10 +528,31 @@ return [
         'ttl_seconds'             => env('AUTHENTICATION_CODES_TTL_SECONDS', 600),
         'max_attempts'            => env('AUTHENTICATION_CODES_MAX_ATTEMPTS', 5),
         'resend_cooldown_seconds' => env('AUTHENTICATION_CODES_RESEND_COOLDOWN_SECONDS', 60),
+    ],
 
+    /*
+    |---------------------------------------------------------------------------
+    | Delivery
+    |---------------------------------------------------------------------------
+    |
+    | Everything the package sends (one-time codes, password reset links and
+    | codes, identifier change codes and notices) is a queued job, never part
+    | of the request, pushed once the write it reports has committed to the
+    | `queue` connection and queue named (`null` for the defaults; the
+    | connection must be configured in `queue.connections`). On a `sync`
+    | connection it runs after the response is sent, and a `failover`
+    | connection that can fall back to `sync` is pushed to after the response;
+    | `authentication:check` warns about both while any `jwt` guard is
+    | configured, since a worker is the production setting. A malformed value
+    | fails closed before anything is counted or sent, and
+    | `authentication:check` reports it.
+    |
+    */
+
+    'delivery' => [
         'queue' => [
-            'connection' => env('AUTHENTICATION_CODES_QUEUE_CONNECTION'),
-            'name'       => env('AUTHENTICATION_CODES_QUEUE'),
+            'connection' => env('AUTHENTICATION_DELIVERY_QUEUE_CONNECTION'),
+            'name'       => env('AUTHENTICATION_DELIVERY_QUEUE'),
         ],
     ],
 

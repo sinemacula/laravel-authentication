@@ -117,7 +117,27 @@ final class JwtGuard extends AbstractGuard
      */
     public function sessions(): SessionService
     {
-        return $this->sessions ??= ($this->sessionFactory)($this, fn (\Closure $callback): mixed => $this->timebox->call($callback, $this->timeboxMicroseconds()));
+        return $this->sessions ??= ($this->sessionFactory)($this, $this->timeboxed(...));
+    }
+
+    /**
+     * Run the callback inside the guard's credential timebox, the one its
+     * sign-ins run in, so a check of a secret outside a sign-in (a password
+     * reset, a reauthentication) takes as long whatever it found. The callback
+     * may end the wait early through the `Timebox` it is given.
+     *
+     * @template TResult
+     *
+     * @param  \Closure(\Illuminate\Support\Timebox): TResult  $callback
+     * @return TResult
+     *
+     * @throws \Throwable
+     *
+     * @internal
+     */
+    public function timeboxed(\Closure $callback): mixed
+    {
+        return $this->withinTimebox($callback);
     }
 
     /**

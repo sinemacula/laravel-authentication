@@ -14,14 +14,18 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use SineMacula\Laravel\Authentication\AuthenticationServiceProvider;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Console\CheckConfigurationCommand;
+use SineMacula\Laravel\Authentication\Console\PasswordChecks;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
 use SineMacula\Laravel\Authentication\Models\Device;
+use SineMacula\Laravel\Authentication\Passwords\NotifyingResetLinkSender;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Testing\FakeOneTimeCodeSender;
+use SineMacula\Laravel\Authentication\Testing\FakePasswordResetLinkSender;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\Integration\Fixtures\MachineClient;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\Unit\Stubs\StubAuthenticatableModel;
 use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
 
@@ -37,10 +41,17 @@ use Tests\Unit\Stubs\StubReplacementPrincipalResolver;
  * @internal
  */
 #[CoversClass(CheckConfigurationCommand::class)]
+#[CoversClass(PasswordChecks::class)]
 final class CheckConfigurationCommandTest extends TestCase
 {
     /** @var string A signing secret long enough for HS256. */
     private const string SECRET = 'a-signing-secret-of-at-least-32-bytes!!';
+
+    /** @var list<string> What a run prints for the package-wide settings when none has a problem. */
+    private const array PACKAGE_OK = ['[device] OK', '[sign_in] OK', '[passwords] OK', '[codes] OK', '[delivery] OK', '[passkeys] OK', '[api_keys] OK', '[identifier_changes] OK'];
+
+    /** @var list<string> What a run prints when nothing the default setup configures has a problem. */
+    private const array EVERY_SUBJECT_OK = [...self::PACKAGE_OK, '[api] OK', '[admin] OK', '[machine] OK'];
 
     /**
      * A configuration without problems passes, says so for each guard and the
@@ -60,7 +71,7 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK'], $output);
+        self::assertSame(self::EVERY_SUBJECT_OK, $output);
         self::assertSame(0, $queries);
     }
 
@@ -148,6 +159,22 @@ final class CheckConfigurationCommandTest extends TestCase
             ['authentication.sign_in.pending_ttl_seconds' => 5],
             '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600 seconds.',
         ];
+        yield 'a password minimum below 8' => [
+            ['authentication.passwords.min_length' => 7],
+            '[passwords] authentication.passwords.min_length must be an integer from 8 to 128.',
+        ];
+        yield 'a password maximum below the minimum' => [
+            ['authentication.passwords.min_length' => 20, 'authentication.passwords.max_length' => 19],
+            '[passwords] authentication.passwords.max_length must be an integer from 20 to 4096.',
+        ];
+        yield 'a password composition rule that is not a boolean' => [
+            ['authentication.passwords.symbols' => 'yes'],
+            '[passwords] authentication.passwords.symbols must be true or false.',
+        ];
+        yield 'an unknown breached-check mode' => [
+            ['authentication.passwords.breached.when_unavailable' => 'ignore'],
+            '[passwords] authentication.passwords.breached.when_unavailable must be `reject` or `allow`.',
+        ];
         yield 'a code length out of range' => [
             ['authentication.codes.length' => 4],
             '[codes] authentication.codes.length must be an integer from 6 to 10.',
@@ -161,8 +188,8 @@ final class CheckConfigurationCommandTest extends TestCase
             '[codes] authentication.codes.key must be a string of at least 32 bytes, or null to derive the key from `app.key`.',
         ];
         yield 'a code delivery connection not configured' => [
-            ['authentication.codes.queue.connection' => 'missing'],
-            '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
+            ['authentication.delivery.queue.connection' => 'missing'],
+            '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
         ];
         yield 'a code method with no sender bound' => [
             ['auth.guards.api.audience' => ['methods' => ['password', 'phone_code']]],
@@ -289,7 +316,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         FakeOneTimeCodeSender::fake($this->app);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
     }
 
     /**
@@ -317,10 +344,10 @@ final class CheckConfigurationCommandTest extends TestCase
     /**
      * A code sign-in method the application registered for another identifier
      * type counts as a code method: a guard that allows only it is named when
-     * no sender is bound, and warned about on a `sync` connection. A method of
-     * another kind, or one that does not build as a sign-in method (whether the
-     * manager refuses what its factory gives, or a typed factory throws a
-     * `TypeError`), is not a code method, and no guard needs to list it.
+     * no sender is bound. A method of another kind, or one that does not build
+     * as a sign-in method (whether the manager refuses what its factory gives,
+     * or a typed factory throws a `TypeError`), is not a code method, and no
+     * guard needs to list it.
      *
      * @return void
      */
@@ -338,76 +365,65 @@ final class CheckConfigurationCommandTest extends TestCase
         config()->set([
             'auth.guards.api.audience'   => ['methods' => ['whatsapp_code']],
             'auth.guards.admin.audience' => ['methods' => ['sso', 'broken']],
-            'queue.connections.sync'     => ['driver' => 'sync'],
         ]);
 
         [$code, $output] = $this->check();
 
         self::assertSame(1, $code);
         self::assertContains('[codes] Guards [api] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.', $output);
-        self::assertContains('[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.', $output);
     }
 
     /**
-     * Delivering codes on a `sync` connection is a warning, not a problem, and
-     * only when a guard allows a code sign-in method.
+     * Delivering on a `sync` connection is a warning, not a problem, whenever a
+     * `jwt` guard is configured, whatever its audience allows: any of them may
+     * send a password reset or an identifier change. With only `api_key`
+     * guards, which deliver nothing, there is none.
      *
      * @return void
      */
-    public function testSynchronousCodeDeliveryIsAWarning(): void
+    public function testSynchronousDeliveryIsAWarning(): void
     {
         config()->set([
-            'queue.default'                         => 'database',
-            'queue.connections.database'            => ['driver' => 'database'],
-            'queue.connections.sync'                => ['driver' => 'sync'],
-            'authentication.codes.queue.connection' => 'sync',
+            'queue.connections.sync'                   => ['driver' => 'sync'],
+            'authentication.delivery.queue.connection' => 'sync',
         ]);
 
-        FakeOneTimeCodeSender::fake($this->app);
+        $warning = '[delivery] One-time codes, password reset links and codes, and identifier change codes and notices are delivered on a `sync` '
+            . 'queue connection, after each response in the web process; set `authentication.delivery.queue.connection` to a '
+            . 'worker-backed connection in production.';
 
-        $warning = '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-            . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.';
+        self::assertSame([0, [...self::PACKAGE_OK, $warning, '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        config()->set('auth.guards', ['machine' => config('auth.guards.machine')]);
 
-        config()->set('auth.guards.admin.audience', ['methods' => ['phone_code']]);
-
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', $warning, '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, [...self::PACKAGE_OK, '[machine] OK']], $this->check());
     }
 
     /**
-     * Delivering codes on a `failover` connection that can fall back to `sync`
-     * is a warning of its own, only when a guard allows a code sign-in method;
-     * one whose connections are all worker-backed is not.
+     * Delivering on a `failover` connection that can fall back to `sync` is a
+     * warning of its own, whenever a `jwt` guard is configured; one whose
+     * connections are all worker-backed is not.
      *
      * @return void
      */
-    public function testCodeDeliveryThatCanFallBackToSyncIsAWarning(): void
+    public function testDeliveryThatCanFallBackToSyncIsAWarning(): void
     {
         config()->set([
-            'queue.default'                         => 'database',
-            'queue.connections.database'            => ['driver' => 'database'],
-            'queue.connections.sync'                => ['driver' => 'sync'],
-            'queue.connections.workers'             => ['driver' => 'failover', 'connections' => ['database']],
-            'queue.connections.failover'            => ['driver' => 'failover', 'connections' => ['database', 'sync']],
-            'authentication.codes.queue.connection' => 'failover',
+            'queue.connections.sync'                   => ['driver' => 'sync'],
+            'queue.connections.workers'                => ['driver' => 'failover', 'connections' => ['database']],
+            'queue.connections.failover'               => ['driver' => 'failover', 'connections' => ['database', 'sync']],
+            'authentication.delivery.queue.connection' => 'failover',
         ]);
 
-        FakeOneTimeCodeSender::fake($this->app);
+        $warning = '[delivery] One-time codes, password reset links and codes, and identifier change codes and notices are delivered on a '
+            . '`failover` queue connection that can fall back to `sync`; each delivery is pushed after the response, and runs in the '
+            . 'web process when it falls back. Set `authentication.delivery.queue.connection` to a worker-backed connection that '
+            . 'cannot in production.';
+        $checked = self::EVERY_SUBJECT_OK;
 
-        $warning = '[codes] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
-            . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.codes.queue.connection` '
-            . 'to a worker-backed connection that cannot in production.';
-        $checked = ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK'];
+        self::assertSame([0, [...self::PACKAGE_OK, $warning, ...array_slice($checked, count(self::PACKAGE_OK))]], $this->check());
 
-        self::assertSame([0, $checked], $this->check());
-
-        config()->set('auth.guards.admin.audience', ['methods' => ['email_code']]);
-
-        self::assertSame([0, [...array_slice($checked, 0, 5), $warning, ...array_slice($checked, 5)]], $this->check());
-
-        config()->set('authentication.codes.queue.connection', 'workers');
+        config()->set('authentication.delivery.queue.connection', 'workers');
 
         self::assertSame([0, $checked], $this->check());
     }
@@ -422,9 +438,10 @@ final class CheckConfigurationCommandTest extends TestCase
     public function testMalformedSettingsAreReportedOnceWhereTheyBelong(): void
     {
         config()->set([
-            'auth.guards.api.audience'              => ['methods' => []],
-            'auth.guards.admin.audience'            => ['methods' => ['phone_code']],
-            'authentication.codes.queue.connection' => 'missing',
+            'auth.guards.api.audience'                 => ['methods' => []],
+            'auth.guards.admin.audience'               => ['methods' => ['phone_code']],
+            'authentication.delivery.queue.connection' => 'missing',
+            'authentication.identifier_changes'        => ['ttl_seconds' => 3600, 'recent_authentication_seconds' => '59'],
         ]);
 
         [$code, $output] = $this->check();
@@ -433,12 +450,14 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame([
             '[device] OK',
             '[sign_in] OK',
+            '[passwords] OK',
             '[passkeys] OK',
             '[api_keys] OK',
             '[admin] OK',
             '[machine] OK',
-            '[codes] authentication.codes.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
             '[codes] Guards [admin] allow a code sign-in method, but no ' . OneTimeCodeSender::class . ' is bound to deliver the codes.',
+            '[delivery] authentication.delivery.queue.connection must name a connection configured in `queue.connections`, or be null for `queue.default`.',
+            '[identifier_changes] authentication.identifier_changes.recent_authentication_seconds must be an integer from 60 to 86400.',
             '[api] Audience `methods` for guard [api] must be a non-empty list of lower-case sign-in method names:'
                 . ' set `authentication.audience.methods` or the guard\'s `audience.methods` override.',
         ], $output);
@@ -475,9 +494,12 @@ final class CheckConfigurationCommandTest extends TestCase
         self::assertSame([
             '[device] OK',
             '[sign_in] OK',
+            '[passwords] OK',
             '[codes] OK',
+            '[delivery] OK',
             '[passkeys] OK',
             '[api_keys] OK',
+            '[identifier_changes] OK',
             '[api] OK',
             '[web] Not a jwt or api_key guard.',
             '[missing] Not configured.',
@@ -497,11 +519,11 @@ final class CheckConfigurationCommandTest extends TestCase
         [$code, $output] = $this->check();
 
         self::assertSame(0, $code);
-        self::assertSame(['No jwt or api_key guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK'], $output);
+        self::assertSame(['No jwt or api_key guards are configured.', ...self::PACKAGE_OK], $output);
 
         config()->set('auth.guards', null);
 
-        self::assertSame([0, ['No jwt or api_key guards are configured.', '[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK']], $this->check());
+        self::assertSame([0, ['No jwt or api_key guards are configured.', ...self::PACKAGE_OK]], $this->check());
     }
 
     /**
@@ -514,7 +536,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards', ['2024' => ['driver' => 'jwt', 'provider' => 'users']]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[2024] OK']], $this->check());
+        self::assertSame([0, [...self::PACKAGE_OK, '[2024] OK']], $this->check());
     }
 
     /**
@@ -556,7 +578,7 @@ final class CheckConfigurationCommandTest extends TestCase
 
         $failing = $this->check();
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $passing);
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $passing);
         self::assertSame(1, $failing[0]);
     }
 
@@ -569,7 +591,7 @@ final class CheckConfigurationCommandTest extends TestCase
     {
         config()->set('auth.guards.api.principal_resolver', StubReplacementPrincipalResolver::class);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
     }
 
     /**
@@ -587,7 +609,7 @@ final class CheckConfigurationCommandTest extends TestCase
             'authentication.passkeys.relying_party.origins' => ['https://example.test'],
         ]);
 
-        self::assertSame([0, ['[device] OK', '[sign_in] OK', '[codes] OK', '[passkeys] OK', '[api_keys] OK', '[api] OK', '[admin] OK', '[machine] OK']], $this->check());
+        self::assertSame([0, self::EVERY_SUBJECT_OK], $this->check());
     }
 
     /**
@@ -607,6 +629,79 @@ final class CheckConfigurationCommandTest extends TestCase
         $this->app?->instance(AudiencePolicy::class, $policy);
 
         self::assertSame(0, $this->check()[0]);
+    }
+
+    /**
+     * A `jwt` guard whose identities live on another connection than the
+     * devices cannot run a password reset or an identifier change's
+     * confirmation: a warning for each such guard checked, naming both
+     * connections, that leaves the exit code alone.
+     *
+     * @return void
+     */
+    public function testResetsAcrossConnectionsAreAWarning(): void
+    {
+        config()->set('database.connections.device_store', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        $warning = static fn (string $guard): string => "[{$guard}] Password resets and identifier changes spend their proof with their change to the identity "
+            . 'in one transaction, so ' . IntegrationIdentity::class
+            . ' must be on the device model\'s connection: the identity is on [unreachable], the devices on [device_store].';
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertSame([$warning('api'), $warning('admin')], array_values(array_filter($output, static fn (string $line): bool => str_contains($line, 'Password resets'))));
+
+        [$code, $output] = $this->check(['--guard' => ['machine', 'api']]);
+
+        self::assertSame(0, $code);
+        self::assertSame([$warning('api')], array_values(array_filter($output, static fn (string $line): bool => str_contains($line, 'Password resets'))));
+    }
+
+    /**
+     * While Laravel's notification is the reset link sender, a `jwt` guard
+     * identifying passwords by anything but `email` is warned about; with a
+     * sender of the application's own, or an `email` identifier, it is not.
+     *
+     * @return void
+     */
+    public function testTheDefaultSenderWithAnotherIdentifierIsAWarning(): void
+    {
+        config()->set('auth.guards.api.sign_in', ['password_identifier' => 'phone']);
+
+        $warning = '[api] Password reset links are refused: the guard identifies passwords by [phone], and the bound '
+            . NotifyingResetLinkSender::class . ', Laravel\'s notification, can only link an email address.';
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(0, $code);
+        self::assertContains($warning, $output);
+        self::assertCount(1, array_filter($output, static fn (string $line): bool => str_contains($line, 'Password reset links')));
+
+        FakePasswordResetLinkSender::fake($this->app);
+
+        self::assertNotContains($warning, $this->check()[1]);
+    }
+
+    /**
+     * Settings a guard's own checks report raise no reset warning: a malformed
+     * password identifier, or a device model that is not one.
+     *
+     * @return void
+     */
+    public function testMalformedSettingsRaiseNoResetWarning(): void
+    {
+        config()->set('auth.guards.api.sign_in', ['password_identifier' => 'Not A Column']);
+
+        self::assertSame([], array_values(array_filter($this->check()[1], static fn (string $line): bool => str_contains($line, 'Password reset'))));
+
+        config()->set('authentication.device.model', \stdClass::class);
+
+        [$code, $output] = $this->check();
+
+        self::assertSame(1, $code);
+        self::assertSame([], array_values(array_filter($output, static fn (string $line): bool => str_contains($line, 'Password reset'))));
     }
 
     /**
@@ -650,6 +745,8 @@ final class CheckConfigurationCommandTest extends TestCase
         $config->set('auth.guards.admin', ['driver' => 'jwt', 'provider' => 'users']);
         $config->set('auth.providers.machines', ['driver' => 'model', 'model' => MachineClient::class]);
         $config->set('auth.guards.machine', ['driver' => 'api_key', 'provider' => 'machines', 'audience' => ['methods' => ['api_key']]]);
+        $config->set('queue.default', 'database');
+        $config->set('queue.connections.database', ['driver' => 'database']);
     }
 
     /**

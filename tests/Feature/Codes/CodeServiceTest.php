@@ -109,7 +109,7 @@ final class CodeServiceTest extends TestCase
      */
     public function testSendingQueuesTheDelivery(): void
     {
-        config()->set('authentication.codes.queue', ['connection' => 'deliveries', 'name' => 'codes']);
+        config()->set('authentication.delivery.queue', ['connection' => 'deliveries', 'name' => 'codes']);
         config()->set('queue.connections.deliveries', ['driver' => 'database']);
 
         Event::fake([AuthenticationFailed::class]);
@@ -681,7 +681,7 @@ final class CodeServiceTest extends TestCase
     public static function provideMalformedSettings(): iterable
     {
         yield from [
-            'delivery connection not configured' => [['authentication.codes.queue.connection' => 'missing'], 'authentication.codes.queue.connection must name a connection'],
+            'delivery connection not configured' => [['authentication.delivery.queue.connection' => 'missing'], 'authentication.delivery.queue.connection must name a connection'],
             'code length out of range'           => [['authentication.codes.length' => 5], 'authentication.codes.length must be an integer from 6 to 10.'],
             'a code key that is too short'       => [['authentication.codes.key' => 'too-short'], 'authentication.codes.key must be a string of at least 32 bytes'],
             'no code key and no application key' => [['authentication.codes.key' => null, 'app.key' => null], 'One-time codes are keyed with `authentication.codes.key`'],

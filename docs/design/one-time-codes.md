@@ -9,20 +9,29 @@ request for a code looks the same whether or not anyone has the identifier, and 
 
 ## Invariants
 
-- A code is bound to a purpose (`sign_in` or `verify_identifier`), a guard, an identifier type and the identifier in its
-  normal form, and, for a verification, the identity (`AccountAttempts::account()`). One live code exists per binding:
+- A code is bound to a purpose (`sign_in`, `verify_identifier`, `password_reset`, `password_reset_link` or
+  `change_identifier`), a guard, an identifier type and the identifier in its normal form, and, for a verification, the
+  identity (`AccountAttempts::account()`; for a change, the identity and its change request). One live code exists per binding:
   its row is keyed by `HMAC-SHA256(key', "binding\0purpose\0guard\0type\0identifier\0identity")`.
 - The code is `length` digits from `random_int()`, zero-padded, stored only as `HMAC-SHA256(key'', "code\0binding
   digest\0issue id\0code")`, compared with `hash_equals()`. `key'` and `key''` are separate derivations of
   `authentication.codes.key` (at least 32 bytes) or, when it is not set, of `app.key`. The table holds no code and no
   identifier; `OneTimeCode::toArray()` hides the binding digest, the issuance and the hash.
+- A password reset link's token (`issueToken()`) is the binding's live secret in the same row: 32 random bytes,
+  base64url (43 characters), stored as the same keyed hash, under the same resend cooldown, with the lifetime the
+  caller gives. `checkToken()` counts no attempt (256 bits cannot be guessed), answers `expired` only for the right
+  token, and accepts only when its conditional consume wins. Reset codes and tokens are delivered by their own job
+  (`SendPasswordReset`, see `passwords.md`); `SendOneTimeCode` refuses any purpose but `sign_in` and
+  `verify_identifier`. `invalidate()` deletes the live secrets of a set of bindings in one statement.
 - Every issuance has a random `issue_id`. Every attempt, use and delivery is conditional on the `issue_id` the caller
   read, so a check or a delivery job for an issuance a resend replaced never touches the replacement, even when the
   resend drew the same digits.
 - Issuing replaces the binding's code only when it was issued at least `resend_cooldown_seconds` ago (one conditional
   `UPDATE`), and otherwise creates it with `insertOrIgnore` against the primary key; neither writing means a code was
   issued within the cooldown, and the answer is the seconds left (at least 1). No unique violation is ever caught, so a
-  PostgreSQL transaction around a request is never aborted.
+  PostgreSQL transaction around a request is never aborted. `issueFirst()`, for a binding that names a request of its
+  own (an identifier change's), tries the insert before the replacement, so the request's transaction locks no gap of
+  the index (MySQL's `UPDATE` of a missing key would, and two requests inserting into it would deadlock).
 - A check reads the row on the write connection. No row or a used code is `invalid`; an expired code (`expires_at <=
   now`) is `expired`; one with `attempts >= max_attempts` is `exhausted`; none of these counts. Otherwise the attempt is
   counted before anything is compared, by `UPDATE ... SET attempts = attempts + 1 WHERE id AND issue_id AND consumed_at
@@ -37,15 +46,17 @@ request for a code looks the same whether or not anyone has the identifier, and 
   room, taken on every request and never given back, and the cooldown must have passed. A code is then issued for any
   identifier and its delivery queued, so the result, the statements and the time are the same for an identifier no one
   has.
-- Delivery is the `SendOneTimeCode` job (`ShouldQueue`, `ShouldBeEncrypted`), dispatched through `AfterCommit` on the
-  code row's connection, so only a committed code is delivered and a rolled-back one never is. It is never inline: on a
+- Delivery is the `SendOneTimeCode` job (`ShouldQueue`, `ShouldBeEncrypted`), dispatched through
+  `Delivery\QueuedDelivery` (every delivery job the package queues goes through it, with the
+  `authentication.delivery.queue` settings), which waits on `AfterCommit` for the code row's connection, so only a
+  committed code is delivered and a rolled-back one never is. It is never inline: on a
   connection whose driver is `sync` it is dispatched with `dispatchAfterResponse()`, which runs in the application's
   terminating callbacks. A `failover` connection that lists a `sync` one, directly or through another `failover` (a
   connection already on the path is not followed again), runs the job during its dispatch whenever the connections
-  before it fail, so the job is pushed to it from the terminating callbacks instead (`CodeSettings::fallsBackToSync()`):
+  before it fail, so the job is pushed to it from the terminating callbacks instead (`DeliverySettings::fallsBackToSync()`):
   a worker-backed connection still receives it, and a fall back runs it after the response. `authentication:check`
-  warns about both settings. The job sets `beforeCommit()`, since the
-  package has already waited for its own row's commit.
+  warns about both settings while any `jwt` guard is configured (any may send a code, a reset or an identifier change).
+  The job sets `beforeCommit()`, since the package has already waited for its own row's commit.
 - The job first checks, on the write connection, that its issuance is still the binding's live, unused, unexpired code;
   otherwise it sends nothing. A sign-in code goes only to the identity the guard's provider finds by the identifier that
   is an `Identity`, not a `MachineIdentity`, active, `HasVerifiableIdentifiers`, holds exactly the bound identifier

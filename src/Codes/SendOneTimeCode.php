@@ -44,7 +44,9 @@ use SineMacula\Laravel\Authentication\Verification\IdentifierVerifier;
  * sender fails the job, and the application's retry policy applies; an unbound
  * sender is a `BindingResolutionException`. A verification job whose identity
  * was deleted before it ran is dropped, not failed; the class attribute, rather
- * than a property, is what every supported Laravel version reads for that.
+ * than a property, is what every supported Laravel version reads for that. A
+ * code of any other purpose has a delivery job of its own, so this one refuses
+ * it with a `LogicException`.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -83,15 +85,18 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
+     * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public function handle(Container $container): void
     {
+        $purpose = self::deliverable($this->binding->purpose);
+
         if (!$container->make(OneTimeCodes::class)->isCurrent($this->binding, $this->issued->issueId, CarbonImmutable::now()->startOfSecond())) {
             return;
         }
 
-        $recipient = $this->binding->purpose === CodePurpose::SIGN_IN ? $this->signInRecipient($container) : $this->verificationRecipient($container);
+        $recipient = $purpose === CodePurpose::SIGN_IN ? $this->signInRecipient($container) : $this->verificationRecipient($container);
 
         if ($recipient === null) {
             return;
@@ -106,6 +111,24 @@ final class SendOneTimeCode implements ShouldBeEncrypted, ShouldQueue
             $this->issued->expiresAt,
             $recipient,
         ));
+    }
+
+    /**
+     * The purpose, when this job delivers its codes: a sign-in or a
+     * verification.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose  $purpose
+     * @return \SineMacula\Laravel\Authentication\Codes\Enums\CodePurpose
+     *
+     * @throws \LogicException
+     */
+    private static function deliverable(CodePurpose $purpose): CodePurpose
+    {
+        if ($purpose !== CodePurpose::SIGN_IN && $purpose !== CodePurpose::VERIFY_IDENTIFIER) {
+            throw new \LogicException(sprintf('%s delivers only sign-in and verification codes, not [%s] codes.', self::class, $purpose->value));
+        }
+
+        return $purpose;
     }
 
     /**

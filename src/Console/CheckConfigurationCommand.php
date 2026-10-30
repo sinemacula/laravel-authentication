@@ -17,9 +17,12 @@ use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\OneTimeCodeSender;
 use SineMacula\Laravel\Authentication\Database\DeviceRetention;
+use SineMacula\Laravel\Authentication\Delivery\DeliverySettings;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 use SineMacula\Laravel\Authentication\Guards\ApiKeyGuard;
+use SineMacula\Laravel\Authentication\Guards\JwtGuards;
 use SineMacula\Laravel\Authentication\Http\RefreshTokenSettings;
+use SineMacula\Laravel\Authentication\IdentifierChanges\IdentifierChangeSettings;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeyChallenges;
 use SineMacula\Laravel\Authentication\Passkeys\PasskeySignIn;
@@ -46,14 +49,19 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * principal resolver override, the package audience policy's settings and that
  * they allow `api_key`, and every flow's rate limits. The package-wide settings
  * are reported as `[device]` (the device model and the pruning retention),
- * `[sign_in]` (the pending sign-in lifetime), `[codes]` (the one-time code
- * settings and key, and a sender bound when a guard allows a code sign-in
- * method, the package's or an application's own `CodeSignIn`, with a warning,
- * not a problem, when their delivery runs on a `sync` queue connection),
- * `[passkeys]` (the passkey challenge lifetime) and `[api_keys]` (the key
+ * `[sign_in]` (the pending sign-in lifetime), `[passwords]` (the password
+ * policy settings), `[codes]` (the one-time code settings and key, and a sender
+ * bound when a guard allows a code sign-in method, the package's or an
+ * application's own `CodeSignIn`), `[delivery]` (the delivery queue, with a
+ * warning, not a problem, when a `jwt` guard is configured and deliveries run
+ * on a `sync` queue connection, or a `failover` one that can fall back to
+ * `sync`), `[passkeys]` (the passkey challenge lifetime), `[api_keys]` (the key
  * prefix, the rotation overlaps, the last-use throttle and the pruning
- * retention). The command reads configuration only: it opens no database
- * connection and prints no secret.
+ * retention) and `[identifier_changes]` (the pending change lifetime and the
+ * recent-authentication window). It also warns about a `jwt` guard whose
+ * password resets and identifier changes would refuse to run (see
+ * `PasswordChecks::warnings()`). The command reads configuration only: it opens
+ * no database connection and prints no secret.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -97,7 +105,11 @@ final class CheckConfigurationCommand extends Command
             $problems = [...$problems, ...$found];
         }
 
-        $this->warnAboutSynchronousCodeDelivery($config);
+        $this->warnAboutSynchronousDelivery($config);
+
+        foreach ((new PasswordChecks($this->laravel, $config))->warnings($guards) as $warning) {
+            $this->warn($warning);
+        }
 
         foreach ($guards as $guard) {
             $problems = [...$problems, ...self::prefixed($guard, $this->guardProblems($guard, $config))];
@@ -113,8 +125,9 @@ final class CheckConfigurationCommand extends Command
     /**
      * The package-wide checks, by what they check: the device model and how
      * long pruning keeps a device, the lifetime of a pending sign-in (a further
-     * factor or a principal choice), and the API key settings, each of which
-     * otherwise fails only when it is first used.
+     * factor or a principal choice), the API key settings and the identifier
+     * change settings, each of which otherwise fails only when it is first
+     * used.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return array<string, list<\Closure(): mixed>>
@@ -131,7 +144,13 @@ final class CheckConfigurationCommand extends Command
             'sign_in' => [
                 static fn (): int => (new PendingSignIns($config))->ttlSeconds(),
             ],
-            'codes'    => $this->codeChecks($config),
+            'passwords' => (new PasswordChecks($this->laravel, $config))->settings(),
+            'codes'     => $this->codeChecks($config),
+            'delivery'  => [
+                static function () use ($config): void {
+                    (new DeliverySettings($config))->validate();
+                },
+            ],
             'passkeys' => [
                 static fn (): int => (new PasskeyChallenges($config))->ttlSeconds(),
             ],
@@ -141,13 +160,31 @@ final class CheckConfigurationCommand extends Command
                 static fn (): int => ApiKeySettings::lastUsedThrottleSeconds(),
                 static fn (): int => ApiKeySettings::pruneAfterDays(),
             ],
+            'identifier_changes' => self::identifierChangeChecks($config),
+        ];
+    }
+
+    /**
+     * The checks of the identifier change settings, each of which otherwise
+     * fails only when a change is first requested or confirmed: the pending
+     * change's lifetime and the recent-authentication window.
+     *
+     * @param  \Illuminate\Config\Repository  $config
+     * @return list<\Closure(): mixed>
+     */
+    private static function identifierChangeChecks(ConfigRepository $config): array
+    {
+        return [
+            static function () use ($config): void {
+                (new IdentifierChangeSettings($config))->validate();
+            },
         ];
     }
 
     /**
      * The checks of the one-time code settings, each of which otherwise fails
-     * only when a code is first issued: the numbers and the queue settings, the
-     * key, and a sender bound when a guard allows a code sign-in method.
+     * only when a code is first issued: the numbers, the key, and a sender
+     * bound when a guard allows a code sign-in method.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return list<\Closure(): mixed>
@@ -175,18 +212,19 @@ final class CheckConfigurationCommand extends Command
     }
 
     /**
-     * Warn, without failing, when a guard allows a code sign-in method and the
-     * codes are delivered on a `sync` queue connection, or on a `failover` one
-     * that can fall back to `sync`: delivery then runs in the web process after
-     * a response, where a worker is the production setting. Malformed queue
-     * settings are left to the `[codes]` checks.
+     * Warn, without failing, when a `jwt` guard is configured and the package's
+     * deliveries (one-time codes, password reset links and codes, identifier
+     * change codes and notices) run on a `sync` queue connection, or on a
+     * `failover` one that can fall back to `sync`: delivery then runs in the
+     * web process after a response, where a worker is the production setting.
+     * Malformed queue settings are left to the `[delivery]` check.
      *
      * @param  \Illuminate\Config\Repository  $config
      * @return void
      */
-    private function warnAboutSynchronousCodeDelivery(ConfigRepository $config): void
+    private function warnAboutSynchronousDelivery(ConfigRepository $config): void
     {
-        $settings = new CodeSettings($config);
+        $settings = new DeliverySettings($config);
 
         try {
             $synchronous = $settings->deliversSynchronously();
@@ -195,16 +233,18 @@ final class CheckConfigurationCommand extends Command
             return;
         }
 
-        if ((!$synchronous && !$fallsBack) || $this->codeGuards($config) === []) {
+        if ((!$synchronous && !$fallsBack) || JwtGuards::names($config) === []) {
             return;
         }
 
         $this->warn($synchronous
-            ? '[codes] One-time codes are delivered on a `sync` queue connection, after each response in the web process; '
-                . 'set `authentication.codes.queue.connection` to a worker-backed connection in production.'
-            : '[codes] One-time codes are delivered on a `failover` queue connection that can fall back to `sync`; each delivery is '
-                . 'pushed after the response, and runs in the web process when it falls back. Set `authentication.codes.queue.connection` '
-                . 'to a worker-backed connection that cannot in production.');
+            ? '[delivery] One-time codes, password reset links and codes, and identifier change codes and notices are delivered on a `sync` '
+                . 'queue connection, after each response in the web process; set `authentication.delivery.queue.connection` to a '
+                . 'worker-backed connection in production.'
+            : '[delivery] One-time codes, password reset links and codes, and identifier change codes and notices are delivered on a '
+                . '`failover` queue connection that can fall back to `sync`; each delivery is pushed after the response, and runs in the '
+                . 'web process when it falls back. Set `authentication.delivery.queue.connection` to a worker-backed connection that '
+                . 'cannot in production.');
     }
 
     /**

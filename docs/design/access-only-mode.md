@@ -60,7 +60,8 @@ principal auth without device tracking or refresh rotation.
 - `src/Guards/JwtGuard.php`: `resolveBearerToken()`; `src/Guards/BearerAuthentication.php`: `isIssuedAfterCutoff()`.
 - `src/Sessions/IdentityDevices.php`: `find()`, which finds no device for an identity without `HasDevices`.
 - `src/Sessions/RevocationScope.php`: `identity()`, `principal()`, which leave the package's tables alone for an
-  identity without `HasDevices`.
+  identity without `HasDevices`, but for the `identifier_changes` rows an identity's scope cancels when the identity
+  implements `HasChangeableIdentifiers` (so such an identity needs that migration).
 - `src/Guards/AbstractGuard.php`: `bindAuthenticationLifecycle()`.
 - `src/AuthenticationServiceProvider.php`: `createJwtGuard()`; `src/Exceptions/InvalidDeviceModelConfigurationException.php`:
   `validate()`.

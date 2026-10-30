@@ -17,9 +17,9 @@ use Tests\TestCase;
 
 /**
  * Feature tests for finding a device of the configured model by its identifier:
- * from the write connection, without a query for an identifier that cannot be a
- * key, and only for a correctly configured model. The default connection is a
- * read/write split whose replica lags behind.
+ * from the write connection, its row locked when asked, without a query for an
+ * identifier that cannot be a key, and only for a correctly configured model.
+ * The default connection is a read/write split whose replica lags behind.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -83,6 +83,34 @@ final class DeviceLookupTest extends TestCase
         self::assertNull(DeviceLookup::find('not-a-uuid'));
         self::assertNull(DeviceLookup::find(42));
         self::assertNull(DeviceLookup::find(null));
+        self::assertSame(1, $queries);
+    }
+
+    /**
+     * The locking lookup finds a device only the primary holds yet, as the
+     * instance of the configured model, and rejects an identifier that cannot
+     * be a key without a query.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheLockingLookupFindsTheDeviceOnThePrimary(): void
+    {
+        $device = new Device;
+        $device->forceFill([...self::liveSession(), 'authenticatable_type' => 'owner', 'authenticatable_id' => '1'])->save();
+
+        $queries = 0;
+
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries++;
+        });
+
+        $found = DB::transaction(static fn (): mixed => DeviceLookup::lock($device->getKey()));
+
+        self::assertInstanceOf(Device::class, $found);
+        self::assertSame([$device->getKey(), 1], [$found->getKey(), $queries]);
+        self::assertNull(DeviceLookup::lock('not-a-uuid'));
         self::assertSame(1, $queries);
     }
 

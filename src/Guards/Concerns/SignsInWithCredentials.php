@@ -77,7 +77,7 @@ trait SignsInWithCredentials
 
         $accounts = new AccountAttempts($limiter, $this->name);
 
-        $outcome = $this->timebox->call(
+        $outcome = $this->withinTimebox(
             function (Timebox $timebox) use ($password, $credentials, $principal, $device, $client, $audience, $type, $accounts): AdmittedSignIn|RefusedSignIn {
 
                 $user = $this->verifyAttemptedCredentials($password, $credentials, $accounts);
@@ -103,7 +103,6 @@ trait SignsInWithCredentials
 
                 return $outcome;
             },
-            $this->timeboxMicroseconds(),
         );
 
         if ($outcome instanceof AdmittedSignIn) {

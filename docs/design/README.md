@@ -41,8 +41,15 @@ The current note set is:
   the same for an identifier no one has, and who a code is ever sent to.
 - `passkeys.md`: how a guard's passkeys are registered, used to sign in usernameless and verified as a further factor,
   the single-use challenges, the relying party they are scoped to, and the sign counter rule.
+- `passwords.md`: the password policy and its breached-password seam, the one helper a registration, a change and a
+  reset set a password through, what each flow ends, why password reset is not Laravel's broker, and how a reset spends
+  its link's token or code with the new password and the revocation.
 - `machine-credentials.md`: how non-human identities authenticate, and the scope convention the suite follows: scopes
   carried, never interpreted, and held to an optional registry when a credential is issued.
+- `identifier-changes.md`: how an identity's email address or phone number is replaced once the new one is proven,
+  after a recent authentication, unique on its normalised value under a race, invalidating the proofs it outdates.
+- `testing-helpers.md`: how a test acts as an identity, principal or device's session on a package guard, how that
+  survives the requests it sends and ends on a sign-out, what the bound-context assertions compare, and the fakes.
 
 These documents are secondary to the code and tests, not a replacement for them. If a note and a cited test disagree,
 the test should be treated as authoritative until the mismatch is resolved.

@@ -103,7 +103,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $this->resolver()->setHintedPrincipal('principal-live', $principal);
 
         $jwt = PackageAuth::jwt(self::GUARD);
-        assert($jwt !== null);
 
         $token = $jwt->issueAccessToken($identity, $principal, null);
 
@@ -133,7 +132,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $this->resolver()->setHintedPrincipal('principal-live', $activePrincipal);
 
         $jwt = PackageAuth::jwt(self::GUARD);
-        assert($jwt !== null);
 
         $token = $jwt->issueAccessToken($identity, $activePrincipal, null);
 
@@ -161,7 +159,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $this->resolver()->setHintedPrincipal((string) $identity->getKey(), $identity); // @phpstan-ignore cast.string
 
         $jwt = PackageAuth::jwt(self::GUARD);
-        assert($jwt !== null);
 
         $token = $jwt->issueAccessToken($identity, $identity, $device);
 
@@ -185,7 +182,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $device   = $this->seedDevice($identity, 'stored-rotation-id');
 
         $jwt = PackageAuth::jwt(self::GUARD);
-        assert($jwt !== null);
 
         $token = $jwt->issueRefreshToken($device, 'stored-rotation-id', $identity);
 
@@ -212,7 +208,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $inactivePrincipal = new PlainPrincipalFixture('principal-refresh', $identity, null, false);
 
         $jwt = PackageAuth::jwt(self::GUARD);
-        assert($jwt !== null);
 
         $token = $jwt->issueRefreshToken($device, 'refresh-principal-rotation', $activePrincipal);
 
@@ -235,7 +230,6 @@ final class JwtGuardResolutionFreshnessIntegrationTest extends TestCase
         $device   = $this->seedDevice($identity, 'refresh-device-delete');
 
         $jwt = PackageAuth::jwt(self::GUARD);
-        assert($jwt !== null);
 
         $token = $jwt->issueRefreshToken($device, 'refresh-device-delete', $identity);
 

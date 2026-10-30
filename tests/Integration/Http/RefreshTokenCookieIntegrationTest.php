@@ -164,7 +164,7 @@ final class RefreshTokenCookieIntegrationTest extends TestCase
 
         $response = $this->browser('POST', '/auth/sign-in')->assertOk();
         $cookie   = self::refreshCookie($response);
-        $claims   = Auth::jwt('api')?->parse($cookie->getValue() ?? '', TokenType::REFRESH);
+        $claims   = Auth::jwt('api')->parse($cookie->getValue() ?? '', TokenType::REFRESH);
 
         self::assertIsArray($claims);
         self::assertSame($claims[Claims::EXPIRES_AT->value], $cookie->getExpiresTime());

@@ -105,10 +105,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 
         $this->bindResolvers($staffPrincipal, $customerPrincipal);
 
-        $staffJwt = PackageAuth::jwt(self::STAFF_GUARD);
-        assert($staffJwt !== null);
+        $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
         $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
-        assert($customerJwt !== null);
 
         $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null);
         $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null);
@@ -160,10 +158,8 @@ final class GuardScopedPrincipalResolverIntegrationTest extends TestCase
 
         $this->bindResolvers($staffPrincipal, $customerPrincipal);
 
-        $staffJwt = PackageAuth::jwt(self::STAFF_GUARD);
-        assert($staffJwt !== null);
+        $staffJwt    = PackageAuth::jwt(self::STAFF_GUARD);
         $customerJwt = PackageAuth::jwt(self::CUSTOMER_GUARD);
-        assert($customerJwt !== null);
 
         $staffToken    = $staffJwt->issueAccessToken($identity, $staffPrincipal, null);
         $customerToken = $customerJwt->issueAccessToken($identity, $customerPrincipal, null);

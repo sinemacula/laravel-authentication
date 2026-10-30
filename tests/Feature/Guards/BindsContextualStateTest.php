@@ -324,6 +324,35 @@ final class BindsContextualStateTest extends AbstractGuardTestCase
     }
 
     /**
+     * `authenticateAs()` limits a machine identity to the scopes it is given,
+     * as a credential granting them would, and its events carry them; given
+     * scopes for a human identity, which no credential limits, it binds nothing
+     * and throws.
+     *
+     * @return void
+     */
+    public function testAuthenticateAsLimitsAMachineToTheScopesGiven(): void
+    {
+        $machine = $this->mockIdentity(MachineIdentity::class);
+        $events  = $this->recordEvents();
+        $guard   = $this->makeGuard();
+
+        $guard->authenticateAs($machine, $this->principal, null, ['reports:read']);
+
+        self::assertSame(['reports:read'], $guard->scopes());
+        self::assertSame(['reports:read'], $this->contextsOf($events, PrincipalAssigned::class)[0]->scopes);
+
+        try {
+            $guard->authenticateAs($this->identity, $this->principal, null, []);
+            self::fail('A human was bound with scopes.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringStartsWith('Scopes limit the credential of a machine identity; ', $exception->getMessage());
+        }
+
+        self::assertSame($machine, $guard->identity());
+    }
+
+    /**
      * A machine identity bound through any trusted bind, with no credential, is
      * limited to no scope: a trusted bind never gives a machine access without
      * a ceiling.
