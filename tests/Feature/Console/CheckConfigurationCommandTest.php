@@ -153,11 +153,11 @@ final class CheckConfigurationCommandTest extends TestCase
         ];
         yield 'a pruning retention out of range' => [
             ['authentication.device.prune_after_days' => 3651],
-            '[device] `authentication.device.prune_after_days` must be an integer from 0 to 3650 days.',
+            '[device] authentication.device.prune_after_days must be an integer from 0 to 3650.',
         ];
         yield 'a pending sign-in lifetime out of range' => [
             ['authentication.sign_in.pending_ttl_seconds' => 5],
-            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600 seconds.',
+            '[sign_in] authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600.',
         ];
         yield 'a password minimum below 8' => [
             ['authentication.passwords.min_length' => 7],
@@ -197,7 +197,7 @@ final class CheckConfigurationCommandTest extends TestCase
         ];
         yield 'a passkey challenge lifetime out of range' => [
             ['authentication.passkeys.challenge_ttl_seconds' => 601],
-            '[passkeys] authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600 seconds.',
+            '[passkeys] authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600.',
         ];
         yield 'a guard that allows passkeys without a relying party' => [
             ['auth.guards.api.audience' => ['methods' => ['password', 'passkey']]],
@@ -217,23 +217,23 @@ final class CheckConfigurationCommandTest extends TestCase
         ];
         yield 'an API key prefix out of form' => [
             ['authentication.api_keys.prefix' => 'Acme'],
-            '[api_keys] `authentication.api_keys.prefix` must be a lower-case letter',
+            '[api_keys] authentication.api_keys.prefix must be a lower-case letter',
         ];
         yield 'an API key rotation overlap beyond the maximum' => [
             ['authentication.api_keys.rotation_overlap_seconds' => 700000],
-            '[api_keys] `authentication.api_keys.rotation_overlap_seconds` must be an integer from 0 to',
+            '[api_keys] authentication.api_keys.rotation_overlap_seconds must be an integer from 0 to',
         ];
         yield 'an API key rotation overlap maximum out of range' => [
             ['authentication.api_keys.max_rotation_overlap_seconds' => 2592001],
-            '[api_keys] `authentication.api_keys.max_rotation_overlap_seconds` must be an integer from 0 to 2592000 seconds.',
+            '[api_keys] authentication.api_keys.max_rotation_overlap_seconds must be an integer from 0 to 2592000.',
         ];
         yield 'an API key last-use throttle out of range' => [
             ['authentication.api_keys.last_used_throttle_seconds' => -1],
-            '[api_keys] `authentication.api_keys.last_used_throttle_seconds` must be an integer from 0 to 86400 seconds.',
+            '[api_keys] authentication.api_keys.last_used_throttle_seconds must be an integer from 0 to 86400.',
         ];
         yield 'an API key pruning retention out of range' => [
             ['authentication.api_keys.prune_after_days' => 'month'],
-            '[api_keys] `authentication.api_keys.prune_after_days` must be an integer from 0 to 3650 days.',
+            '[api_keys] authentication.api_keys.prune_after_days must be an integer from 0 to 3650.',
         ];
         yield 'an api_key guard whose provider is not an identity provider' => [
             ['auth.guards.machine.provider' => 'missing'],

@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Jwt;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Foundation\Application;
 use Psr\Log\LoggerInterface;
+use SineMacula\Laravel\Authentication\Config\IntegerSetting;
 
 /**
  * Guard-scoped JWT token-service factory.
@@ -237,7 +238,7 @@ final class JwtTokenServiceFactory
         }
 
         $max     = self::PRINCIPAL_TYPE_KEYS[$key];
-        $integer = self::toInteger($overrides[$key]);
+        $integer = IntegerSetting::parse($overrides[$key]);
 
         if ($integer === null || $integer < TokenLifetimes::MIN_TTL_MINUTES || $integer > $max) {
 
@@ -421,7 +422,7 @@ final class JwtTokenServiceFactory
     private function resolveJwtInteger(string $guard, #[\SensitiveParameter] array $guardJwtConfig, string $key, int $min, int $max): int
     {
         $value   = $guardJwtConfig[$key] ?? $this->config->get("authentication.jwt.{$key}");
-        $integer = self::toInteger($value);
+        $integer = IntegerSetting::parse($value);
 
         if ($integer === null || $integer < $min || $integer > $max) {
 
@@ -432,23 +433,6 @@ final class JwtTokenServiceFactory
         }
 
         return $integer;
-    }
-
-    /**
-     * Read an integer, or the canonical string form of one (no padding,
-     * fraction, or leading zero), as an integer. A signed value is read as
-     * negative, which every key's range rejects.
-     *
-     * @param  mixed  $value
-     * @return ?int
-     */
-    private static function toInteger(mixed $value): ?int
-    {
-        if (is_int($value)) {
-            return $value;
-        }
-
-        return is_string($value) && (string) (int) $value === $value ? (int) $value : null;
     }
 
     /**

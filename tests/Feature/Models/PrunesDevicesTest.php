@@ -142,7 +142,7 @@ final class PrunesDevicesTest extends TestCase
         config()->set('authentication.device.prune_after_days', $days);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('`authentication.device.prune_after_days` must be an integer from 0 to 3650 days.');
+        $this->expectExceptionMessage('authentication.device.prune_after_days must be an integer from 0 to 3650.');
 
         (new Device)->prunable();
     }

@@ -154,7 +154,7 @@ final class ApiKeyTest extends TestCase
         Config::set('authentication.api_keys.prune_after_days', 3651);
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('`authentication.api_keys.prune_after_days` must be an integer from 0 to 3650 days.');
+        $this->expectExceptionMessage('authentication.api_keys.prune_after_days must be an integer from 0 to 3650.');
 
         (new ApiKey)->prunable();
     }
