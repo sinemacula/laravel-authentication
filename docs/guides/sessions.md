@@ -70,11 +70,13 @@ response, retried) or the token's own principal is the target; anything else is 
 and the client retries with its current token. When another request changes the device between the switch's read and its
 write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
 
-A switch dispatches `PrincipalSwitched` once committed on the device's connection, with the new principal and tenant in
+A switch schedules `PrincipalSwitched` for its commit on the device's connection, with the new principal and tenant in
 its context, and the previous principal as the device recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
-and, when it still resolves for the identity, the principal itself (`previousPrincipal`); then it binds the guard to the
-target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`), so a listener that throws on those
-cannot withhold the report.
+and, when it still resolves for the identity, the principal itself (`previousPrincipal`), before it binds the guard to
+the target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`), so a listener that throws on those
+cannot withhold the report. Outside a transaction `PrincipalSwitched` is therefore dispatched before the bind events,
+and a listener on it reads the event's context, not the guard, which still holds the previous principal; inside your
+transaction it follows the commit, after the bind events, and a rollback drops it.
 
 ## Signing out and revoking sessions
 
