@@ -7,6 +7,7 @@ namespace Tests\Feature\Contracts;
 use Carbon\CarbonImmutable;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ use SineMacula\Laravel\Authentication\Codes\CodeBinding;
 use SineMacula\Laravel\Authentication\Codes\IssuedCode;
 use SineMacula\Laravel\Authentication\Codes\OneTimeCodes;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
+use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Factors\AdditionalFactorContext;
@@ -35,6 +37,7 @@ use SineMacula\Laravel\Authentication\Sessions\Reauthentication;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\ChangesIdentifiers;
 use Tests\Concerns\InteractsWithMachineClients;
 use Tests\Concerns\InteractsWithPasswords;
@@ -121,10 +124,11 @@ final class EventSequenceTest extends TestCase
      */
     public function testASuccessfulAttemptBindsAsASignInWithoutASession(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
         self::assertTrue($guard->attempt(self::credentials()));
@@ -146,10 +150,11 @@ final class EventSequenceTest extends TestCase
      */
     public function testAWrongPasswordFailsTheAttemptWithTheAccountItFound(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
         self::assertFalse($guard->attempt(['email' => 'ada@example.test', 'password' => 'wrong']));
@@ -171,11 +176,12 @@ final class EventSequenceTest extends TestCase
      */
     public function testAnAttemptThatNeedsAFurtherFactorFailsAfterValidating(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
         self::assertFalse($guard->attempt(self::credentials()));
@@ -197,10 +203,11 @@ final class EventSequenceTest extends TestCase
      */
     public function testAnAttemptWithoutADefaultPrincipalFailsAfterValidating(): void
     {
-        $this->seedChooser();
+        [$chooser] = $this->seedChooser();
 
         $guard = $this->freshGuard('choosers');
 
+        $this->nameKeys($chooser, null);
         $this->recordSequence();
 
         self::assertFalse($guard->attempt(self::credentials('chooser@example.test')));
@@ -249,10 +256,11 @@ final class EventSequenceTest extends TestCase
      */
     public function testValidateReportsOnlyCredentialsItAccepts(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
         self::assertFalse($guard->validate(['email' => 'ada@example.test', 'password' => 'wrong']));
@@ -275,6 +283,7 @@ final class EventSequenceTest extends TestCase
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity, $device);
         $this->recordSequence();
 
         $guard->login($identity, $identity, $device);
@@ -302,6 +311,7 @@ final class EventSequenceTest extends TestCase
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity, $device);
         $this->recordSequence();
 
         $guard->authenticateAs($identity, $identity, $device);
@@ -322,13 +332,14 @@ final class EventSequenceTest extends TestCase
      */
     public function testABearerTokenAuthenticatesWithoutASignIn(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
-        $access = $this->signedIn()->tokens->accessToken;
+        $session = $this->signedIn();
 
+        $this->nameKeys($identity, $identity, $session->device);
         $this->recordSequence();
 
-        self::assertNotNull($this->bearerGuard($access)->user());
+        self::assertNotNull($this->bearerGuard($session->tokens->accessToken)->user());
         self::assertSame([
             'Authenticated api i1',
             'PrincipalAssigned api i1/p1/d1',
@@ -367,6 +378,7 @@ final class EventSequenceTest extends TestCase
         $key      = $this->keys()->issue($machine, $machine, ['reports'])->key();
         $tampered = substr($key, 0, -1) . (str_ends_with($key, 'x') ? 'y' : 'x');
 
+        $this->nameKeys($machine, $machine);
         $this->recordSequence();
 
         self::assertNotNull($this->bearerGuard($key, 'keys')->user());
@@ -388,10 +400,11 @@ final class EventSequenceTest extends TestCase
      */
     public function testASignInReportsItsNewDeviceAndSessionBeforeTheBind(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $sessions = $this->sessions();
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
         $result = $sessions->signIn('password', self::credentials());
@@ -407,6 +420,7 @@ final class EventSequenceTest extends TestCase
             'PrincipalAssigned api i1/p1/d1',
             'DeviceAuthenticated api i1/p1/d1',
         ], $this->recordedSequence());
+        self::assertSame('d1', $this->nameOfSessionDevice($result));
     }
 
     /**
@@ -418,12 +432,13 @@ final class EventSequenceTest extends TestCase
      */
     public function testASignInThatProvesItsDeviceContinuesIt(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $first    = $this->signedIn();
         $sessions = $this->sessions();
         $context  = new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT), refreshToken: $first->tokens->refreshToken);
 
+        $this->nameKeys($identity, $identity, $first->device);
         $this->recordSequence();
 
         $result = $sessions->signIn('password', self::credentials(), $context);
@@ -450,11 +465,12 @@ final class EventSequenceTest extends TestCase
      */
     public function testASignInHeldForAFurtherFactorBindsNothing(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
         $result = $guard->sessions()->signIn('password', self::credentials());
@@ -477,10 +493,11 @@ final class EventSequenceTest extends TestCase
      */
     public function testASignInHeldForAChoiceOfPrincipalBindsNothing(): void
     {
-        $this->seedChooser();
+        [$chooser] = $this->seedChooser();
 
         $guard = $this->freshGuard('choosers');
 
+        $this->nameKeys($chooser, null);
         $this->recordSequence();
 
         $result = $guard->sessions()->signIn('password', self::credentials('chooser@example.test'));
@@ -536,9 +553,12 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
         $sessions = $this->sessions();
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        self::assertTrue($sessions->start($identity, null, 'sso')->isSignedIn());
+        $result = $sessions->start($identity, null, 'sso');
+
+        self::assertTrue($result->isSignedIn());
         self::assertSame([
             'DeviceCreated api i1/p1/d1',
             'SignedIn api new i1/p1/d1',
@@ -548,6 +568,7 @@ final class EventSequenceTest extends TestCase
             'PrincipalAssigned api i1/p1/d1',
             'DeviceAuthenticated api i1/p1/d1',
         ], $this->recordedSequence());
+        self::assertSame('d1', $this->nameOfSessionDevice($result));
     }
 
     /**
@@ -560,7 +581,7 @@ final class EventSequenceTest extends TestCase
      */
     public function testCompleteSignsInWithoutAttempting(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
         $token    = $this->sessions()->signIn('password', self::credentials())->pending?->token;
@@ -568,9 +589,12 @@ final class EventSequenceTest extends TestCase
 
         self::assertIsString($token);
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
-        self::assertTrue($sessions->complete($token)->isSignedIn());
+        $result = $sessions->complete($token);
+
+        self::assertTrue($result->isSignedIn());
         self::assertSame([
             'DeviceCreated api i1/p1/d1',
             'SignedIn api new i1/p1/d1',
@@ -580,6 +604,7 @@ final class EventSequenceTest extends TestCase
             'PrincipalAssigned api i1/p1/d1',
             'DeviceAuthenticated api i1/p1/d1',
         ], $this->recordedSequence());
+        self::assertSame('d1', $this->nameOfSessionDevice($result));
     }
 
     /**
@@ -599,6 +624,7 @@ final class EventSequenceTest extends TestCase
 
         self::assertIsString($token);
 
+        $this->nameKeys($chooser, $membership);
         $this->recordSequence();
 
         $result = $sessions->choose($token, $membership);
@@ -613,6 +639,7 @@ final class EventSequenceTest extends TestCase
             'PrincipalAssigned choosers i1/p1/d1',
             'DeviceAuthenticated choosers i1/p1/d1',
         ], $this->recordedSequence());
+        self::assertSame('d1', $this->nameOfSessionDevice($result));
     }
 
     /**
@@ -624,7 +651,7 @@ final class EventSequenceTest extends TestCase
      */
     public function testDiscardReportsTheHeldSignInsFailureOnce(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
         $this->requireAFurtherFactor();
 
         $token    = $this->sessions()->signIn('password', self::credentials())->pending?->token;
@@ -632,6 +659,7 @@ final class EventSequenceTest extends TestCase
 
         self::assertIsString($token);
 
+        $this->nameKeys($identity, $identity);
         $this->recordSequence();
 
         self::assertTrue($sessions->discard($token));
@@ -652,11 +680,13 @@ final class EventSequenceTest extends TestCase
      */
     public function testARefreshReportsTheRotationBeforeTheBind(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
-        $refresh = $this->signedIn()->tokens->refreshToken;
+        $session = $this->signedIn();
+        $refresh = $session->tokens->refreshToken;
         $guard   = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity, $session->device);
         $this->recordSequence();
 
         self::assertInstanceOf(RefreshResult::class, $guard->refresh($refresh));
@@ -683,10 +713,12 @@ final class EventSequenceTest extends TestCase
      */
     public function testARefreshFromTheRequestReportsAsARefreshDoes(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
-        $refresh = $this->signedIn()->tokens->refreshToken;
+        $session = $this->signedIn();
+        $refresh = $session->tokens->refreshToken;
 
+        $this->nameKeys($identity, $identity, $session->device);
         $this->recordSequence();
 
         self::assertNull($this->freshGuard()->refreshFromRequest());
@@ -717,7 +749,7 @@ final class EventSequenceTest extends TestCase
      */
     public function testAReplayedRefreshTokenRevokesTheDevice(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
         $session = $this->signedIn();
         $device  = $session->device;
@@ -729,6 +761,7 @@ final class EventSequenceTest extends TestCase
 
         $guard = $this->freshGuard();
 
+        $this->nameKeys($identity, $identity, $device);
         $this->recordSequence();
 
         self::assertNull($guard->refresh($refresh));
@@ -781,17 +814,19 @@ final class EventSequenceTest extends TestCase
      */
     public function testASwitchIsReportedAndBindsWithoutASignIn(): void
     {
-        [$member] = $this->seedMember();
+        [$member, $first] = $this->seedMember();
 
         $tenant  = ActivatableTenant::query()->create(['name' => 'Other', 'is_active' => true]);
         $second  = ActivatableTenantMembership::query()->create(['identity_id' => $member->getKey(), 'tenant_id' => $tenant->getKey()]);
-        $refresh = $this->signedIn('members', 'member@example.test')->tokens->refreshToken;
+        $session = $this->signedIn('members', 'member@example.test');
 
         $sessions = $this->sessions('members');
 
+        $this->nameKeys($member, $first, $session->device);
+        $this->namePrincipals($second);
         $this->recordSequence();
 
-        self::assertTrue($sessions->switchPrincipal($refresh, $second)->isSwitched());
+        self::assertTrue($sessions->switchPrincipal($session->tokens->refreshToken, $second)->isSwitched());
         self::assertSame([
             'PrincipalSwitched members from:p1 i1/p2/d1',
             'Authenticated members i1',
@@ -815,6 +850,7 @@ final class EventSequenceTest extends TestCase
 
         $guard->login($identity, $identity, $device);
 
+        $this->nameKeys($identity, $identity, $device);
         $this->recordSequence();
 
         self::assertTrue($guard->sessions()->signOut());
@@ -835,10 +871,12 @@ final class EventSequenceTest extends TestCase
      */
     public function testLogoutSignsTheRequestsSessionOut(): void
     {
-        $this->seedIdentity();
+        $identity = $this->seedIdentity();
 
-        $guard = $this->bearerGuard($this->signedIn()->tokens->accessToken);
+        $session = $this->signedIn();
+        $guard   = $this->bearerGuard($session->tokens->accessToken);
 
+        $this->nameKeys($identity, $identity, $session->device);
         $this->recordSequence();
 
         $guard->logout();
@@ -866,7 +904,7 @@ final class EventSequenceTest extends TestCase
         $identity = $this->seedIdentity();
         $current  = $this->signedIn()->device;
 
-        $this->nameDevices($current, $this->signedIn()->device);
+        $this->nameKeys($identity, $identity, $current, $this->signedIn()->device);
 
         $guard = $this->freshGuard();
 
@@ -894,7 +932,7 @@ final class EventSequenceTest extends TestCase
     {
         $identity = $this->seedIdentity();
 
-        $this->nameDevices($this->signedIn()->device, $this->signedIn()->device);
+        $this->nameKeys($identity, $identity, $this->signedIn()->device, $this->signedIn()->device);
 
         $sessions = $this->sessions();
 
@@ -921,7 +959,7 @@ final class EventSequenceTest extends TestCase
         $identity = self::seedPasswordIdentity();
         $current  = $this->signInWithPassword()->device;
 
-        $this->nameDevices($current, $this->signInWithPassword()->device);
+        $this->nameKeys($identity, $identity, $current, $this->signInWithPassword()->device);
         $this->freshGuard('web');
 
         $this->recordSequence();
@@ -946,9 +984,9 @@ final class EventSequenceTest extends TestCase
      */
     public function testResettingAPasswordEndsEverySessionFirst(): void
     {
-        self::seedPasswordIdentity();
+        $identity = self::seedPasswordIdentity();
 
-        $this->signInWithPassword();
+        $this->nameKeys($identity, $identity, $this->signInWithPassword()->device);
 
         $issued = app(OneTimeCodes::class)->issueToken(CodeBinding::passwordResetLink('web', 'email', 'ada@example.test'), CarbonImmutable::now(), 3600);
 
@@ -979,6 +1017,7 @@ final class EventSequenceTest extends TestCase
     {
         $identity = self::seedChangeable(self::EMAIL, self::PHONE);
 
+        $this->nameKeys($identity, null);
         $this->recordSequence();
 
         self::assertTrue($this->changes('changes')->requestByCode($identity, 'email', self::NEW_EMAIL, Reauthentication::confirmedAt($this->now))->isSent());
@@ -1003,6 +1042,7 @@ final class EventSequenceTest extends TestCase
         $issued  = $this->keys('m2m')->issue($machine, $machine, ['reports']);
 
         $this->freshGuard('m2m');
+        $this->nameKeys($machine, $machine);
         $this->recordSequence();
 
         self::assertTrue(Auth::clientCredentials('m2m')->exchange($issued->summary->publicId, substr($issued->key(), 20))->isGranted());
@@ -1063,6 +1103,35 @@ final class EventSequenceTest extends TestCase
         }
 
         return [$chooser, $memberships[0]];
+    }
+
+    /**
+     * Name the identity `i1`, the principal `p1` and the devices `d1`, `d2`,
+     * ... in the order given, before any event names them.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $identity
+     * @param  ?\Illuminate\Database\Eloquent\Model  $principal
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  ...$devices
+     * @return void
+     */
+    private function nameKeys(Model $identity, ?Model $principal, Device ...$devices): void
+    {
+        $this->nameIdentities($identity);
+        $this->namePrincipals(...array_filter([$principal]));
+        $this->nameDevices(...$devices);
+    }
+
+    /**
+     * The name of the device the result's session was started on.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Sessions\SignInResult  $result
+     * @return string
+     */
+    private function nameOfSessionDevice(SignInResult $result): string
+    {
+        self::assertNotNull($result->session);
+
+        return $this->nameOfDevice($result->session->device);
     }
 
     /**

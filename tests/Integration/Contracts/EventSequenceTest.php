@@ -72,7 +72,8 @@ final class EventSequenceTest extends TestCase
     ];
 
     /**
-     * Freeze the clocks and create the tables.
+     * Freeze the clocks, create the tables and seed the identity the flows sign
+     * in, its own principal.
      *
      * @return void
      */
@@ -89,7 +90,11 @@ final class EventSequenceTest extends TestCase
         JWT::$timestamp = $now->getTimestamp();
 
         $this->createSessionTables();
-        $this->seedIdentity();
+
+        $identity = $this->seedIdentity();
+
+        $this->nameIdentities($identity);
+        $this->namePrincipals($identity);
     }
 
     /**
@@ -135,6 +140,7 @@ final class EventSequenceTest extends TestCase
         self::assertSame(['Attempting api', ...self::BIND, ...self::REPORT], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
         self::assertSame(1, Device::query()->count());
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
     }
 
     /**
@@ -173,9 +179,11 @@ final class EventSequenceTest extends TestCase
      */
     public function testARefreshRolledBackIsNeverReported(): void
     {
-        $refresh = $this->signedIn()->tokens->refreshToken;
+        $session = $this->signedIn();
+        $refresh = $session->tokens->refreshToken;
         $guard   = $this->freshGuard();
 
+        $this->nameDevices($session->device);
         $this->recordSequence();
 
         DB::beginTransaction();
@@ -208,6 +216,7 @@ final class EventSequenceTest extends TestCase
         self::assertSame(['Attempting api', ...self::REPORT, 'Validated api i1', 'Login api i1'], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(1, Device::query()->count());
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
         self::assertFalse($guard->hasUser());
     }
 
@@ -234,6 +243,7 @@ final class EventSequenceTest extends TestCase
         self::assertSame([...self::REPORT, 'Validated api i1', 'Login api i1', 'Authenticated api i1'], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
         self::assertSame(0, PendingSignIn::query()->count());
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
     }
 
     /**
@@ -255,6 +265,7 @@ final class EventSequenceTest extends TestCase
         self::assertSame(['Attempting api', ...self::REPORT], $this->recordedSequence());
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(1, Device::query()->count());
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
         self::assertFalse($guard->hasUser());
     }
 
@@ -280,6 +291,7 @@ final class EventSequenceTest extends TestCase
         self::assertSame([1, 1], self::slotsTaken());
         self::assertSame(0, PendingSignIn::query()->count());
         self::assertSame(1, Device::query()->count());
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
     }
 
     /**
@@ -310,6 +322,7 @@ final class EventSequenceTest extends TestCase
 
         self::assertSame(['Attempting api', ...self::BIND, ...self::REPORT], $this->recordedSequence());
         self::assertSame([self::CLIENT_IP, self::CLIENT_IP], array_map(static fn (DeviceCreated|SignedIn $event): ?string => $event->context->client->ip, $this->recorded));
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
     }
 
     /**
@@ -338,6 +351,8 @@ final class EventSequenceTest extends TestCase
 
         Event::assertDispatched(DeviceCreated::class, 1);
         Event::assertDispatched(SignedIn::class, 1);
+
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
     }
 
     /**
@@ -370,6 +385,7 @@ final class EventSequenceTest extends TestCase
         self::assertTrue($sessions->complete($token)->isSignedIn());
         self::assertSame([...self::REPORT, ...self::BIND], $this->recordedSequence());
         self::assertSame([0, 0], self::slotsTaken());
+        self::assertSame('d1', $this->nameOfDevice(Device::query()->sole()));
     }
 
     /**

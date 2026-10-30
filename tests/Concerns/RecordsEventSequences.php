@@ -33,10 +33,12 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
  * The events recorded are every package event (one listener on the
  * `AuthenticationEvent` contract) and Laravel's `Attempting`, `Validated`,
  * `Login`, `Authenticated`, `Failed` and `Logout`, the only Laravel auth events
- * the package dispatches. Identities, principals and devices are named in the
- * order they first appear (`i1`, `p1`, `d1`, ...) across the test, unless the
- * test names its devices first: device keys are random, and a row keeps its
- * name from one flow to the next. `-` stands for none.
+ * the package dispatches. A test names the identities, principals and devices
+ * it expects (`i1`, `p1`, `d1`, ..., with `-` for none) before it records, so a
+ * name in a line says which of them the event carried; a key the test did not
+ * name takes the next name of its kind when it first appears (a device the flow
+ * creates, or one it should not have carried), and keeps it from one flow to
+ * the next.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -81,6 +83,34 @@ trait RecordsEventSequences
     }
 
     /**
+     * Name the identities `i1`, `i2`, ... in the order given, before any event
+     * names them.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  ...$identities
+     * @return void
+     */
+    protected function nameIdentities(Model ...$identities): void
+    {
+        foreach ($identities as $identity) {
+            $this->nameOf('identity', $identity->getMorphClass(), self::keyOf($identity->getKey()));
+        }
+    }
+
+    /**
+     * Name the principals `p1`, `p2`, ... in the order given, before any event
+     * names them.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  ...$principals
+     * @return void
+     */
+    protected function namePrincipals(Model ...$principals): void
+    {
+        foreach ($principals as $principal) {
+            $this->nameOf('principal', $principal->getMorphClass(), self::keyOf($principal->getKey()));
+        }
+    }
+
+    /**
      * Name the devices `d1`, `d2`, ... in the order given, before any event
      * names them.
      *
@@ -90,8 +120,21 @@ trait RecordsEventSequences
     protected function nameDevices(Device ...$devices): void
     {
         foreach ($devices as $device) {
-            $this->nameOf('device', 'device', self::keyOf($device->getDeviceIdentifier()));
+            $this->nameOfDevice($device);
         }
+    }
+
+    /**
+     * The name the device was given, or the next name of a device if it has
+     * none yet: a device a flow created is named when an event first carries
+     * it.
+     *
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Device  $device
+     * @return string
+     */
+    protected function nameOfDevice(Device $device): string
+    {
+        return $this->nameOf('device', 'device', self::keyOf($device->getDeviceIdentifier()));
     }
 
     /**
