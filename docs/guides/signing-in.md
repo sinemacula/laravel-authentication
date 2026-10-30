@@ -164,13 +164,16 @@ A session starts on a new device that records the identity, the principal, the g
 platform (from the context, cleaned as the user agent is), the client's IP address and user agent at creation and as its
 last use, the digest of the first rotation id, and both deadlines from the guard's lifetimes for the principal. The
 device is written and the pair issued in one transaction on the device's connection, so a failure while issuing leaves
-no device behind. The guard is then bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and
-`DeviceAuthenticated` fire at once), and `DeviceCreated` and `SignedIn` are dispatched once the device is committed on
-its own connection: at once outside a transaction, after your transaction commits inside one, and never when it is
-rolled back. Do not roll back around a sign-in: the guard stays bound, and unless `rate_limits.connection` names a
-connection of its own the sign-in's attempt counts are rolled back too, so it goes uncounted (see
-[Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event fails the
-call after the device was committed, so the pair is lost; keep those listeners from throwing or queue them.
+no device behind. `DeviceCreated` and `SignedIn` are then scheduled for the device's commit on its own connection before
+the guard is bound (`Validated`, `Login`, `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated` fire at once).
+Outside a transaction the device is already committed, so `DeviceCreated` and `SignedIn` are dispatched before the bind
+events: a listener on them reads the event's context, not the guard. Inside your transaction they wait for it to commit,
+after the bind events, and are never dispatched when it is rolled back. Do not roll back around a sign-in: the guard
+stays bound, and unless `rate_limits.connection` names a connection of its own the sign-in's attempt counts are rolled
+back too, so it goes uncounted (see [Rate limits](configuration.md#rate-limits)). A listener that throws on a bind event
+fails the call, so the pair is lost, but cannot keep the session from being reported: outside a transaction `SignedIn`
+has already been dispatched, and inside one it follows your commit (a rollback discards the device with it). Keep those
+listeners from throwing or queue them.
 
 A client that signs in again with its current refresh token in the context continues on the same device instead of
 creating another: the token proves the client holds that session, even when it has expired. It counts only when it is
@@ -264,8 +267,8 @@ used before, a code for another guard, purpose or number, and the right code for
 identity whose number is not verified is `identifier_unverified` (the code proved the number is held, so this tells a
 guesser nothing). Then the session service does the rest, as for a password: activity, the principal, the audience
 policy, a further factor and the device, which records `phone_code`. The code's attempts are counted on its row, on the
-device model's connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the
-sign-in limits on `rate_limits.connection` still count it.
+storage connection, so a transaction you open there and roll back around a sign-in gives the attempt back; the sign-in
+limits on `rate_limits.connection` still count it.
 
 Another identifier type signs in by code once it has a normaliser and a column: register a code method for it, and
 allow it.
@@ -274,7 +277,10 @@ allow it.
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
-$this->app->make(SignInMethodManager::class)->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+// In a service provider's register():
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('whatsapp_code', fn ($app) => $app->make(CodeSignIn::class, ['type' => 'whatsapp']));
+});
 ```
 
 ## Using passkeys
@@ -460,11 +466,11 @@ identifier (as a one-time code does), and `code_expired`, `code_exhausted`, `pas
 `passkey_counter_regressed`; `code_expired`, `code_exhausted` and `passkey_counter_regressed` reach the event only, and
 the sign-in's result says `invalid_credentials`. Every other reason is the session service's to give, and a method that
 returns one throws a `LogicException` (see [Events](events.md#events)). A method must not bind a guard, issue tokens or
-write session state, and must hold no state between calls, since the manager keeps one instance per name for the life of
-the process. The credential timebox pads every refused sign-in, the method's own work included, to
-`timebox.credentials_microseconds`, so a method may answer an unknown identifier at once, as the example does; keep the
-method's worst case under that budget, and only a method whose work can take longer needs to do the same work whether or
-not the identifier exists.
+write session state, and must hold no state between calls, since the manager keeps one instance per name for as long as
+the same application serves: the life of the process, or under Octane the request, whose sandbox builds its own. The
+credential timebox pads every refused sign-in, the method's own work included, to `timebox.credentials_microseconds`, so
+a method may answer an unknown identifier at once, as the example does; keep the method's worst case under that budget,
+and only a method whose work can take longer needs to do the same work whether or not the identifier exists.
 
 A method that looks an identity up and then checks a secret calls `$request->reserveAccountAttempt($identity)` before
 checking it, and answers `invalid_credentials` without checking when that returns `false` (the account has used up its
@@ -486,12 +492,16 @@ whose accounts have used up their attempts, to test the `invalid_credentials` an
 Register the method under a lower-case name of its own (a letter, then letters, digits or underscores; `extend()`
 refuses anything else, the package's own `password`, `phone_code`, `email_code` and `passkey`, and the machine
 credential kinds `api_key` and `client_credentials`; see [Extensibility](extending.md#extensibility)), from a service
-provider, and allow that exact name in each guard's audience:
+provider once the registry resolves (see [Binding order](extending.md#binding-order)), and allow that exact name in each
+guard's audience:
 
 ```php
 use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 
-$this->app->make(SignInMethodManager::class)->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+// In a service provider's register():
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('badge', fn ($app) => $app->make(BadgeSignIn::class));
+});
 ```
 
 ```php

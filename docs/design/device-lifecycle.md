@@ -34,13 +34,13 @@ deleted. Starting a session is in
   with the key-shape check first, so another identity's device is "not found" (`false`) and never revealed.
 - A bulk revocation (`revokeDevices()`, `revokePrincipalDevices()`, `signOutEverywhere()`, and the security-change
   methods) is a list of `RevocationScope`s: (1) each scope's `HasTokensValidAfter` cutoff moved to `$now` on its own
-  connection; (2) one transaction on the device model's connection that reads each scope's unrevoked devices on the
-  writer in key order (`lazyById`, chunks of 500), revokes each conditionally, deletes the scope's pending sign-ins (by
-  owner, or by principal) and, for an identity's scope whose identity implements `HasChangeableIdentifiers`, its pending
-  identifier changes (by key, every type with a registered normaliser: a change link needs no session, so one requested
-  from a session that ends must end with it); (3) once committed, `DeviceRevoked` per revoked device, then
-  `SignedOutEverywhere` per scope, also when it revoked none. A failure in (2) leaves (1) in place: fail-safe, and a
-  retry is idempotent.
+  connection; (2) one transaction on the storage connection, which the device model must live on, that reads each
+  scope's unrevoked devices on the writer in key order (`lazyById`, chunks of 500), revokes each conditionally, deletes
+  the scope's pending sign-ins (by owner, or by principal) and, for an identity's scope whose identity implements
+  `HasChangeableIdentifiers`, its pending identifier changes (by key, every type with a registered normaliser: a change
+  link needs no session, so one requested from a session that ends must end with it); (3) once committed,
+  `DeviceRevoked` per revoked device, then `SignedOutEverywhere` per scope, also when it revoked none. A failure in (2)
+  leaves (1) in place: fail-safe, and a retry is idempotent.
 - An identity's scope is every device its `devices()` relation returns, of every guard; a principal's is every device of
   the configured model whose principal columns record it. An identity without `HasDevices` can hold neither a device nor
   a pending sign-in (no session starts for it), so its scope, and that of a principal whose owner (read afresh on the

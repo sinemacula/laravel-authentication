@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * Create the one-time codes table: the live code of each binding.
@@ -27,9 +28,11 @@ return new class extends Migration {
     {
         $table = Config::string('authentication.codes.table', 'one_time_codes');
 
-        (new MigrationCollisionGuard(Schema::getConnection()->getSchemaBuilder()))->ensureNotExists($table, 'codes.table');
+        $schema = Schema::connection($this->getConnection());
 
-        Schema::create($table, static function (Blueprint $blueprint): void {
+        (new MigrationCollisionGuard($schema))->ensureNotExists($table, 'codes.table');
+
+        $schema->create($table, static function (Blueprint $blueprint): void {
             // HMAC-SHA256 hex digest of the binding (purpose, guard, identifier
             // type and normal form, and the identity a verification is for), so
             // there is one live code per binding and the table holds no
@@ -58,6 +61,20 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists(Config::string('authentication.codes.table', 'one_time_codes'));
+        Schema::connection($this->getConnection())->dropIfExists(Config::string('authentication.codes.table', 'one_time_codes'));
+    }
+
+    /**
+     * The connection the package's tables live on (see `StorageConnection`),
+     * the one the model reads and writes the table on.
+     *
+     * @return ?string
+     *
+     * @throws \InvalidArgumentException
+     */
+    #[Override]
+    public function getConnection(): ?string
+    {
+        return StorageConnection::name();
     }
 };

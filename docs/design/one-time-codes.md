@@ -104,7 +104,7 @@ request for a code looks the same whether or not anyone has the identifier, and 
   the password method, bound the checks as well.
 - With a cooldown of 0 two concurrent first requests for one binding still create one code: the one that waited on the
   other's insert is answered `rate_limited` with 1 second.
-- The code's attempt and use share the device connection's transactions: a caller that rolls back a transaction there
+- The code's attempt and use share the storage connection's transactions: a caller that rolls back a transaction there
   gives the attempt back (the `sign_in` limits, on `rate_limits.connection`, still count it).
 - A delivery that throws fails the job; the queue's retry policy applies, and a retry checks the issuance again. An
   unbound sender is a `BindingResolutionException`. A verification job whose identity was deleted is dropped, not

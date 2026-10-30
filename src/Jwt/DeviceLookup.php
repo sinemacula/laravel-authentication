@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 use SineMacula\Laravel\Authentication\Database\WriteConnection;
 use SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException;
 
@@ -29,7 +30,9 @@ final class DeviceLookup
 
     /**
      * Return a new instance of the configured device model, which must satisfy
-     * the Eloquent-backed `EloquentDevice` boundary.
+     * the Eloquent-backed `EloquentDevice` boundary and live on the storage
+     * connection, where the sessions it holds are written with the package's
+     * other rows in one transaction.
      *
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice
      *
@@ -41,8 +44,14 @@ final class DeviceLookup
 
         InvalidDeviceModelConfigurationException::validate($class);
 
-        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice */
-        return new $class;
+        /** @var \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice $model */
+        $model = new $class;
+
+        if (!StorageConnection::holds($model)) {
+            throw InvalidDeviceModelConfigurationException::offStorage($class, StorageConnection::nameOf($model), StorageConnection::resolvedName());
+        }
+
+        return $model;
     }
 
     /**

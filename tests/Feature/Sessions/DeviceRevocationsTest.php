@@ -367,7 +367,7 @@ final class DeviceRevocationsTest extends TestCase
         self::assertSame(self::idOf($revoked), $device->context->deviceId);
         self::assertSame($identity, $device->context->identity);
         self::assertNull($device->context->principal);
-        self::assertSame($identity->getMorphClass(), $device->context->principalType);
+        self::assertSame($identity->getMorphClass(), $device->context->principalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($identity->getKey()), $device->context->principalId);
         self::assertSame(RevocationReason::PASSWORD_CHANGED, $device->reason);
 

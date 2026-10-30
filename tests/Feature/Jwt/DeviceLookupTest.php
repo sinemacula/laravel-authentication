@@ -13,13 +13,15 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 use SineMacula\Laravel\Authentication\Models\Device;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Concerns\InteractsWithLaggingReplica;
+use Tests\Integration\Fixtures\SeparateConnectionDevice;
 use Tests\TestCase;
 
 /**
  * Feature tests for finding a device of the configured model by its identifier:
  * from the write connection, its row locked when asked, without a query for an
- * identifier that cannot be a key, and only for a correctly configured model.
- * The default connection is a read/write split whose replica lags behind.
+ * identifier that cannot be a key, and only for a correctly configured model on
+ * the storage connection. The default connection is a read/write split whose
+ * replica lags behind.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -133,6 +135,39 @@ final class DeviceLookupTest extends TestCase
         $this->expectException(InvalidDeviceModelConfigurationException::class);
 
         DeviceLookup::model();
+    }
+
+    /**
+     * The configured model must live on the storage connection: one that names
+     * another connection is refused, naming both, until the storage connection
+     * is that one; the shipped model takes whichever the storage connection is.
+     *
+     * @return void
+     */
+    public function testTheModelMustLiveOnTheStorageConnection(): void
+    {
+        config()->set('authentication.device.model', SeparateConnectionDevice::class);
+
+        try {
+            DeviceLookup::model();
+
+            self::fail('Expected the device model to be refused.');
+        } catch (InvalidDeviceModelConfigurationException $exception) {
+            self::assertSame(
+                'authentication.device.model [' . SeparateConnectionDevice::class . '] must live on the storage connection (authentication.storage.connection),'
+                    . ' where the package writes its sessions with its other rows in one transaction: the device model is on [device_store], the storage'
+                    . ' connection is [' . config()->string('database.default') . '].',
+                $exception->getMessage(),
+            );
+        }
+
+        config()->set('authentication.storage.connection', SeparateConnectionDevice::CONNECTION);
+
+        self::assertInstanceOf(SeparateConnectionDevice::class, DeviceLookup::model());
+
+        config()->set('authentication.device.model', Device::class);
+
+        self::assertSame(SeparateConnectionDevice::CONNECTION, DeviceLookup::model()->getConnectionName());
     }
 
     /**

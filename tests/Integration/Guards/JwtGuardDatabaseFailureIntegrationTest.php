@@ -85,6 +85,8 @@ final class JwtGuardDatabaseFailureIntegrationTest extends TestCase
      */
     public function testRefreshPropagatesAConnectionFailureDuringDeviceLookup(): void
     {
+        config()->set('authentication.storage.connection', self::UNREACHABLE_CONNECTION);
+        config()->set('authentication.rate_limits.connection', 'testing');
         config()->set('authentication.device.model', UnreachableDevice::class);
 
         $device = new UnreachableDevice;

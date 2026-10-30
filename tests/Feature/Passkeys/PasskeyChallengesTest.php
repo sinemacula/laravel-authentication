@@ -340,7 +340,7 @@ final class PasskeyChallengesTest extends TestCase
 
             self::fail('Expected the lifetime to be refused.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertSame('authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600 seconds.', $exception->getMessage());
+            self::assertSame('authentication.passkeys.challenge_ttl_seconds must be an integer from 30 to 600.', $exception->getMessage());
         }
 
         self::assertSame(0, PasskeyChallenge::query()->count());

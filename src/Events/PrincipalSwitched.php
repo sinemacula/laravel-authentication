@@ -4,9 +4,9 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Events;
 
-use Illuminate\Queue\SerializesModels;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
+use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 
 /**
  * Dispatched when a session switches the principal it acts as on the same
@@ -22,9 +22,12 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  *
  * The context carries the guard, the client, the identity, the new principal
  * and its tenant, the device and its method. The previous principal is
- * described by the type and identifier the device recorded, taken when the
- * event is built, and by the principal itself when it still resolves for the
- * identity (`null` otherwise).
+ * described by the morph class and identifier the device recorded, taken when
+ * the event is built, and by the principal itself when it still resolves for
+ * the identity (`null` otherwise). Like the context's models, the previous
+ * principal is a live model: after a queue it is fetched again, or `null` when
+ * its row is gone or it is not an Eloquent model; the recorded morph class and
+ * identifier are the record.
  *
  * @api
  *
@@ -33,14 +36,14 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
  */
 final readonly class PrincipalSwitched implements AuthenticationEvent
 {
-    use SerializesModels;
+    use SerializesLiveModels;
 
     /**
      * Constructor.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\EventContext  $context
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Principal  $previousPrincipal
-     * @param  ?string  $previousPrincipalType
+     * @param  ?string  $previousPrincipalMorphClass
      * @param  ?string  $previousPrincipalId
      */
     public function __construct(
@@ -51,8 +54,8 @@ final readonly class PrincipalSwitched implements AuthenticationEvent
         /** The principal the session acted as before, when it still resolves. */
         public ?Principal $previousPrincipal,
 
-        /** The type the device recorded for the previous principal. */
-        public ?string $previousPrincipalType,
+        /** The morph class the device recorded for the previous principal. */
+        public ?string $previousPrincipalMorphClass,
 
         /** The identifier the device recorded for the previous principal. */
         public ?string $previousPrincipalId,

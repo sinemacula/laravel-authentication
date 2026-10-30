@@ -197,17 +197,17 @@ Route::post('/email/change/link/confirm', function (Request $request) {
 
 A confirmation locks the identity's row, reads the change, checks the proof and makes the change in one transaction on
 the identity's connection (the row lock comes first, as in a password change or reset, so they wait for each other;
-whether the identity is still stored and active is read from the row as locked, not from the instance you pass), so
-the identity must be stored on the device model's connection, where the codes and the pending changes are kept: as for a
-password reset, any other identity throws a `LogicException` naming both connections before anything is counted, and
-`authentication:check` warns about its guard. A wrong code's attempt is kept; a change refused once its proof is
-accepted (`taken`, an identifier changed meanwhile, a database error, or a transaction you roll back) rolls back whole,
-so the proof is not spent. The same transaction invalidates, for every `jwt` guard whose provider returns the identity
-(a provider whose configuration names no model, a custom `Auth::provider()` driver, is assumed to) and for both the old
-identifier and the new one, the sign-in, password reset and reset link codes waiting for it, and
-the identity's verification codes; a verification link for the old identifier stops working by itself, since it carries
-that identifier's digest. A guard whose provider's configured model reads another table binds its codes to the
-identities there, which keep them.
+whether the identity is still stored and active is read from the row as locked, not from the instance you pass), so the
+identity must be stored on the storage connection, where the codes and the pending changes are kept (see
+[Storage](configuration.md#storage)): as for a password reset, any other identity throws a `LogicException` naming both
+connections before anything is counted, and `authentication:check` warns about its guard. A wrong code's attempt is
+kept; a change refused once its proof is accepted (`taken`, an identifier changed meanwhile, a database error, or a
+transaction you roll back) rolls back whole, so the proof is not spent. The same transaction invalidates, for every
+`jwt` guard whose provider returns the identity (a provider whose configuration names no model, a custom
+`Auth::provider()` driver, is assumed to) and for both the old identifier and the new one, the sign-in, password reset
+and reset link codes waiting for it, and the identity's verification codes; a verification link for the old identifier
+stops working by itself, since it carries that identifier's digest. A guard whose provider's configured model reads
+another table binds its codes to the identities there, which keep them.
 
 Once the change commits, `IdentifierChanged` is dispatched and, when the identity had an identifier of the type, the
 notice to the old one is queued on the delivery queue (`delivery.queue`). The change stands if the notice fails: the job

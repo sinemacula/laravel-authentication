@@ -124,7 +124,6 @@ final readonly class CodeSignIn implements SignInMethod
      * @return \SineMacula\Laravel\Authentication\Contracts\Identity|\SineMacula\Laravel\Authentication\Events\Enums\FailureReason
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     #[\Override]
     public function authenticate(SignInRequest $request): FailureReason|Identity

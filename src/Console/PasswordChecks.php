@@ -17,11 +17,11 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  * which otherwise fails only when a password is first checked, and warnings,
  * not problems, about each `jwt` guard checked whose password resets would
  * refuse to run, since the reset helpers are optional. A guard is warned about
- * when its provider's model lives on another connection than the device model
- * (see `SharedConnection`; identifier changes need the same), and when its
- * password identifier is not `email` while Laravel's notification is the reset
- * link sender. Settings the guard's own checks report are left to them.
- * Configuration is read only: no database connection is opened.
+ * when its provider's model lives on another connection than the storage
+ * connection (see `SharedConnection`; identifier changes need the same), and
+ * when its password identifier is not `email` while Laravel's notification is
+ * the reset link sender. Settings the guard's own checks report are left to
+ * them. Configuration is read only: no database connection is opened.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -105,7 +105,7 @@ final readonly class PasswordChecks
         try {
             $model    = SharedConnection::providerModel($guard, $this->config);
             $mismatch = $model === null ? null : SharedConnection::mismatch($model, $this->config);
-        } catch (\RuntimeException) {
+        } catch (\InvalidArgumentException) {
             return null;
         }
 

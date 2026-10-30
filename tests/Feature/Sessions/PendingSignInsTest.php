@@ -238,7 +238,7 @@ final class PendingSignInsTest extends TestCase
             $this->issue($identity);
             self::fail('Expected the lifetime to be refused.');
         } catch (\InvalidArgumentException $exception) {
-            self::assertSame('authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600 seconds.', $exception->getMessage());
+            self::assertSame('authentication.sign_in.pending_ttl_seconds must be an integer from 30 to 3600.', $exception->getMessage());
         }
 
         self::assertSame(0, PendingSignIn::query()->count());

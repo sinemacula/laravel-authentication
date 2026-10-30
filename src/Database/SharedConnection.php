@@ -6,15 +6,14 @@ namespace SineMacula\Laravel\Authentication\Database;
 
 use Illuminate\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
 
 /**
  * The connection rule of the helpers that spend a proof together with a change
  * to an identity (a password reset, an identifier change): the proof (a code or
- * token, and an identifier change's pending row, on the device model's
- * connection) and the identity, with a reset's "tokens valid after" cutoff and
- * devices, must be written in one transaction, so the identity must live on the
- * device model's connection. Two connections cannot commit as one, and a
+ * token, and an identifier change's pending row, on the storage connection, see
+ * `StorageConnection`) and the identity, with a reset's "tokens valid after"
+ * cutoff and devices, must be written in one transaction, so the identity must
+ * live on the storage connection. Two connections cannot commit as one, and a
  * failure between their commits would leave a proof spent without its change,
  * or a change made with its proof still live. Both helpers refuse such an
  * identity before anything is counted or written.
@@ -35,8 +34,8 @@ final class SharedConnection
     private function __construct() {}
 
     /**
-     * Refuse an identity that does not live on the device model's connection,
-     * naming the flow and both connections.
+     * Refuse an identity that does not live on the storage connection, naming
+     * the flow and both connections.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $identity
      * @param  string  $flow
@@ -56,9 +55,9 @@ final class SharedConnection
 
     /**
      * Refuse a guard whose provider's configured model (see `providerModel()`)
-     * does not live on the device model's connection, before any identity is
-     * looked up; a provider whose configuration names no model is left to
-     * `assert()` on the identity it finds.
+     * does not live on the storage connection, before any identity is looked
+     * up; a provider whose configuration names no model is left to `assert()`
+     * on the identity it finds.
      *
      * @param  string  $guard
      * @param  string  $flow
@@ -80,25 +79,27 @@ final class SharedConnection
 
     /**
      * What is wrong with the identity's connection, or `null` when it is the
-     * device model's.
+     * storage connection.
      *
      * @param  \Illuminate\Database\Eloquent\Model  $identity
      * @param  \Illuminate\Config\Repository  $config
      * @return ?string
      *
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public static function mismatch(Model $identity, Repository $config): ?string
     {
-        $identities = self::name($identity, $config);
-        $devices    = self::name(DeviceLookup::model(), $config);
+        $identities = $identity->getConnectionName() ?? $config->string('database.default');
+        $storage    = StorageConnection::name()      ?? $config->string('database.default');
 
-        if ($identities === $devices) {
+        if ($identities === $storage) {
             return null;
         }
 
-        return sprintf('%s must be on the device model\'s connection: the identity is on [%s], the devices on [%s].', $identity::class, $identities, $devices);
+        $message = '%s must be on the storage connection (`authentication.storage.connection`): the identity is on [%s],'
+            . ' the package\'s tables on [%s].';
+
+        return sprintf($message, $identity::class, $identities, $storage);
     }
 
     /**
@@ -116,19 +117,5 @@ final class SharedConnection
         $class    = is_string($provider) ? $config->get("auth.providers.{$provider}.model") : null;
 
         return is_string($class) && is_subclass_of($class, Model::class) ? new $class : null;
-    }
-
-    /**
-     * The name of the model's connection: its own, or the default one.
-     *
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  \Illuminate\Config\Repository  $config
-     * @return string
-     *
-     * @throws \InvalidArgumentException
-     */
-    private static function name(Model $model, Repository $config): string
-    {
-        return $model->getConnectionName() ?? $config->string('database.default');
     }
 }

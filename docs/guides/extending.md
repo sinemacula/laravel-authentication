@@ -9,12 +9,13 @@ inheritance:
 | Extension point                   | How                                                                                                              |
 |-----------------------------------|------------------------------------------------------------------------------------------------------------------|
 | Custom identity / principal model | Implement `Identity`, `Principal` (and optional capability interfaces)                                           |
-| Custom device model               | Implement `EloquentDevice`, use the `ActsAsDevice` trait (and `PrunesDevices` to be pruned)                      |
+| Custom device model               | Implement `EloquentDevice`, use `ActsAsDevice` (and `PrunesDevices` to be pruned), on the storage connection     |
 | Ending device-less access tokens  | Implement `HasTokensValidAfter` on the identity or principal, or use `ProvidesTokensValidAfter`                  |
 | Custom principal resolution       | Implement `PrincipalResolver`, bind per-guard or globally                                                        |
 | Custom identity retrieval         | Subclass `ModelProvider` (non-final)                                                                             |
 | Custom `auth` middleware          | Subclass `Http\Middleware\Authenticate` (non-final)                                                              |
 | Guard and provider drivers        | Register them with `Auth::extend()` / `Auth::provider()` as usual: the package's manager inherits them           |
+| Custom auth manager               | Extend `AuthManager` and bind it to `auth` in a `register()`; the package keeps it                               |
 | Guard-scoped JWT settings         | Override `jwt.*` keys in `auth.guards.<name>.jwt`                                                                |
 | Sign-in methods                   | Implement `SignInMethod`, register it with `SignInMethodManager::extend()` under a name the package does not use |
 | Additional factors (MFA)          | Bind your own `AdditionalFactorPolicy` in the container; call `factorRemoved()` when a factor is removed         |
@@ -51,10 +52,45 @@ reserves the account twice), and each is given back.
 
 `AbstractGuard` is not final and may be extended for entirely new guard types.
 
-The package replaces Laravel's `auth` manager with its own subclass when it boots, after every service provider has
-registered, and carries over the guard and provider drivers registered on the manager it replaces
-(`AuthManager::inheritDriversFrom()`), so `Auth::extend()` and `Auth::provider()` calls made in your providers'
-`register()` keep working.
+### Binding order
+
+Every default the package binds is bound only when nothing is bound yet: `PrincipalResolver`, `AudiencePolicy`,
+`AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, and
+the `IdentifierNormalisers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
+before or after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor
+policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or
+`singleton()` replaces a default even once it has resolved, for every caller that resolves it afterwards; a deferred
+provider does not, as Laravel loads one only for a service that has no instance yet. Resolve none of them while
+providers register, or a deferred provider's binding of it is passed over.
+
+Register a sign-in method once the registry resolves, which works in either order (a registry made with `make()` before
+the package registers is not the one the package uses):
+
+```php
+use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
+
+$this->callAfterResolving(SignInMethodManager::class, static function (SignInMethodManager $methods): void {
+    $methods->extend('sso', fn ($app) => $app->make(SsoSignIn::class));
+});
+```
+
+An identifier normaliser is configuration: a package that adds one sets `authentication.identifiers.normalisers.<type>`
+in `boot()`. Laravel merges a package's configuration one level deep, so a value set under `authentication.identifiers`
+while providers register, before the application has published the configuration, replaces the package's normalisers.
+
+### The auth manager
+
+The package owns Laravel's `auth` binding: its guards, the contextual accessors and the `Auth` facade rely on its
+`AuthManager`. When it boots it replaces any other manager there with its own, which takes over what was registered on
+the one it replaces (`AuthManager::inheritStateFrom()`): the drivers from `Auth::extend()`, `Auth::viaRequest()` and
+`Auth::provider()`, the user resolver from `Auth::resolveUsersUsing()`, and the guards already resolved, which stay the
+same instances. Those calls keep working from any provider's `register()` or `boot()`, and `Auth::` reaches the
+package's manager even when it was used before the package booted.
+
+What a subclass of Laravel's manager adds itself, its methods and overrides, is not kept: the replacement is not a
+decorator. To customise the manager, extend the package's `AuthManager` and bind it to `auth` in a `register()`; the
+package keeps it and registers its drivers on it. Bind `auth` only there: a manager bound to it after the package boots
+is not supported, and an object that captured the manager before the swap keeps the one it had.
 
 ## Suite integration
 
@@ -105,7 +141,9 @@ seam has a default that works alone.
 ### Audit (`laravel-audit-log`)
 
 - Every package event implements `Contracts\AuthenticationEvent` and carries one `Events\EventContext`, so one listener
-  records them all: the guard, the client, snapshots of the identity, principal, tenant and device identifiers, the
-  method, and the credential and its scopes, never a secret (see [Events](events.md#events)).
+  records them all from its snapshot (`toArray()`): when, the guard, the client, the identity, principal and tenant by
+  morph class and identifier, the principal's categorical type, the device's identifier, the method, and the credential
+  and its scopes, never a secret. The snapshot survives a queue whatever was deleted meanwhile, so a queued audit
+  listener can take the event as it is (see [Events](events.md#events)).
 - Events that report a write are dispatched once it commits on the written row's connection, and never for a rolled-back
   one, so a queued audit listener records only what happened.

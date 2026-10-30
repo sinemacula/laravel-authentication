@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * The challenge of one passkey ceremony (a registration, a sign-in or a
@@ -18,9 +18,9 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * carry the challenge, and until when it may be answered. It is used up by the
  * first response made to it, whatever that response proves.
  *
- * Kept on the device model's connection, in the table named by
- * `authentication.passkeys.challenges_table`. Expired challenges are pruned by
- * Laravel's `model:prune --model` with this class.
+ * Kept on the storage connection (see `Database\StorageConnection`), in the
+ * table named by `authentication.passkeys.challenges_table`. Expired challenges
+ * are pruned by Laravel's `model:prune --model` with this class.
  *
  * Only the class name is public, for applications to schedule that pruning
  * with; its columns and behaviour belong to the passkey service.
@@ -60,20 +60,20 @@ final class PasskeyChallenge extends Model
     protected $hidden = ['options'];
 
     /**
-     * Create a challenge on the device model's connection, in the configured
-     * table. Both are applied here, before Eloquent reads them, so this is
+     * Create a challenge on the storage connection, in the configured table.
+     * Both are applied here, before Eloquent reads them, so this is
      * construction rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
         $this->setTable(Config::string('authentication.passkeys.challenges_table', 'passkey_challenges'));
-        $this->setConnection(DeviceLookup::model()->getConnectionName());
+        $this->setConnection(StorageConnection::name());
 
         parent::__construct($attributes);
     }

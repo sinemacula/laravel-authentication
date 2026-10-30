@@ -54,7 +54,7 @@ final class PasskeyCredentials
      * @param  string  $credentialId
      * @return ?\SineMacula\Laravel\Authentication\Models\Passkey
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      */
     public static function find(RelyingParty $rp, #[\SensitiveParameter] string $credentialId): ?Passkey
     {
@@ -76,8 +76,8 @@ final class PasskeyCredentials
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity  $owner
      * @return list<\SineMacula\Laravel\Authentication\Models\Passkey>
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public static function of(RelyingParty $rp, Identity&Model $owner): array
     {
@@ -108,8 +108,8 @@ final class PasskeyCredentials
      * @param  \Carbon\CarbonImmutable  $now
      * @return ?\SineMacula\Laravel\Authentication\Models\Passkey
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      */
     public static function register(RelyingParty $rp, Identity&Model $owner, CredentialRecord $record, ?string $name, CarbonImmutable $now): ?Passkey
     {
@@ -197,8 +197,8 @@ final class PasskeyCredentials
      * @param  string  $id
      * @return bool
      *
+     * @throws \InvalidArgumentException
      * @throws \LogicException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      *
      * @imperative
      */

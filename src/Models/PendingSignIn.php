@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
-use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * A sign-in waiting for a further factor, or for its identity to choose the
@@ -17,10 +17,10 @@ use SineMacula\Laravel\Authentication\Jwt\DeviceLookup;
  * choice), through which guard and method, from which client, on which proven
  * device, and until when the pending credential that continues it is valid.
  *
- * Kept on the device model's connection, so completing it and writing the
- * session are one transaction, in the table named by
- * `authentication.sign_in.pending_table`. Rows whose credential has expired are
- * pruned by Laravel's `model:prune --model` with this class.
+ * Kept on the storage connection (see `Database\StorageConnection`) with the
+ * devices, so completing it and writing the session are one transaction, in the
+ * table named by `authentication.sign_in.pending_table`. Rows whose credential
+ * has expired are pruned by Laravel's `model:prune --model` with this class.
  *
  * Only the class name is public, for applications to schedule that pruning
  * with; its columns and behaviour belong to the session service.
@@ -72,20 +72,20 @@ final class PendingSignIn extends Model
     protected $hidden = ['token_digest', 'device_refresh_key', 'attempt_windows'];
 
     /**
-     * Create a pending sign-in on the device model's connection, in the
-     * configured table. Both are applied here, before Eloquent reads them, so
-     * this is construction rather than model behaviour.
+     * Create a pending sign-in on the storage connection, in the configured
+     * table. Both are applied here, before Eloquent reads them, so this is
+     * construction rather than model behaviour.
      *
      * @param  array<string, mixed>  $attributes
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @phpstan-ignore sineMaculaLaravel.modelBehaviour
      */
     public function __construct(array $attributes = [])
     {
         $this->setTable(Config::string('authentication.sign_in.pending_table', 'pending_sign_ins'));
-        $this->setConnection(DeviceLookup::model()->getConnectionName());
+        $this->setConnection(StorageConnection::name());
 
         parent::__construct($attributes);
     }

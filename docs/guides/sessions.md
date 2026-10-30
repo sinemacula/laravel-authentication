@@ -70,10 +70,13 @@ response, retried) or the token's own principal is the target; anything else is 
 and the client retries with its current token. When another request changes the device between the switch's read and its
 write, the row is read again with a lock and judged once more under the same rules; the swap is never tried twice.
 
-A switch binds the guard to the target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`) and
-dispatches `PrincipalSwitched` once committed on the device's connection, with the new principal and tenant in its
-context, and the previous principal as the device recorded it (`previousPrincipalType`, `previousPrincipalId`) and, when
-it still resolves for the identity, the principal itself (`previousPrincipal`).
+A switch schedules `PrincipalSwitched` for its commit on the device's connection, with the new principal and tenant in
+its context, and the previous principal as the device recorded it (`previousPrincipalMorphClass`, `previousPrincipalId`)
+and, when it still resolves for the identity, the principal itself (`previousPrincipal`), before it binds the guard to
+the target (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no `Login`), so a listener that throws on those
+cannot withhold the report. Outside a transaction `PrincipalSwitched` is therefore dispatched before the bind events,
+and a listener on it reads the event's context, not the guard, which still holds the previous principal; inside your
+transaction it follows the commit, after the bind events, and a rollback drops it.
 
 ## Signing out and revoking sessions
 
@@ -124,15 +127,15 @@ since a device-less token can only be ended through it: every device is still re
 device-less tokens keep working too, until they expire.
 
 A bulk revocation first moves the scope's "tokens valid after" cutoff to now, when the identity or principal records one
-(`HasTokensValidAfter`), then, in one transaction on the device model's connection, revokes each unrevoked device, read
-on the write connection in key order 500 at a time, and deletes the pending sign-ins and, for an identity, its pending
-identifier changes. Once that transaction commits,
-`DeviceRevoked` reports each device it revoked (with the device's own guard) and then `SignedOutEverywhere` reports the
-scope, with the acting guard, the reason, the count (also `0`, so the action itself is recorded), the cutoff it set (or
-`null`), and the device it kept. If the device transaction fails, the cutoff it already moved stands: more is cut off,
-never less, and calling again finishes the job. One window stays open: a sign-in that has already passed its credential
-check when a bulk revocation reads the devices can still create its device afterwards. Closing it would take a lock that
-every sign-in and every revocation take on the identity, which the package does not add.
+(`HasTokensValidAfter`), then, in one transaction on the storage connection, revokes each unrevoked device, read on the
+write connection in key order 500 at a time, and deletes the pending sign-ins and, for an identity, its pending
+identifier changes. Once that transaction commits, `DeviceRevoked` reports each device it revoked (with the device's own
+guard) and then `SignedOutEverywhere` reports the scope, with the acting guard, the reason, the count (also `0`, so the
+action itself is recorded), the cutoff it set (or `null`), and the device it kept. If the device transaction fails, the
+cutoff it already moved stands: more is cut off, never less, and calling again finishes the job. One window stays open:
+a sign-in that has already passed its credential check when a bulk revocation reads the devices can still create its
+device afterwards. Closing it would take a lock that every sign-in and every revocation take on the identity, which the
+package does not add.
 
 ### Listing devices
 

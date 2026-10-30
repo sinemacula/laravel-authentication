@@ -279,16 +279,7 @@ final readonly class SessionService
 
         [$admitted, $session] = $outcome;
 
-        $result = $this->signedIn($session, $admitted, $context);
-
-        // A rolled-back completion restores the pending sign-in, whose token
-        // can then be completed again: giving its slots back before the commit,
-        // on a counter connection of its own, would give them back twice.
-        $this->afterCommit->run($found->pending, function () use ($found): void {
-            $this->giveBack($found->pending);
-        });
-
-        return $result;
+        return $this->signedIn($session, $admitted, $context, $found->pending);
     }
 
     /**
@@ -308,7 +299,7 @@ final readonly class SessionService
      * @param  string  $token
      * @return bool
      *
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
+     * @throws \InvalidArgumentException
      *
      * @imperative
      */
@@ -604,8 +595,9 @@ final readonly class SessionService
      * start the session, continuing the proven device or creating one. When the
      * proven device changed before it could be continued, the sign-in is
      * reconsidered without it, factor policy included; it never retries the
-     * device. A device it creates records the origin's client as its creation
-     * when one is given (a sign-in that waited records where it began).
+     * device. A session that completes a spent pending sign-in (a choice of
+     * principal) gives back the slots that sign-in took once committed, and a
+     * device it creates records the client the sign-in began from.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  (\Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice)|null  $proven
@@ -614,7 +606,7 @@ final readonly class SessionService
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
      * @param  \Carbon\CarbonImmutable  $now
      * @param  ?list<array<string, string>>  $attemptWindows
-     * @param  ?\SineMacula\Laravel\Authentication\Http\ClientContext  $origin
+     * @param  ?\SineMacula\Laravel\Authentication\Models\PendingSignIn  $spent
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      *
      * @throws \Throwable
@@ -627,7 +619,7 @@ final readonly class SessionService
         SignInContext $context,
         CarbonImmutable $now,
         ?array $attemptWindows,
-        ?ClientContext $origin = null,
+        ?PendingSignIn $spent = null,
     ): SignInResult {
         $admitted = $admitted->on($proven);
 
@@ -644,11 +636,11 @@ final readonly class SessionService
             return SignInResult::pendingFactor($pending);
         }
 
-        $session = $this->write($admitted, $proven, $method, $identifierType, $context, $now, $origin);
+        $session = $this->write($admitted, $proven, $method, $identifierType, $context, $now, $spent === null ? null : PendingSignIns::origin($spent));
 
         return $session === null
-            ? $this->establish($admitted, null, $method, $identifierType, $context, $now, $attemptWindows, $origin)
-            : $this->signedIn($session, $admitted, $context);
+            ? $this->establish($admitted, null, $method, $identifierType, $context, $now, $attemptWindows, $spent)
+            : $this->signedIn($session, $admitted, $context, $spent);
     }
 
     /**
@@ -714,20 +706,25 @@ final readonly class SessionService
     }
 
     /**
-     * Bind the guard to a written session, at once (`Validated`, `Login`,
-     * `Authenticated`, `PrincipalAssigned` and `DeviceAuthenticated`), and
-     * dispatch `DeviceCreated`, for a new device, and `SignedIn` once the
-     * session is committed on the device's own connection.
+     * Report a written session and bind the guard to it: dispatch
+     * `DeviceCreated`, for a new device, and `SignedIn` once the session is
+     * committed on the device's own connection, and give back the slots of the
+     * pending sign-in it completes, if any, once that sign-in's delete is
+     * committed on its own; then bind (`Validated`, `Login`, `Authenticated`,
+     * `PrincipalAssigned` and `DeviceAuthenticated`).
+     *
+     * The committed work is scheduled before the bind, so a bind listener that
+     * throws cannot withhold it: its exception still reaches the caller, but
+     * the session it reports already stands.
      *
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignedInSession  $session
      * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
+     * @param  ?\SineMacula\Laravel\Authentication\Models\PendingSignIn  $spent
      * @return \SineMacula\Laravel\Authentication\Sessions\SignInResult
      */
-    private function signedIn(SignedInSession $session, AdmittedSignIn $admitted, SignInContext $context): SignInResult
+    private function signedIn(SignedInSession $session, AdmittedSignIn $admitted, SignInContext $context, ?PendingSignIn $spent = null): SignInResult
     {
-        $this->guard->login($session->identity, $session->principal, $session->device);
-
         $event    = new EventContext($this->guard->getName(), $context->client, $session->identity, $session->principal, $admitted->tenant, $session->device, $session->method);
         $created  = $session->deviceCreated ? new DeviceCreated($event) : null;
         $signedIn = new SignedIn($event, $session->deviceCreated, false);
@@ -740,6 +737,15 @@ final readonly class SessionService
 
             $this->dispatch($signedIn);
         });
+
+        // A rolled-back completion restores the pending sign-in, whose token
+        // can then be completed again: giving its slots back before the commit,
+        // on a counter connection of its own, would give them back twice.
+        if ($spent !== null) {
+            $this->afterCommit->run($spent, fn () => $this->giveBack($spent));
+        }
+
+        $this->guard->login($session->identity, $session->principal, $session->device);
 
         return SignInResult::signedIn($session);
     }

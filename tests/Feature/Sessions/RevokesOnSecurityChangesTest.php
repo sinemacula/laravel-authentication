@@ -255,7 +255,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
 
         $this->sessions('members')->tenantDeactivated($tenant, [$membership, $eager]);
 
-        $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalType : null, $this->recorded);
+        $principals = array_map(static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalMorphClass : null, $this->recorded);
 
         self::assertSame([ActivatableTenantMembership::class, EagerTenantMembership::class], $principals);
     }
@@ -466,7 +466,7 @@ final class RevokesOnSecurityChangesTest extends TestCase
             ]);
 
             $principals = array_map(
-                static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalType . ':' . $event->context->principalId : null,
+                static fn (object $event): ?string => $event instanceof SignedOutEverywhere ? $event->context->principalMorphClass . ':' . $event->context->principalId : null,
                 $this->recorded,
             );
 

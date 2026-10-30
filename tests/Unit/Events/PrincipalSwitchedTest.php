@@ -5,10 +5,10 @@ declare(strict_types = 1);
 namespace Tests\Unit\Events;
 
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
-use Illuminate\Queue\SerializesModels;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
+use SineMacula\Laravel\Authentication\Events\Concerns\SerializesLiveModels;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Events\PrincipalSwitched;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
@@ -43,23 +43,25 @@ final class PrincipalSwitchedTest extends TestCase
         self::assertSame($context, $event->context);
         self::assertSame($context, $event->context());
         self::assertSame($previous, $event->previousPrincipal);
-        self::assertSame(PlainPrincipalFixture::class, $event->previousPrincipalType);
+        self::assertSame(PlainPrincipalFixture::class, $event->previousPrincipalMorphClass);
         self::assertSame('p-1', $event->previousPrincipalId);
     }
 
     /**
-     * The event serialises its models for queued listeners and survives a round
-     * trip, and it does not ask the dispatcher to wait for a transaction: the
+     * The event survives a round trip for queued listeners, its previous
+     * principal leniently: one that is not an Eloquent model does not cross and
+     * comes back `null`, while the recorded morph class and identifier are
+     * kept. It does not ask the dispatcher to wait for a transaction: the
      * package dispatches it once the switch commits.
      *
      * @return void
      */
     public function testSerialisesItsModelsAndDispatchesWhenTheSenderSays(): void
     {
-        $event = new PrincipalSwitched(self::context(), null, 'membership', '9');
+        $event = new PrincipalSwitched(self::context(), new PlainPrincipalFixture('9'), 'membership', '9');
 
         self::assertNotInstanceOf(ShouldDispatchAfterCommit::class, $event);
-        self::assertContains(SerializesModels::class, class_uses_recursive($event));
+        self::assertContains(SerializesLiveModels::class, class_uses_recursive($event));
 
         $copy = unserialize(serialize($event));
 
@@ -68,7 +70,7 @@ final class PrincipalSwitchedTest extends TestCase
         self::assertSame('p-2', $copy->context->principalId);
         self::assertSame('switched-device', $copy->context->deviceId);
         self::assertNull($copy->previousPrincipal);
-        self::assertSame('membership', $copy->previousPrincipalType);
+        self::assertSame('membership', $copy->previousPrincipalMorphClass);
         self::assertSame('9', $copy->previousPrincipalId);
     }
 

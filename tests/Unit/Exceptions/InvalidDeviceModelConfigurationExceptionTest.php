@@ -128,4 +128,22 @@ final class InvalidDeviceModelConfigurationExceptionTest extends TestCase
 
         self::assertStringContainsString('(empty string)', $exception->getMessage());
     }
+
+    /**
+     * `offStorage()` names the configured class, both settings and both
+     * connections.
+     *
+     * @return void
+     */
+    public function testOffStorageNamesTheClassAndBothConnections(): void
+    {
+        $exception = InvalidDeviceModelConfigurationException::offStorage('App\StoreDevice', 'devices_db', 'auth_db');
+
+        self::assertSame(
+            'authentication.device.model [App\StoreDevice] must live on the storage connection (authentication.storage.connection),'
+                . ' where the package writes its sessions with its other rows in one transaction: the device model is on [devices_db],'
+                . ' the storage connection is [auth_db].',
+            $exception->getMessage(),
+        );
+    }
 }

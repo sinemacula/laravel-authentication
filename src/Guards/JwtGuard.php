@@ -160,21 +160,23 @@ final class JwtGuard extends AbstractGuard
     /**
      * Exchange a refresh token for a new access token + rotated refresh token.
      *
-     * Delegates the round trip to `RefreshTokenExchange`, binds the resolved
-     * contextual triple as a sign-in (`Validated`, `Login` and the bind
-     * events), and dispatches `Refreshed` and `SignedIn` (with `refresh` set)
-     * once the rotation is committed on the device's connection. Returns `null`
-     * on failure, after Laravel's `Failed` and then `AuthenticationFailed` with
+     * Delegates the round trip to `RefreshTokenExchange`, schedules `Refreshed`
+     * and `SignedIn` (with `refresh` set) for once the rotation is committed on
+     * the device's connection, and then binds the resolved contextual triple as
+     * a sign-in (`Validated`, `Login` and the bind events). Returns `null` on
+     * failure, after Laravel's `Failed` and then `AuthenticationFailed` with
      * the reason. Once too many refreshes have failed for the token's device or
      * from the request's IP address, the failure is `rate_limited` and a
      * `ThrottleRequestsException` (429 with `Retry-After`) is thrown after the
      * events instead.
      *
      * The presented token is rotated before the context is bound, so an
-     * exception from a listener on the binding events or on `Refreshed`
-     * propagates after the rotation and the new pair is lost. A retry with the
-     * presented token inside the grace window gets the current credential;
-     * after the window it is treated as a replay and revokes the device.
+     * exception from a listener on `Refreshed` or on the binding events
+     * propagates after the rotation and the new pair is lost; a binding
+     * listener's cannot withhold `Refreshed`, which was scheduled first. A
+     * retry with the presented token inside the grace window gets the current
+     * credential; after the window it is treated as a replay and revokes the
+     * device.
      *
      * For a token the caller read itself; never pass it one read from the
      * refresh cookie, whose cross-site checks only `refreshFromRequest()`
@@ -332,14 +334,14 @@ final class JwtGuard extends AbstractGuard
             return $result->reason;
         }
 
-        // Validated then the full bind, so a refresh fires the same event
-        // sequence as attempt(); Refreshed follows once the rotation commits so
-        // consumers can tell a rotation from a sign-in.
+        // The rotation is reported before the bind, so a bind listener that
+        // throws cannot withhold Refreshed from a rotation already written;
+        // the bind then fires the same sequence as attempt().
+        $this->reportRefresh($result, $client);
+
         $this->fireValidatedEvent($result->identity);
 
         $this->bindVerifiedContext($result->identity, $result->principal, $result->device, $result->tenant, $result->method, true);
-
-        $this->reportRefresh($result, $client);
 
         return $result->tokens;
     }

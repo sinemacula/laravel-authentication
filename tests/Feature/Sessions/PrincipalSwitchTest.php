@@ -267,7 +267,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertFalse($result->session->deviceCreated);
         self::assertSame('password', $result->session->method);
 
-        self::assertSame([Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class, PrincipalSwitched::class], $this->recordedClasses());
+        self::assertSame([PrincipalSwitched::class, Authenticated::class, PrincipalAssigned::class, DeviceAuthenticated::class], $this->recordedClasses());
 
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
@@ -275,7 +275,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertTrue($event->context->principal?->is($second)); // @phpstan-ignore method.notFound
         self::assertSame((string) $second->tenant_id, IdentifierCoercion::stringify($event->context->tenant?->getTenantIdentifier()));
         self::assertTrue($event->previousPrincipal?->is($first)); // @phpstan-ignore method.notFound
-        self::assertSame(ActivatableTenantMembership::class, $event->previousPrincipalType);
+        self::assertSame(ActivatableTenantMembership::class, $event->previousPrincipalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
         self::assertSame('password', $event->context->method);
 
@@ -462,7 +462,7 @@ final class PrincipalSwitchTest extends TestCase
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
         self::assertNull($event->previousPrincipal);
-        self::assertSame(ActivatableTenantMembership::class, $event->previousPrincipalType);
+        self::assertSame(ActivatableTenantMembership::class, $event->previousPrincipalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
     }
 
@@ -490,7 +490,7 @@ final class PrincipalSwitchTest extends TestCase
         $event = $this->recordedEvent(PrincipalSwitched::class);
 
         self::assertNull($event->previousPrincipal);
-        self::assertSame('retired-membership', $event->previousPrincipalType);
+        self::assertSame('retired-membership', $event->previousPrincipalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $event->previousPrincipalId);
     }
 
@@ -593,7 +593,7 @@ final class PrincipalSwitchTest extends TestCase
 
         self::assertSame(IdentifierCoercion::stringify($member->getKey()), $mismatch->context->identityId);
         self::assertNull($mismatch->context->principal);
-        self::assertNull($mismatch->context->principalType);
+        self::assertNull($mismatch->context->principalMorphClass);
         self::assertNull($mismatch->context->principalId);
         self::assertSame(IdentifierCoercion::stringify($session->device->getDeviceIdentifier()), $mismatch->context->deviceId);
 
@@ -826,7 +826,7 @@ final class PrincipalSwitchTest extends TestCase
         self::assertNull($revoked->context->identity);
         self::assertNull($revoked->context->principal);
         self::assertSame(IdentifierCoercion::stringify($member->getKey()), $revoked->context->identityId);
-        self::assertSame($first->getMorphClass(), $revoked->context->principalType);
+        self::assertSame($first->getMorphClass(), $revoked->context->principalMorphClass);
         self::assertSame(IdentifierCoercion::stringify($first->getKey()), $revoked->context->principalId);
     }
 

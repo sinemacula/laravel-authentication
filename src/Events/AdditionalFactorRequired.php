@@ -19,9 +19,9 @@ use SineMacula\Laravel\Authentication\Contracts\AuthenticationEvent;
  * `AuthenticationFailed` with `additional_factor_failed`.
  *
  * Dispatched once the pending sign-in is committed on its connection (the
- * device model's): at once when that connection has no open transaction, after
- * its transaction commits otherwise, and never for a sign-in that is rolled
- * back.
+ * storage connection): at once when that connection has no open transaction,
+ * after its transaction commits otherwise, and never for a sign-in that is
+ * rolled back.
  *
  * The context carries the guard, the client, the identity, principal and
  * tenant, the method, and the device the client proved it holds, which the

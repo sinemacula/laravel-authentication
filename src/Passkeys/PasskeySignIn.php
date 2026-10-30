@@ -97,7 +97,6 @@ final readonly class PasskeySignIn implements SignInMethod
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      * @throws \InvalidArgumentException
-     * @throws \SineMacula\Laravel\Authentication\Exceptions\InvalidDeviceModelConfigurationException
      * @throws \Symfony\Component\Serializer\Exception\ExceptionInterface
      */
     #[\Override]

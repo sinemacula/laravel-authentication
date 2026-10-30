@@ -7,7 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use SineMacula\Laravel\Authentication\Database\MigrationCollisionGuard;
-use SineMacula\Laravel\Authentication\Models\RateLimit;
+use SineMacula\Laravel\Authentication\Database\StorageConnection;
 
 /**
  * Create the rate limits table.
@@ -54,8 +54,9 @@ return new class extends Migration {
     }
 
     /**
-     * The connection the counters live on, as the model reads it: the
-     * configured one, or the default.
+     * The connection the counters live on, the one the model reads and writes
+     * them on: the configured one, or the storage connection (see
+     * `StorageConnection::forRateLimits()`).
      *
      * @return ?string
      *
@@ -64,7 +65,7 @@ return new class extends Migration {
     #[Override]
     public function getConnection(): ?string
     {
-        return (new RateLimit)->getConnectionName();
+        return StorageConnection::forRateLimits();
     }
 
     /**

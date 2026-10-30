@@ -19,6 +19,15 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
   token or an external identity provider. It does not guarantee that principal or device resolution will succeed
   afterwards.
 - `Login` is fired before `Authenticated` to mirror Laravel's first-party guard ordering.
+- A flow that writes a session and then binds it (the session service's sign-in, `complete()`, `choose()` and
+  `switchPrincipal()`, and `refresh()`) schedules the lifecycle events that report the write (`DeviceCreated`,
+  `SignedIn`, `Refreshed`, `PrincipalSwitched`) on the device connection's commit before it binds, so a bind listener
+  that throws (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned` or `DeviceAuthenticated`) cannot withhold
+  them; its exception still reaches the caller. With no transaction open on that connection they are therefore
+  dispatched before the bind events, and a listener on them reads the event's context, not the guard, which is not yet
+  bound to the new session (a switch's listener would see the previous principal); inside a transaction they follow its
+  commit and the bind events come first. A lifecycle listener that throws propagates as any listener does, and with no
+  transaction open stops the bind.
 - A bind sets the identity, principal and device before it dispatches anything after `Login`: `Authenticated`,
   `PrincipalAssigned` and `DeviceAuthenticated` all describe the whole bound context (see `event-model.md`).
 - `DeviceAuthenticated` is emitted only when a non-null device is bound.
@@ -26,6 +35,13 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - A guard follows later container rebinds of the `events` dispatcher (and, without a guard-local override, of the
   `PrincipalResolver`), and passes each rebind on to its refresh exchange, so an `Event::fake()` made after the guard
   resolved receives the exchange's `DeviceRevoked` as well as the guard's own events.
+- Under Octane each request runs in a sandbox of the booted application, and Octane's `FlushAuthenticationState` hands
+  the shared auth manager that sandbox and forgets its guards, so each request resolves the package guards again from
+  its own request, configuration and dispatcher. The services the manager returns, the sign-in methods (even when the
+  manager was resolved at boot) and the revoking listeners (which the event dispatcher builds with the booted
+  application) all act on the application now serving, never the booted one. A package service the booted
+  application resolved itself (one added to `octane.warm`, say) is shared by every sandbox and keeps the booted
+  configuration.
 - Request-local memoization is always on: `user()` resolves a request at most once, whether it succeeds or fails, so a
   rejected token fires its `AuthenticationFailed` once. `setRequest()` starts over, an explicit `login()`, `attempt()`,
   or `setUser()` still binds after a failed resolution, and after `logout()` the guard stays signed out for the rest of
@@ -45,21 +61,21 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `attempt()` emits `Attempting -> Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`.
   It starts no session, so it never dispatches `SignedIn`, which reports the sessions the session service starts;
   Laravel's `Login` reports an `attempt()` sign-in.
-- The session service's `signIn()` emits `Attempting`, then binds through `login()` (`Validated -> Login ->
-  Authenticated -> PrincipalAssigned -> DeviceAuthenticated`) once the session's transaction is done, and dispatches
-  `DeviceCreated` (new devices only) and `SignedIn` when the device's connection commits; `start()` does the same
-  without `Attempting` (see `session-service.md`). A sign-in held for a further factor binds nothing: it emits
-  `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits. `complete()`
-  binds and emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then
+- The session service's `signIn()` emits `Attempting`, then, once the session's transaction is done, `DeviceCreated`
+  (new devices only) and `SignedIn` when the device's connection commits (at once with no transaction open there), and
+  binds through `login()` (`Validated -> Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated`); `start()`
+  does the same without `Attempting` (see `session-service.md`). A sign-in held for a further factor binds nothing: it
+  emits `Attempting` (from `signIn()`) and then `AdditionalFactorRequired` once the pending sign-in commits.
+  `complete()` emits the `signIn()` sequence without `Attempting`; `discard()` emits `Failed` and then
   `AuthenticationFailed` (`additional_factor_failed`).
 - A sign-in held for a choice of principal binds nothing either: `Attempting` (from `signIn()`) and then
-  `PrincipalChoiceRequired` once the choice commits. `choose()` binds and emits the `signIn()` sequence without
-  `Attempting` (or holds the chosen principal for a factor); a discarded choice emits `Failed` and then
-  `AuthenticationFailed` (`principal_choice_abandoned`).
-- `switchPrincipal()` is no sign-in: it binds through `authenticateAs()` (`Authenticated -> PrincipalAssigned ->
-  DeviceAuthenticated`, no `Validated` or `Login`) and dispatches `PrincipalSwitched` once the switch commits on the
-  device's connection; a refusal emits only `AuthenticationFailed` (flow `principal_switch`), with `DeviceRevoked` first
-  for a replayed token.
+  `PrincipalChoiceRequired` once the choice commits. `choose()` emits the `signIn()` sequence without `Attempting` (or
+  holds the chosen principal for a factor); a discarded choice emits `Failed` and then `AuthenticationFailed`
+  (`principal_choice_abandoned`).
+- `switchPrincipal()` is no sign-in: it dispatches `PrincipalSwitched` once the switch commits on the device's
+  connection, and binds through `authenticateAs()` (`Authenticated -> PrincipalAssigned -> DeviceAuthenticated`, no
+  `Validated` or `Login`); a refusal emits only `AuthenticationFailed` (flow `principal_switch`), with `DeviceRevoked`
+  first for a replayed token.
 - Direct `login()` emits the same sequence without `Attempting`. This is the package's public entry point for
   out-of-band authentication such as refresh, OAuth, or SSO callbacks.
 - `setUser()` (behind Laravel's `actingAs()`) clears the previous context and emits `Authenticated -> PrincipalAssigned`
@@ -71,11 +87,11 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - Bearer `user()` resolution binds through `bindVerifiedContext()` without a sign-in, so a successful bearer request
   emits only `Authenticated -> PrincipalAssigned -> DeviceAuthenticated?`, carrying the tenant the activity check
   loaded and the method the device's session records (see `BearerAuthentication`).
-- Successful `refresh()` emits `Attempting`, then `Validated` and the full bind (`Login -> Authenticated ->
-  PrincipalAssigned -> DeviceAuthenticated`), then the package `Refreshed` and `SignedIn` (`refresh` set) events once
-  the rotation is committed on the device's connection (at once with no transaction open there). `refreshFromRequest()`
-  emits the same once its transport has read the token; a request that carries none emits nothing, and one its
-  transport refuses (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and
+- Successful `refresh()` emits `Attempting`, then the package `Refreshed` and `SignedIn` (`refresh` set) events once the
+  rotation is committed on the device's connection (at once with no transaction open there), then `Validated` and the
+  full bind (`Login -> Authenticated -> PrincipalAssigned -> DeviceAuthenticated`). `refreshFromRequest()` emits the
+  same once its transport has read the token; a request that carries none emits nothing, and one its transport refuses
+  (`refresh_token_conflict`, `cross_site_request`, `token_invalid`) emits `Attempting`, `Failed` and
   `AuthenticationFailed` (flow `refresh`), as any failed refresh does (see `refresh-token-transport.md`).
 - A new request (`setRequest()`, which the `request` rebind calls) resets the guard: the bound context, the last
   retrieved identity and whether the request was resolved. A queue worker keeps the application between jobs, so the
@@ -214,10 +230,17 @@ security-sensitive listeners to Laravel's standard auth events and to the packag
 - `tests/Feature/Guards/JwtGuardUserResolutionTest.php`
   `testUserBindsIdentityPrincipalAndDeviceFromValidToken`
 - `tests/Feature/Guards/JwtGuardRefreshResolutionTest.php`
-  `testRefreshDispatchesSuccessfulLifecycleEventsBeforeRefreshed`
+  `testRefreshDispatchesRefreshedAndSignedInBeforeTheBind`
+- `tests/Feature/Guards/JwtGuardTest.php`
+  `testARefreshWhoseBindListenerThrowsIsStillReported`
+- `tests/Feature/Sessions/SessionServiceTest.php`
+  `testASignInWhoseBindListenerThrowsIsStillReported`, `testALifecycleListenerThatThrowsStopsTheBind`
 - `tests/Feature/Guards/AbstractGuardLifecycleTest.php`
   `testSetRequestClearsBoundContextualState`
 - `tests/Integration/Process/RequestSequenceTest.php`
+- `tests/Integration/Octane/JwtGuardRequestsTest.php`, `tests/Integration/Octane/MachineCredentialRequestsTest.php`,
+  `tests/Integration/Octane/ManagerServicesRequestsTest.php`, `tests/Integration/Octane/ScopedStateRequestsTest.php`,
+  `tests/Integration/Octane/WriteConnectionRequestsTest.php`
 - `tests/Integration/Process/QueueWorkerGuardStateTest.php`
   `testWithoutTheResetOneJobsIdentityLeaksIntoTheNext`, `testEachJobStartsSignedOut`
 - `tests/Integration/Process/ForgetGuardStateBeforeJobTest.php`
@@ -303,5 +326,7 @@ Update this note when any of the following change:
 - what `setUser()` binds
 - the listener or persistence behavior attached to `DeviceAuthenticated`
 - how dispatcher and resolver rebinds reach the guard and its refresh exchange
+- which application (the one serving, or the one a collaborator was built with) the guards, the manager's services,
+  the sign-in methods and the revoking listeners resolve from
 - the rule that prior contextual state is cleared before rebinding
 - the rule that bearer and refresh resolution read live state from the write connection with no cross-request cache
