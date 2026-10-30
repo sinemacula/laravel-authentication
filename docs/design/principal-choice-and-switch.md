@@ -76,12 +76,17 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 
 1. `signIn()` verifies the identity, finds no principal, and offers the choice: the pending row is written,
    `PrincipalChoiceRequired` follows the commit, and the result `requiresPrincipal()`.
-2. `choice($token)` lists the eligible principals; `choose($token, $principal)` starts the session as it
-   (`DeviceCreated`, `SignedIn`, then `Login`), and the slots are given back after the commit.
+2. `choice($token)` lists the eligible principals; `choose($token, $principal)` starts the session as it, scheduling
+   `DeviceCreated` and `SignedIn` for the device's commit before it binds the guard (`Validated`, `Login` and the bind
+   events), and the slots are given back after the commit. With no transaction open on the device's connection that is
+   `DeviceCreated`, `SignedIn`, then `Login`; inside a caller's transaction the bind events come first, and the pair
+   follows its commit or is dropped on a rollback.
 3. Later, `switchPrincipalFromRequest($other)` (or `switchPrincipal($refreshToken, $other)` with a token read by the
-   caller) rotates the device to the other principal, dispatches `PrincipalSwitched` after the commit, and then binds
-   the guard to it (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`), so a bind listener that throws
-   cannot withhold the report. The previous principal's access tokens fail on the bearer path as
+   caller) rotates the device to the other principal and schedules `PrincipalSwitched` for the commit on the device's
+   connection before it binds the guard to it (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`), so a bind
+   listener that throws cannot withhold the report. With no transaction open there `PrincipalSwitched` is dispatched at
+   once, before the bind events; inside a caller's transaction the bind events come first, and it follows the commit or
+   is dropped on a rollback. The previous principal's access tokens fail on the bearer path as
    `device_principal_mismatch` from then on.
 
 ## Failure / Edge Cases

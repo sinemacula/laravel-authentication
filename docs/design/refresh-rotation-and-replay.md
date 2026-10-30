@@ -179,13 +179,15 @@ other rotated token as a replay that revokes the device.
   not roll back around refresh.
 - An exception while issuing the new pair propagates without an `AuthenticationFailed` event and without touching the
   device row, so the client can retry with the same refresh token.
-- After the swap commits, `refresh()` dispatches `Refreshed` and `SignedIn` once the rotation is committed on the
-  device's connection, and then binds the new context (`Validated`, `Login` and the bind events), so a listener that
-  throws on a bind event cannot withhold `Refreshed`. Such an exception (on `Validated`, `Login`, `Authenticated`,
-  `PrincipalAssigned`, `DeviceAuthenticated`, including the package's own last-use write, or on `Refreshed` or
-  `SignedIn`) still propagates after the presented token has been rotated and the new pair is lost. A retry with the
-  presented token inside the grace window gets the current credential; after the window it is a replay and revokes the
-  device. Listeners on these events should not throw, or should be queued.
+- After the swap, `refresh()` schedules `Refreshed` and `SignedIn` for the rotation's commit on the device's connection
+  before it binds the new context (`Validated`, `Login` and the bind events), so a listener that throws on a bind event
+  cannot withhold `Refreshed`. With no transaction open there they are dispatched at once, before the bind events;
+  inside a caller's transaction the bind events come first, and they follow the commit or are dropped on a rollback.
+  Such an exception (on `Validated`, `Login`, `Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, including the
+  package's own last-use write, or on `Refreshed` or `SignedIn`) still propagates after the presented token has been
+  rotated and the new pair is lost. A retry with the presented token inside the grace window gets the current
+  credential; after the window it is a replay and revokes the device. Listeners on these events should not throw, or
+  should be queued.
 - An inactive owner, principal, or tenant produces `identity_inactive`, `principal_inactive`, or `tenant_inactive`. A
   principal whose tenant key names a tenant that implements `CanBeActive` but cannot be loaded (deleted or
   soft-deleted) also produces `tenant_inactive`.
