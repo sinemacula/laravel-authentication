@@ -21,6 +21,12 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\Rehashing;
  * password. `OtherDeviceLogout` sets apart the forced rehash of
  * `logoutOtherDevices()`, which is a change.
  *
+ * The provider registers it for every application: nothing tells it in time
+ * that the password-change observer is in use, since `observe()` and
+ * `#[ObservedBy]` pass through no package code, and the attribute registers the
+ * observer only when the model first boots, inside the guard's lookup, after
+ * `Attempting`. With no observer it checks no hash and runs no query.
+ *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *

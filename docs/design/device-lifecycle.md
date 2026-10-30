@@ -100,6 +100,13 @@ deleted. Starting a session is in
   another user. The deactivation observer throws a `LogicException` for a deactivated model that is neither identity nor
   principal: a tenant's deactivation is `tenantDeactivated()`. With both password listeners registered, a broker reset
   is recorded as `password_changed` (the observer sees the save before the application fires `PasswordReset`).
+- The provider registers `Listeners\TrackCredentialAttempts` for every application, observer or not, because the
+  observer cannot switch it on: `observe()` and `#[ObservedBy]` pass through no package code, and the attribute
+  registers the observer only when the model first boots, inside the guard's `retrieveByCredentials()`, after
+  `Attempting` carried the password. Tracking that starts with the observer, or an opt-in beside it that can be left
+  out, would leave that attempt's rehash revoking. Without the observer the tracking costs no query and no hash check:
+  it keeps each open attempt's password, wrapped in a `SensitiveParameterValue`, until the attempt ends (or the request
+  or job, for one that threw), and only the observer's `unlessRehash()` checks a hash.
 - Pruning (`PrunesDevices`, with Laravel's `model:prune`) deletes a device revoked, or past either deadline, at or
   before now less `authentication.device.prune_after_days`: counted from the end of the session, never from creation.
   Each chunk is one conditional `DELETE`; nothing is read first.
@@ -118,6 +125,9 @@ deleted. Starting a session is in
   afterwards: closing that window would need a lock every sign-in and revocation take on the identity row, which is not
   added. Revocation races with refresh, switch and re-sign-in are safe: each of their compare-and-swaps requires
   `revoked_at IS NULL`.
+- An exception between `logoutOtherDevices()`'s forced save and its `OtherDeviceLogout` (Laravel saves, queues the
+  remember cookie, then dispatches), or an earlier listener of that event stopping it, leaves a save held for a rehash
+  unrun, so that forced rehash revokes nothing; the observer relies on Laravel's event to tell it apart.
 - A page size outside 1 to 100 is an `InvalidArgumentException` before any read. An identity without `HasDevices`, or a
   `devices()` relation over a model that is not an `EloquentDevice`, is a `LogicException`.
 - A retention that is not an integer (or canonical digit string) from 0 to 3650 is an `InvalidArgumentException` when
@@ -154,7 +164,8 @@ deleted. Starting a session is in
 - `tests/Integration/Sessions/ConcurrentSwitchAndRevocationTest.php`: two revocations in two processes on PostgreSQL
   and MySQL report each device once, after a commit and after a rollback
 - `tests/Integration/Sessions/SecurityChangeEndToEndTest.php`: each security-change listener's revocation refused at
-  the `auth` middleware and at refresh
+  the `auth` middleware and at refresh, and a session guard's rehash, under an observer `#[ObservedBy]` registers
+  inside the attempt, leaving the session working
 - `tests/Feature/Sessions/DeviceRevocationsTest.php`, `tests/Integration/Sessions/DeviceRevocationsTest.php`,
   `tests/Integration/Sessions/SeparateConnectionDeviceRevocationsTest.php`,
   `tests/Integration/Sessions/RevocationScopeTest.php`, `tests/Feature/Sessions/RevocationScopeTest.php`,
