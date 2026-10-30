@@ -10,6 +10,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
@@ -132,7 +133,7 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
-     * Release the clocks and drop the tables.
+     * Release the clocks and the morph map, and drop the tables.
      *
      * @return void
      */
@@ -142,6 +143,9 @@ final class ChoosesPrincipalsTest extends TestCase
         Schema::dropIfExists('member_roles');
 
         $this->dropSessionTables();
+
+        Relation::requireMorphMap(false);
+        Relation::morphMap([], false);
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -930,6 +934,88 @@ final class ChoosesPrincipalsTest extends TestCase
     }
 
     /**
+     * Inside a caller's transaction, a choice whose bind listener throws
+     * reports `SignedIn` and gives the sign-in's slots back only once the
+     * caller commits. A rollback withdraws both with the session and restores
+     * the pending choice, which can then be made again; the slots are given
+     * back once, for the choice that committed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceWhoseBindListenerThrowsFollowsTheCallersTransaction(): void
+    {
+        [, $first] = $this->seedChooser();
+
+        $limiter = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $token = $this->offer();
+
+        $this->recordEvents([SignedIn::class]);
+
+        Event::listen(Login::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedChoice($token, $first));
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertCount(0, $limiter->released);
+        self::assertSame(0, DB::table('devices')->count());
+        self::assertSame(1, PendingSignIn::query()->count());
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedChoice($token, $first));
+        self::assertSame([], $this->recordedClasses());
+        self::assertCount(0, $limiter->released);
+
+        DB::commit();
+
+        self::assertSame([SignedIn::class], $this->recordedClasses());
+        self::assertCount(2, $limiter->released);
+        self::assertSame(1, DB::table('devices')->count());
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * Under an enforced morph map that names the member and its memberships but
+     * not their tenants, which a plain relation reaches, a choice starts its
+     * session and reports it, recording the tenant by its class name.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testAChoiceUnderAnEnforcedMorphMapRecordsAnUnmappedTenantByItsClass(): void
+    {
+        [, $first] = $this->seedChooser();
+
+        Relation::enforceMorphMap(['chooser' => ChoosingMember::class, 'membership' => ChoosingMembership::class]);
+
+        $token = $this->offer();
+
+        $this->recordEvents([SignedIn::class]);
+
+        self::assertTrue($this->sessions(self::GUARD)->choose($token, $first)->isSignedIn());
+
+        $context = $this->recordedEvent(SignedIn::class)->context;
+
+        self::assertSame('chooser', $context->identityMorphClass);
+        self::assertSame('membership', $context->principalMorphClass);
+        self::assertSame(ActivatableTenant::class, $context->tenantMorphClass);
+        self::assertSame(IdentifierCoercion::stringify($first->tenant_id), $context->tenantId);
+        self::assertSame('membership', DB::table('devices')->value('principal_type'));
+    }
+
+    /**
      * A bind listener that throws fails a switch after it was written, but
      * `PrincipalSwitched` was dispatched before the bind, so the switch is
      * reported; inside a caller's transaction it waits for the commit, and a
@@ -966,6 +1052,41 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertEquals($before, (array) DB::table('devices')->sole());
 
         self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
+        self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
+        self::assertTrue($this->recordedEvent(PrincipalSwitched::class)->context->principal?->is($second)); // @phpstan-ignore method.notFound
+        self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
+    }
+
+    /**
+     * Inside a caller's transaction that catches a switch's throwing bind
+     * listener and commits, `PrincipalSwitched` follows the commit, once, and
+     * the device stays switched.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testASwitchWhoseBindListenerThrowsIsReportedOnTheCallersCommit(): void
+    {
+        [, $first, $second] = $this->seedChooser();
+
+        $session = $this->sessions(self::GUARD)->choose($this->offer(), $first)->session;
+
+        self::assertNotNull($session);
+
+        Event::listen(PrincipalAssigned::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        $this->recordEvents([PrincipalSwitched::class]);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', $this->failedSwitch($session->tokens->refreshToken, $second));
+        self::assertSame([], $this->recordedClasses());
+
+        DB::commit();
+
         self::assertSame([PrincipalSwitched::class], $this->recordedClasses());
         self::assertTrue($this->recordedEvent(PrincipalSwitched::class)->context->principal?->is($second)); // @phpstan-ignore method.notFound
         self::assertSame(IdentifierCoercion::stringify($second->getKey()), IdentifierCoercion::stringify(DB::table('devices')->value('principal_id')));
@@ -1089,6 +1210,27 @@ final class ChoosesPrincipalsTest extends TestCase
         self::assertNotNull($result->choice);
 
         return $result->choice->token;
+    }
+
+    /**
+     * Make the choice, expecting a bind listener to throw, and return the
+     * exception's message.
+     *
+     * @param  string  $token
+     * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
+     * @return string
+     *
+     * @throws \Throwable
+     */
+    private function failedChoice(#[\SensitiveParameter] string $token, Principal $principal): string
+    {
+        try {
+            $this->sessions(self::GUARD)->choose($token, $principal);
+        } catch (\RuntimeException $exception) {
+            return $exception->getMessage();
+        }
+
+        self::fail('Expected the listener to throw.');
     }
 
     /**

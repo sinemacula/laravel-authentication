@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
@@ -60,6 +61,7 @@ use SineMacula\Laravel\Authentication\Sessions\SignInMethodManager;
 use SineMacula\Laravel\Authentication\Sessions\SignInRequest;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Fixtures\Sessions\RecordingAttemptLimiter;
 use Tests\Fixtures\Sessions\RefusalIgnoringSignIn;
 use Tests\Integration\Fixtures\ActivatableTenant;
 use Tests\Integration\Fixtures\IntegrationIdentity;
@@ -1174,6 +1176,67 @@ final class SessionServiceTest extends TestCase
 
         self::assertSame('listener failed', self::failureOf(fn (): SignInResult => $this->sessions()->complete($pending->token)));
         self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertSame(0, PendingSignIn::query()->count());
+    }
+
+    /**
+     * Inside a caller's transaction, a completion whose bind listener throws
+     * reports the session and gives its sign-in's slots back only once the
+     * caller commits. A rollback withdraws both with the session and restores
+     * the pending sign-in, which can then be completed again; the slots are
+     * given back once, for the completion that committed.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testACompletionWhoseBindListenerThrowsFollowsTheCallersTransaction(): void
+    {
+        $identity = $this->seedIdentity();
+        $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
+            'api',
+            new AdmittedSignIn($identity, $identity, null),
+            'password',
+            'email',
+            new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
+            CarbonImmutable::now()->startOfSecond(),
+            [['identifier' => 'window'], ['account' => 'window']],
+        );
+
+        $limiter = new RecordingAttemptLimiter;
+
+        app()->instance(AttemptLimiter::class, $limiter);
+
+        $this->recordEvents([DeviceCreated::class, SignedIn::class]);
+
+        Event::listen(Authenticated::class, static function (): never {
+            throw new \RuntimeException('listener failed');
+        });
+
+        $complete = fn (): SignInResult => $this->sessions()->complete($pending->token);
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', self::failureOf($complete));
+
+        DB::rollBack();
+
+        self::assertSame([], $this->recordedClasses());
+        self::assertCount(0, $limiter->released);
+        self::assertSame(0, Device::query()->count());
+        self::assertSame(1, PendingSignIn::query()->count());
+
+        DB::beginTransaction();
+
+        self::assertSame('listener failed', self::failureOf($complete));
+        self::assertSame([], $this->recordedClasses());
+        self::assertCount(0, $limiter->released);
+
+        DB::commit();
+
+        self::assertSame([DeviceCreated::class, SignedIn::class], $this->recordedClasses());
+        self::assertCount(2, $limiter->released);
+        self::assertSame(1, Device::query()->count());
         self::assertSame(0, PendingSignIn::query()->count());
     }
 

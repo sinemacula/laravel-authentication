@@ -18,14 +18,15 @@ to these events, so the shape and the timing are a contract.
   passkey's id) and the scopes it grants (`scopes`: the granted list for an API key or a client credentials token, `[]`
   for a machine bound without one, `null` for a human identity's session). A part that was not established is `null`.
 - A context snapshots, when it is built, when (`occurredAt`, a `CarbonImmutable` to the microsecond), and, as strings,
-  the identity's morph class (an Eloquent model's morph class, else its class name) and auth identifier
-  (`identityMorphClass`, `identityId`), the principal's morph class, as a device row records it, and identifier
-  (`principalMorphClass`, `principalId`), the principal's categorical type as `Auth::type()` reports it
-  (`principalCategory`: its own `HasType` type, else that of the context's tenant, read from what is loaded and never
-  with a query; `null` when neither reports one or a type was loaded without its column), and the tenant's morph class
-  and identifier (`tenantMorphClass`, `tenantId`) and the device's identifier (`deviceId`). A device id a token named is
-  kept as the device snapshot when no device row was loaded. The morph class and the categorical type are distinct: the
-  first says which model a reference names, the second what kind of principal it is.
+  the identity's morph class (an Eloquent model's morph class, else its class name; the class name too for a model an
+  enforced morph map leaves out, so building a context never throws `ClassMorphViolationException` for a tenant that
+  never needed an alias) and auth identifier (`identityMorphClass`, `identityId`), the principal's morph class, as a
+  device row records it, and identifier (`principalMorphClass`, `principalId`), the principal's categorical type as
+  `Auth::type()` reports it (`principalCategory`: its own `HasType` type, else that of the context's tenant, read from
+  what is loaded and never with a query; `null` when neither reports one or a type was loaded without its column), and
+  the tenant's morph class and identifier (`tenantMorphClass`, `tenantId`) and the device's identifier (`deviceId`). A
+  device id a token named is kept as the device snapshot when no device row was loaded. The morph class and the
+  categorical type are distinct: the first says which model a reference names, the second what kind of principal it is.
 - An event about a device row itself is built with `fromDevice`: every `DeviceRevoked`, and a refresh or switch refused
   on the row's own state before its owner was read (a `RefreshJudgement` verdict, `identity_unknown`, a row that changed
   under the compare-and-swap). An identity or principal it does not hold then takes the snapshot of the owner (its morph
@@ -147,11 +148,12 @@ to these events, so the shape and the timing are a contract.
   `testRecordsWhenItWasBuilt`, `testSnapshotsEveryReferenceAsAString`, `testRecordsEloquentModelsByTheirMorphClass`,
   `testRecordsThePrincipalsCategoricalType`, `testATypeLoadedWithoutItsColumnIsRecordedAsUnknown`,
   `testSnapshotsDoNotFollowLaterChanges`, `testKeepsANamedDeviceIdWithoutADevice`,
-  `testKeepsTheCredentialAndItsScopes`, `testToArrayIsTheSnapshotAsScalars`, `testSurvivesASerialiseRoundTrip`
+  `testKeepsTheCredentialAndItsScopes`, `testToArrayIsTheSnapshotAsScalars`, `testSurvivesASerialiseRoundTrip`,
+  `testAModelAnEnforcedMorphMapLeavesOutIsRecordedByItsClassName`
 - `tests/Feature/Events/Concerns/SerializesLiveModelsTest.php`
   `testALiveModelIsFetchedAgainInItsStateThen`, `testALiveModelWhoseRowIsGoneComesBackNull`,
   `testAPartThatIsNotAnEloquentModelDoesNotCross`, `testADatabaseErrorStillSurfaces`,
-  `testAPreviousPrincipalWhoseRowIsGoneComesBackNull`
+  `testAPreviousPrincipalWhoseRowIsGoneComesBackNull`, `testALiveModelNamedByItsMorphAliasIsRestored`
 - `tests/Integration/Events/ReplicaSerializesLiveModelsTest.php`
   `testALiveModelIsFetchedAgainFromTheWriter`
 - `tests/Integration/Events/EveryEventRestoresTest.php`
@@ -181,9 +183,11 @@ to these events, so the shape and the timing are a contract.
 - `tests/Feature/Sessions/SessionServiceTest.php`
   `testAMethodThatRefusesWithAServiceReasonIsAMisconfiguration`, `testASignInWhoseBindListenerThrowsIsStillReported`,
   `testACompletionWhoseBindListenerThrowsIsStillReportedAndGivesItsSlotsBack`,
-  `testALifecycleListenerThatThrowsStopsTheBind`
+  `testACompletionWhoseBindListenerThrowsFollowsTheCallersTransaction`, `testALifecycleListenerThatThrowsStopsTheBind`
 - `tests/Feature/Sessions/ChoosesPrincipalsTest.php`
-  `testAChoiceWhoseBindListenerThrowsIsStillReported`, `testASwitchWhoseBindListenerThrowsIsStillReported`
+  `testAChoiceWhoseBindListenerThrowsIsStillReported`, `testAChoiceWhoseBindListenerThrowsFollowsTheCallersTransaction`,
+  `testASwitchWhoseBindListenerThrowsIsStillReported`, `testASwitchWhoseBindListenerThrowsIsReportedOnTheCallersCommit`,
+  `testAChoiceUnderAnEnforcedMorphMapRecordsAnUnmappedTenantByItsClass`
 - `tests/Feature/Guards/JwtGuardTest.php`
   `testARefreshWhoseBindListenerThrowsIsStillReported`
 - `tests/Integration/Sessions/SessionServiceTest.php`

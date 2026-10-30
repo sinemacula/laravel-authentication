@@ -183,14 +183,16 @@ trait ChoosesPrincipals
      * Switch the session the refresh token proves to another principal of its
      * identity, on the same device.
      *
-     * On success the guard is bound to the session as the new principal
-     * (`Authenticated`, `PrincipalAssigned`, `DeviceAuthenticated`, no
-     * `Login`), and `PrincipalSwitched` follows once the switch is committed on
-     * the device's connection; a switch to the principal the device already
-     * records rotates the credential like a refresh and reports no switch. A
-     * refused switch reports `AuthenticationFailed` (flow `principal_switch`)
-     * and leaves the session as it was, unless the token proved a replay, which
-     * revokes the device.
+     * On success `PrincipalSwitched` is scheduled for once the switch is
+     * committed on the device's connection (at once when no transaction is open
+     * there, so before the bind), and then the guard is bound to the session as
+     * the new principal (`Authenticated`, `PrincipalAssigned`,
+     * `DeviceAuthenticated`, no `Login`); a bind listener that throws cannot
+     * withhold the switch's report. A switch to the principal the device
+     * already records rotates the credential like a refresh and reports no
+     * switch. A refused switch reports `AuthenticationFailed` (flow
+     * `principal_switch`) and leaves the session as it was, unless the token
+     * proved a replay, which revokes the device.
      *
      * @param  string  $refreshToken
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal

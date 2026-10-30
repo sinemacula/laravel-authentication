@@ -117,8 +117,10 @@ share is in `refresh-rotation-and-replay.md`; the bearer checks that end the old
 ## Authoritative Tests
 
 - `tests/Feature/Sessions/ChoosesPrincipalsTest.php` (the choice over HTTP and through the service, choose then factor
-  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier,
-  the listing with an identifier type, and a choice under Eloquent strict mode)
+  then complete, discard, the token purposes, the proven device, the slots, no choice for an unverified identifier, the
+  listing with an identifier type, a choice under Eloquent strict mode, a choice or switch whose bind listener throws,
+  reported at once or on the caller's commit and withdrawn by its rollback, and a tenant an enforced morph map leaves
+  out)
 - `tests/Feature/Sessions/PrincipalSwitchTest.php` (the switch over HTTP, the old access token refused at once,
   A -> B -> A, the old refresh token inside and after the grace window, the lost response retried, every refusal, a
   switch read from the request and the transport's refusals, and a switch screen's listing)
