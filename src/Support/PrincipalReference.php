@@ -2,12 +2,11 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Sessions;
+namespace SineMacula\Laravel\Authentication\Support;
 
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 
 /**
  * How a principal is recorded on the rows that remember it (a device, a pending

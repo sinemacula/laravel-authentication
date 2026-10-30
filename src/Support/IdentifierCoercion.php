@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Jwt;
+namespace SineMacula\Laravel\Authentication\Support;
 
 /**
  * Coerce identifier values returned by package contracts into JWT claim

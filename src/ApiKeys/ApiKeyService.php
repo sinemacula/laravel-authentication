@@ -28,10 +28,10 @@ use SineMacula\Laravel\Authentication\Exceptions\TenantUnavailableException;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\Scopes\Scopes;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * A guard's API keys, `Auth::apiKeys($guard)`: issue a key to a non-human

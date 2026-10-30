@@ -15,8 +15,8 @@ use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Guards\AbstractGuard;
 use SineMacula\Laravel\Authentication\Jwt\DeviceOwnership;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The context a test acts as on each package guard, kept in the container so it

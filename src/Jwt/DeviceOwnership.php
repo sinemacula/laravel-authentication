@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\MachineIdentity;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Read a device row's owner and decide whether an identity is that owner.

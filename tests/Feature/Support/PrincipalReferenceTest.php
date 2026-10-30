@@ -2,13 +2,13 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Feature\Sessions;
+namespace Tests\Feature\Support;
 
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 use Tests\TestCase;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubPrincipal;

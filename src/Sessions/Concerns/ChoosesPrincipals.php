@@ -24,7 +24,6 @@ use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Guards\PinnedPrincipal;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
 use SineMacula\Laravel\Authentication\Http\PresentedRefreshToken;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshRotationStore;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
@@ -32,13 +31,14 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalChoice;
-use SineMacula\Laravel\Authentication\Sessions\PrincipalReference;
 use SineMacula\Laravel\Authentication\Sessions\PrincipalSwitch;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use SineMacula\Laravel\Authentication\Sessions\SignInResult;
 use SineMacula\Laravel\Authentication\Sessions\SwitchedPrincipal;
 use SineMacula\Laravel\Authentication\Sessions\SwitchResult;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * The session service's principal choice and switch.

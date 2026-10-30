@@ -15,6 +15,7 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\Claims;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
+use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
 /**
  * Decides whether a client signing in proved, with its refresh token, that it

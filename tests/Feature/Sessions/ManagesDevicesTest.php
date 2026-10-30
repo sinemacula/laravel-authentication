@@ -22,7 +22,6 @@ use SineMacula\Laravel\Authentication\Events\SignedOutEverywhere;
 use SineMacula\Laravel\Authentication\Facades\Auth;
 use SineMacula\Laravel\Authentication\Guards\JwtGuard;
 use SineMacula\Laravel\Authentication\IdentifierChanges\PendingChanges;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Sessions\Concerns\ManagesDevices;
 use SineMacula\Laravel\Authentication\Sessions\DeviceRevocations;
@@ -30,6 +29,7 @@ use SineMacula\Laravel\Authentication\Sessions\IdentityDevices;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use Tests\Concerns\InteractsWithChangeableIdentities;
 use Tests\TestCase;
 

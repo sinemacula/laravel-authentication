@@ -2,11 +2,11 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Jwt;
+namespace Tests\Unit\Support;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Unit tests for the `IdentifierCoercion` JWT claim helper.

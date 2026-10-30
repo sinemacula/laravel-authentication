@@ -6,7 +6,7 @@ namespace SineMacula\Laravel\Authentication\Exceptions;
 
 use Illuminate\Database\Eloquent\Model;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Jwt\IdentifierCoercion;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Thrown by `Principal::getTenant()` when the principal names a tenant that

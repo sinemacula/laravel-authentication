@@ -86,8 +86,8 @@ specific principal or device and the runtime cannot prove that claim, authentica
   `resolveDeviceFromHint()`, the pinned-context checks in `attempt()`.
 - `src/Jwt/RefreshTokenExchange.php`: `extractRefreshClaims()`; `src/Jwt/RefreshJudgement.php`: `classify()`;
   `src/Jwt/RefreshAdmission.php`: `principal()`; the device is found by `src/Jwt/DeviceLookup.php`'s `find()`.
-- `src/Jwt/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and refresh
-  `pid` checks.
+- `src/Support/IdentifierCoercion.php`: `stringify()` and `matches()`, the exact-match rule behind the bearer and
+  refresh `pid` checks.
 - `src/Jwt/Enums/TokenType.php`: `requiredClaims()`, enforced by `JwtTokenService::parse()`.
 - `src/Jwt/DeviceKeyShape.php`: `matches()`, the `did` shape check shared by the bearer and refresh paths.
 - `src/Jwt/TokenLifetimes.php`: `hasEnded()`, the one deadline rule the bearer path, pins, refresh, and issuance share.

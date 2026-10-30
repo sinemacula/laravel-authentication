@@ -18,6 +18,7 @@ use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
+use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
  * Decides whom a device's refresh token signs in again: the device's owner,
