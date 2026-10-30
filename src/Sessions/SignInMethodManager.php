@@ -4,6 +4,8 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\Sessions;
 
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Container\Container as ContainerContract;
 use Illuminate\Support\Manager;
 use SineMacula\Laravel\Authentication\Codes\CodeSignIn;
 use SineMacula\Laravel\Authentication\Contracts\SignInMethod;
@@ -26,10 +28,12 @@ use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
  *
  * `$this->callAfterResolving(SignInMethodManager::class, fn ($methods) => $methods->extend('sso', ...));`
  *
- * A singleton that keeps each method it builds for the life of the process,
- * which is why methods must be stateless. There is no default method: every
- * sign-in names the method it uses, exactly as it was registered, since the
- * name is what the device records and the audience policy allows.
+ * A singleton that keeps each method it builds for as long as the same
+ * application is serving (the life of the process, except under Octane, where
+ * each request's sandbox builds its own), which is why methods must be
+ * stateless. There is no default method: every sign-in names the method it
+ * uses, exactly as it was registered, since the name is what the device records
+ * and the audience policy allows.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
@@ -44,6 +48,21 @@ final class SignInMethodManager extends Manager
 
     /** @var list<string> Methods the package registers itself; `extend()` refuses them. */
     private const array PACKAGE_METHODS = [PasswordSignIn::NAME, 'phone_code', 'email_code', 'passkey'];
+
+    /** @var bool Whether the manager follows the application serving: it was built with the one then serving and given no container since. */
+    private bool $followsApplication;
+
+    /**
+     * Constructor.
+     *
+     * @param  \Illuminate\Contracts\Container\Container  $container
+     */
+    public function __construct(ContainerContract $container)
+    {
+        parent::__construct($container);
+
+        $this->followsApplication = $container === Container::getInstance();
+    }
 
     /**
      * Return the sign-in method registered under the name.
@@ -126,6 +145,54 @@ final class SignInMethodManager extends Manager
         parent::extend($driver, $callback);
 
         return $this;
+    }
+
+    /**
+     * Return the method registered under the name. A manager built with the
+     * application then serving builds its methods with the application now
+     * serving: methods built with another application are forgotten first, so
+     * they are built again with this one, and methods registered with
+     * `extend()` stay registered. A manager given a container of its own, at
+     * construction or through `setContainer()`, keeps it.
+     *
+     * Under Octane each request runs in a sandbox: a copy of the application
+     * the worker booted, with the request's own configuration and bindings. A
+     * manager resolved at boot, as one a service provider registers a method on
+     * is, would otherwise build every method with the booted application and
+     * its configuration, for the life of the worker.
+     *
+     * @param  mixed  $driver
+     * @return mixed
+     *
+     * @throws \InvalidArgumentException
+     */
+    #[\Override]
+    public function driver(mixed $driver = null): mixed
+    {
+        $current = Container::getInstance();
+
+        if ($this->followsApplication && $current !== $this->container) {
+            $this->container = $current;
+            $this->config    = $current->make('config');
+            $this->drivers   = [];
+        }
+
+        return parent::driver($driver);
+    }
+
+    /**
+     * Build the methods with the container given from now on, whichever
+     * application is serving.
+     *
+     * @param  \Illuminate\Contracts\Container\Container  $container
+     * @return $this
+     */
+    #[\Override]
+    public function setContainer(ContainerContract $container): self
+    {
+        $this->followsApplication = false;
+
+        return parent::setContainer($container);
     }
 
     /**

@@ -7,6 +7,7 @@ namespace Tests\Feature\Listeners;
 use Illuminate\Auth\EloquentUserProvider;
 use Illuminate\Auth\SessionGuard;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
 use Illuminate\Hashing\BcryptHasher;
@@ -292,6 +293,38 @@ final class RevokeDevicesOnPasswordChangeTest extends TestCase
         $identity->forceFill(['password' => app(Hasher::class)->make(self::PASSWORD)])->save();
 
         self::assertSame('password_changed', DB::table('devices')->value('revoked_reason'));
+    }
+
+    /**
+     * The listener reads the rehash mark of the application now serving, which
+     * the attempt marked, not one of the container that built it: under Octane
+     * the event dispatcher builds its listeners with the application the worker
+     * booted, while the request is served by a copy of it with scoped instances
+     * of its own. Laravel's rehash on `attempt()` still revokes nothing.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testTheMarkIsTheServingApplicationsWhateverBuiltTheListener(): void
+    {
+        $identity = $this->seedOutdatedHash();
+        $booted   = $this->app;
+
+        self::assertInstanceOf(Application::class, $booted);
+
+        $booted->forgetScopedInstances();
+
+        Container::setInstance(clone $booted);
+
+        try {
+            self::assertTrue($this->webGuard()->attempt(self::credentials()));
+        } finally {
+            Container::setInstance($booted);
+        }
+
+        self::assertNotSame(self::OUTDATED_HASH, $identity->fresh()?->getAuthPassword());
+        self::assertSame(0, DB::table('devices')->whereNotNull('revoked_at')->count());
     }
 
     /**
