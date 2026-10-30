@@ -55,9 +55,11 @@ binding and what it takes over from the manager it replaces.
 
 ## Failure / Edge Cases
 
-- A default resolved while providers are still registering is the instance every later caller gets, even when a deferred
-  provider would bind its own: Laravel installs deferred services after registering the eager providers, and a resolved
-  shared instance is never rebuilt. Resolve nothing while registering.
+- A default resolved while providers are still registering keeps a deferred provider's binding of it from loading:
+  Laravel installs deferred services after registering the eager providers, and loads a deferred provider only for a
+  service that has no instance yet. Resolve nothing while registering. An eager `bind()` or `singleton()` is not
+  affected: it drops the resolved instance, so it replaces the default for every caller that resolves it afterwards
+  (one that already holds the default keeps it).
 - `make(SignInMethodManager::class)->extend()` in a `register()` that runs before the package's is lost: the registry is
   not shared yet, so `make()` builds one that nothing else sees. Hence `callAfterResolving()`.
 - Identifier normalisers are configuration (`authentication.identifiers.normalisers`). Laravel merges a package's

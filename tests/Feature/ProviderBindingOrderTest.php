@@ -20,6 +20,7 @@ use SineMacula\Laravel\Authentication\Contracts\BreachedPasswordChecker;
 use SineMacula\Laravel\Authentication\Contracts\PasswordResetLinkSender;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\ScopeRegistry;
+use SineMacula\Laravel\Authentication\Factors\NeverRequireAdditionalFactor;
 use SineMacula\Laravel\Authentication\Identifiers\IdentifierNormalisers;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
 use SineMacula\Laravel\Authentication\Passkeys\WebAuthn;
@@ -190,6 +191,46 @@ final class ProviderBindingOrderTest extends TestCase
         $app->addDeferredServices([AdditionalFactorPolicy::class => DeferredFactorPolicyProvider::class]);
 
         self::assertInstanceOf(AlwaysRequireAdditionalFactor::class, $app->make(AdditionalFactorPolicy::class));
+    }
+
+    /**
+     * A policy bound with `singleton()` after the default has resolved still
+     * replaces it, as the container drops the resolved instance.
+     *
+     * @return void
+     */
+    public function testALaterBindingReplacesADefaultThatHasResolved(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        self::assertInstanceOf(NeverRequireAdditionalFactor::class, $app->make(AdditionalFactorPolicy::class));
+
+        $app->singleton(AdditionalFactorPolicy::class, AlwaysRequireAdditionalFactor::class);
+
+        self::assertInstanceOf(AlwaysRequireAdditionalFactor::class, $app->make(AdditionalFactorPolicy::class));
+    }
+
+    /**
+     * A deferred provider is not loaded for a default that has already
+     * resolved: Laravel loads one only for a service with no instance yet, so
+     * the default stays.
+     *
+     * @return void
+     */
+    public function testADeferredProvidersFactorPolicyIsNotLoadedOnceTheDefaultHasResolved(): void
+    {
+        $app = $this->app;
+
+        assert($app !== null);
+
+        $default = $app->make(AdditionalFactorPolicy::class);
+
+        $app->addDeferredServices([AdditionalFactorPolicy::class => DeferredFactorPolicyProvider::class]);
+
+        self::assertInstanceOf(NeverRequireAdditionalFactor::class, $default);
+        self::assertSame($default, $app->make(AdditionalFactorPolicy::class));
     }
 
     /**

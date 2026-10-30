@@ -58,9 +58,10 @@ Every default the package binds is bound only when nothing is bound yet: `Princi
 `AttemptLimiter`, `AdditionalFactorPolicy`, `ScopeRegistry`, `BreachedPasswordChecker`, `PasswordResetLinkSender`, and
 the `IdentifierNormalisers` and `SignInMethodManager` registries. Bind yours in a service provider's `register()`,
 before or after the package's provider: one bound before is kept, and one bound after replaces the default, so a factor
-policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. Resolve none of
-them while providers register: a default resolved then is the instance every later caller gets, even when a deferred
-provider binds its own.
+policy is never replaced by `NeverRequireAdditionalFactor`, nor a scope registry by `AcceptAnyScope`. A `bind()` or
+`singleton()` replaces a default even once it has resolved, for every caller that resolves it afterwards; a deferred
+provider does not, as Laravel loads one only for a service that has no instance yet. Resolve none of them while
+providers register, or a deferred provider's binding of it is passed over.
 
 Register a sign-in method once the registry resolves, which works in either order (a registry made with `make()` before
 the package registers is not the one the package uses):
