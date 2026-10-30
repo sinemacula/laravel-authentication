@@ -99,6 +99,10 @@ composer bench:ci   # PHPBench with CI artifact dump
   (`composer test:mutation`) is the enforced floor. Behaviour that spans the authentication lifecycle (guards, token
   refresh, events) should be covered by integration tests that exercise the package the way a consuming application
   does.
+- `tests/Feature/Contracts/EventSequenceTest.php` and `tests/Integration/Contracts/EventSequenceTest.php` pin the
+  events every flow dispatches and their order; a change to either updates them and the design note that describes it.
+- The dependency rules between namespaces are data in `tests/Unit/Architecture/NamespaceDependenciesTest.php`; a change
+  that moves a class or narrows a dependency adds or tightens its rule there.
 
 ## Pull Requests
 
