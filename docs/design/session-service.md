@@ -132,7 +132,7 @@ dispatches when. It is the one place a session starts, so every sign-in method, 
 - `src/Sessions/PendingSignIns.php` and `src/Models/PendingSignIn.php`: issuing, finding and consuming pending sign-ins.
 - `src/Sessions/SessionPreconditions.php`: the `HasDevices` refusal, and `start()`'s one-principal rule and
   reloaded-identity check.
-- `src/Sessions/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Guards/PinnedPrincipal.php`.
+- `src/Admission/SignInAdmission.php`, shared with `attempt()`; `src/Admission/PinnedPrincipal.php`.
 - `src/Database/AfterCommit.php`, shared with the refresh exchange's revocation report.
 - `src/Guards/JwtGuard.php` (`sessions()`), `src/AuthManager.php` (`sessions()`), and the factory
   `AuthenticationServiceProvider::createJwtGuard()` passes the guard.

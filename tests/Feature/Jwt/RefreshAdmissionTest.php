@@ -11,6 +11,8 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -21,8 +23,6 @@ use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\RefreshAdmission;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use Tests\Concerns\InteractsWithDevices;
 use Tests\Unit\Stubs\StubDevice;
 use Tests\Unit\Stubs\StubIdentity;
@@ -106,7 +106,7 @@ final class RefreshAdmissionTest extends TestCase
 
         $admitted = $this->admission()->admit($device, 'p-1');
 
-        self::assertInstanceOf(AdmittedSignIn::class, $admitted);
+        self::assertInstanceOf(Admitted::class, $admitted);
         self::assertSame($identity, $admitted->identity);
         self::assertSame($principal, $admitted->principal);
         self::assertSame($tenant, $admitted->tenant);
@@ -129,7 +129,7 @@ final class RefreshAdmissionTest extends TestCase
 
         $admitted = $this->admission()->admit($device, null);
 
-        self::assertInstanceOf(AdmittedSignIn::class, $admitted);
+        self::assertInstanceOf(Admitted::class, $admitted);
         self::assertSame($principal, $admitted->principal);
         self::assertNull($admitted->tenant);
     }
@@ -150,7 +150,7 @@ final class RefreshAdmissionTest extends TestCase
 
         $refused = $this->admission()->admit($device, 'p-1');
 
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTITY_UNKNOWN, $refused->reason);
         self::assertNull($refused->identity);
     }
@@ -198,7 +198,7 @@ final class RefreshAdmissionTest extends TestCase
 
         $refused = $this->admission()->admit($device, 'p-1');
 
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::MACHINE_IDENTITY, $refused->reason);
         self::assertSame($machine, $refused->identity);
     }
@@ -217,7 +217,7 @@ final class RefreshAdmissionTest extends TestCase
 
         $refused = $this->admission()->admit($device, 'p-1');
 
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertNull($refused->principal);
@@ -243,18 +243,18 @@ final class RefreshAdmissionTest extends TestCase
 
         $missing = $this->admission()->admit($device, 'p-9');
 
-        self::assertInstanceOf(RefusedSignIn::class, $missing);
+        self::assertInstanceOf(Refused::class, $missing);
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $missing->reason);
 
         $this->resolver->shouldReceive('resolve')->once()->withArgs(static fn (mixed ...$arguments): bool => $arguments === [$identity])->andReturnNull();
 
         $unresolved = $this->admission()->admit($device, null);
 
-        self::assertInstanceOf(RefusedSignIn::class, $mismatch);
+        self::assertInstanceOf(Refused::class, $mismatch);
         self::assertSame(FailureReason::PRINCIPAL_MISMATCH, $mismatch->reason);
         self::assertSame($identity, $mismatch->identity);
         self::assertNull($mismatch->principal);
-        self::assertInstanceOf(RefusedSignIn::class, $unresolved);
+        self::assertInstanceOf(Refused::class, $unresolved);
         self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $unresolved->reason);
     }
 
@@ -283,10 +283,10 @@ final class RefreshAdmissionTest extends TestCase
 
         $tenantRefusal = $this->admission()->admit($device, 'p-2');
 
-        self::assertInstanceOf(RefusedSignIn::class, $principalRefusal);
+        self::assertInstanceOf(Refused::class, $principalRefusal);
         self::assertSame(FailureReason::PRINCIPAL_INACTIVE, $principalRefusal->reason);
         self::assertSame($inactive, $principalRefusal->principal);
-        self::assertInstanceOf(RefusedSignIn::class, $tenantRefusal);
+        self::assertInstanceOf(Refused::class, $tenantRefusal);
         self::assertSame(FailureReason::TENANT_INACTIVE, $tenantRefusal->reason);
         self::assertSame($member, $tenantRefusal->principal);
         self::assertNull($tenantRefusal->tenant);
@@ -325,7 +325,7 @@ final class RefreshAdmissionTest extends TestCase
         $expected = [[$notAllowed, FailureReason::METHOD_NOT_ALLOWED], [$noMethod, FailureReason::METHOD_NOT_ALLOWED], [$ineligible, FailureReason::PRINCIPAL_INELIGIBLE]];
 
         foreach ($expected as [$refused, $reason]) {
-            self::assertInstanceOf(RefusedSignIn::class, $refused);
+            self::assertInstanceOf(Refused::class, $refused);
             self::assertSame($reason, $refused->reason);
             self::assertSame($identity, $refused->identity);
             self::assertSame($tenant, $refused->tenant);

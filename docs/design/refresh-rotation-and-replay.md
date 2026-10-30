@@ -236,7 +236,7 @@ other rotated token as a replay that revokes the device.
   device lookup.
 - `src/Database/WriteConnection.php`: pins the device and owner reads to the write connection (the principal and tenant
   reads are pinned by the resolver and by `ActivationPolicy`).
-- `src/Guards/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
+- `src/Admission/ActivationPolicy.php`: the opt-in identity, principal, and tenant activity checks.
 - `src/Events/Enums/FailureReason.php` and `src/Events/Enums/RevocationReason.php`: failure and revocation
   taxonomies; `src/Events/AuthenticationFailed.php`, `src/Events/DeviceRevoked.php`.
 - `src/Guards/JwtGuard.php`: `refresh()` and `refreshFromRequest()` go through `exchangeRefresh()`, which runs the live

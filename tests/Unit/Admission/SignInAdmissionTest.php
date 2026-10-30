@@ -2,13 +2,16 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Sessions\Admission;
+namespace Tests\Unit\Admission;
 
 use Illuminate\Config\Repository;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
+use SineMacula\Laravel\Authentication\Admission\SignInAdmission;
 use SineMacula\Laravel\Authentication\Audience\GuardAudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\CanBeActive;
@@ -18,9 +21,6 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Jwt\JwtTokenServiceFactory;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission;
 use Tests\Unit\Stubs\StubVerifiableIdentity;
 
 /**
@@ -74,7 +74,7 @@ final class SignInAdmissionTest extends TestCase
 
         $admitted = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
-        self::assertInstanceOf(AdmittedSignIn::class, $admitted);
+        self::assertInstanceOf(Admitted::class, $admitted);
         self::assertSame($identity, $admitted->identity);
         self::assertSame($principal, $admitted->principal);
         self::assertSame($tenant, $admitted->tenant);
@@ -101,7 +101,7 @@ final class SignInAdmissionTest extends TestCase
         }, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
         self::assertFalse($resolved);
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTITY_INACTIVE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertNull($refused->principal);
@@ -130,7 +130,7 @@ final class SignInAdmissionTest extends TestCase
         }, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
         self::assertFalse($resolved);
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::MACHINE_IDENTITY, $refused->reason);
         self::assertSame($identity, $refused->identity);
     }
@@ -158,7 +158,7 @@ final class SignInAdmissionTest extends TestCase
         }, FailureReason::PRINCIPAL_UNRESOLVED, 'phone');
 
         self::assertFalse($resolved);
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertNull($refused->principal);
@@ -186,14 +186,14 @@ final class SignInAdmissionTest extends TestCase
         }, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
         self::assertFalse($resolved);
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::IDENTIFIER_UNVERIFIED, $refused->reason);
         self::assertSame($unverified, $refused->identity);
         self::assertNull($refused->principal);
 
         $unnamed = $admission->admit('api', $unverified, static fn (): ?Principal => null, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
-        self::assertInstanceOf(RefusedSignIn::class, $unnamed);
+        self::assertInstanceOf(Refused::class, $unnamed);
         self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $unnamed->reason);
 
         $verified = new StubVerifiableIdentity(2, ['email' => 'ada@example.com']);
@@ -201,7 +201,7 @@ final class SignInAdmissionTest extends TestCase
 
         $afterGate = $admission->admit('api', $verified, static fn (): ?Principal => null, FailureReason::PRINCIPAL_UNRESOLVED, 'email');
 
-        self::assertInstanceOf(RefusedSignIn::class, $afterGate);
+        self::assertInstanceOf(Refused::class, $afterGate);
         self::assertSame(FailureReason::PRINCIPAL_UNRESOLVED, $afterGate->reason);
     }
 
@@ -222,7 +222,7 @@ final class SignInAdmissionTest extends TestCase
 
             $refused = $this->admission()->admit('api', $identity, static fn (): ?Principal => null, $reason, null);
 
-            self::assertInstanceOf(RefusedSignIn::class, $refused);
+            self::assertInstanceOf(Refused::class, $refused);
             self::assertSame($reason, $refused->reason);
             self::assertSame($identity, $refused->identity);
             self::assertNull($refused->principal);
@@ -245,7 +245,7 @@ final class SignInAdmissionTest extends TestCase
 
         $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::PRINCIPAL_INACTIVE, $refused->reason);
         self::assertSame($principal, $refused->principal);
         self::assertNull($refused->tenant);
@@ -265,7 +265,7 @@ final class SignInAdmissionTest extends TestCase
 
         $refused = $this->admission()->admit('api', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::TENANT_INACTIVE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertSame($principal, $refused->principal);
@@ -291,7 +291,7 @@ final class SignInAdmissionTest extends TestCase
 
         $refused = $this->admission()->admit('admin', $identity, static fn (): Principal => $principal, FailureReason::PRINCIPAL_UNRESOLVED, null);
 
-        self::assertInstanceOf(RefusedSignIn::class, $refused);
+        self::assertInstanceOf(Refused::class, $refused);
         self::assertSame(FailureReason::PRINCIPAL_INELIGIBLE, $refused->reason);
         self::assertSame($identity, $refused->identity);
         self::assertSame($principal, $refused->principal);
@@ -319,7 +319,7 @@ final class SignInAdmissionTest extends TestCase
     /**
      * Build the admission over the audience policy mock.
      *
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\SignInAdmission
+     * @return \SineMacula\Laravel\Authentication\Admission\SignInAdmission
      */
     private function admission(): SignInAdmission
     {

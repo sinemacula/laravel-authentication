@@ -12,6 +12,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Facades\Auth;
@@ -20,7 +21,6 @@ use SineMacula\Laravel\Authentication\Jwt\Enums\TokenType;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
 use SineMacula\Laravel\Authentication\Models\Device;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\SessionWriter;
 use SineMacula\Laravel\Authentication\Sessions\SignInContext;
 use Tests\Concerns\InteractsWithSessions;
@@ -132,7 +132,7 @@ final class SessionWriterTest extends TestCase
         $principal = \Mockery::mock(Principal::class);
 
         try {
-            $this->writer()->create(new AdmittedSignIn($identity, $principal, null), 'password', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
+            $this->writer()->create(new Admitted($identity, $principal, null), 'password', null, $this->context(), $this->lifetimes(), $this->now, $this->context()->client);
             self::fail('Expected an identity that is not a model to be refused.');
         } catch (\LogicException $exception) {
             self::assertSame(sprintf('The session service can only create a device for an Eloquent identity; %s is not a model.', $identity::class), $exception->getMessage());
@@ -256,11 +256,11 @@ final class SessionWriterTest extends TestCase
      * An admitted 2D sign-in of the identity.
      *
      * @param  \Tests\Integration\Fixtures\IntegrationIdentity  $identity
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted
      */
-    private function admitted(IntegrationIdentity $identity): AdmittedSignIn
+    private function admitted(IntegrationIdentity $identity): Admitted
     {
-        return new AdmittedSignIn($identity, $identity, null);
+        return new Admitted($identity, $identity, null);
     }
 
     /**

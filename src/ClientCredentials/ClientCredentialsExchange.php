@@ -7,6 +7,8 @@ namespace SineMacula\Laravel\Authentication\ClientCredentials;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Request;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
@@ -27,8 +29,6 @@ use SineMacula\Laravel\Authentication\Models\ApiKey;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
 use SineMacula\Laravel\Authentication\Scopes\Scopes;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 
 /**
  * A `jwt` guard's OAuth 2.0 client credentials exchange (RFC 6749 section 4.4),
@@ -202,7 +202,7 @@ final readonly class ClientCredentialsExchange
         $outcome = (new ApiKeyAuthentication($this->guard->getName(), self::METHOD, $this->guard->getProvider(), $this->guard->getPrincipalResolver(), $audience))
             ->authenticate($presented->clientId, $presented->clientSecret(), $now);
 
-        if ($outcome->admission instanceof RefusedSignIn || $outcome->key === null) {
+        if ($outcome->admission instanceof Refused || $outcome->key === null) {
 
             $limiter->recordFailure($subject);
 
@@ -217,7 +217,7 @@ final readonly class ClientCredentialsExchange
      * when the key grants it, and record the key's use.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  \SineMacula\Laravel\Authentication\ClientCredentials\PresentedClient  $presented
      * @param  \SineMacula\Laravel\Authentication\Http\ClientContext  $client
      * @param  \Carbon\CarbonImmutable  $now
@@ -228,7 +228,7 @@ final readonly class ClientCredentialsExchange
      * @throws \Random\RandomException
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
      */
-    private function grant(ApiKey $key, AdmittedSignIn $admitted, PresentedClient $presented, ClientContext $client, CarbonImmutable $now): ClientCredentialsResult
+    private function grant(ApiKey $key, Admitted $admitted, PresentedClient $presented, ClientContext $client, CarbonImmutable $now): ClientCredentialsResult
     {
         $scopes  = self::requested($presented->scope, $key->scopes);
         $context = new EventContext(
@@ -277,7 +277,7 @@ final readonly class ClientCredentialsExchange
      */
     private function refuseClient(ApiKeyOutcome $outcome, PresentedClient $presented, ClientContext $client): ClientCredentialsResult
     {
-        $refused = $outcome->admission instanceof RefusedSignIn ? $outcome->admission : new RefusedSignIn(FailureReason::CREDENTIAL_INVALID);
+        $refused = $outcome->admission instanceof Refused ? $outcome->admission : new Refused(FailureReason::CREDENTIAL_INVALID);
         $error   = $refused->reason === FailureReason::PRINCIPAL_INELIGIBLE ? ClientCredentialsResult::UNAUTHORIZED_CLIENT : ClientCredentialsResult::INVALID_CLIENT;
 
         $guard = $this->guard->getName();

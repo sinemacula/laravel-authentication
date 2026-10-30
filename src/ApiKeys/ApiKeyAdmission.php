@@ -4,6 +4,9 @@ declare(strict_types = 1);
 
 namespace SineMacula\Laravel\Authentication\ApiKeys;
 
+use SineMacula\Laravel\Authentication\Admission\ActivationPolicy;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
@@ -12,10 +15,7 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Guards\ActivationPolicy;
 use SineMacula\Laravel\Authentication\Models\ApiKey;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 
 /**
@@ -68,18 +68,18 @@ final readonly class ApiKeyAdmission
      * context established by then.
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    public function admit(ApiKey $key): AdmittedSignIn|RefusedSignIn
+    public function admit(ApiKey $key): Admitted|Refused
     {
         $identity = $this->provider->retrieveById($key->authenticatable_id);
 
         if (!$identity instanceof Identity || !CredentialBinding::isOwnedBy($key, $identity)) {
-            return new RefusedSignIn(FailureReason::IDENTITY_UNKNOWN);
+            return new Refused(FailureReason::IDENTITY_UNKNOWN);
         }
 
         $refusal = match (true) {
@@ -88,7 +88,7 @@ final readonly class ApiKeyAdmission
             default                                => null,
         };
 
-        return $refusal === null ? $this->admitAs($key, $identity) : new RefusedSignIn($refusal, $identity);
+        return $refusal === null ? $this->admitAs($key, $identity) : new Refused($refusal, $identity);
     }
 
     /**
@@ -96,22 +96,22 @@ final readonly class ApiKeyAdmission
      *
      * @param  \SineMacula\Laravel\Authentication\Models\ApiKey  $key
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      * @throws \SineMacula\Laravel\Authentication\Resolvers\UnresolvableIdentityException
      */
-    private function admitAs(ApiKey $key, Identity $identity): AdmittedSignIn|RefusedSignIn
+    private function admitAs(ApiKey $key, Identity $identity): Admitted|Refused
     {
         $principal = $this->resolver->resolve($identity, $key->principal_id);
 
         if (!$principal instanceof Principal || !IdentifierCoercion::matches($principal->getPrincipalIdentifier(), $key->principal_id)) {
-            return new RefusedSignIn(FailureReason::PRINCIPAL_MISMATCH, $identity);
+            return new Refused(FailureReason::PRINCIPAL_MISMATCH, $identity);
         }
 
         if (!ActivationPolicy::isActive($principal)) {
-            return new RefusedSignIn(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
+            return new Refused(FailureReason::PRINCIPAL_INACTIVE, $identity, $principal);
         }
 
         return $this->admitWithin($key, $identity, $principal, ActivationPolicy::activeTenant($principal));
@@ -126,21 +126,21 @@ final readonly class ApiKeyAdmission
      * @param  \SineMacula\Laravel\Authentication\Contracts\Identity  $identity
      * @param  \SineMacula\Laravel\Authentication\Contracts\Principal  $principal
      * @param  false|\SineMacula\Laravel\Authentication\Contracts\Tenant|null  $tenant
-     * @return \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn|\SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn
+     * @return \SineMacula\Laravel\Authentication\Admission\Admitted|\SineMacula\Laravel\Authentication\Admission\Refused
      *
      * @throws \InvalidArgumentException
      * @throws \LogicException
      */
-    private function admitWithin(ApiKey $key, Identity $identity, Principal $principal, false|Tenant|null $tenant): AdmittedSignIn|RefusedSignIn
+    private function admitWithin(ApiKey $key, Identity $identity, Principal $principal, false|Tenant|null $tenant): Admitted|Refused
     {
         if ($tenant === false) {
-            return new RefusedSignIn(FailureReason::TENANT_INACTIVE, $identity, $principal);
+            return new Refused(FailureReason::TENANT_INACTIVE, $identity, $principal);
         }
 
         $refusal = CredentialBinding::refusal($key, $identity, $principal, $tenant) ?? $this->audience->admit($this->guard, $identity, $principal, null);
 
         return $refusal === null
-            ? new AdmittedSignIn($identity, $principal, $tenant)
-            : new RefusedSignIn($refusal, $identity, $principal, $tenant);
+            ? new Admitted($identity, $principal, $tenant)
+            : new Refused($refusal, $identity, $principal, $tenant);
     }
 }

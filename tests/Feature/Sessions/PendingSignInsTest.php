@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
@@ -22,7 +23,6 @@ use SineMacula\Laravel\Authentication\Models\Device;
 use SineMacula\Laravel\Authentication\Models\PendingSignIn;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\FoundPendingSignIn;
 use SineMacula\Laravel\Authentication\Sessions\PendingFactor;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
@@ -110,7 +110,7 @@ final class PendingSignInsTest extends TestCase
         $device   = $this->seedDevice($identity);
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
         $windows  = [['counter-key' => '2026-04-06 12:05:00']];
-        $pending  = $this->pendings()->issue('api', (new AdmittedSignIn($identity, $identity, null))->on($device), 'password', 'email', $context, $this->now, $windows);
+        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($device), 'password', 'email', $context, $this->now, $windows);
 
         [$id, $secret] = explode('.', $pending->token, 2);
 
@@ -258,7 +258,7 @@ final class PendingSignInsTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(sprintf('A sign-in can only wait for a further factor for an Eloquent identity; %s is not a model.', $identity::class));
 
-        $this->pendings()->issue('api', new AdmittedSignIn($identity, \Mockery::mock(Principal::class), null), 'password', null, $this->context(), $this->now);
+        $this->pendings()->issue('api', new Admitted($identity, \Mockery::mock(Principal::class), null), 'password', null, $this->context(), $this->now);
     }
 
     /**
@@ -565,7 +565,7 @@ final class PendingSignInsTest extends TestCase
         [$member, $membership, $tenant] = $this->seedMember();
         [, $foreign]                    = $this->seedMember('other@example.test', $tenant);
 
-        $pending = $this->pendings()->issue('members', new AdmittedSignIn($member, $membership, $tenant), 'password', 'email', $this->context(), $this->now);
+        $pending = $this->pendings()->issue('members', new Admitted($member, $membership, $tenant), 'password', 'email', $this->context(), $this->now);
 
         [$id] = explode('.', $pending->token, 2);
 
@@ -604,7 +604,7 @@ final class PendingSignInsTest extends TestCase
         [$other]                        = $this->seedMember('other@example.test', $tenant);
 
         $resolver = new UnscopedMembershipResolver;
-        $pending  = $this->pendings()->issue('members', new AdmittedSignIn($member, $membership, $tenant), 'password', 'email', $this->context(), $this->now);
+        $pending  = $this->pendings()->issue('members', new Admitted($member, $membership, $tenant), 'password', 'email', $this->context(), $this->now);
 
         self::assertNotNull($this->pendings()->find('members', $pending->token, $this->provider('members'), $resolver, $this->now));
 
@@ -627,7 +627,7 @@ final class PendingSignInsTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $device   = $this->seedDevice($identity);
-        $pending  = $this->pendings()->issue('api', (new AdmittedSignIn($identity, $identity, null))->on($device), 'password', 'email', $this->context(), $this->now);
+        $pending  = $this->pendings()->issue('api', (new Admitted($identity, $identity, null))->on($device), 'password', 'email', $this->context(), $this->now);
 
         self::assertSame($device->getKey(), $this->find($pending->token)?->device?->getKey());
         self::assertSame($device->getKey(), $this->find($pending->token)?->factor->provenDevice?->getDeviceIdentifier());
@@ -707,9 +707,9 @@ final class PendingSignInsTest extends TestCase
         $context  = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'));
         $window   = '2026-04-06 12:05:00';
         $windows  = [['identifier-key' => $window, 'ip-key' => $window], ['account-key' => $window], ['account-key' => $window]];
-        $kept     = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', 'email', $context, $this->now, $windows);
-        $none     = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'sso', null, $context, $this->now);
-        $empty    = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', 'email', $context, $this->now, [[]]);
+        $kept     = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', 'email', $context, $this->now, $windows);
+        $none     = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'sso', null, $context, $this->now);
+        $empty    = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', 'email', $context, $this->now, [[]]);
 
         $reservations = PendingSignIns::reservations(PendingSignIn::query()->whereKey(explode('.', $kept->token, 2)[0])->firstOrFail());
 
@@ -802,7 +802,7 @@ final class PendingSignInsTest extends TestCase
     {
         $identity   = $this->seedIdentity();
         $context    = new SignInContext(new ClientContext('192.0.2.1', 'Pending/1.0'), 'Phone', 'iOS');
-        $pending    = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', null, $context, $this->now);
+        $pending    = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', null, $context, $this->now);
         $row        = PendingSignIn::query()->whereKey(explode('.', $pending->token, 2)[0])->firstOrFail();
         $completing = new ClientContext('198.51.100.9', 'Factor/1.0');
         $rebuilt    = PendingSignIns::context($row, $completing);
@@ -829,7 +829,7 @@ final class PendingSignInsTest extends TestCase
     {
         $identity = $this->seedIdentity();
         $live     = $this->issue($identity);
-        $expired  = $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', null, $this->context(), $this->now->subMinutes(5));
+        $expired  = $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', null, $this->context(), $this->now->subMinutes(5));
 
         self::assertSame([explode('.', $expired->token, 2)[0]], (new PendingSignIn)->prunable()->pluck('id')->all());
         self::assertNotNull($this->find($live->token));
@@ -873,7 +873,7 @@ final class PendingSignInsTest extends TestCase
      */
     private function issue(IntegrationIdentity $identity): PendingFactor
     {
-        return $this->pendings()->issue('api', new AdmittedSignIn($identity, $identity, null), 'password', 'email', $this->context(), $this->now);
+        return $this->pendings()->issue('api', new Admitted($identity, $identity, null), 'password', 'email', $this->context(), $this->now);
     }
 
     /**

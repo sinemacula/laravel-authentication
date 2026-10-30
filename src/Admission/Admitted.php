@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Sessions\Admission;
+namespace SineMacula\Laravel\Authentication\Admission;
 
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -10,16 +10,17 @@ use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 
 /**
- * A sign-in the guard admitted: the active identity, the active principal it
- * acts as, the active tenant that principal acts within, if any, and the device
- * the sign-in continues on, once one is known.
+ * What the guard admitted, whichever flow asked (a sign-in, a refresh, a bearer
+ * token, an API key, a client credentials exchange): the active identity, the
+ * active principal it acts as, the active tenant that principal acts within, if
+ * any, and the device the flow continues on, once one is known.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-final readonly class AdmittedSignIn
+final readonly class Admitted
 {
     /**
      * Constructor.
@@ -31,7 +32,7 @@ final readonly class AdmittedSignIn
      */
     public function __construct(
 
-        /** The identity signing in. */
+        /** The identity admitted. */
         public Identity $identity,
 
         /** The principal it acts as. */
@@ -40,12 +41,12 @@ final readonly class AdmittedSignIn
         /** The tenant the principal acts within, if any. */
         public ?Tenant $tenant,
 
-        /** The device the sign-in continues on, if any. */
+        /** The device the flow continues on, if any. */
         public ?Device $device = null,
     ) {}
 
     /**
-     * The same sign-in, continuing on the given device.
+     * The same admission, continuing on the given device.
      *
      * @param  ?\SineMacula\Laravel\Authentication\Contracts\Device  $device
      * @return self

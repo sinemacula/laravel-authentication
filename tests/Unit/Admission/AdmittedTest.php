@@ -2,16 +2,16 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Sessions\Admission;
+namespace Tests\Unit\Admission;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 
 /**
  * Unit tests for an admitted sign-in.
@@ -21,8 +21,8 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
  *
  * @internal
  */
-#[CoversClass(AdmittedSignIn::class)]
-final class AdmittedSignInTest extends TestCase
+#[CoversClass(Admitted::class)]
+final class AdmittedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
@@ -34,7 +34,7 @@ final class AdmittedSignInTest extends TestCase
      */
     public function testContinuingOnADeviceKeepsTheContext(): void
     {
-        $admitted = new AdmittedSignIn(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), \Mockery::mock(Tenant::class));
+        $admitted = new Admitted(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), \Mockery::mock(Tenant::class));
         $device   = \Mockery::mock(Device::class);
 
         $continued = $admitted->on($device);

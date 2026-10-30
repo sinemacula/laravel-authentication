@@ -2,7 +2,7 @@
 
 declare(strict_types = 1);
 
-namespace SineMacula\Laravel\Authentication\Sessions\Admission;
+namespace SineMacula\Laravel\Authentication\Admission;
 
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
@@ -11,15 +11,15 @@ use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 
 /**
- * A sign-in that failed: why, and the context it had established by then, which
- * the failure events carry.
+ * What the guard refused, whichever flow asked: why, and the context the flow
+ * had established by then, which the failure events carry.
  *
  * @author      Ben Carey <bdmc@sinemacula.co.uk>
  * @copyright   2026 Sine Macula Limited
  *
  * @internal
  */
-final readonly class RefusedSignIn
+final readonly class Refused
 {
     /**
      * Constructor.
@@ -33,19 +33,19 @@ final readonly class RefusedSignIn
      */
     public function __construct(
 
-        /** Why the sign-in failed. */
+        /** Why the guard refused. */
         public FailureReason $reason,
 
-        /** The verified identity, if the sign-in got that far. */
+        /** The verified identity, if the flow got that far. */
         public ?Identity $identity = null,
 
-        /** The resolved principal, if the sign-in got that far. */
+        /** The resolved principal, if the flow got that far. */
         public ?Principal $principal = null,
 
-        /** The tenant the principal acts within, if the sign-in got that far. */
+        /** The tenant the principal acts within, if the flow got that far. */
         public ?Tenant $tenant = null,
 
-        /** The device the sign-in concerned, if any. */
+        /** The device the flow concerned, if any. */
         public ?Device $device = null,
 
         /** Seconds until another attempt may be made, for `rate_limited` and `account_rate_limited` only. */
@@ -53,14 +53,13 @@ final readonly class RefusedSignIn
     ) {}
 
     /**
-     * Refuse an admitted sign-in that a later check failed, keeping its
-     * context.
+     * Refuse an admission that a later check failed, keeping its context.
      *
      * @param  \SineMacula\Laravel\Authentication\Events\Enums\FailureReason  $reason
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @return self
      */
-    public static function after(FailureReason $reason, AdmittedSignIn $admitted): self
+    public static function after(FailureReason $reason, Admitted $admitted): self
     {
         return new self($reason, $admitted->identity, $admitted->principal, $admitted->tenant, $admitted->device);
     }

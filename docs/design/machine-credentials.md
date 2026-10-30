@@ -127,9 +127,9 @@ authorization package decides what they allow.
 
 ## Implementation Anchors
 
-- `src/Contracts/MachineIdentity.php`; `src/Sessions/Admission/SignInAdmission.php`,
-  `src/Sessions/Methods/PasswordSignIn.php`, `src/Sessions/SessionPreconditions.php`, `src/Jwt/RefreshAdmission.php`,
-  `src/Guards/BearerAuthentication.php`, `src/Jwt/JwtTokenService.php`, `src/Devices/DeviceOwnership.php`.
+- `src/Contracts/MachineIdentity.php`; `src/Admission/SignInAdmission.php`, `src/Sessions/Methods/PasswordSignIn.php`,
+  `src/Sessions/SessionPreconditions.php`, `src/Jwt/RefreshAdmission.php`, `src/Guards/BearerAuthentication.php`,
+  `src/Jwt/JwtTokenService.php`, `src/Devices/DeviceOwnership.php`.
 - `src/Scopes/Scopes.php`: `normalise()`, `parse()`, `format()`, `isSubset()`, `grantable()`.
 - `src/Contracts/ScopeRegistry.php`, `src/Scopes/AcceptAnyScope.php`, `src/Exceptions/InvalidScopeException.php`.
 - `src/Guards/Concerns/BindsContextualState.php`: `scopes()`, and the scopes a bind without a credential gets.

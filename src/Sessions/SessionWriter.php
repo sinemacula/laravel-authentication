@@ -7,6 +7,7 @@ namespace SineMacula\Laravel\Authentication\Sessions;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\EloquentDevice;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Devices\DeviceLookup;
@@ -15,7 +16,6 @@ use SineMacula\Laravel\Authentication\Jwt\JwtTokenService;
 use SineMacula\Laravel\Authentication\Jwt\RefreshResult;
 use SineMacula\Laravel\Authentication\Jwt\RefreshTokenHasher;
 use SineMacula\Laravel\Authentication\Jwt\TokenLifetimes;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Support\IdentifierCoercion;
 use SineMacula\Laravel\Authentication\Support\PrincipalReference;
 
@@ -69,7 +69,7 @@ final readonly class SessionWriter
      * recording the use when the guard binds it writes nothing more), the
      * digest of a new rotation id, and both deadlines.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -82,7 +82,7 @@ final readonly class SessionWriter
      * @throws \Throwable
      */
     public function create(
-        AdmittedSignIn $admitted,
+        Admitted $admitted,
         string $method,
         ?string $identifierType,
         SignInContext $context,
@@ -137,7 +137,7 @@ final readonly class SessionWriter
      * affect no row.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
      * @param  ?string  $identifierType
      * @param  \SineMacula\Laravel\Authentication\Sessions\SignInContext  $context
@@ -149,7 +149,7 @@ final readonly class SessionWriter
      */
     public function continueOn(
         EloquentDevice&Model $device,
-        AdmittedSignIn $admitted,
+        Admitted $admitted,
         string $method,
         ?string $identifierType,
         SignInContext $context,
@@ -179,12 +179,12 @@ final readonly class SessionWriter
     /**
      * The admitted identity, which must be an Eloquent model to own a device.
      *
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @return \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\Identity
      *
      * @throws \LogicException
      */
-    private static function eloquentIdentity(AdmittedSignIn $admitted): Identity&Model
+    private static function eloquentIdentity(Admitted $admitted): Identity&Model
     {
         $identity = $admitted->identity;
 
@@ -272,7 +272,7 @@ final readonly class SessionWriter
      * Issue the session's first pair at `$now`, after the device was written.
      *
      * @param  \Illuminate\Database\Eloquent\Model&\SineMacula\Laravel\Authentication\Contracts\EloquentDevice  $device
-     * @param  \SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn  $admitted
+     * @param  \SineMacula\Laravel\Authentication\Admission\Admitted  $admitted
      * @param  string  $method
      * @param  string  $rotationId
      * @param  \Carbon\CarbonImmutable  $now
@@ -285,7 +285,7 @@ final readonly class SessionWriter
      */
     private function issue(
         EloquentDevice&Model $device,
-        AdmittedSignIn $admitted,
+        Admitted $admitted,
         string $method,
         #[\SensitiveParameter] string $rotationId,
         CarbonImmutable $now,

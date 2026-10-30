@@ -7,9 +7,9 @@ namespace Tests\Unit\Guards;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Guards\AuthenticatedBearer;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use Tests\Unit\Stubs\PlainIdentityFixture;
 use Tests\Unit\Stubs\PlainPrincipalFixture;
 
@@ -35,7 +35,7 @@ final class AuthenticatedBearerTest extends TestCase
      */
     public function testReportsTheMethod(): void
     {
-        $admitted = new AdmittedSignIn(new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null);
+        $admitted = new Admitted(new PlainIdentityFixture(7), new PlainPrincipalFixture('p-1'), null);
         $client   = new AuthenticatedBearer($admitted, 'key-1', ['read']);
 
         self::assertSame('client_credentials', $client->method());

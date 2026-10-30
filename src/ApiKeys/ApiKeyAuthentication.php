@@ -5,11 +5,11 @@ declare(strict_types = 1);
 namespace SineMacula\Laravel\Authentication\ApiKeys;
 
 use Carbon\CarbonImmutable;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
 use SineMacula\Laravel\Authentication\Contracts\IdentityProvider;
 use SineMacula\Laravel\Authentication\Contracts\PrincipalResolver;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 
 /**
  * Decides whom a presented key authenticates on a guard, and why not, in order:
@@ -77,13 +77,13 @@ final readonly class ApiKeyAuthentication
         $verified = ApiKeyLookup::verifies($key, $secret);
 
         if ($key === null || !$verified) {
-            return new ApiKeyOutcome($key, new RefusedSignIn(FailureReason::CREDENTIAL_INVALID));
+            return new ApiKeyOutcome($key, new Refused(FailureReason::CREDENTIAL_INVALID));
         }
 
         $refusal = ApiKeyLookup::refusal($key, $this->guard, $now) ?? ($this->audience->allowsMethod($this->guard, $this->method) ? null : FailureReason::METHOD_NOT_ALLOWED);
 
         return new ApiKeyOutcome($key, $refusal === null
             ? (new ApiKeyAdmission($this->guard, $this->provider, $this->resolver, $this->audience))->admit($key)
-            : new RefusedSignIn($refusal));
+            : new Refused($refusal));
     }
 }

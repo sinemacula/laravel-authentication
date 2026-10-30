@@ -25,6 +25,7 @@ use Illuminate\Support\Timebox;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
 use SineMacula\Laravel\Authentication\Contracts\AdditionalFactorPolicy;
 use SineMacula\Laravel\Authentication\Contracts\AttemptLimiter;
 use SineMacula\Laravel\Authentication\Contracts\AudiencePolicy;
@@ -50,7 +51,6 @@ use SineMacula\Laravel\Authentication\RateLimiting\AccountAttempts;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptReservation;
 use SineMacula\Laravel\Authentication\RateLimiting\AttemptSubject;
 use SineMacula\Laravel\Authentication\RateLimiting\Enums\AttemptFlow;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Enums\SignInStatus;
 use SineMacula\Laravel\Authentication\Sessions\PendingSignIns;
 use SineMacula\Laravel\Authentication\Sessions\SessionService;
@@ -1026,7 +1026,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentityWithoutDevices();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'plain',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
@@ -1058,7 +1058,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'api',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
@@ -1157,7 +1157,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'api',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),
@@ -1195,7 +1195,7 @@ final class SessionServiceTest extends TestCase
         $identity = $this->seedIdentity();
         $pending  = (new PendingSignIns(app(ConfigRepository::class)))->issue(
             'api',
-            new AdmittedSignIn($identity, $identity, null),
+            new Admitted($identity, $identity, null),
             'password',
             'email',
             new SignInContext(new ClientContext(self::CLIENT_IP, self::CLIENT_AGENT)),

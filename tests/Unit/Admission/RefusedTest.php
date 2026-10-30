@@ -2,18 +2,18 @@
 
 declare(strict_types = 1);
 
-namespace Tests\Unit\Sessions\Admission;
+namespace Tests\Unit\Admission;
 
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use SineMacula\Laravel\Authentication\Admission\Admitted;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\Contracts\Device;
 use SineMacula\Laravel\Authentication\Contracts\Identity;
 use SineMacula\Laravel\Authentication\Contracts\Principal;
 use SineMacula\Laravel\Authentication\Contracts\Tenant;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
-use SineMacula\Laravel\Authentication\Sessions\Admission\AdmittedSignIn;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 
 /**
  * Unit tests for a failed sign-in's reason and context.
@@ -23,8 +23,8 @@ use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
  *
  * @internal
  */
-#[CoversClass(RefusedSignIn::class)]
-final class RefusedSignInTest extends TestCase
+#[CoversClass(Refused::class)]
+final class RefusedTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
@@ -36,7 +36,7 @@ final class RefusedSignInTest extends TestCase
      */
     public function testARefusalBeforeVerificationCarriesNoContext(): void
     {
-        $refused = new RefusedSignIn(FailureReason::RATE_LIMITED, retryAfter: 42);
+        $refused = new Refused(FailureReason::RATE_LIMITED, retryAfter: 42);
 
         self::assertSame(FailureReason::RATE_LIMITED, $refused->reason);
         self::assertNull($refused->identity);
@@ -54,10 +54,10 @@ final class RefusedSignInTest extends TestCase
      */
     public function testARefusalAfterAdmissionKeepsTheAdmittedContext(): void
     {
-        $admitted = new AdmittedSignIn(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), \Mockery::mock(Tenant::class));
+        $admitted = new Admitted(\Mockery::mock(Identity::class), \Mockery::mock(Principal::class), \Mockery::mock(Tenant::class));
         $device   = \Mockery::mock(Device::class);
 
-        $refused = RefusedSignIn::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted->on($device));
+        $refused = Refused::after(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $admitted->on($device));
 
         self::assertSame(FailureReason::ADDITIONAL_FACTOR_REQUIRED, $refused->reason);
         self::assertSame($admitted->identity, $refused->identity);
@@ -65,6 +65,6 @@ final class RefusedSignInTest extends TestCase
         self::assertSame($admitted->tenant, $refused->tenant);
         self::assertSame($device, $refused->device);
         self::assertNull($refused->retryAfter);
-        self::assertNull(RefusedSignIn::after(FailureReason::DEVICE_MISMATCH, $admitted)->device);
+        self::assertNull(Refused::after(FailureReason::DEVICE_MISMATCH, $admitted)->device);
     }
 }

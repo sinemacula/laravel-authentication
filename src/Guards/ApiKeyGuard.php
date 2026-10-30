@@ -6,6 +6,7 @@ namespace SineMacula\Laravel\Authentication\Guards;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Container;
+use SineMacula\Laravel\Authentication\Admission\Refused;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyAuthentication;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyLookup;
 use SineMacula\Laravel\Authentication\ApiKeys\ApiKeyOutcome;
@@ -19,7 +20,6 @@ use SineMacula\Laravel\Authentication\Events\Enums\AuthenticationFlow;
 use SineMacula\Laravel\Authentication\Events\Enums\FailureReason;
 use SineMacula\Laravel\Authentication\Events\EventContext;
 use SineMacula\Laravel\Authentication\Http\ClientContext;
-use SineMacula\Laravel\Authentication\Sessions\Admission\RefusedSignIn;
 use SineMacula\Laravel\Authentication\Sessions\Methods\PasswordSignIn;
 
 /**
@@ -91,7 +91,7 @@ final class ApiKeyGuard extends AbstractGuard
     {
         $key = $credentials[self::METHOD] ?? null;
 
-        return is_string($key) && !$this->authenticate($key, CarbonImmutable::now()->startOfSecond())->admission instanceof RefusedSignIn;
+        return is_string($key) && !$this->authenticate($key, CarbonImmutable::now()->startOfSecond())->admission instanceof Refused;
     }
 
     /**
@@ -118,7 +118,7 @@ final class ApiKeyGuard extends AbstractGuard
         $outcome   = $this->authenticate($presented, $now);
         $admission = $outcome->admission;
 
-        if ($admission instanceof RefusedSignIn || $outcome->key === null) {
+        if ($admission instanceof Refused || $outcome->key === null) {
 
             $this->events->dispatch($outcome->failure($admission, $this->name, AuthenticationFlow::API_KEY, self::METHOD, ClientContext::fromRequest($this->request)));
 
