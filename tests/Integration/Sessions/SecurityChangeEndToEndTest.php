@@ -7,6 +7,7 @@ namespace Tests\Integration\Sessions;
 use Carbon\CarbonImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Foundation\Application;
@@ -27,6 +28,7 @@ use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordChange;
 use SineMacula\Laravel\Authentication\Listeners\RevokeDevicesOnPasswordReset;
 use SineMacula\Laravel\Authentication\Sessions\SignedInSession;
 use Tests\Concerns\InteractsWithSessions;
+use Tests\Integration\Fixtures\AttributeObservedIdentity;
 use Tests\Integration\Fixtures\EloquentIdentityProvider;
 use Tests\Integration\Fixtures\IntegrationIdentity;
 use Tests\TestCase;
@@ -194,6 +196,47 @@ final class SecurityChangeEndToEndTest extends TestCase
         DB::table('integration_identities')->update(['password' => app(Hasher::class)->make('a reset password')]);
 
         Event::dispatch(new PasswordReset($identity));
+
+        $this->assertSessionEnded($session);
+    }
+
+    /**
+     * Laravel's session guard rehashing an outdated hash on `attempt()`, for a
+     * model whose `#[ObservedBy]` observer first registers inside that attempt,
+     * leaves the session working; a new password saved afterwards ends it.
+     *
+     * @return void
+     *
+     * @throws \Throwable
+     */
+    public function testLaravelsRehashKeepsTheSessionForAnObserverRegisteredByAttribute(): void
+    {
+        $this->seedIdentity();
+
+        config()->set('auth.providers.identities.model', AttributeObservedIdentity::class);
+        config()->set('auth.providers.users', ['driver' => 'eloquent', 'model' => AttributeObservedIdentity::class]);
+        config()->set('auth.guards.web', ['driver' => 'session', 'provider' => 'users']);
+        config()->set('session.driver', 'array');
+
+        Auth::forgetGuards();
+
+        $session  = $this->signIn();
+        $outdated = (new BcryptHasher(['rounds' => 5]))->make(self::PASSWORD);
+
+        DB::table('integration_identities')->update(['password' => $outdated]);
+
+        AttributeObservedIdentity::flushEventListeners();
+        AttributeObservedIdentity::clearBootedModels();
+
+        $guard = Auth::guard('web');
+
+        self::assertInstanceOf(SessionGuard::class, $guard);
+        self::assertTrue($guard->attempt(self::credentials()));
+        self::assertNotSame($outdated, DB::table('integration_identities')->value('password'));
+
+        $this->bearer($session->tokens->accessToken)->assertOk();
+
+        AttributeObservedIdentity::query()->firstOrFail()->forceFill(['password' => app(Hasher::class)->make('a new password')])->save();
 
         $this->assertSessionEnded($session);
     }
